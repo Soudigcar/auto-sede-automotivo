@@ -1,13 +1,17 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 
 export default function LoginPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
   const [email, setEmail] = useState('evento@bradesco.com.br');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
+  const redirectedFrom = searchParams.get('redirectedFrom');
 
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -16,22 +20,25 @@ export default function LoginPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
-      setMessage('Não foi possível acessar. Verifique e-mail e senha.');
+      setMessage('Nao foi possivel acessar. Verifique e-mail e senha no Supabase Auth.');
       return;
     }
 
-    setMessage('Acesso validado. Direcionamento por perfil será aplicado na próxima etapa.');
+    setMessage('Acesso validado. Redirecionando para o painel Master...');
+    router.push(redirectedFrom || '/master/dashboard/live');
+    router.refresh();
   }
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-brand-black px-6 text-white">
       <form onSubmit={handleLogin} className="card w-full max-w-md p-8">
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-brand-red">Acesso</p>
+        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-brand-red">Acesso Master</p>
         <h1 className="mt-3 text-3xl font-black">Entrar no sistema</h1>
+        <p className="mt-3 text-sm text-zinc-400">Use o usuario criado no Supabase Auth para acessar as areas operacionais.</p>
         <label className="mt-6 block text-sm text-zinc-300">E-mail</label>
         <input className="mt-2 w-full rounded-xl px-4 py-3" value={email} onChange={(event) => setEmail(event.target.value)} />
         <label className="mt-4 block text-sm text-zinc-300">Senha</label>
-        <input className="mt-2 w-full rounded-xl px-4 py-3" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+        <input className="mt-2 w-full rounded-xl px-4 py-3" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Digite sua senha" />
         <button className="btn-primary mt-6 w-full" type="submit">Entrar</button>
         {message ? <p className="mt-4 text-sm text-zinc-300">{message}</p> : null}
       </form>
