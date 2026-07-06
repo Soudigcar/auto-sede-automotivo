@@ -19,6 +19,8 @@
 - Finalized leads are hidden from operational forms.
 - Phase 3.3 store filter added to `/store/operation`.
 - Operation summary cards added to `/store/operation`.
+- Phase 3.4 visual active lead list added.
+- Phase 3.4 visual available vehicle list added.
 
 ## Files updated
 
@@ -38,4 +40,4 @@ The original `/store/live` pipeline remains active and simple. The real operatio
 
 ## Next step
 
-Improve `/store/operation` with detailed lists of active leads and available vehicles below the forms.
+Phase 3.5 should improve validation and post-submit feedback before moving to role-based access control.
