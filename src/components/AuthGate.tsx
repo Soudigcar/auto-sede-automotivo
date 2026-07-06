@@ -15,16 +15,20 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function checkSession() {
       const isProtected = protectedPrefixes.some((prefix) => pathname.startsWith(prefix));
-
       if (!isProtected) {
         setIsChecking(false);
         return;
       }
 
       const { data } = await supabase.auth.getSession();
-
-      if (!data.session) {
+      if (!data.session?.user?.email) {
         router.replace(`/login?redirectedFrom=${encodeURIComponent(pathname)}`);
+        return;
+      }
+
+      const { data: profile } = await supabase.from('users').select('role,status').eq('email', data.session.user.email).single();
+      if (!profile || profile.status !== 'active') {
+        router.replace('/logout');
         return;
       }
 
@@ -32,7 +36,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     }
 
     checkSession();
-  }, [pathname, router, supabase.auth]);
+  }, [pathname, router, supabase]);
 
   if (isChecking && protectedPrefixes.some((prefix) => pathname.startsWith(prefix))) {
     return (
