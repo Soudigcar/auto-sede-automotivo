@@ -1,6 +1,7 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import { appName } from '@/lib/constants';
+import { AuthGate } from '@/components/AuthGate';
 
 export const metadata: Metadata = {
   title: appName,
@@ -10,7 +11,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR">
-      <body>{children}</body>
+      <body>
+        <AuthGate>{children}</AuthGate>
+      </body>
     </html>
   );
 }
