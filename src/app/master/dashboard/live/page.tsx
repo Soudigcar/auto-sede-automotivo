@@ -10,7 +10,8 @@ export default function MasterLiveDashboardPage() {
     surveysWithoutPhone: 0,
     salesCount: 0,
     lossesCount: 0,
-    conversionRate: 0
+    conversionRate: 0,
+    averageTicket: 0
   });
   const [message, setMessage] = useState('');
 
@@ -21,7 +22,7 @@ export default function MasterLiveDashboardPage() {
       setSummary(data);
       setMessage('');
     } catch {
-      setMessage('Não foi possível carregar indicadores. Verifique Supabase Auth, tabelas e políticas.');
+      setMessage('Nao foi possivel carregar indicadores. Verifique Supabase Auth, tabelas e politicas.');
     }
   }
 
@@ -30,12 +31,13 @@ export default function MasterLiveDashboardPage() {
   }, []);
 
   const cards = [
-    { label: 'Pessoas abordadas', value: summary.totalLeads, helper: 'Pesquisas + cadastros rápidos' },
-    { label: 'Leads com telefone', value: summary.leadsWithPhone, helper: 'Base válida para contato' },
+    { label: 'Pessoas abordadas', value: summary.totalLeads, helper: 'Pesquisas + cadastros rapidos' },
+    { label: 'Leads com telefone', value: summary.leadsWithPhone, helper: 'Base valida para contato' },
     { label: 'Pesquisas sem telefone', value: summary.surveysWithoutPhone, helper: 'Abordagens sem contato' },
     { label: 'Vendas confirmadas', value: summary.salesCount, helper: 'Fechamentos registrados' },
     { label: 'Perdas registradas', value: summary.lossesCount, helper: 'Leads perdidos' },
-    { label: 'Taxa de conversão', value: `${summary.conversionRate}%`, helper: 'Vendas / leads com telefone' }
+    { label: 'Taxa de conversao', value: `${summary.conversionRate}%`, helper: 'Vendas / leads com telefone' },
+    { label: 'Ticket medio', value: `R$ ${summary.averageTicket.toLocaleString('pt-BR')}`, helper: 'Valor vendido / vendas' }
   ];
 
   return (
@@ -43,7 +45,7 @@ export default function MasterLiveDashboardPage() {
       <section className="mx-auto max-w-7xl">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-brand-red">Gestão Master</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-brand-red">Gestao Master</p>
             <h1 className="mt-2 text-4xl font-black">Dashboard conectado</h1>
           </div>
           <button className="btn-secondary" onClick={loadSummary}>Atualizar dashboard</button>
