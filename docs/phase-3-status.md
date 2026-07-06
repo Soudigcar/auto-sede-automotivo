@@ -9,20 +9,26 @@
 - Lead activity records are created in the data layer.
 - Audit log records are created in the data layer.
 - Dashboard summary now calculates average ticket.
+- Store operation route added at `/store/operation`.
+- Server-side operation forms added to `/store/operation`.
+- MVP routes index added at `/routes`.
 
 ## Files updated
 
 - src/lib/database.ts
 - src/lib/constants.ts
+- src/app/master/dashboard/live/page.tsx
+- src/app/store/operation/page.tsx
+- src/app/routes/page.tsx
 
-## Current note
+## Operational route
 
-The existing store pipeline page remains active. A dedicated UI page for operational sale and loss registration was attempted, but the connector blocked the file write. The business logic is already implemented and ready to be connected to the UI in the next safe edit step.
+Use `/store/operation` to test the first real store operation flow.
+
+## Current limitation
+
+The original `/store/live` pipeline remains active and simple. The real operational form is now separated into `/store/operation` to keep the MVP stable and avoid breaking the pipeline screen.
 
 ## Next step
 
-Connect the existing store pipeline buttons to the new functions:
-
-- confirmSale
-- registerLoss
-- getAvailableInventory
+Improve `/store/operation` UX with select filters by store, lead status, vehicle details and predefined reason/payment options.
