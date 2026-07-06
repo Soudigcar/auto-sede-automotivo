@@ -1,5 +1,6 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
+import { banks, lossReasons, paymentTypes } from '@/lib/constants';
 
 function getSupabase() {
   return createClient(
@@ -77,6 +78,7 @@ async function registerReason(formData: FormData) {
 
 export default async function StoreOperationPage() {
   const data = await getData();
+  const activeLeads = data.leads.filter((lead: any) => !['sale_confirmed', 'lost'].includes(lead.status));
 
   return (
     <main className="min-h-screen bg-brand-black px-6 py-8 text-white">
@@ -85,26 +87,26 @@ export default async function StoreOperationPage() {
         <h1 className="mt-2 text-4xl font-black">Operacao da loja</h1>
         <div className="mt-6 grid gap-4 md:grid-cols-3">
           <div className="card p-5"><p className="text-sm text-zinc-400">Lojas</p><strong className="text-3xl">{data.stores.length}</strong></div>
-          <div className="card p-5"><p className="text-sm text-zinc-400">Leads</p><strong className="text-3xl">{data.leads.length}</strong></div>
+          <div className="card p-5"><p className="text-sm text-zinc-400">Leads ativos</p><strong className="text-3xl">{activeLeads.length}</strong></div>
           <div className="card p-5"><p className="text-sm text-zinc-400">Estoque</p><strong className="text-3xl">{data.inventory.length}</strong></div>
         </div>
 
         <div className="mt-8 grid gap-4 lg:grid-cols-2">
           <form action={closeDeal} className="card p-6">
             <h2 className="text-2xl font-bold">Registrar fechamento</h2>
-            <select name="lead_id" className="mt-4 w-full rounded-xl px-4 py-3" required><option value="">Lead</option>{data.leads.map((lead: any) => <option key={lead.id} value={lead.id}>{lead.customer_name}</option>)}</select>
-            <select name="vehicle_id" className="mt-3 w-full rounded-xl px-4 py-3" required><option value="">Veiculo</option>{data.inventory.map((vehicle: any) => <option key={vehicle.id} value={vehicle.id}>{vehicle.brand} {vehicle.model}</option>)}</select>
+            <select name="lead_id" className="mt-4 w-full rounded-xl px-4 py-3" required><option value="">Lead</option>{activeLeads.map((lead: any) => <option key={lead.id} value={lead.id}>{lead.customer_name} - {lead.customer_phone || 'sem telefone'} - {lead.status}</option>)}</select>
+            <select name="vehicle_id" className="mt-3 w-full rounded-xl px-4 py-3" required><option value="">Veiculo</option>{data.inventory.map((vehicle: any) => <option key={vehicle.id} value={vehicle.id}>{vehicle.brand} {vehicle.model} {vehicle.version || ''} {vehicle.model_year || ''}</option>)}</select>
             <input name="seller_name" className="mt-3 w-full rounded-xl px-4 py-3" placeholder="Responsavel" required />
-            <input name="financing_bank" className="mt-3 w-full rounded-xl px-4 py-3" placeholder="Banco" defaultValue="Bradesco" required />
-            <input name="payment_type" className="mt-3 w-full rounded-xl px-4 py-3" placeholder="Pagamento" defaultValue="financing" required />
+            <select name="financing_bank" className="mt-3 w-full rounded-xl px-4 py-3" defaultValue="Bradesco" required>{banks.map((bank) => <option key={bank} value={bank}>{bank}</option>)}</select>
+            <select name="payment_type" className="mt-3 w-full rounded-xl px-4 py-3" defaultValue="financing" required>{paymentTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
             <input name="sale_value" className="mt-3 w-full rounded-xl px-4 py-3" placeholder="Valor" />
             <button className="btn-primary mt-4" type="submit">Registrar fechamento</button>
           </form>
 
           <form action={registerReason} className="card p-6">
             <h2 className="text-2xl font-bold">Registrar motivo</h2>
-            <select name="lead_id" className="mt-4 w-full rounded-xl px-4 py-3" required><option value="">Lead</option>{data.leads.map((lead: any) => <option key={lead.id} value={lead.id}>{lead.customer_name}</option>)}</select>
-            <input name="reason" className="mt-3 w-full rounded-xl px-4 py-3" placeholder="Motivo" defaultValue="other" required />
+            <select name="lead_id" className="mt-4 w-full rounded-xl px-4 py-3" required><option value="">Lead</option>{activeLeads.map((lead: any) => <option key={lead.id} value={lead.id}>{lead.customer_name} - {lead.status}</option>)}</select>
+            <select name="reason" className="mt-3 w-full rounded-xl px-4 py-3" defaultValue="other" required>{lossReasons.map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}</select>
             <textarea name="description" className="mt-3 w-full rounded-xl px-4 py-3" placeholder="Observacoes" />
             <button className="btn-secondary mt-4" type="submit">Registrar motivo</button>
           </form>
