@@ -12,6 +12,11 @@
 - Store operation route added at `/store/operation`.
 - Server-side operation forms added to `/store/operation`.
 - MVP routes index added at `/routes`.
+- Phase 3.2 UX improvement started.
+- Payment field changed to predefined options.
+- Bank field changed to predefined options.
+- Reason field changed to predefined options.
+- Finalized leads are hidden from operational forms.
 
 ## Files updated
 
@@ -27,8 +32,8 @@ Use `/store/operation` to test the first real store operation flow.
 
 ## Current limitation
 
-The original `/store/live` pipeline remains active and simple. The real operational form is now separated into `/store/operation` to keep the MVP stable and avoid breaking the pipeline screen.
+The original `/store/live` pipeline remains active and simple. The real operational form is separated into `/store/operation` to keep the MVP stable.
 
 ## Next step
 
-Improve `/store/operation` UX with select filters by store, lead status, vehicle details and predefined reason/payment options.
+Continue improving `/store/operation` with store filter, vehicle details and cleaner operation summaries.
