@@ -17,6 +17,8 @@
 - Bank field changed to predefined options.
 - Reason field changed to predefined options.
 - Finalized leads are hidden from operational forms.
+- Phase 3.3 store filter added to `/store/operation`.
+- Operation summary cards added to `/store/operation`.
 
 ## Files updated
 
@@ -36,4 +38,4 @@ The original `/store/live` pipeline remains active and simple. The real operatio
 
 ## Next step
 
-Continue improving `/store/operation` with store filter, vehicle details and cleaner operation summaries.
+Improve `/store/operation` with detailed lists of active leads and available vehicles below the forms.
