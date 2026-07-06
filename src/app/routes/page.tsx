@@ -3,6 +3,7 @@ import Link from 'next/link';
 const routes = [
   { label: 'Dashboard Master', href: '/master/dashboard/live', description: 'Indicadores principais do evento' },
   { label: 'Lojas', href: '/master/stores', description: 'Cadastro e gestao de lojas participantes' },
+  { label: 'Equipe', href: '/master/users', description: 'Usuarios e perfis de acesso' },
   { label: 'Prospector', href: '/prospector/live', description: 'Pesquisa de rua e cadastro rapido' },
   { label: 'Pipeline da Loja', href: '/store/live', description: 'Leads recebidos pela loja' },
   { label: 'Operacao da Loja', href: '/store/operation', description: 'Fechamento, perda e estoque' },
