@@ -37,16 +37,14 @@ export default function MasterFinancePage() {
             <div>
               <p className="premium-eyebrow">Gestão Master</p>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Financeiro</h1>
-              <p className="premium-muted mt-3 max-w-3xl text-sm">Patrocínios, entradas, descontos, fornecedores, categorias e meta Bradesco.</p>
+              <p className="premium-muted mt-3 max-w-3xl text-sm">Entradas, saídas, patrocínios, descontos, fornecedores, categorias e meta Bradesco.</p>
             </div>
             <Link href="/master/dashboard/live" className="premium-button-secondary"><BarChart3 size={18} /> Voltar ao Dashboard</Link>
           </header>
           {message ? <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800">{message}</div> : null}
-          <section className="mt-7 grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
-            {eventId ? <EventSupportForm eventId={eventId} defaultEventName={eventName} onSaved={refreshData} /> : null}
-            <BradescoGoalTrack />
-          </section>
-          <div className="mt-6"><FinanceEntryList refreshKey={refresh} /></div>
+          <div className="mt-6"><BradescoGoalTrack /></div>
+          <div className="mt-6">{eventId ? <EventSupportForm eventId={eventId} defaultEventName={eventName} onSaved={refreshData} /> : null}</div>
+          <div className="mt-6"><FinanceEntryList refreshKey={refresh} onChanged={refreshData} /></div>
         </div>
       </section>
     </main>
