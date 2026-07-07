@@ -56,7 +56,10 @@ export default function MasterUsersPage() {
             <h1 className="mt-2 text-4xl font-black">Equipe do sistema</h1>
             <p className="mt-3 text-sm text-zinc-400">Controle os perfis que acessam o evento.</p>
           </div>
-          <Link href="/routes" className="btn-secondary">Voltar</Link>
+          <div className="flex gap-3">
+            <Link href="/master/dashboard/live" className="btn-secondary">Dashboard</Link>
+            <Link href="/master/reports" className="btn-secondary">Relatorios</Link>
+          </div>
         </div>
 
         <div className="mt-8 grid gap-4 lg:grid-cols-2">
