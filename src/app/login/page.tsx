@@ -34,17 +34,20 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-brand-black px-6 text-white">
-      <form onSubmit={handleLogin} className="card w-full max-w-md p-8">
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-brand-red">Acesso</p>
-        <h1 className="mt-3 text-3xl font-black">Entrar no sistema</h1>
-        <p className="mt-3 text-sm text-zinc-400">O sistema direciona conforme o perfil cadastrado.</p>
-        <label className="mt-6 block text-sm text-zinc-300">E-mail</label>
-        <input className="mt-2 w-full rounded-xl px-4 py-3" value={email} onChange={(event) => setEmail(event.target.value)} />
-        <label className="mt-4 block text-sm text-zinc-300">Senha</label>
-        <input className="mt-2 w-full rounded-xl px-4 py-3" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Digite sua senha" />
+    <main className="flex min-h-screen items-center justify-center bg-[#F4F6FA] px-6 text-[#101828]">
+      <form onSubmit={handleLogin} className="w-full max-w-md rounded-[28px] border border-zinc-200 bg-white p-8 shadow-2xl shadow-slate-200/70">
+        <p className="text-sm font-black uppercase tracking-[0.25em] text-red-600">Acesso</p>
+        <h1 className="mt-3 text-3xl font-black text-zinc-950">Entrar no sistema</h1>
+        <p className="mt-3 text-sm text-zinc-500">O sistema direciona conforme o perfil cadastrado.</p>
+
+        <label className="mt-6 block text-sm font-bold text-zinc-700">E-mail</label>
+        <input className="mt-2 w-full rounded-xl border border-zinc-800 bg-[#111827] px-4 py-3 font-semibold text-white outline-none transition placeholder:text-zinc-400 focus:border-red-500 focus:ring-4 focus:ring-red-500/10" value={email} onChange={(event) => setEmail(event.target.value)} />
+
+        <label className="mt-4 block text-sm font-bold text-zinc-700">Senha</label>
+        <input className="mt-2 w-full rounded-xl border border-zinc-800 bg-[#111827] px-4 py-3 font-semibold text-white outline-none transition placeholder:text-zinc-400 focus:border-red-500 focus:ring-4 focus:ring-red-500/10" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Digite sua senha" />
+
         <button className="btn-primary mt-6 w-full" type="submit">Entrar</button>
-        {message ? <p className="mt-4 text-sm text-zinc-300">{message}</p> : null}
+        {message ? <p className="mt-4 rounded-2xl bg-zinc-50 p-3 text-sm font-semibold text-zinc-600">{message}</p> : null}
       </form>
     </main>
   );
