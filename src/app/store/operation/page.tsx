@@ -1,4 +1,6 @@
 import { revalidatePath } from 'next/cache';
+import Link from 'next/link';
+import { BarChart3, Car, CheckCircle2, ClipboardList, Store, XCircle } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import { banks, lossReasons, paymentTypes } from '@/lib/constants';
 
@@ -65,19 +67,63 @@ export default async function StoreOperationPage({ searchParams }: { searchParam
   const data = await getData(storeId);
   const activeLeads = data.leads.filter((lead: any) => !['sale_confirmed', 'lost'].includes(lead.status));
   const selectedStore = data.stores.find((store: any) => store.id === storeId);
+
   return (
-    <main className="min-h-screen bg-brand-black px-6 py-8 text-white">
-      <section className="mx-auto max-w-6xl">
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-brand-red">Loja Participante</p>
-        <h1 className="mt-2 text-4xl font-black">Operacao da loja</h1>
-        <form className="card mt-6 flex flex-col gap-3 p-5 md:flex-row md:items-end" method="get"><label className="flex-1 text-sm text-zinc-300">Filtrar por loja<select name="store_id" className="mt-2 w-full rounded-xl px-4 py-3" defaultValue={storeId}><option value="">Todas</option>{data.stores.map((store: any) => <option key={store.id} value={store.id}>{store.store_name}</option>)}</select></label><button className="btn-primary" type="submit">Aplicar</button></form>
-        <div className="mt-6 grid gap-4 md:grid-cols-4"><div className="card p-5"><p className="text-sm text-zinc-400">Loja</p><strong className="text-xl">{selectedStore?.store_name || 'Todas'}</strong></div><div className="card p-5"><p className="text-sm text-zinc-400">Lojas</p><strong className="text-3xl">{data.stores.length}</strong></div><div className="card p-5"><p className="text-sm text-zinc-400">Leads ativos</p><strong className="text-3xl">{activeLeads.length}</strong></div><div className="card p-5"><p className="text-sm text-zinc-400">Estoque</p><strong className="text-3xl">{data.inventory.length}</strong></div></div>
-        <div className="mt-8 grid gap-4 lg:grid-cols-2">
-          <form action={closeDeal} className="card p-6"><h2 className="text-2xl font-bold">Registrar fechamento</h2><select name="lead_id" className="mt-4 w-full rounded-xl px-4 py-3" required><option value="">Lead</option>{activeLeads.map((lead: any) => <option key={lead.id} value={lead.id}>{lead.customer_name} - {lead.customer_phone || 'sem telefone'} - {lead.status}</option>)}</select><select name="vehicle_id" className="mt-3 w-full rounded-xl px-4 py-3" required><option value="">Veiculo</option>{data.inventory.map((vehicle: any) => <option key={vehicle.id} value={vehicle.id}>{vehicle.brand} {vehicle.model} {vehicle.version || ''} {vehicle.model_year || ''}</option>)}</select><input name="seller_name" className="mt-3 w-full rounded-xl px-4 py-3" placeholder="Responsavel" required /><select name="financing_bank" className="mt-3 w-full rounded-xl px-4 py-3" defaultValue="Bradesco" required>{banks.map((bank) => <option key={bank} value={bank}>{bank}</option>)}</select><select name="payment_type" className="mt-3 w-full rounded-xl px-4 py-3" defaultValue="financing" required>{paymentTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><input name="sale_value" className="mt-3 w-full rounded-xl px-4 py-3" placeholder="Valor" /><button className="btn-primary mt-4" type="submit">Registrar fechamento</button></form>
-          <form action={registerReason} className="card p-6"><h2 className="text-2xl font-bold">Registrar motivo</h2><select name="lead_id" className="mt-4 w-full rounded-xl px-4 py-3" required><option value="">Lead</option>{activeLeads.map((lead: any) => <option key={lead.id} value={lead.id}>{lead.customer_name} - {lead.status}</option>)}</select><select name="reason" className="mt-3 w-full rounded-xl px-4 py-3" defaultValue="other" required>{lossReasons.map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}</select><textarea name="description" className="mt-3 w-full rounded-xl px-4 py-3" placeholder="Observacoes" /><button className="btn-secondary mt-4" type="submit">Registrar motivo</button></form>
+    <main className="premium-page">
+      <section className="premium-shell flex min-h-screen">
+        <aside className="hidden w-72 shrink-0 bg-[#071020] px-6 py-7 text-white lg:block">
+          <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-red-600/15 text-red-500"><Car size={22} /></div><div><p className="text-sm font-black tracking-wide">AUTO CONTROLE</p><p className="text-[10px] uppercase tracking-[0.35em] text-zinc-500">Automotivo</p></div></div>
+          <div className="mt-10 rounded-2xl border border-white/10 bg-white/[0.03] p-4"><p className="text-xs text-zinc-500">Area operacional</p><p className="mt-1 font-bold">Loja Participante</p><span className="mt-2 inline-flex rounded-lg bg-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-300">Store</span></div>
+          <nav className="mt-8 space-y-3 text-sm"><Link href="/store" className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><Store size={18} /> Inicio</Link><Link href="/store/live" className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><BarChart3 size={18} /> Pipeline</Link><Link href="/store/operation" className="flex items-center gap-3 rounded-2xl bg-red-600 px-4 py-4 font-bold shadow-lg shadow-red-600/20"><ClipboardList size={18} /> Operacao</Link></nav>
+        </aside>
+
+        <div className="premium-canvas min-w-0 flex-1 p-4 md:p-7">
+          <header className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div><p className="premium-eyebrow">Loja Participante</p><h1 className="premium-title mt-2 text-4xl md:text-5xl">Operacao da Loja</h1><p className="premium-muted mt-3 max-w-3xl text-sm">Fechamento, perda, estoque e controle comercial no mesmo padrao visual do sistema.</p></div>
+            <Link href="/store/live" className="premium-button-secondary"><BarChart3 size={18} /> Ver pipeline</Link>
+          </header>
+
+          <form className="premium-card mt-6 flex flex-col gap-3 p-5 md:flex-row md:items-end" method="get">
+            <label className="flex-1 text-sm font-bold text-zinc-500">Filtrar por loja<select name="store_id" className="premium-input mt-2" defaultValue={storeId}><option value="">Todas</option>{data.stores.map((store: any) => <option key={store.id} value={store.id}>{store.store_name}</option>)}</select></label>
+            <button className="premium-button-primary" type="submit">Aplicar filtro</button>
+          </form>
+
+          <section className="mt-5 grid gap-4 md:grid-cols-4">
+            <MiniKpi label="Loja" value={selectedStore?.store_name || 'Todas'} tone="text-zinc-950" />
+            <MiniKpi label="Lojas" value={String(data.stores.length)} tone="text-sky-600" />
+            <MiniKpi label="Leads ativos" value={String(activeLeads.length)} tone="text-emerald-600" />
+            <MiniKpi label="Estoque" value={String(data.inventory.length)} tone="text-red-600" />
+          </section>
+
+          <section className="mt-6 grid gap-5 xl:grid-cols-2">
+            <form action={closeDeal} className="premium-card p-6">
+              <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600"><CheckCircle2 size={22} /></div><div><h2 className="text-2xl font-black text-zinc-950">Registrar fechamento</h2><p className="premium-muted text-sm">Venda confirmada e veiculo baixado do estoque.</p></div></div>
+              <div className="mt-5 grid gap-3"><select name="lead_id" className="premium-input" required><option value="">Lead</option>{activeLeads.map((lead: any) => <option key={lead.id} value={lead.id}>{lead.customer_name} - {lead.customer_phone || 'sem telefone'} - {lead.status}</option>)}</select><select name="vehicle_id" className="premium-input" required><option value="">Veiculo</option>{data.inventory.map((vehicle: any) => <option key={vehicle.id} value={vehicle.id}>{vehicle.brand} {vehicle.model} {vehicle.version || ''} {vehicle.model_year || ''}</option>)}</select><input name="seller_name" className="premium-input" placeholder="Responsavel" required /><select name="financing_bank" className="premium-input" defaultValue="Bradesco" required>{banks.map((bank) => <option key={bank} value={bank}>{bank}</option>)}</select><select name="payment_type" className="premium-input" defaultValue="financing" required>{paymentTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><input name="sale_value" className="premium-input" placeholder="Valor" /></div>
+              <button className="premium-button-primary mt-5 w-full" type="submit">Registrar fechamento</button>
+            </form>
+
+            <form action={registerReason} className="premium-card p-6">
+              <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-red-50 text-red-600"><XCircle size={22} /></div><div><h2 className="text-2xl font-black text-zinc-950">Registrar perda</h2><p className="premium-muted text-sm">Motivo comercial e etapa em que o lead foi perdido.</p></div></div>
+              <div className="mt-5 grid gap-3"><select name="lead_id" className="premium-input" required><option value="">Lead</option>{activeLeads.map((lead: any) => <option key={lead.id} value={lead.id}>{lead.customer_name} - {lead.status}</option>)}</select><select name="reason" className="premium-input" defaultValue="other" required>{lossReasons.map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}</select><textarea name="description" className="premium-input min-h-32" placeholder="Observacoes" /></div>
+              <button className="premium-button-secondary mt-5 w-full" type="submit">Registrar perda</button>
+            </form>
+          </section>
+
+          <section className="mt-6 grid gap-5 xl:grid-cols-2">
+            <ListCard title="Leads ativos" empty="Nenhum lead ativo encontrado.">{activeLeads.map((lead: any) => <div key={lead.id} className="rounded-2xl border border-zinc-100 bg-zinc-50 p-4 text-sm"><strong className="text-zinc-950">{lead.customer_name}</strong><p className="mt-1 text-zinc-500">{lead.customer_phone || 'Sem telefone'} - {lead.customer_bank || 'Banco nao informado'}</p><p className="mt-1 text-xs text-zinc-400">Interesse: {lead.interested_vehicle || 'Nao informado'} | Status: {lead.status}</p></div>)}</ListCard>
+            <ListCard title="Veiculos disponiveis" empty="Nenhum veiculo disponivel.">{data.inventory.map((vehicle: any) => <div key={vehicle.id} className="rounded-2xl border border-zinc-100 bg-zinc-50 p-4 text-sm"><strong className="text-zinc-950">{vehicle.brand} {vehicle.model}</strong><p className="mt-1 text-zinc-500">{vehicle.version || 'Versao nao informada'} - {vehicle.model_year || 'Ano nao informado'} - {formatMoney(vehicle.price)}</p><p className="mt-1 text-xs text-zinc-400">Categoria: {vehicle.vehicle_category || 'Nao informada'}</p></div>)}</ListCard>
+          </section>
         </div>
-        <div className="mt-8 grid gap-4 lg:grid-cols-2"><div className="card p-6"><h2 className="text-xl font-bold">Leads ativos</h2><div className="mt-4 space-y-3">{activeLeads.map((lead: any) => <div key={lead.id} className="rounded-xl border border-white/10 p-3 text-sm text-zinc-300"><strong className="text-white">{lead.customer_name}</strong><p>{lead.customer_phone || 'Sem telefone'} - {lead.customer_bank || 'Banco nao informado'}</p><p className="text-xs text-zinc-500">Interesse: {lead.interested_vehicle || 'Nao informado'} | Status: {lead.status}</p></div>)}{activeLeads.length === 0 ? <p className="text-sm text-zinc-400">Nenhum lead ativo encontrado.</p> : null}</div></div><div className="card p-6"><h2 className="text-xl font-bold">Veiculos disponiveis</h2><div className="mt-4 space-y-3">{data.inventory.map((vehicle: any) => <div key={vehicle.id} className="rounded-xl border border-white/10 p-3 text-sm text-zinc-300"><strong className="text-white">{vehicle.brand} {vehicle.model}</strong><p>{vehicle.version || 'Versao nao informada'} - {vehicle.model_year || 'Ano nao informado'} - {formatMoney(vehicle.price)}</p><p className="text-xs text-zinc-500">Categoria: {vehicle.vehicle_category || 'Nao informada'}</p></div>)}{data.inventory.length === 0 ? <p className="text-sm text-zinc-400">Nenhum veiculo disponivel.</p> : null}</div></div></div>
       </section>
     </main>
   );
+}
+
+function MiniKpi({ label, value, tone }: { label: string; value: string; tone: string }) {
+  return <div className="premium-card premium-card-hover p-5"><p className="text-sm font-bold text-zinc-500">{label}</p><strong className={`mt-3 block truncate text-3xl font-black ${tone}`}>{value}</strong></div>;
+}
+
+function ListCard({ title, empty, children }: { title: string; empty: string; children: React.ReactNode }) {
+  const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
+  return <div className="premium-card p-6"><h2 className="text-xl font-black text-zinc-950">{title}</h2><div className="mt-4 space-y-3">{hasChildren ? children : <p className="text-sm text-zinc-500">{empty}</p>}</div></div>;
 }
