@@ -3,6 +3,7 @@ import { Store } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { EventCreateForm } from '@/components/EventCreateForm';
 import { EventGoalSelector } from '@/components/EventGoalSelector';
+import { EventListManager } from '@/components/EventListManager';
 
 export default function EventManagePage() {
   return (
@@ -20,6 +21,7 @@ export default function EventManagePage() {
           </header>
           <div className="mt-7"><EventGoalSelector /></div>
           <div className="mt-6"><EventCreateForm /></div>
+          <div className="mt-6"><EventListManager /></div>
         </div>
       </section>
     </main>
