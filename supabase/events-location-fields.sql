@@ -8,7 +8,8 @@ create index if not exists idx_events_state_city on public.events(state, city);
 create index if not exists idx_events_sponsor_bank on public.events(sponsor_bank);
 create index if not exists idx_events_status on public.events(status);
 
-create policy if not exists "authenticated_delete_events"
+drop policy if exists "authenticated_delete_events" on public.events;
+create policy "authenticated_delete_events"
   on public.events for delete
   to authenticated
   using (true);
