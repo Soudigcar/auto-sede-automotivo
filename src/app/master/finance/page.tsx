@@ -42,7 +42,7 @@ export default function MasterFinancePage() {
             <Link href="/master/dashboard/live" className="premium-button-secondary"><BarChart3 size={18} /> Voltar ao Dashboard</Link>
           </header>
           {message ? <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800">{message}</div> : null}
-          <div className="mt-6"><BradescoGoalTrack /></div>
+          <div className="sticky top-4 z-20 mt-6"><BradescoGoalTrack /></div>
           <div className="mt-6">{eventId ? <EventSupportForm eventId={eventId} defaultEventName={eventName} onSaved={refreshData} /> : null}</div>
           <div className="mt-6"><FinanceEntryList refreshKey={refresh} onChanged={refreshData} /></div>
         </div>
