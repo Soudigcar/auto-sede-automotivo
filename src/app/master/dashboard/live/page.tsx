@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ArrowRightLeft, BarChart3, Car, Inbox, Landmark, RefreshCcw, Sparkles, Store, Trophy, Users, Wallet } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { MasterSidebar } from '@/components/MasterSidebar';
+import { DashboardGoalBar } from '@/components/DashboardGoalBar';
+import { DashboardFilterCard } from '@/components/DashboardFilterCard';
 
 type Summary = {
   totalLeads: number;
@@ -18,7 +20,28 @@ type Summary = {
   totalCarsInEvent: number;
 };
 
-const initialSummary: Summary = { totalLeads: 0, leadsWithPhone: 0, surveysWithoutPhone: 0, salesCount: 0, conversionRate: 0, totalRevenue: 0, financedBanksCount: 0, directedToStore: 0, receivedLeads: 0, totalCarsInEvent: 0 };
+type GoalSummary = {
+  sponsorship: number;
+  goal: number;
+  done: number;
+  progress: number;
+  label: string;
+};
+
+const initialSummary: Summary = {
+  totalLeads: 0,
+  leadsWithPhone: 0,
+  surveysWithoutPhone: 0,
+  salesCount: 0,
+  conversionRate: 0,
+  totalRevenue: 0,
+  financedBanksCount: 0,
+  directedToStore: 0,
+  receivedLeads: 0,
+  totalCarsInEvent: 0
+};
+
+const initialGoal: GoalSummary = { sponsorship: 0, goal: 0, done: 0, progress: 0, label: 'Todos os eventos' };
 
 const funnel = [
   { label: 'Abordagem', left: '100%', right: '100%', width: '100%', color: '#0B84F3' },
@@ -41,32 +64,69 @@ const categories = [
 ];
 
 const heatmap = [[15, 25, 40, 55, 70], [18, 35, 60, 86, 78], [22, 48, 76, 100, 84], [16, 38, 72, 90, 68], [10, 28, 52, 64, 42]];
-const storeRanking = ['AutoPrime', 'FlexCar', 'MegaVeiculos', 'Drive Motors', 'Prime Select'];
 const prospectorRanking = ['Ana Silva', 'Joao Pereira', 'Carlos Souza', 'Fernanda Lima', 'Ricardo Alves'];
 
 function formatNumber(value: number) { return Number(value || 0).toLocaleString('pt-BR'); }
 function formatMoney(value: number) { return `R$ ${Number(value || 0).toLocaleString('pt-BR')}`; }
 function getProgress(value: number, total: number) { return total ? Math.round((value / total) * 100) : 0; }
 
+function isInsidePeriod(item: any, dateFrom: string, dateTo: string) {
+  if (!dateFrom && !dateTo) return true;
+  const rawDate = item?.created_at || item?.payment_date || item?.updated_at;
+  if (!rawDate) return true;
+  const dateValue = String(rawDate).slice(0, 10);
+  if (dateFrom && dateValue < dateFrom) return false;
+  if (dateTo && dateValue > dateTo) return false;
+  return true;
+}
+
 export default function MasterLiveDashboardPage() {
   const [summary, setSummary] = useState<Summary>(initialSummary);
+  const [goal, setGoal] = useState<GoalSummary>(initialGoal);
   const [message, setMessage] = useState('');
+  const [events, setEvents] = useState<any[]>([]);
+  const [stores, setStores] = useState<any[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState('all');
+  const [selectedStoreId, setSelectedStoreId] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [storeRanking, setStoreRanking] = useState<string[]>(['Sem vendas registradas']);
 
   async function loadSummary() {
     setMessage('Carregando indicadores...');
     try {
       const supabase = createClient();
-      const [{ data: leads, error: leadsError }, { data: sales, error: salesError }, { data: inventory, error: inventoryError }] = await Promise.all([
+      const [eventsResult, storesResult, leadsResult, salesResult, inventoryResult, financeResult] = await Promise.all([
+        supabase.from('events').select('*').neq('status', 'deleted').order('created_at', { ascending: false }),
+        supabase.from('stores').select('*').neq('status', 'deleted').order('store_name'),
         supabase.from('leads').select('*'),
         supabase.from('sales').select('*'),
-        supabase.from('inventory').select('*')
+        supabase.from('inventory').select('*'),
+        supabase.from('financial_entries').select('*').neq('status', 'deleted')
       ]);
-      if (leadsError) throw leadsError;
-      if (salesError) throw salesError;
-      if (inventoryError) throw inventoryError;
-      const leadRows = leads || [];
-      const saleRows = sales || [];
-      const inventoryRows = inventory || [];
+
+      if (eventsResult.error) throw eventsResult.error;
+      if (storesResult.error) throw storesResult.error;
+      if (leadsResult.error) throw leadsResult.error;
+      if (salesResult.error) throw salesResult.error;
+      if (inventoryResult.error) throw inventoryResult.error;
+      if (financeResult.error) throw financeResult.error;
+
+      const eventRows = eventsResult.data || [];
+      const allStores = storesResult.data || [];
+      const visibleStores = allStores.filter((store: any) => selectedEventId === 'all' || store.event_id === selectedEventId);
+
+      let leadRows = (leadsResult.data || []).filter((lead: any) => selectedEventId === 'all' || lead.event_id === selectedEventId).filter((lead: any) => isInsidePeriod(lead, dateFrom, dateTo));
+      let saleRows = (salesResult.data || []).filter((sale: any) => selectedEventId === 'all' || sale.event_id === selectedEventId).filter((sale: any) => isInsidePeriod(sale, dateFrom, dateTo));
+      let inventoryRows = (inventoryResult.data || []).filter((item: any) => selectedEventId === 'all' || item.event_id === selectedEventId);
+      const financeRows = (financeResult.data || []).filter((item: any) => selectedEventId === 'all' || item.event_id === selectedEventId).filter((item: any) => isInsidePeriod(item, dateFrom, dateTo));
+
+      if (selectedStoreId !== 'all') {
+        leadRows = leadRows.filter((lead: any) => lead.assigned_store_id === selectedStoreId);
+        saleRows = saleRows.filter((sale: any) => sale.store_id === selectedStoreId);
+        inventoryRows = inventoryRows.filter((item: any) => item.store_id === selectedStoreId);
+      }
+
       const totalLeads = leadRows.length;
       const leadsWithPhone = leadRows.filter((lead: any) => Boolean(lead.customer_phone)).length;
       const surveysWithoutPhone = leadRows.filter((lead: any) => lead.status === 'survey_without_phone').length;
@@ -78,14 +138,31 @@ export default function MasterLiveDashboardPage() {
         return sum + Number(sale.sale_value || inventoryItem?.web_price || inventoryItem?.price || 0);
       }, 0);
       const financedBanksCount = new Set(saleRows.map((sale: any) => sale.financing_bank).filter(Boolean)).size;
+
+      const selectedEvent = eventRows.find((event: any) => event.id === selectedEventId);
+      const sponsorship = financeRows.filter((item: any) => item.movement_type !== 'expense' && String(item.sponsor_bank || '').toLowerCase() === 'bradesco').reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+      const goalValue = Math.floor(sponsorship / 10000) * 1000000;
+      const done = saleRows.filter((sale: any) => String(sale.financing_bank || '').toLowerCase() === 'bradesco').reduce((sum: number, sale: any) => sum + Number(sale.sale_value || 0), 0);
+      const progress = goalValue > 0 ? Math.min(100, Math.round((done / goalValue) * 100)) : 0;
+
+      const ranking = visibleStores.map((store: any) => {
+        const storeSales = saleRows.filter((sale: any) => sale.store_id === store.id).length;
+        return { name: store.store_name, total: storeSales };
+      }).sort((a, b) => b.total - a.total).slice(0, 5).map((item) => `${item.name} (${item.total})`);
+
+      setEvents(eventRows);
+      setStores(visibleStores);
+      setStoreRanking(ranking.length ? ranking : ['Sem vendas registradas']);
       setSummary({ totalLeads, leadsWithPhone, surveysWithoutPhone, salesCount, conversionRate, totalRevenue, financedBanksCount, directedToStore, receivedLeads: totalLeads, totalCarsInEvent: inventoryRows.length });
+      setGoal({ sponsorship, goal: goalValue, done, progress, label: selectedEventId === 'all' ? 'Todos os eventos' : selectedEvent?.event_name || 'Evento selecionado' });
       setMessage('');
     } catch {
       setMessage('Nao foi possivel carregar indicadores. Verifique Supabase Auth, tabelas e politicas.');
     }
   }
 
-  useEffect(() => { loadSummary(); }, []);
+  useEffect(() => { loadSummary(); }, [selectedEventId, selectedStoreId, dateFrom, dateTo]);
+  useEffect(() => { setSelectedStoreId('all'); }, [selectedEventId]);
 
   const primaryCards = useMemo(() => {
     const surveys = Math.max(summary.totalLeads - summary.surveysWithoutPhone, 0);
@@ -103,18 +180,48 @@ export default function MasterLiveDashboardPage() {
     { label: 'Faturamento Total', value: formatMoney(summary.totalRevenue), helper: 'Valor dos carros vendidos', icon: Wallet, accent: 'from-emerald-500 to-green-700', progress: summary.salesCount > 0 ? 85 : 8 },
     { label: 'Direcionados para Loja', value: formatNumber(summary.directedToStore), helper: 'Leads com loja definida', icon: ArrowRightLeft, accent: 'from-red-500 to-rose-600', progress: getProgress(summary.directedToStore, Math.max(summary.totalLeads, 1)) },
     { label: 'Leads Recebidos', value: formatNumber(summary.receivedLeads), helper: 'Entradas no sistema', icon: Inbox, accent: 'from-cyan-500 to-blue-700', progress: Math.min(summary.receivedLeads * 10, 100) },
-    { label: 'Total de Carros no Evento', value: formatNumber(summary.totalCarsInEvent), helper: 'Estoque geral cadastrado', icon: Car, accent: 'from-indigo-500 to-blue-700', progress: Math.min(summary.totalCarsInEvent * 5, 100) }
-  ], [summary]);
+    { label: 'Total de Carros no Evento', value: formatNumber(summary.totalCarsInEvent), helper: selectedEventId === 'all' ? 'Estoque geral cadastrado' : 'Estoque do evento selecionado', icon: Car, accent: 'from-indigo-500 to-blue-700', progress: Math.min(summary.totalCarsInEvent * 5, 100) }
+  ], [summary, selectedEventId]);
 
   return (
     <main className="min-h-screen bg-[#05070D] p-3 text-zinc-950 md:p-6">
       <section className="mx-auto flex max-w-[1600px] overflow-hidden rounded-[28px] border border-white/10 bg-white shadow-2xl shadow-black/50">
         <MasterSidebar active="Dashboard" />
         <div className="min-w-0 flex-1 bg-[#F4F6FA] p-4 md:p-7">
-          <header className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.25em] text-red-600">Gestão Master</p><h1 className="mt-2 text-3xl font-black tracking-tight text-[#101828] md:text-4xl">Master Executive Dashboard</h1></div><button onClick={loadSummary} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-bold text-zinc-700 shadow-sm transition hover:-translate-y-0.5 hover:border-red-200 hover:text-red-600 hover:shadow-lg"><RefreshCcw size={16} /> Atualizar dashboard</button></header>
+          <header className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.25em] text-red-600">Gestão Master</p>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-[#101828] md:text-4xl">Master Executive Dashboard</h1>
+            </div>
+            <button onClick={loadSummary} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-bold text-zinc-700 shadow-sm transition hover:-translate-y-0.5 hover:border-red-200 hover:text-red-600 hover:shadow-lg"><RefreshCcw size={16} /> Atualizar dashboard</button>
+          </header>
+
           {message ? <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800">{message}</div> : null}
+
+          <DashboardGoalBar sponsorship={goal.sponsorship} goal={goal.goal} done={goal.done} progress={goal.progress} eventLabel={goal.label} />
+
+          <section className="mt-5 grid gap-4 xl:grid-cols-[1.2fr_1fr_1fr_1fr]">
+            <DashboardFilterCard label="Evento">
+              <select className="mt-1 w-full bg-transparent text-base font-black text-zinc-950 outline-none" value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}>
+                <option value="all">Todos os eventos</option>
+                {events.map((event) => <option key={event.id} value={event.id}>{event.event_name}</option>)}
+              </select>
+            </DashboardFilterCard>
+            <DashboardFilterCard label="Loja">
+              <select className="mt-1 w-full bg-transparent text-base font-black text-zinc-950 outline-none" value={selectedStoreId} onChange={(event) => setSelectedStoreId(event.target.value)}>
+                <option value="all">Todas</option>
+                {stores.map((store) => <option key={store.id} value={store.id}>{store.store_name}</option>)}
+              </select>
+            </DashboardFilterCard>
+            <DashboardFilterCard label="Data inicial">
+              <input className="mt-1 w-full bg-transparent text-base font-black text-zinc-950 outline-none" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+            </DashboardFilterCard>
+            <DashboardFilterCard label="Data final">
+              <input className="mt-1 w-full bg-transparent text-base font-black text-zinc-950 outline-none" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+            </DashboardFilterCard>
+          </section>
+
           <section className="mt-6 space-y-4"><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">{primaryCards.map((card) => <InteractiveKpiCard key={card.label} {...card} />)}</div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">{secondaryCards.map((card) => <InteractiveKpiCard key={card.label} {...card} />)}</div></section>
-          <section className="mt-5 grid gap-4 lg:grid-cols-3"><label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-xs font-semibold text-zinc-500 shadow-sm">Evento<select className="mt-1 w-full bg-transparent text-base font-black text-zinc-950 outline-none"><option>Bradesco Auto Show</option></select></label><label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-xs font-semibold text-zinc-500 shadow-sm">Loja<select className="mt-1 w-full bg-transparent text-base font-black text-zinc-950 outline-none"><option>Todas</option></select></label><label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-xs font-semibold text-zinc-500 shadow-sm">Período<select className="mt-1 w-full bg-transparent text-base font-black text-zinc-950 outline-none"><option>Última Semana</option></select></label></section>
           <section className="mt-5 grid gap-5 xl:grid-cols-[1.35fr_1fr]"><div className="rounded-[24px] border border-zinc-200 bg-white p-5 shadow-sm md:p-7"><div className="flex items-center justify-between gap-4"><div><h2 className="text-xl font-black text-zinc-950">Funil comercial do evento</h2><p className="mt-1 text-sm text-zinc-500">Da abordagem inicial até a venda final.</p></div><BarChart3 className="text-red-600" /></div><div className="mt-7 space-y-2">{funnel.map((item) => <div key={item.label} className="grid grid-cols-[48px_1fr_48px] items-center gap-3 text-sm font-black text-zinc-700"><span className="text-right">{item.left}</span><div className="flex justify-center"><div className="flex h-10 items-center justify-center text-sm font-black text-white shadow-sm" style={{ width: item.width, background: item.color, clipPath: 'polygon(7% 0, 93% 0, 85% 100%, 15% 100%)' }}>{item.label}</div></div><span>{item.right}</span></div>)}</div></div><div className="grid gap-5 md:grid-cols-2 xl:grid-cols-1"><ChartCard title="Conversão por Categoria" /><HeatmapCard /></div></section>
           <section className="mt-5 grid gap-5 xl:grid-cols-2"><RankingCard title="Ranking de Lojas" items={storeRanking} icon={<Store size={18} />} /><RankingCard title="Ranking de Prospectores" items={prospectorRanking} icon={<Users size={18} />} /></section>
         </div>
@@ -129,4 +236,4 @@ function InteractiveKpiCard({ label, value, helper, icon: Icon, accent, progress
 
 function ChartCard({ title }: { title: string }) { return <div className="rounded-[24px] border border-zinc-200 bg-white p-5 shadow-sm"><h3 className="font-black text-zinc-950">{title}</h3><div className="mt-5 flex h-44 items-end gap-4 border-b border-l border-zinc-100 px-4">{categories.map((item) => <div key={item.label} className="flex flex-1 flex-col items-center justify-end gap-2"><span className="text-xs font-black text-zinc-600">{item.value}%</span><div className="w-full rounded-t-xl bg-sky-600 transition hover:bg-red-600" style={{ height: `${item.value * 7}px` }} /><span className="text-[10px] font-bold text-zinc-400">{item.label}</span></div>)}</div></div>; }
 function HeatmapCard() { return <div className="rounded-[24px] border border-zinc-200 bg-white p-5 shadow-sm"><h3 className="font-black text-zinc-950">Horários de Pico</h3><div className="mt-5 grid grid-cols-5 gap-1">{heatmap.flat().map((value, index) => <div key={index} className="h-8 rounded-md bg-sky-600" style={{ opacity: Math.max(0.15, value / 100) }} />)}</div><p className="mt-3 text-xs text-zinc-400">Mapa de calor operacional por horário.</p></div>; }
-function RankingCard({ title, items, icon }: { title: string; items: string[]; icon: React.ReactNode }) { return <div className="rounded-[24px] border border-zinc-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h3 className="font-black text-zinc-950">{title}</h3><span className="text-red-600">{icon}</span></div><div className="mt-5 space-y-3">{items.map((item, index) => <div key={item} className="flex items-center justify-between rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3"><div className="flex items-center gap-3"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-400 text-sm font-black text-zinc-950">{index + 1}</span><strong className="text-sm text-zinc-900">{item}</strong></div><Trophy size={16} className={index === 0 ? 'text-amber-500' : 'text-zinc-300'} /></div>)}</div></div>; }
+function RankingCard({ title, items, icon }: { title: string; items: string[]; icon: ReactNode }) { return <div className="rounded-[24px] border border-zinc-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h3 className="font-black text-zinc-950">{title}</h3><span className="text-red-600">{icon}</span></div><div className="mt-5 space-y-3">{items.map((item, index) => <div key={item} className="flex items-center justify-between rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3"><div className="flex items-center gap-3"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-400 text-sm font-black text-zinc-950">{index + 1}</span><strong className="text-sm text-zinc-900">{item}</strong></div><Trophy size={16} className={index === 0 ? 'text-amber-500' : 'text-zinc-300'} /></div>)}</div></div>; }
