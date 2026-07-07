@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { BarChart3, CalendarDays, Car, FileText, Landmark, Plug, Store, UserCog } from 'lucide-react';
 
 const masterMenu = [
-  { label: 'Dashboard', href: '/master/dashboard/live', icon: BarChart3 },
+  { label: 'Dashboard', href: '/master/dashboard/events', icon: BarChart3 },
   { label: 'Eventos', href: '/master/events', icon: CalendarDays },
   { label: 'Lojas & Estoque', href: '/master/stores/events', icon: Store },
   { label: 'Equipe', href: '/master/users', icon: UserCog },
