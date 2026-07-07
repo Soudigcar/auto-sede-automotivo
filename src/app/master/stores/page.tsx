@@ -10,6 +10,12 @@ function getStorePortalPath(storeId: string) {
   return `/login?redirectedFrom=${encodeURIComponent(`/store/operation?store_id=${storeId}`)}`;
 }
 
+function getStorePortalUrl(storeId: string) {
+  const path = getStorePortalPath(storeId);
+  if (typeof window === 'undefined') return path;
+  return `${window.location.origin}${path}`;
+}
+
 function generateTemporaryPassword() {
   const partA = Math.random().toString(36).slice(2, 7).toUpperCase();
   const partB = Math.floor(1000 + Math.random() * 9000);
@@ -89,7 +95,7 @@ export default function MasterStoresPage() {
       }
       const password = generateTemporaryPassword();
       await prepareStoreUser(savedStore, password);
-      setAccess({ storeName: savedStore.store_name, email: savedStore.responsible_email, password, link: getStorePortalPath(savedStore.id) });
+      setAccess({ storeName: savedStore.store_name, email: savedStore.responsible_email, password, link: getStorePortalUrl(savedStore.id) });
       setMessage('Loja cadastrada e acesso provisório gerado.');
     }
 
@@ -118,7 +124,7 @@ export default function MasterStoresPage() {
   async function generateAccess(store: any) {
     const password = generateTemporaryPassword();
     await prepareStoreUser(store, password);
-    setAccess({ storeName: store.store_name, email: store.responsible_email, password, link: getStorePortalPath(store.id) });
+    setAccess({ storeName: store.store_name, email: store.responsible_email, password, link: getStorePortalUrl(store.id) });
     setMessage('Novo acesso provisório gerado.');
   }
 
@@ -142,7 +148,7 @@ export default function MasterStoresPage() {
           {access ? <div className="premium-card mt-5 p-5"><h2 className="text-xl font-black text-zinc-950">Acesso provisório da loja</h2><div className="mt-4 grid gap-3 md:grid-cols-4"><Info label="Loja" value={access.storeName} /><Info label="Login" value={access.email} /><Info label="Senha provisória" value={access.password} /><Info label="Link" value={access.link} /></div><button onClick={copyAccess} className="premium-button-primary mt-4" type="button">Copiar acesso</button></div> : null}
           <section className="mt-7 grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
             <form onSubmit={handleSubmit} className="premium-card p-6"><h2 className="text-2xl font-black text-zinc-950">{editingId ? 'Editar loja' : 'Cadastrar loja'}</h2><div className="mt-5 grid gap-3"><input className="premium-input" placeholder="Nome da loja" value={form.storeName} onChange={(event) => setForm({ ...form, storeName: event.target.value })} required /><input className="premium-input" placeholder="Nome do responsavel" value={form.responsibleName} onChange={(event) => setForm({ ...form, responsibleName: event.target.value })} required /><input className="premium-input" placeholder="Telefone do responsavel" value={form.responsiblePhone} onChange={(event) => setForm({ ...form, responsiblePhone: event.target.value })} /><input className="premium-input" placeholder="E-mail do responsavel" value={form.responsibleEmail} onChange={(event) => setForm({ ...form, responsibleEmail: event.target.value })} required /><button className="premium-button-primary" type="submit">{editingId ? 'Salvar alterações' : 'Cadastrar e gerar senha'}</button>{editingId ? <button className="premium-button-secondary" type="button" onClick={() => { setEditingId(''); setForm({ storeName: '', responsibleName: '', responsiblePhone: '', responsibleEmail: '' }); }}>Cancelar edição</button> : null}</div></form>
-            <div className="premium-card p-6"><h2 className="text-2xl font-black text-zinc-950">Lojas cadastradas</h2><p className="mt-1 text-sm text-zinc-500">Total: {stores.length}</p><div className="mt-5 grid gap-3">{stores.map((store) => <div key={store.id} className="rounded-2xl border border-zinc-100 bg-zinc-50 p-4"><h3 className="font-black text-zinc-950">{store.store_name}</h3><p className="mt-1 text-sm text-zinc-500">Responsavel: {store.responsible_name}</p><p className="mt-1 text-xs text-zinc-400">{store.responsible_phone || 'Telefone nao informado'} | {store.responsible_email || 'E-mail nao informado'}</p><p className="mt-3 break-all text-xs text-zinc-400">Link login: {getStorePortalPath(store.id)}</p><div className="mt-4 flex flex-wrap gap-2"><Link href={getStorePortalPath(store.id)} className="premium-button-primary text-xs">Acessar</Link><button className="premium-button-secondary text-xs" type="button" onClick={() => generateAccess(store)}><KeyRound size={14} /> Gerar acesso</button><button className="premium-button-secondary text-xs" type="button" onClick={() => startEdit(store)}><Pencil size={14} /> Editar</button><button className="premium-button-secondary text-xs" type="button" onClick={() => removeStore(store)}><Trash2 size={14} /> Remover</button></div></div>)}{stores.length === 0 ? <p className="text-sm text-zinc-500">Nenhuma loja cadastrada.</p> : null}</div></div>
+            <div className="premium-card p-6"><h2 className="text-2xl font-black text-zinc-950">Lojas cadastradas</h2><p className="mt-1 text-sm text-zinc-500">Total: {stores.length}</p><div className="mt-5 grid gap-3">{stores.map((store) => <div key={store.id} className="rounded-2xl border border-zinc-100 bg-zinc-50 p-4"><h3 className="font-black text-zinc-950">{store.store_name}</h3><p className="mt-1 text-sm text-zinc-500">Responsavel: {store.responsible_name}</p><p className="mt-1 text-xs text-zinc-400">{store.responsible_phone || 'Telefone nao informado'} | {store.responsible_email || 'E-mail nao informado'}</p><p className="mt-3 break-all text-xs text-zinc-400">Link login: {getStorePortalUrl(store.id)}</p><div className="mt-4 flex flex-wrap gap-2"><a href={getStorePortalUrl(store.id)} className="premium-button-primary text-xs">Acessar</a><button className="premium-button-secondary text-xs" type="button" onClick={() => generateAccess(store)}><KeyRound size={14} /> Gerar acesso</button><button className="premium-button-secondary text-xs" type="button" onClick={() => startEdit(store)}><Pencil size={14} /> Editar</button><button className="premium-button-secondary text-xs" type="button" onClick={() => removeStore(store)}><Trash2 size={14} /> Remover</button></div></div>)}{stores.length === 0 ? <p className="text-sm text-zinc-500">Nenhuma loja cadastrada.</p> : null}</div></div>
           </section>
         </div>
       </section>
