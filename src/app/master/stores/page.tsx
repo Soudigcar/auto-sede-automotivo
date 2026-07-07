@@ -12,6 +12,8 @@ function getStorePortalPath(storeId: string) {
 
 function getStorePortalUrl(storeId: string) {
   const path = getStorePortalPath(storeId);
+  const configuredUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '');
+  if (configuredUrl) return `${configuredUrl}${path}`;
   if (typeof window === 'undefined') return path;
   return `${window.location.origin}${path}`;
 }
