@@ -1,15 +1,33 @@
-import Link from 'next/link';
-import { BarChart3, Landmark, Wallet, CreditCard, TrendingUp } from 'lucide-react';
-import { MasterSidebar } from '@/components/MasterSidebar';
+'use client';
 
-const items = [
-  { title: 'Faturamento Total', value: 'R$ 0', helper: 'Valor dos veículos vendidos', icon: Wallet },
-  { title: 'Ticket Médio', value: 'R$ 0', helper: 'Faturamento / vendas', icon: TrendingUp },
-  { title: 'Bancos Financiados', value: '0', helper: 'Bancos usados em vendas', icon: Landmark },
-  { title: 'Formas de Pagamento', value: '0', helper: 'Financiamento, à vista e consórcio', icon: CreditCard }
-];
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { BarChart3 } from 'lucide-react';
+import { MasterSidebar } from '@/components/MasterSidebar';
+import { getActiveEvent } from '@/lib/database';
+import { EventSupportForm } from '@/components/EventSupportForm';
+import { BradescoGoalTrack } from '@/components/BradescoGoalTrack';
+import { FinanceEntryList } from '@/components/FinanceEntryList';
 
 export default function MasterFinancePage() {
+  const [eventId, setEventId] = useState('');
+  const [eventName, setEventName] = useState('Bradesco Auto Show');
+  const [refresh, setRefresh] = useState(0);
+  const [message, setMessage] = useState('Carregando financeiro...');
+
+  async function loadEvent() {
+    const event = await getActiveEvent();
+    setEventId(event.id);
+    setEventName(event.event_name || 'Bradesco Auto Show');
+    setMessage('');
+  }
+
+  useEffect(() => { loadEvent().catch(() => setMessage('Rode o seed do evento e o SQL financeiro no Supabase.')); }, []);
+
+  function refreshData() {
+    setRefresh((current) => current + 1);
+  }
+
   return (
     <main className="premium-page">
       <section className="premium-shell flex min-h-screen">
@@ -19,29 +37,16 @@ export default function MasterFinancePage() {
             <div>
               <p className="premium-eyebrow">Gestão Master</p>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Financeiro</h1>
-              <p className="premium-muted mt-3 max-w-3xl text-sm">Controle financeiro do evento: faturamento, bancos, formas de pagamento, ticket médio e valores vendidos.</p>
+              <p className="premium-muted mt-3 max-w-3xl text-sm">Patrocínios, entradas, descontos, fornecedores, categorias e meta Bradesco.</p>
             </div>
             <Link href="/master/dashboard/live" className="premium-button-secondary"><BarChart3 size={18} /> Voltar ao Dashboard</Link>
           </header>
-
-          <section className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {items.map((item) => {
-              const Icon = item.icon;
-              return (
-                <div key={item.title} className="premium-card premium-card-hover p-5">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-600"><Icon size={22} /></div>
-                  <p className="mt-5 text-sm font-bold text-zinc-500">{item.title}</p>
-                  <strong className="mt-2 block text-3xl font-black text-zinc-950">{item.value}</strong>
-                  <p className="mt-2 text-xs text-zinc-400">{item.helper}</p>
-                </div>
-              );
-            })}
+          {message ? <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800">{message}</div> : null}
+          <section className="mt-7 grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+            {eventId ? <EventSupportForm eventId={eventId} defaultEventName={eventName} onSaved={refreshData} /> : null}
+            <BradescoGoalTrack />
           </section>
-
-          <section className="premium-card mt-6 p-6">
-            <h2 className="text-2xl font-black text-zinc-950">Próxima conexão</h2>
-            <p className="premium-muted mt-2 text-sm">Esta área será conectada aos registros de vendas, estoque e bancos para consolidar faturamento por loja, por banco financiador e por período.</p>
-          </section>
+          <div className="mt-6"><FinanceEntryList refreshKey={refresh} /></div>
         </div>
       </section>
     </main>
