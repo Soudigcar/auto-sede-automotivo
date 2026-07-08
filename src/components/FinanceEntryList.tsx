@@ -52,21 +52,45 @@ export function FinanceEntryList({ refreshKey = 0, onChanged }: { refreshKey?: n
   }, [refreshKey]);
 
   const summary = useMemo(() => {
-    const income = entries
+    const paidEntries = entries.filter((item) => (item.status || 'paid') === 'paid');
+    const pendingEntries = entries.filter((item) => item.status === 'pending');
+
+    const incomePaid = paidEntries
       .filter((item) => item.movement_type !== 'expense')
       .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
-    const expense = entries
+    const incomePending = pendingEntries
+      .filter((item) => item.movement_type !== 'expense')
+      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+
+    const expensePaid = paidEntries
       .filter((item) => item.movement_type === 'expense')
       .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
-    const discount = entries.reduce((sum, item) => sum + Number(item.discount || 0), 0);
+    const expensePending = pendingEntries
+      .filter((item) => item.movement_type === 'expense')
+      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+
+    const discountPaid = paidEntries.reduce((sum, item) => sum + Number(item.discount || 0), 0);
+    const discountTotal = entries.reduce((sum, item) => sum + Number(item.discount || 0), 0);
+
     const suppliers = new Set(entries.map((item) => item.supplier_name).filter(Boolean)).size;
     const categoriesCount = new Set(entries.map((item) => item.category).filter(Boolean)).size;
-    const paid = entries.filter((item) => (item.status || 'paid') === 'paid').length;
-    const pending = entries.filter((item) => item.status === 'pending').length;
 
-    return { income, expense, discount, balance: income - expense - discount, suppliers, categoriesCount, paid, pending };
+    return {
+      incomePaid,
+      incomePending,
+      expensePaid,
+      expensePending,
+      discountPaid,
+      discountTotal,
+      realizedBalance: incomePaid - expensePaid - discountPaid,
+      projectedBalance: incomePaid + incomePending - expensePaid - expensePending - discountTotal,
+      suppliers,
+      categoriesCount,
+      paid: paidEntries.length,
+      pending: pendingEntries.length
+    };
   }, [entries]);
 
   function startEdit(item: any) {
@@ -135,7 +159,7 @@ export function FinanceEntryList({ refreshKey = 0, onChanged }: { refreshKey?: n
     const rows = entries.map((item) => `
       <tr>
         <td>${safe(item.payment_date || 'sem data')}</td>
-        <td>${safe(item.movement_type === 'expense' ? 'Saída' : 'Entrada')}</td>
+        <td>${safe(item.movement_type === 'expense' ? (item.status === 'pending' ? 'Saída a pagar' : 'Saída paga') : (item.status === 'pending' ? 'Entrada a receber' : 'Entrada recebida'))}</td>
         <td>${safe(item.status === 'pending' ? 'Pendente' : 'Pago')}</td>
         <td>${safe(item.event_name)}</td>
         <td>${safe(item.category)}</td>
@@ -173,12 +197,12 @@ export function FinanceEntryList({ refreshKey = 0, onChanged }: { refreshKey?: n
           <p class="subtitle">Gerado em ${safe(new Date().toLocaleString('pt-BR'))}</p>
 
           <div class="summary">
-            <div class="card"><div class="label">Entradas</div><div class="value">${safe(money(summary.income))}</div></div>
-            <div class="card"><div class="label">Saídas</div><div class="value">${safe(money(summary.expense))}</div></div>
-            <div class="card"><div class="label">Descontos</div><div class="value">${safe(money(summary.discount))}</div></div>
-            <div class="card"><div class="label">Saldo</div><div class="value">${safe(money(summary.balance))}</div></div>
-            <div class="card"><div class="label">Categorias</div><div class="value">${safe(summary.categoriesCount)}</div></div>
-            <div class="card"><div class="label">Fornecedores</div><div class="value">${safe(summary.suppliers)}</div></div>
+            <div class="card"><div class="label">Recebido</div><div class="value">${safe(money(summary.incomePaid))}</div></div>
+            <div class="card"><div class="label">A receber</div><div class="value pending">${safe(money(summary.incomePending))}</div></div>
+            <div class="card"><div class="label">Saídas pagas</div><div class="value">${safe(money(summary.expensePaid))}</div></div>
+            <div class="card"><div class="label">A pagar</div><div class="value pending">${safe(money(summary.expensePending))}</div></div>
+            <div class="card"><div class="label">Saldo real</div><div class="value">${safe(money(summary.realizedBalance))}</div></div>
+            <div class="card"><div class="label">Saldo previsto</div><div class="value">${safe(money(summary.projectedBalance))}</div></div>
             <div class="card"><div class="label">Pagos</div><div class="value paid">${safe(summary.paid)}</div></div>
             <div class="card"><div class="label">Pendentes</div><div class="value pending">${safe(summary.pending)}</div></div>
           </div>
@@ -232,12 +256,12 @@ export function FinanceEntryList({ refreshKey = 0, onChanged }: { refreshKey?: n
         </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-4 xl:grid-cols-8">
-          <Mini label="Entradas" value={money(summary.income)} tone="text-emerald-600" />
-          <Mini label="Saídas" value={money(summary.expense)} tone="text-red-600" />
-          <Mini label="Descontos" value={money(summary.discount)} tone="text-amber-600" />
-          <Mini label="Saldo" value={money(summary.balance)} tone="text-zinc-950" />
-          <Mini label="Categorias" value={String(summary.categoriesCount)} tone="text-sky-600" />
-          <Mini label="Fornecedores" value={String(summary.suppliers)} tone="text-violet-600" />
+          <Mini label="Recebido" value={money(summary.incomePaid)} tone="text-emerald-600" />
+          <Mini label="A receber" value={money(summary.incomePending)} tone="text-red-600" />
+          <Mini label="Saídas pagas" value={money(summary.expensePaid)} tone="text-red-600" />
+          <Mini label="A pagar" value={money(summary.expensePending)} tone="text-red-600" />
+          <Mini label="Saldo real" value={money(summary.realizedBalance)} tone="text-zinc-950" />
+          <Mini label="Saldo previsto" value={money(summary.projectedBalance)} tone="text-zinc-950" />
           <Mini label="Pagos" value={String(summary.paid)} tone="text-emerald-600" />
           <Mini label="Pendentes" value={String(summary.pending)} tone="text-red-600" />
         </div>
@@ -295,7 +319,7 @@ export function FinanceEntryList({ refreshKey = 0, onChanged }: { refreshKey?: n
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
                           <strong className={item.movement_type === 'expense' ? 'text-red-600' : 'text-emerald-600'}>
-                            {item.movement_type === 'expense' ? 'Saída' : 'Entrada'} - {item.sponsor_bank || item.supplier_name || 'Lançamento'} - {money(item.amount)}
+                            {item.movement_type === 'expense' ? (isPending ? 'Saída a pagar' : 'Saída paga') : (isPending ? 'Entrada a receber' : 'Entrada recebida')} - {item.sponsor_bank || item.supplier_name || 'Lançamento'} - {money(item.amount)}
                           </strong>
 
                           <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-black ${

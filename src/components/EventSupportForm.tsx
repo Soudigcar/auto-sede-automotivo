@@ -32,9 +32,8 @@ export function EventSupportForm({ eventId, defaultEventName, onSaved }: { event
     paymentStatus: 'paid'
   });
 
-  const selectedEvent = events.find((event) => event.id === selectedEventId);
-  const minDate = selectedEvent?.start_date || '2024-01-01';
-  const maxDate = selectedEvent?.end_date || '2035-12-31';
+  const minDate = '2024-01-01';
+  const maxDate = '2035-12-31';
 
   async function loadEvents() {
     const { data } = await supabase
@@ -94,15 +93,6 @@ export function EventSupportForm({ eventId, defaultEventName, onSaved }: { event
       return false;
     }
 
-    if (selectedEvent?.start_date && form.paymentDate < selectedEvent.start_date) {
-      setMessage(`A data não pode ser anterior ao início do evento: ${selectedEvent.start_date}.`);
-      return false;
-    }
-
-    if (selectedEvent?.end_date && form.paymentDate > selectedEvent.end_date) {
-      setMessage(`A data não pode ser posterior ao fim do evento: ${selectedEvent.end_date}.`);
-      return false;
-    }
 
     return true;
   }
