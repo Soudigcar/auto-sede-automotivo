@@ -17,7 +17,30 @@ export async function POST(request: Request) {
 
   const supabase = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
-  const deleteSteps = [
+  const { data: eventData } = await supabase
+    .from('events')
+    .select('*')
+    .eq('id', eventId)
+    .single();
+
+  if (eventData) {
+    const { error: storeHistoryError } = await supabase
+      .from('stores')
+      .update({
+        event_id: null,
+        event_name_snapshot: eventData.event_name || null,
+        event_start_date_snapshot: eventData.start_date || null,
+        event_end_date_snapshot: eventData.end_date || null,
+        event_state_snapshot: eventData.state || null,
+        event_city_snapshot: eventData.city || null
+      })
+      .eq('event_id', eventId);
+
+    if (storeHistoryError) {
+      return NextResponse.json({ error: `Erro ao preservar histórico das lojas: ${storeHistoryError.message}` }, { status: 500 });
+    }
+  }
+const deleteSteps = [
     ['lead_activities', 'event_id'],
     ['appointments', 'event_id'],
     ['losses', 'event_id'],
@@ -26,7 +49,6 @@ export async function POST(request: Request) {
     ['inventory', 'event_id'],
     ['leads', 'event_id'],
     ['prospectors', 'event_id'],
-    ['stores', 'event_id'],
     ['financial_entries', 'event_id'],
     ['audit_logs', 'event_id']
   ] as const;
@@ -37,8 +59,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `Erro ao excluir ${table}: ${error.message}` }, { status: 500 });
     }
   }
+const { error: eventError } = await supabase.from('events').delete().eq('id', eventId);
 
-  const { error: eventError } = await supabase.from('events').delete().eq('id', eventId);
   if (eventError) {
     return NextResponse.json({ error: `Erro ao excluir evento: ${eventError.message}` }, { status: 500 });
   }
