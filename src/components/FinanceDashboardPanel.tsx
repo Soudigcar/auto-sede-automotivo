@@ -78,18 +78,32 @@ export function FinanceDashboardPanel({ refreshKey = 0 }: { refreshKey?: number 
   }), [entries, eventId, bank, category]);
 
   const summary = useMemo(() => {
-    const income = filtered
+    const paidRows = filtered.filter((item) => (item.status || 'paid') === 'paid');
+    const pendingRows = filtered.filter((item) => item.status === 'pending');
+
+    const incomePaid = paidRows
       .filter((item) => item.movement_type !== 'expense')
       .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
-    const expense = filtered
+    const incomePending = pendingRows
+      .filter((item) => item.movement_type !== 'expense')
+      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+
+    const expensePaid = paidRows
       .filter((item) => item.movement_type === 'expense')
       .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
-    const discount = filtered.reduce((sum, item) => sum + Number(item.discount || 0), 0);
-    const cash = income - expense - discount;
+    const expensePending = pendingRows
+      .filter((item) => item.movement_type === 'expense')
+      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
-    const bradescoSupport = filtered
+    const discountPaid = paidRows.reduce((sum, item) => sum + Number(item.discount || 0), 0);
+    const discountTotal = filtered.reduce((sum, item) => sum + Number(item.discount || 0), 0);
+
+    const cash = incomePaid - expensePaid - discountPaid;
+    const projectedCash = incomePaid + incomePending - expensePaid - expensePending - discountTotal;
+
+    const bradescoSupport = paidRows
       .filter((item) => String(item.sponsor_bank || '').toLowerCase() === 'bradesco' && item.movement_type !== 'expense')
       .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
@@ -101,17 +115,19 @@ export function FinanceDashboardPanel({ refreshKey = 0 }: { refreshKey?: number 
 
     const goalPercent = bradescoGoal > 0 ? Math.min(100, Math.round((bradescoDone / bradescoGoal) * 100)) : 0;
 
-    return { income, expense, discount, cash, bradescoSupport, bradescoGoal, bradescoDone, goalPercent };
+    return { incomePaid, incomePending, expensePaid, expensePending, discountPaid, discountTotal, cash, projectedCash, bradescoSupport, bradescoGoal, bradescoDone, goalPercent };
   }, [filtered, sales, eventId]);
 
   const monthly = useMemo(() => monthIndexes.map((index) => {
     const rows = filtered.filter((item) => rowDate(item).getMonth() === index);
 
-    const income = rows
+    const paidRows = rows.filter((item) => (item.status || 'paid') === 'paid');
+
+    const income = paidRows
       .filter((item) => item.movement_type !== 'expense')
       .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
-    const expense = rows
+    const expense = paidRows
       .filter((item) => item.movement_type === 'expense')
       .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
@@ -119,8 +135,11 @@ export function FinanceDashboardPanel({ refreshKey = 0 }: { refreshKey?: number 
   }), [filtered]);
 
   const maxMonth = Math.max(...monthly.flatMap((item) => [item.income, item.expense]), 1);
-  const revenueRows = groupBy(filtered.filter((item) => item.movement_type !== 'expense'), 'category').slice(0, 7);
-  const expenseRows = groupBy(filtered.filter((item) => item.movement_type === 'expense'), 'category').slice(0, 10);
+  const paidFiltered = filtered.filter((item) => (item.status || 'paid') === 'paid');
+  const pendingFiltered = filtered.filter((item) => item.status === 'pending');
+  const revenueRows = groupBy(paidFiltered.filter((item) => item.movement_type !== 'expense'), 'category').slice(0, 7);
+  const expenseRows = groupBy(paidFiltered.filter((item) => item.movement_type === 'expense'), 'category').slice(0, 10);
+  const pendingRows = groupBy(pendingFiltered, 'category').slice(0, 10);
   const bankRows = groupBy(filtered, 'sponsor_bank').slice(0, 7);
 
   return (
@@ -154,11 +173,11 @@ export function FinanceDashboardPanel({ refreshKey = 0 }: { refreshKey?: number 
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <Metric title="Entradas" value={shortMoney(summary.income)} detail={money(summary.income)} icon={Banknote} tone="text-emerald-600" />
-          <Metric title="Despesas" value={shortMoney(summary.expense)} detail={money(summary.expense)} icon={ReceiptText} tone="text-red-600" />
-          <Metric title="Caixa" value={shortMoney(summary.cash)} detail={money(summary.cash)} icon={WalletCards} tone={summary.cash >= 0 ? 'text-emerald-600' : 'text-red-600'} />
-          <Metric title="Meta Bradesco" value={`${summary.goalPercent}%`} detail={money(summary.bradescoGoal)} icon={TrendingUp} tone="text-red-600" />
-          <Metric title="Patrocínios" value={shortMoney(summary.bradescoSupport)} detail={money(summary.bradescoSupport)} icon={Landmark} tone="text-zinc-950" />
+          <Metric title="Recebido" value={shortMoney(summary.incomePaid)} detail={money(summary.incomePaid)} icon={Banknote} tone="text-emerald-600" />
+          <Metric title="A receber" value={shortMoney(summary.incomePending)} detail={money(summary.incomePending)} icon={ReceiptText} tone="text-red-600" />
+          <Metric title="Saídas pagas" value={shortMoney(summary.expensePaid)} detail={money(summary.expensePaid)} icon={WalletCards} tone="text-red-600" />
+          <Metric title="A pagar" value={shortMoney(summary.expensePending)} detail={money(summary.expensePending)} icon={TrendingUp} tone="text-red-600" />
+          <Metric title="Caixa real" value={shortMoney(summary.cash)} detail={money(summary.cash)} icon={Landmark} tone={summary.cash >= 0 ? 'text-emerald-600' : 'text-red-600'} />
         </div>
 
         <div className="grid gap-5 xl:grid-cols-[1.35fr_0.9fr]">
@@ -205,8 +224,12 @@ export function FinanceDashboardPanel({ refreshKey = 0 }: { refreshKey?: number 
             <BarList rows={revenueRows} tone="bg-emerald-500" />
           </Card>
 
-          <Card title="Top despesas / custos">
+          <Card title="Top despesas pagas">
             <BarList rows={expenseRows} tone="bg-red-500" />
+          </Card>
+
+          <Card title="Pendências">
+            <BarList rows={pendingRows} tone="bg-red-500" />
           </Card>
 
           <Card title="Bancos e fornecedores">
