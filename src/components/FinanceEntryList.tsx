@@ -296,7 +296,19 @@ export function FinanceEntryList({ refreshKey = 0, onChanged }: { refreshKey?: n
                       {valueOptions.map((value) => <option key={value} value={value}>{money(value)}</option>)}
                     </select>
 
-                    <input className="premium-input" type="date" value={editForm.paymentDate} onChange={(e) => setEditForm({ ...editForm, paymentDate: e.target.value })} />
+                    <input
+                      className="premium-input cursor-pointer"
+                      type="date"
+                      min="2024-01-01"
+                      max="2035-12-31"
+                      inputMode="none"
+                      value={editForm.paymentDate}
+                      onKeyDown={(event) => event.preventDefault()}
+                      onPaste={(event) => event.preventDefault()}
+                      onFocus={(event) => event.currentTarget.showPicker?.()}
+                      onClick={(event) => event.currentTarget.showPicker?.()}
+                      onChange={(e) => setEditForm({ ...editForm, paymentDate: e.target.value })}
+                    />
 
                     <select className="premium-input" value={editForm.discount} onChange={(e) => setEditForm({ ...editForm, discount: e.target.value })}>
                       <option value="0">R$ 0</option>

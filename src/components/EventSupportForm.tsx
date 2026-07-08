@@ -194,7 +194,19 @@ export function EventSupportForm({ eventId, defaultEventName, onSaved }: { event
         </label>
 
         <label className="text-xs font-bold uppercase tracking-wide text-zinc-400">Data
-          <input className="premium-input mt-1" type="date" min={minDate} max={maxDate} value={form.paymentDate} onChange={(e) => setForm({ ...form, paymentDate: e.target.value })} />
+          <input
+            className="premium-input mt-1 cursor-pointer"
+            type="date"
+            min={minDate}
+            max={maxDate}
+            inputMode="none"
+            value={form.paymentDate}
+            onKeyDown={(event) => event.preventDefault()}
+            onPaste={(event) => event.preventDefault()}
+            onFocus={(event) => event.currentTarget.showPicker?.()}
+            onClick={(event) => event.currentTarget.showPicker?.()}
+            onChange={(e) => setForm({ ...form, paymentDate: e.target.value })}
+          />
         </label>
 
         <label className="text-xs font-bold uppercase tracking-wide text-zinc-400">Fornecedor / Banco
