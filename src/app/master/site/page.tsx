@@ -1,0 +1,365 @@
+'use client';
+
+import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
+import { Copy, ExternalLink, Eye, Plus, Upload } from 'lucide-react';
+import { MasterSidebar } from '@/components/MasterSidebar';
+import { createClient } from '@/lib/supabase';
+
+function money(value: number) {
+  return `R$ ${Number(value || 0).toLocaleString('pt-BR')}`;
+}
+
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '');
+}
+
+const emptyCampaign = {
+  id: '',
+  name: 'Festival Seu Carro Agora',
+  slug: 'festival-seu-carro-agora',
+  title: 'Simule seu financiamento e descubra suas chances de sair de carro hoje',
+  description: 'Escolha um veículo disponível em nosso estoque, informe seus dados e receba uma simulação inicial com taxa referencial de 1,89%.',
+  interest_rate: '1.89',
+  whatsapp_number: '5561999999999',
+  is_active: true
+};
+
+const emptyVehicle = {
+  id: '',
+  brand: '',
+  model: '',
+  version: '',
+  year: '',
+  mileage: '',
+  color: '',
+  transmission: '',
+  fuel: '',
+  price: '',
+  image_url: '',
+  store_name: '',
+  status: 'disponivel',
+  show_on_landing: true,
+  is_featured: false
+};
+
+export default function MasterSitePage() {
+  const supabase = createClient();
+  const [campaign, setCampaign] = useState<any>(emptyCampaign);
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [vehicleForm, setVehicleForm] = useState<any>(emptyVehicle);
+  const [message, setMessage] = useState('Carregando área Site...');
+  const [uploading, setUploading] = useState(false);
+
+  const publicLink = useMemo(() => {
+    if (typeof window === 'undefined') return `/campanha/${campaign.slug}`;
+    return `${window.location.origin}/campanha/${campaign.slug || 'festival-seu-carro-agora'}`;
+  }, [campaign.slug]);
+
+  async function loadData() {
+    const { data: campaignData } = await supabase
+      .from('site_campaigns')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const currentCampaign = campaignData || emptyCampaign;
+    setCampaign({
+      ...currentCampaign,
+      interest_rate: String(currentCampaign.interest_rate || '1.89')
+    });
+
+    if (currentCampaign?.id) {
+      const { data: vehicleRows } = await supabase
+        .from('site_vehicles')
+        .select('*')
+        .eq('campaign_id', currentCampaign.id)
+        .order('created_at', { ascending: false });
+
+      setVehicles(vehicleRows || []);
+    }
+
+    setMessage('');
+  }
+
+  useEffect(() => {
+    loadData().catch(() => setMessage('Não foi possível carregar. Confirme se o SQL do Site foi executado.'));
+  }, []);
+
+  async function saveCampaign(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const payload = {
+      name: campaign.name,
+      slug: slugify(campaign.slug || campaign.name),
+      title: campaign.title,
+      description: campaign.description,
+      interest_rate: Number(campaign.interest_rate || 1.89),
+      whatsapp_number: campaign.whatsapp_number,
+      is_active: Boolean(campaign.is_active),
+      updated_at: new Date().toISOString()
+    };
+
+    const request = campaign.id
+      ? supabase.from('site_campaigns').update(payload).eq('id', campaign.id).select('*').single()
+      : supabase.from('site_campaigns').insert(payload).select('*').single();
+
+    const { data, error } = await request;
+
+    if (error) {
+      setMessage('Erro ao salvar campanha. Verifique o SQL e permissões.');
+      return;
+    }
+
+    setCampaign({ ...data, interest_rate: String(data.interest_rate || '1.89') });
+    setMessage('Campanha salva com sucesso.');
+    await loadData();
+  }
+
+  async function uploadVehicleImage(file?: File) {
+    if (!file) return;
+
+    if (!campaign.id) {
+      setMessage('Salve a campanha antes de subir imagem.');
+      return;
+    }
+
+    setUploading(true);
+
+    const ext = file.name.split('.').pop() || 'jpg';
+    const fileName = `${campaign.slug}/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
+
+    const { error } = await supabase.storage.from('vehicle-images').upload(fileName, file, { upsert: true });
+
+    if (error) {
+      setUploading(false);
+      setMessage('Erro ao subir imagem. Confirme se o bucket vehicle-images foi criado.');
+      return;
+    }
+
+    const { data } = supabase.storage.from('vehicle-images').getPublicUrl(fileName);
+    setVehicleForm((current: any) => ({ ...current, image_url: data.publicUrl }));
+    setUploading(false);
+    setMessage('Imagem enviada com sucesso.');
+  }
+
+  async function saveVehicle(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!campaign.id) {
+      setMessage('Salve a campanha antes de cadastrar veículos.');
+      return;
+    }
+
+    const payload = {
+      campaign_id: campaign.id,
+      brand: vehicleForm.brand,
+      model: vehicleForm.model,
+      version: vehicleForm.version,
+      year: vehicleForm.year,
+      mileage: vehicleForm.mileage,
+      color: vehicleForm.color,
+      transmission: vehicleForm.transmission,
+      fuel: vehicleForm.fuel,
+      price: Number(vehicleForm.price || 0),
+      image_url: vehicleForm.image_url,
+      store_name: vehicleForm.store_name,
+      status: vehicleForm.status,
+      show_on_landing: Boolean(vehicleForm.show_on_landing),
+      is_featured: Boolean(vehicleForm.is_featured),
+      updated_at: new Date().toISOString()
+    };
+
+    const request = vehicleForm.id
+      ? supabase.from('site_vehicles').update(payload).eq('id', vehicleForm.id)
+      : supabase.from('site_vehicles').insert(payload);
+
+    const { error } = await request;
+
+    if (error) {
+      setMessage('Erro ao salvar veículo.');
+      return;
+    }
+
+    setVehicleForm(emptyVehicle);
+    setMessage('Veículo salvo na landing.');
+    await loadData();
+  }
+
+  async function editVehicle(item: any) {
+    setVehicleForm({
+      ...item,
+      price: String(item.price || '')
+    });
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function toggleVehicle(item: any, payload: any) {
+    await supabase.from('site_vehicles').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', item.id);
+    await loadData();
+  }
+
+  async function copyLink() {
+    await navigator.clipboard.writeText(publicLink);
+    setMessage('Link público copiado.');
+  }
+
+  return (
+    <main className="premium-page">
+      <section className="premium-shell flex min-h-screen">
+        <MasterSidebar active="Site" />
+
+        <div className="premium-canvas min-w-0 flex-1 p-4 md:p-7">
+          <header className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <p className="premium-eyebrow">Captação digital</p>
+              <h1 className="premium-title mt-2 text-4xl md:text-5xl">Site</h1>
+              <p className="premium-muted mt-3 max-w-3xl text-sm">
+                Configure a landing pública, cadastre veículos com imagem e capture leads pelo simulador.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button className="premium-button-secondary" type="button" onClick={copyLink}><Copy size={18} /> Copiar link</button>
+              <Link href={`/campanha/${campaign.slug || 'festival-seu-carro-agora'}`} target="_blank" className="premium-button-primary"><ExternalLink size={18} /> Abrir landing</Link>
+            </div>
+          </header>
+
+          {message ? <div className="mt-5 rounded-2xl border border-zinc-200 bg-white p-4 text-sm font-bold text-zinc-700">{message}</div> : null}
+
+          <section className="premium-card mt-6 p-5">
+            <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <h2 className="text-2xl font-black text-zinc-950">Link público</h2>
+                <p className="mt-1 text-sm text-zinc-500">Esse é o link limpo para divulgar. O cliente não vê o sistema.</p>
+              </div>
+              <code className="rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-bold text-zinc-700">{publicLink}</code>
+            </div>
+          </section>
+
+          <div className="mt-6 grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+            <form onSubmit={saveCampaign} className="premium-card p-5">
+              <h2 className="text-2xl font-black text-zinc-950">Configuração da Landing</h2>
+
+              <div className="mt-5 grid gap-3">
+                <input className="premium-input" placeholder="Nome da campanha" value={campaign.name || ''} onChange={(e) => setCampaign({ ...campaign, name: e.target.value, slug: slugify(e.target.value) })} />
+                <input className="premium-input" placeholder="Slug do link público" value={campaign.slug || ''} onChange={(e) => setCampaign({ ...campaign, slug: slugify(e.target.value) })} />
+                <input className="premium-input" placeholder="Título da landing" value={campaign.title || ''} onChange={(e) => setCampaign({ ...campaign, title: e.target.value })} />
+                <textarea className="premium-input min-h-28" placeholder="Descrição" value={campaign.description || ''} onChange={(e) => setCampaign({ ...campaign, description: e.target.value })} />
+                <input className="premium-input" placeholder="Taxa referencial. Ex: 1.89" value={campaign.interest_rate || ''} onChange={(e) => setCampaign({ ...campaign, interest_rate: e.target.value })} />
+                <input className="premium-input" placeholder="WhatsApp com DDI. Ex: 5561999999999" value={campaign.whatsapp_number || ''} onChange={(e) => setCampaign({ ...campaign, whatsapp_number: e.target.value })} />
+
+                <label className="flex items-center gap-3 rounded-2xl border border-zinc-100 bg-zinc-50 p-4 text-sm font-bold text-zinc-600">
+                  <input type="checkbox" checked={Boolean(campaign.is_active)} onChange={(e) => setCampaign({ ...campaign, is_active: e.target.checked })} />
+                  Landing ativa
+                </label>
+
+                <button className="premium-button-primary w-full" type="submit">Salvar campanha</button>
+              </div>
+            </form>
+
+            <form onSubmit={saveVehicle} className="premium-card p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-black text-zinc-950">Estoque da Landing</h2>
+                  <p className="mt-1 text-sm text-zinc-500">Cadastre os carros que aparecerão no simulador.</p>
+                </div>
+                <button className="premium-button-secondary" type="button" onClick={() => setVehicleForm(emptyVehicle)}><Plus size={18} /> Novo</button>
+              </div>
+
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                <input className="premium-input" placeholder="Marca" value={vehicleForm.brand} onChange={(e) => setVehicleForm({ ...vehicleForm, brand: e.target.value })} required />
+                <input className="premium-input" placeholder="Modelo" value={vehicleForm.model} onChange={(e) => setVehicleForm({ ...vehicleForm, model: e.target.value })} required />
+                <input className="premium-input" placeholder="Versão" value={vehicleForm.version} onChange={(e) => setVehicleForm({ ...vehicleForm, version: e.target.value })} />
+                <input className="premium-input" placeholder="Ano" value={vehicleForm.year} onChange={(e) => setVehicleForm({ ...vehicleForm, year: e.target.value })} />
+                <input className="premium-input" placeholder="KM" value={vehicleForm.mileage} onChange={(e) => setVehicleForm({ ...vehicleForm, mileage: e.target.value })} />
+                <input className="premium-input" placeholder="Cor" value={vehicleForm.color} onChange={(e) => setVehicleForm({ ...vehicleForm, color: e.target.value })} />
+                <input className="premium-input" placeholder="Câmbio" value={vehicleForm.transmission} onChange={(e) => setVehicleForm({ ...vehicleForm, transmission: e.target.value })} />
+                <input className="premium-input" placeholder="Combustível" value={vehicleForm.fuel} onChange={(e) => setVehicleForm({ ...vehicleForm, fuel: e.target.value })} />
+                <input className="premium-input" type="number" placeholder="Preço" value={vehicleForm.price} onChange={(e) => setVehicleForm({ ...vehicleForm, price: e.target.value })} required />
+                <input className="premium-input" placeholder="Loja responsável" value={vehicleForm.store_name} onChange={(e) => setVehicleForm({ ...vehicleForm, store_name: e.target.value })} />
+
+                <select className="premium-input" value={vehicleForm.status} onChange={(e) => setVehicleForm({ ...vehicleForm, status: e.target.value })}>
+                  <option value="disponivel">Disponível</option>
+                  <option value="vendido">Vendido</option>
+                  <option value="oculto">Oculto</option>
+                </select>
+
+                <label className="premium-input flex cursor-pointer items-center gap-2">
+                  <Upload size={18} />
+                  {uploading ? 'Enviando imagem...' : 'Upload da foto'}
+                  <input className="hidden" type="file" accept="image/*" onChange={(e) => uploadVehicleImage(e.target.files?.[0])} />
+                </label>
+              </div>
+
+              {vehicleForm.image_url ? (
+                <div className="mt-3 overflow-hidden rounded-2xl border border-zinc-100">
+                  <img src={vehicleForm.image_url} alt="Imagem do veículo" className="h-48 w-full object-cover" />
+                </div>
+              ) : null}
+
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                <label className="flex items-center gap-3 rounded-2xl border border-zinc-100 bg-zinc-50 p-4 text-sm font-bold text-zinc-600">
+                  <input type="checkbox" checked={Boolean(vehicleForm.show_on_landing)} onChange={(e) => setVehicleForm({ ...vehicleForm, show_on_landing: e.target.checked })} />
+                  Exibir na landing
+                </label>
+
+                <label className="flex items-center gap-3 rounded-2xl border border-zinc-100 bg-zinc-50 p-4 text-sm font-bold text-zinc-600">
+                  <input type="checkbox" checked={Boolean(vehicleForm.is_featured)} onChange={(e) => setVehicleForm({ ...vehicleForm, is_featured: e.target.checked })} />
+                  Destaque
+                </label>
+              </div>
+
+              <button className="premium-button-primary mt-4 w-full" type="submit">
+                {vehicleForm.id ? 'Salvar alterações do veículo' : 'Adicionar veículo na landing'}
+              </button>
+            </form>
+          </div>
+
+          <section className="premium-card mt-6 p-5">
+            <h2 className="text-2xl font-black text-zinc-950">Veículos cadastrados</h2>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {vehicles.map((item) => (
+                <div key={item.id} className="overflow-hidden rounded-3xl border border-zinc-100 bg-zinc-50">
+                  {item.image_url ? <img src={item.image_url} alt={item.model} className="h-44 w-full object-cover" /> : <div className="flex h-44 items-center justify-center bg-zinc-200 text-sm font-bold text-zinc-500">Sem imagem</div>}
+
+                  <div className="p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h3 className="font-black text-zinc-950">{item.brand} {item.model}</h3>
+                        <p className="text-sm font-bold text-zinc-500">{item.version} • {item.year}</p>
+                      </div>
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-zinc-500">{item.status}</span>
+                    </div>
+
+                    <strong className="mt-3 block text-xl font-black text-red-600">{money(item.price)}</strong>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button className="premium-button-secondary text-xs" type="button" onClick={() => editVehicle(item)}>Editar</button>
+                      <button className="premium-button-secondary text-xs" type="button" onClick={() => toggleVehicle(item, { show_on_landing: !item.show_on_landing })}>
+                        <Eye size={14} /> {item.show_on_landing ? 'Ocultar' : 'Exibir'}
+                      </button>
+                      <button className="premium-button-secondary text-xs" type="button" onClick={() => toggleVehicle(item, { is_featured: !item.is_featured })}>
+                        {item.is_featured ? 'Remover destaque' : 'Destacar'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {!vehicles.length ? <p className="text-sm font-bold text-zinc-500">Nenhum veículo cadastrado ainda.</p> : null}
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  );
+}

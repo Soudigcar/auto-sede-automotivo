@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { BarChart3, CalendarDays, Car, ChevronLeft, ChevronRight, FileText, Landmark, Plug, Store, UserCog } from 'lucide-react';
+import { BarChart3, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, Globe2, Landmark, Plug, Store, UserCog } from 'lucide-react';
 
 const masterMenu = [
   { label: 'Dashboard', href: '/master/dashboard/live', icon: BarChart3 },
@@ -11,6 +11,8 @@ const masterMenu = [
   { label: 'Equipe', href: '/master/users', icon: UserCog },
   { label: 'Relatórios', href: '/master/reports', icon: FileText },
   { label: 'Financeiro', href: '/master/finance', icon: Landmark },
+  { label: 'Site', href: '/master/site', icon: Globe2 },
+  { label: 'Base', href: '/master/base', icon: Database },
   { label: 'Integração', href: '/master/integrations', icon: Plug }
 ];
 
@@ -44,24 +46,14 @@ export function MasterSidebar({ active }: { active: string }) {
         </div>
 
         {!collapsed ? (
-          <button
-            className="rounded-xl border border-white/10 bg-white/5 p-2 text-zinc-400 hover:bg-red-600 hover:text-white"
-            type="button"
-            onClick={toggleSidebar}
-            title="Recolher menu"
-          >
+          <button className="rounded-xl border border-white/10 bg-white/5 p-2 text-zinc-400 hover:bg-red-600 hover:text-white" type="button" onClick={toggleSidebar} title="Recolher menu">
             <ChevronLeft size={16} />
           </button>
         ) : null}
       </div>
 
       {collapsed ? (
-        <button
-          className="mx-auto mt-5 flex rounded-xl border border-white/10 bg-white/5 p-2 text-zinc-400 hover:bg-red-600 hover:text-white"
-          type="button"
-          onClick={toggleSidebar}
-          title="Expandir menu"
-        >
+        <button className="mx-auto mt-5 flex rounded-xl border border-white/10 bg-white/5 p-2 text-zinc-400 hover:bg-red-600 hover:text-white" type="button" onClick={toggleSidebar} title="Expandir menu">
           <ChevronRight size={16} />
         </button>
       ) : null}
@@ -83,12 +75,8 @@ export function MasterSidebar({ active }: { active: string }) {
         {masterMenu.map((item) => {
           const Icon = item.icon;
           const isActive = active === item.href || active === item.label;
-          const base = collapsed
-            ? 'flex items-center justify-center rounded-2xl px-0 py-4'
-            : 'flex items-center gap-3 rounded-2xl px-4 py-4';
-          const state = isActive
-            ? 'bg-red-600 font-bold shadow-lg shadow-red-600/20'
-            : 'text-zinc-400 hover:bg-white/5 hover:text-white';
+          const base = collapsed ? 'flex items-center justify-center rounded-2xl px-0 py-4' : 'flex items-center gap-3 rounded-2xl px-4 py-4';
+          const state = isActive ? 'bg-red-600 font-bold shadow-lg shadow-red-600/20' : 'text-zinc-400 hover:bg-white/5 hover:text-white';
 
           return (
             <Link key={item.href} href={item.href} title={item.label} className={`${base} ${state}`}>
