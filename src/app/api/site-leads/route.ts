@@ -12,6 +12,16 @@ function number(value: unknown) {
 
 export async function POST(request: Request) {
   try {
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+    if (!supabaseUrl || !serviceKey) {
+      return NextResponse.json(
+        { error: 'Configuração do servidor incompleta. Verifique SUPABASE_SERVICE_ROLE_KEY e NEXT_PUBLIC_SUPABASE_URL.' },
+        { status: 500 }
+      );
+    }
+
     const body = await request.json();
 
     const name = text(body.name);
@@ -21,11 +31,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Nome e telefone são obrigatórios.' }, { status: 400 });
     }
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
-      { auth: { persistSession: false } }
-    );
+    const supabase = createClient(supabaseUrl, serviceKey, {
+      auth: { persistSession: false }
+    });
 
     const payload = {
       name,
@@ -50,14 +58,17 @@ export async function POST(request: Request) {
       updated_at: new Date().toISOString()
     };
 
-    const { data, error } = await supabase.from('leads_base').insert(payload).select('*').single();
+    const { error } = await supabase.from('leads_base').insert(payload);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ lead: data });
-  } catch {
-    return NextResponse.json({ error: 'Erro ao salvar lead.' }, { status: 500 });
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error?.message || 'Erro ao salvar lead.' },
+      { status: 500 }
+    );
   }
 }

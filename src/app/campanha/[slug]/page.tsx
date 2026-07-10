@@ -5,7 +5,10 @@ import { CheckCircle2, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
 function money(value: number) {
-  return `R$ ${Number(value || 0).toLocaleString('pt-BR')}`;
+  return `R$ ${Number(value || 0).toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
 }
 
 function onlyDigits(value: string) {
@@ -151,10 +154,12 @@ export default function CampaignLandingPage() {
       body: JSON.stringify(payload)
     });
 
+    const result = await response.json().catch(() => ({}));
+
     setSending(false);
 
     if (!response.ok) {
-      setMessage('Não foi possível enviar sua simulação. Tente novamente.');
+      setMessage(result.error || 'Não foi possível enviar sua simulação. Tente novamente.');
       return;
     }
 
