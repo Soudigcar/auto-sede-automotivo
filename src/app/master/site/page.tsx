@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { Copy, ExternalLink, Eye, Plus, Upload } from 'lucide-react';
+import { Copy, DownloadCloud, ExternalLink, Eye, Plus, Search, Upload } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { createClient } from '@/lib/supabase';
 
@@ -55,6 +55,10 @@ export default function MasterSitePage() {
   const [vehicleForm, setVehicleForm] = useState<any>(emptyVehicle);
   const [message, setMessage] = useState('Carregando área Site...');
   const [uploading, setUploading] = useState(false);
+  const [importUrl, setImportUrl] = useState('');
+  const [importLoading, setImportLoading] = useState(false);
+  const [importPreview, setImportPreview] = useState<any>(null);
+  const [selectedImportImages, setSelectedImportImages] = useState<string[]>([]);
 
   const publicLink = useMemo(() => {
     if (typeof window === 'undefined') return `/campanha/${campaign.slug}`;
@@ -211,6 +215,87 @@ export default function MasterSitePage() {
     setMessage('Link público copiado.');
   }
 
+  async function previewVehicleImport() {
+    if (!importUrl) {
+      setMessage('Cole o link do anúncio para buscar as informações.');
+      return;
+    }
+
+    setImportLoading(true);
+    setMessage('Buscando informações do anúncio...');
+
+    const response = await fetch('/api/site-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'preview', url: importUrl })
+    });
+
+    const result = await response.json();
+    setImportLoading(false);
+
+    if (!response.ok) {
+      setMessage(result.error || 'Não foi possível buscar informações do link.');
+      return;
+    }
+
+    setImportPreview(result);
+    setSelectedImportImages((result.images || []).slice(0, 5));
+    setVehicleForm((current: any) => ({
+      ...current,
+      brand: result.vehicle?.brand || current.brand,
+      model: result.vehicle?.model || current.model,
+      version: result.vehicle?.version || current.version,
+      year: result.vehicle?.year || current.year,
+      price: result.price ? String(result.price) : current.price,
+      image_url: result.images?.[0] || current.image_url
+    }));
+
+    setMessage('Prévia encontrada. Confira as informações e importe as fotos.');
+  }
+
+  function toggleImportImage(url: string) {
+    setSelectedImportImages((current) => {
+      if (current.includes(url)) return current.filter((item) => item !== url);
+      return [...current, url].slice(0, 8);
+    });
+  }
+
+  async function importVehicleImages() {
+    if (!importPreview) {
+      setMessage('Busque uma prévia antes de importar.');
+      return;
+    }
+
+    setImportLoading(true);
+    setMessage('Baixando fotos e salvando no Storage...');
+
+    const response = await fetch('/api/site-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'import', url: importUrl, images: selectedImportImages })
+    });
+
+    const result = await response.json();
+    setImportLoading(false);
+
+    if (!response.ok) {
+      setMessage(result.error || 'Não foi possível importar as fotos.');
+      return;
+    }
+
+    setVehicleForm((current: any) => ({
+      ...current,
+      brand: result.vehicle?.brand || current.brand,
+      model: result.vehicle?.model || current.model,
+      version: result.vehicle?.version || current.version,
+      year: result.vehicle?.year || current.year,
+      price: result.price ? String(result.price) : current.price,
+      image_url: result.vehicle?.image_url || current.image_url
+    }));
+
+    setMessage(result.uploadedImages?.length ? 'Fotos importadas. Agora confira e clique em Adicionar veículo na landing.' : 'Não foi possível salvar fotos, mas a prévia foi carregada.');
+  }
+
   return (
     <main className="premium-page">
       <section className="premium-shell flex min-h-screen">
@@ -242,6 +327,70 @@ export default function MasterSitePage() {
               </div>
               <code className="rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-bold text-zinc-700">{publicLink}</code>
             </div>
+          </section>
+
+          <section className="premium-card mt-6 p-5">
+            <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <h2 className="text-2xl font-black text-zinc-950">Importar veículo por link</h2>
+                <p className="mt-1 text-sm text-zinc-500">Cole o link público do anúncio para buscar fotos e informações automaticamente.</p>
+              </div>
+              <span className="rounded-full bg-red-50 px-4 py-2 text-xs font-black text-red-600">Prévia antes de salvar</span>
+            </div>
+
+            <div className="mt-4 grid gap-3 xl:grid-cols-[1fr_auto_auto]">
+              <input
+                className="premium-input"
+                placeholder="Cole aqui o link do anúncio. Ex: https://brasiliaautomoveis.com.br/..."
+                value={importUrl}
+                onChange={(e) => setImportUrl(e.target.value)}
+              />
+
+              <button className="premium-button-secondary" type="button" onClick={previewVehicleImport} disabled={importLoading}>
+                <Search size={18} /> {importLoading ? 'Buscando...' : 'Buscar informações'}
+              </button>
+
+              <button className="premium-button-primary" type="button" onClick={importVehicleImages} disabled={importLoading || !importPreview}>
+                <DownloadCloud size={18} /> Importar fotos
+              </button>
+            </div>
+
+            {importPreview ? (
+              <div className="mt-5 rounded-[28px] border border-zinc-100 bg-zinc-50 p-4">
+                <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Prévia encontrada</p>
+                    <h3 className="mt-1 text-xl font-black text-zinc-950">{importPreview.title || 'Anúncio encontrado'}</h3>
+                    <p className="mt-1 text-sm font-bold text-zinc-500">Preço detectado: {money(importPreview.price || 0)}</p>
+                  </div>
+                  <p className="text-xs font-bold text-zinc-400">{selectedImportImages.length} foto(s) selecionada(s)</p>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                  {(importPreview.images || []).slice(0, 10).map((image: string) => {
+                    const checked = selectedImportImages.includes(image);
+
+                    return (
+                      <button
+                        key={image}
+                        type="button"
+                        onClick={() => toggleImportImage(image)}
+                        className={`overflow-hidden rounded-2xl border text-left transition ${checked ? 'border-red-500 ring-4 ring-red-500/10' : 'border-zinc-200'}`}
+                      >
+                        <img src={image} alt="Foto importada" className="h-32 w-full object-cover" />
+                        <span className="block bg-white px-3 py-2 text-xs font-black text-zinc-600">
+                          {checked ? 'Selecionada' : 'Selecionar'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {!(importPreview.images || []).length ? (
+                  <p className="mt-3 text-sm font-bold text-red-600">Nenhuma foto foi encontrada automaticamente nesse link.</p>
+                ) : null}
+              </div>
+            ) : null}
           </section>
 
           <div className="mt-6 grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
