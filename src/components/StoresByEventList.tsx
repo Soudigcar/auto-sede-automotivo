@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Copy, ExternalLink, Pencil, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { EventSelectField } from '@/components/EventSelectField';
 import { StoreParticipationHistory } from '@/components/StoreParticipationHistory';
@@ -12,6 +12,12 @@ function dateText(value?: string) {
 
 function eventLabel(store: any, eventNameById: Record<string, string>) {
   return eventNameById[store.event_id] || store.event_name_snapshot || 'Evento removido';
+}
+
+function portalLink(slug?: string) {
+  if (!slug) return '';
+  if (typeof window === 'undefined') return `/loja/${slug}`;
+  return `${window.location.origin}/loja/${slug}`;
 }
 
 export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
@@ -115,6 +121,18 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
     await loadData();
   }
 
+  async function copyStoreLink(store: any) {
+    const link = portalLink(store.slug);
+
+    if (!link) {
+      setMessage('Esta loja ainda não possui slug/link de portal.');
+      return;
+    }
+
+    await navigator.clipboard.writeText(link);
+    setMessage(`Link do portal da loja ${store.store_name} copiado.`);
+  }
+
   function renderStoreCard(store: any, showHistory = true) {
     const stock = inventory.filter((item) => item.store_id === store.id && item.event_id === store.event_id).length;
     const sold = sales.filter((sale) => sale.store_id === store.id && sale.event_id === store.event_id).length;
@@ -156,6 +174,25 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
             <p className="mt-1 text-sm text-zinc-500">
               E-mail: {store.responsible_email || '-'}
             </p>
+
+            <div className="mt-3 rounded-2xl border border-zinc-100 bg-white p-3">
+              <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Portal da loja</p>
+              <p className="mt-1 break-all text-xs font-bold text-zinc-600">
+                {store.slug ? portalLink(store.slug) : 'Link ainda não gerado'}
+              </p>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button className="premium-button-secondary text-xs" type="button" onClick={() => copyStoreLink(store)}>
+                  <Copy size={14} /> Copiar link
+                </button>
+
+                {store.slug ? (
+                  <a className="premium-button-secondary text-xs" href={portalLink(store.slug)} target="_blank">
+                    <ExternalLink size={14} /> Abrir portal
+                  </a>
+                ) : null}
+              </div>
+            </div>
 
             <p className="mt-1 text-xs font-bold text-zinc-400">
               Histórico: {store.event_state_snapshot || '-'} | {store.event_city_snapshot || '-'} | {dateText(store.event_start_date_snapshot)} até {dateText(store.event_end_date_snapshot)}

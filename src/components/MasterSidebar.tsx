@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { BarChart3, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, Globe2, Landmark, Plug, Store, UserCog } from 'lucide-react';
+import { BarChart3, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, Globe2, Landmark, LogOut, Plug, Store, UserCog } from 'lucide-react';
 
 const masterMenu = [
   { label: 'Dashboard', href: '/master/dashboard/live', icon: BarChart3 },
@@ -13,7 +13,8 @@ const masterMenu = [
   { label: 'Financeiro', href: '/master/finance', icon: Landmark },
   { label: 'Site', href: '/master/site', icon: Globe2 },
   { label: 'Base', href: '/master/base', icon: Database },
-  { label: 'Integração', href: '/master/integrations', icon: Plug }
+  { label: 'Integração', href: '/master/integrations', icon: Plug },
+  { label: 'Sair', href: '/logout', icon: LogOut }
 ];
 
 export function MasterSidebar({ active }: { active: string }) {

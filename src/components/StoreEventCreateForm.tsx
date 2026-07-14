@@ -1,14 +1,31 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Copy, ExternalLink } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { EventSelectField } from '@/components/EventSelectField';
+
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '') || 'loja';
+}
+
+function portalLink(slug?: string) {
+  if (!slug) return '';
+  if (typeof window === 'undefined') return `/loja/${slug}`;
+  return `${window.location.origin}/loja/${slug}`;
+}
 
 export function StoreEventCreateForm({ onSaved }: { onSaved?: () => void }) {
   const supabase = createClient();
   const [events, setEvents] = useState<any[]>([]);
   const [eventId, setEventId] = useState('');
   const [message, setMessage] = useState('');
+  const [lastStore, setLastStore] = useState<any>(null);
   const [form, setForm] = useState({ storeName: '', responsibleName: '', phone: '', email: '' });
 
   async function loadEvents() {
@@ -20,18 +37,46 @@ export function StoreEventCreateForm({ onSaved }: { onSaved?: () => void }) {
 
   useEffect(() => { loadEvents().catch(() => null); }, []);
 
+  async function buildUniqueSlug(storeName: string) {
+    const base = slugify(storeName);
+    const { data } = await supabase
+      .from('stores')
+      .select('slug')
+      .ilike('slug', `${base}%`);
+
+    const used = new Set((data || []).map((item: any) => item.slug));
+    if (!used.has(base)) return base;
+
+    let count = 2;
+    while (used.has(`${base}-${count}`)) count += 1;
+
+    return `${base}-${count}`;
+  }
+
+  async function copyLastLink() {
+    const link = portalLink(lastStore?.slug);
+    if (!link) return;
+    await navigator.clipboard.writeText(link);
+    setMessage('Link do portal da loja copiado.');
+  }
+
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-const selectedEvent = events.find((item) => item.id === eventId);
+
+    const selectedEvent = events.find((item) => item.id === eventId);
 
     if (!selectedEvent) {
       setMessage('Selecione o evento.');
       return;
     }
 
-    const { error } = await supabase.from('stores').insert({
+    const slug = await buildUniqueSlug(form.storeName);
+
+    const { data, error } = await supabase.from('stores').insert({
       event_id: eventId,
       store_name: form.storeName,
+      slug,
+      portal_enabled: true,
       responsible_name: form.responsibleName,
       responsible_phone: form.phone,
       responsible_email: form.email,
@@ -41,17 +86,20 @@ const selectedEvent = events.find((item) => item.id === eventId);
       event_state_snapshot: selectedEvent.state || null,
       event_city_snapshot: selectedEvent.city || null,
       status: 'active'
-    });
+    }).select('*').single();
 
-if (error) {
-      setMessage('Erro ao cadastrar loja no evento. Rode o SQL de histórico de lojas no Supabase.');
+    if (error) {
+      setMessage('Erro ao cadastrar loja no evento. Confirme se o SQL do portal da loja foi executado.');
       return;
     }
 
-    setMessage('Loja cadastrada e vinculada ao evento.');
+    setLastStore(data);
+    setMessage('Loja cadastrada e vinculada ao evento. Link do portal gerado abaixo.');
     setForm({ storeName: '', responsibleName: '', phone: '', email: '' });
     onSaved?.();
   }
+
+  const lastLink = portalLink(lastStore?.slug);
 
   return (
     <form onSubmit={save} className="premium-card p-6">
@@ -95,6 +143,23 @@ if (error) {
       <button className="premium-button-primary mt-5 w-full" type="submit">
         Vincular loja ao evento
       </button>
+
+      {lastStore?.slug ? (
+        <div className="mt-4 rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Link do portal da loja</p>
+          <p className="mt-2 break-all text-sm font-black text-zinc-800">{lastLink}</p>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button className="premium-button-secondary text-xs" type="button" onClick={copyLastLink}>
+              <Copy size={14} /> Copiar link
+            </button>
+
+            <a className="premium-button-secondary text-xs" href={lastLink} target="_blank">
+              <ExternalLink size={14} /> Abrir portal
+            </a>
+          </div>
+        </div>
+      ) : null}
 
       {message ? (
         <p className="mt-3 rounded-2xl bg-zinc-50 p-3 text-sm font-bold text-zinc-600">{message}</p>

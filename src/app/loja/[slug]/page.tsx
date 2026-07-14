@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
-import { ArrowRight, BarChart3, Car, CheckCircle2, ClipboardList, Store } from 'lucide-react';
+import { ArrowRight, BarChart3, Car, CheckCircle2, ClipboardList, LogOut, Store } from 'lucide-react';
 import { getStorePortalContext } from '@/lib/storePortalClient';
 
 const steps = [
@@ -70,6 +70,7 @@ export default function StoreSlugHomePage() {
             <Link href={`/loja/${slug}`} className="flex items-center gap-3 rounded-2xl bg-red-600 px-4 py-4 font-bold shadow-lg shadow-red-600/20"><Store size={18} /> Inicio</Link>
             <Link href={`/loja/${slug}/pipeline`} className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><BarChart3 size={18} /> Pipeline</Link>
             <Link href={`/loja/${slug}/operacao`} className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><ClipboardList size={18} /> Operacao</Link>
+            <Link href="/logout" className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><LogOut size={18} /> Sair</Link>
           </nav>
         </aside>
 
