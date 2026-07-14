@@ -19,27 +19,73 @@ function LoginContent() {
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    const normalizedEmail = email.trim().toLowerCase();
+
     setMessage('Validando acesso...');
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password
+    });
 
     if (error) {
       setMessage('Nao foi possivel acessar. Verifique e-mail e senha.');
       return;
     }
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('role,status')
-      .eq('email', email)
-      .single();
+    const { data: authData } = await supabase.auth.getUser();
+
+    let profile: any = null;
+
+    if (authData.user?.id) {
+      const { data } = await supabase
+        .from('users')
+        .select('id,role,status,store_id,email')
+        .eq('auth_user_id', authData.user.id)
+        .maybeSingle();
+
+      profile = data;
+    }
+
+    if (!profile) {
+      const { data } = await supabase
+        .from('users')
+        .select('id,role,status,store_id,email')
+        .ilike('email', normalizedEmail)
+        .maybeSingle();
+
+      profile = data;
+    }
 
     if (!profile || profile.status !== 'active') {
       setMessage('Usuario sem perfil ativo no sistema.');
       return;
     }
 
-    const target = redirectedFrom || getRoleHomePath(profile.role);
+    let target = redirectedFrom || getRoleHomePath(profile.role);
+
+    if (profile.role === 'store') {
+      if (!profile.store_id) {
+        setMessage('Usuario de loja sem loja vinculada. Fale com o administrador.');
+        return;
+      }
+
+      const { data: store } = await supabase
+        .from('stores')
+        .select('id,slug,portal_enabled,status')
+        .eq('id', profile.store_id)
+        .maybeSingle();
+
+      if (!store || store.status !== 'active' || !store.portal_enabled) {
+        setMessage('Portal da loja indisponivel ou desativado.');
+        return;
+      }
+
+      const storeHome = `/loja/${store.slug}`;
+      const storePrefix = `/loja/${store.slug}`;
+
+      target = redirectedFrom?.startsWith(storePrefix) ? redirectedFrom : storeHome;
+    }
 
     setMessage('Acesso validado. Redirecionando...');
     router.push(target);
@@ -81,13 +127,7 @@ function LoginContent() {
 
 export default function LoginPage() {
   return (
-    <Suspense
-      fallback={
-        <main className="flex min-h-screen items-center justify-center bg-[#F4F6FA] px-6 text-[#101828]">
-          <p className="text-sm font-bold text-zinc-500">Carregando acesso...</p>
-        </main>
-      }
-    >
+    <Suspense fallback={<main className="flex min-h-screen items-center justify-center bg-[#F4F6FA] px-6 text-[#101828]"><p className="text-sm font-bold text-zinc-500">Carregando acesso...</p></main>}>
       <LoginContent />
     </Suspense>
   );
