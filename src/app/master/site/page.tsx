@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { Copy, DownloadCloud, ExternalLink, Eye, Plus, Search, Upload } from 'lucide-react';
+import { CheckCircle2, Copy, DownloadCloud, ExternalLink, Eye, FileSpreadsheet, Plus, Search, Upload, XCircle } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { createClient } from '@/lib/supabase';
 
@@ -48,22 +48,70 @@ const emptyVehicle = {
   is_featured: false
 };
 
+const submissionStatus: Record<string, string> = {
+  pending: 'Pendente',
+  reviewing: 'Em conferência',
+  imported: 'Importado',
+  published: 'Publicado',
+  rejected: 'Rejeitado',
+  duplicate: 'Duplicado'
+};
+
+const stockStatus: Record<string, string> = {
+  pending: 'Pendente',
+  reviewing: 'Em análise',
+  processed: 'Processado',
+  published: 'Publicado',
+  rejected: 'Rejeitado',
+  error: 'Erro'
+};
+
 export default function MasterSitePage() {
   const supabase = createClient();
+
   const [campaign, setCampaign] = useState<any>(emptyCampaign);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [vehicleForm, setVehicleForm] = useState<any>(emptyVehicle);
   const [message, setMessage] = useState('Carregando área Site...');
   const [uploading, setUploading] = useState(false);
+
   const [importUrl, setImportUrl] = useState('');
   const [importLoading, setImportLoading] = useState(false);
   const [importPreview, setImportPreview] = useState<any>(null);
   const [selectedImportImages, setSelectedImportImages] = useState<string[]>([]);
 
+  const [storeMap, setStoreMap] = useState<Record<string, any>>({});
+  const [vehicleSubmissions, setVehicleSubmissions] = useState<any[]>([]);
+  const [stockImports, setStockImports] = useState<any[]>([]);
+  const [selectedSubmissionId, setSelectedSubmissionId] = useState('');
+
   const publicLink = useMemo(() => {
     if (typeof window === 'undefined') return `/campanha/${campaign.slug}`;
     return `${window.location.origin}/campanha/${campaign.slug || 'festival-seu-carro-agora'}`;
   }, [campaign.slug]);
+
+  async function loadStoreQueue() {
+    const [{ data: submissionRows }, { data: stockRows }, { data: storeRows }] = await Promise.all([
+      supabase
+        .from('store_vehicle_link_submissions')
+        .select('*')
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('store_stock_imports')
+        .select('*')
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('stores')
+        .select('id,store_name,responsible_name,responsible_email,responsible_phone,website_url,slug')
+        .neq('status', 'deleted')
+    ]);
+
+    const storesById = Object.fromEntries((storeRows || []).map((store: any) => [store.id, store]));
+
+    setStoreMap(storesById);
+    setVehicleSubmissions(submissionRows || []);
+    setStockImports(stockRows || []);
+  }
 
   async function loadData() {
     const { data: campaignData } = await supabase
@@ -74,6 +122,7 @@ export default function MasterSitePage() {
       .maybeSingle();
 
     const currentCampaign = campaignData || emptyCampaign;
+
     setCampaign({
       ...currentCampaign,
       interest_rate: String(currentCampaign.interest_rate || '1.89')
@@ -89,6 +138,7 @@ export default function MasterSitePage() {
       setVehicles(vehicleRows || []);
     }
 
+    await loadStoreQueue();
     setMessage('');
   }
 
@@ -153,12 +203,10 @@ export default function MasterSitePage() {
     setMessage('Imagem enviada com sucesso.');
   }
 
-  async function saveVehicle(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
+  async function saveVehiclePayload() {
     if (!campaign.id) {
       setMessage('Salve a campanha antes de cadastrar veículos.');
-      return;
+      return null;
     }
 
     const payload = {
@@ -181,19 +229,55 @@ export default function MasterSitePage() {
     };
 
     const request = vehicleForm.id
-      ? supabase.from('site_vehicles').update(payload).eq('id', vehicleForm.id)
-      : supabase.from('site_vehicles').insert(payload);
+      ? supabase.from('site_vehicles').update(payload).eq('id', vehicleForm.id).select('*').single()
+      : supabase.from('site_vehicles').insert(payload).select('*').single();
 
-    const { error } = await request;
+    const { data, error } = await request;
 
     if (error) {
       setMessage('Erro ao salvar veículo.');
-      return;
+      return null;
+    }
+
+    if (selectedSubmissionId && data?.id) {
+      await supabase
+        .from('store_vehicle_link_submissions')
+        .update({
+          status: 'published',
+          imported_vehicle_id: data.id,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedSubmissionId);
     }
 
     setVehicleForm(emptyVehicle);
-    setMessage('Veículo salvo na landing.');
+    setImportPreview(null);
+    setSelectedImportImages([]);
+    setSelectedSubmissionId('');
+
+    setMessage('Veículo publicado na landing.');
     await loadData();
+
+    return data;
+  }
+
+  async function saveVehicle(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await saveVehiclePayload();
+  }
+
+  async function publishSelectedSubmission(item: any) {
+    if (selectedSubmissionId !== item.id) {
+      setMessage('Clique primeiro em Conferir ou Editar dados neste veículo. Depois revise os dados e publique.');
+      return;
+    }
+
+    if (!vehicleForm.brand || !vehicleForm.model || !vehicleForm.price) {
+      setMessage('Antes de publicar, confira e complete marca, modelo e preço no formulário Estoque da Landing.');
+      return;
+    }
+
+    await saveVehiclePayload();
   }
 
   async function editVehicle(item: any) {
@@ -202,6 +286,7 @@ export default function MasterSitePage() {
       price: String(item.price || '')
     });
 
+    setSelectedSubmissionId('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -215,8 +300,8 @@ export default function MasterSitePage() {
     setMessage('Link público copiado.');
   }
 
-  async function previewVehicleImport() {
-    if (!importUrl) {
+  async function runPreviewFromUrl(url: string, storeName?: string, submissionId?: string) {
+    if (!url) {
       setMessage('Cole o link do anúncio para buscar as informações.');
       return;
     }
@@ -227,7 +312,7 @@ export default function MasterSitePage() {
     const response = await fetch('/api/site-import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'preview', url: importUrl })
+      body: JSON.stringify({ action: 'preview', url })
     });
 
     const result = await response.json();
@@ -247,10 +332,55 @@ export default function MasterSitePage() {
       version: result.vehicle?.version || current.version,
       year: result.vehicle?.year || current.year,
       price: result.price ? String(result.price) : current.price,
-      image_url: result.images?.[0] || current.image_url
+      image_url: result.images?.[0] || current.image_url,
+      store_name: storeName || current.store_name
     }));
 
-    setMessage('Prévia encontrada. Confira as informações e importe as fotos.');
+    if (submissionId) {
+      setSelectedSubmissionId(submissionId);
+      await supabase
+        .from('store_vehicle_link_submissions')
+        .update({ status: 'reviewing', updated_at: new Date().toISOString() })
+        .eq('id', submissionId);
+
+      await loadStoreQueue();
+    }
+
+    setMessage('Prévia encontrada. Confira as informações, importe as fotos e publique.');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function previewVehicleImport() {
+    await runPreviewFromUrl(importUrl);
+  }
+
+  async function reviewSubmission(item: any) {
+    const store = storeMap[item.store_id];
+    setImportUrl(item.vehicle_url);
+    await runPreviewFromUrl(item.vehicle_url, store?.store_name || '', item.id);
+  }
+
+  async function rejectSubmission(item: any) {
+    const confirmation = window.prompt('Rejeitar este link? Digite REJEITAR para confirmar.');
+    if (confirmation !== 'REJEITAR') return;
+
+    await supabase
+      .from('store_vehicle_link_submissions')
+      .update({ status: 'rejected', updated_at: new Date().toISOString() })
+      .eq('id', item.id);
+
+    setMessage('Link rejeitado.');
+    await loadStoreQueue();
+  }
+
+  async function markStockImportStatus(item: any, status: string) {
+    await supabase
+      .from('store_stock_imports')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', item.id);
+
+    setMessage('Status do arquivo atualizado.');
+    await loadStoreQueue();
   }
 
   function toggleImportImage(url: string) {
@@ -293,6 +423,15 @@ export default function MasterSitePage() {
       image_url: result.vehicle?.image_url || current.image_url
     }));
 
+    if (selectedSubmissionId) {
+      await supabase
+        .from('store_vehicle_link_submissions')
+        .update({ status: 'imported', updated_at: new Date().toISOString() })
+        .eq('id', selectedSubmissionId);
+
+      await loadStoreQueue();
+    }
+
     setMessage(result.uploadedImages?.length ? 'Fotos importadas. Agora confira e clique em Adicionar veículo na landing.' : 'Não foi possível salvar fotos, mas a prévia foi carregada.');
   }
 
@@ -307,7 +446,7 @@ export default function MasterSitePage() {
               <p className="premium-eyebrow">Captação digital</p>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Site</h1>
               <p className="premium-muted mt-3 max-w-3xl text-sm">
-                Configure a landing pública, cadastre veículos com imagem e capture leads pelo simulador.
+                Configure a landing pública, revise veículos enviados pelas lojas e publique no simulador.
               </p>
             </div>
 
@@ -318,6 +457,117 @@ export default function MasterSitePage() {
           </header>
 
           {message ? <div className="mt-5 rounded-2xl border border-zinc-200 bg-white p-4 text-sm font-bold text-zinc-700">{message}</div> : null}
+
+          <section className="premium-card mt-6 p-5">
+            <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <h2 className="text-2xl font-black text-zinc-950">Veículos enviados pelas lojas</h2>
+                <p className="mt-1 text-sm text-zinc-500">Fila de links enviados no cadastro da loja. Confira, edite e publique manualmente.</p>
+              </div>
+              <span className="rounded-full bg-red-50 px-4 py-2 text-xs font-black text-red-600">
+                {vehicleSubmissions.filter((item) => item.status === 'pending').length} pendente(s)
+              </span>
+            </div>
+
+            <div className="mt-5 grid gap-3">
+              {vehicleSubmissions.map((item) => {
+                const store = storeMap[item.store_id];
+                const isSelected = selectedSubmissionId === item.id;
+
+                return (
+                  <div key={item.id} className={`rounded-3xl border p-4 ${isSelected ? 'border-red-300 bg-red-50/40' : 'border-zinc-100 bg-zinc-50'}`}>
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Loja</p>
+                        <h3 className="mt-1 text-lg font-black text-zinc-950">{store?.store_name || 'Loja não encontrada'}</h3>
+                        <p className="mt-1 text-sm text-zinc-500">{store?.responsible_name || '-'} • {store?.responsible_email || '-'}</p>
+
+                        {store?.website_url ? (
+                          <a className="mt-2 inline-flex text-xs font-bold text-red-600" href={store.website_url} target="_blank">
+                            Site da loja: {store.website_url}
+                          </a>
+                        ) : null}
+
+                        <p className="mt-3 break-all rounded-2xl bg-white p-3 text-xs font-bold text-zinc-600">{item.vehicle_url}</p>
+                      </div>
+
+                      <div className="flex flex-col gap-2 xl:w-56">
+                        <span className="rounded-full bg-white px-3 py-2 text-center text-xs font-black text-zinc-500">
+                          {submissionStatus[item.status] || item.status}
+                        </span>
+
+                        <button className="premium-button-secondary text-xs" type="button" onClick={() => reviewSubmission(item)}>
+                          <Search size={14} /> Conferir
+                        </button>
+
+                        <button className="premium-button-secondary text-xs" type="button" onClick={() => reviewSubmission(item)}>
+                          <Eye size={14} /> Editar dados
+                        </button>
+
+                        <button className="premium-button-primary text-xs" type="button" onClick={() => publishSelectedSubmission(item)}>
+                          <CheckCircle2 size={14} /> Publicar após edição
+                        </button>
+
+                        <button className="premium-button-secondary text-xs" type="button" onClick={() => rejectSubmission(item)}>
+                          <XCircle size={14} /> Rejeitar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {!vehicleSubmissions.length ? (
+                <p className="text-sm font-bold text-zinc-500">Nenhum link de veículo enviado pelas lojas ainda.</p>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="premium-card mt-6 p-5">
+            <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <h2 className="text-2xl font-black text-zinc-950">Arquivos XML/CSV enviados</h2>
+                <p className="mt-1 text-sm text-zinc-500">Arquivos de estoque enviados pelas lojas no cadastro.</p>
+              </div>
+              <FileSpreadsheet className="text-red-600" />
+            </div>
+
+            <div className="mt-5 grid gap-3">
+              {stockImports.map((item) => {
+                const store = storeMap[item.store_id];
+
+                return (
+                  <div key={item.id} className="rounded-3xl border border-zinc-100 bg-zinc-50 p-4">
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                      <div>
+                        <h3 className="font-black text-zinc-950">{store?.store_name || 'Loja não encontrada'}</h3>
+                        <p className="mt-1 text-sm text-zinc-500">{item.file_name}</p>
+                        <p className="mt-1 text-xs font-bold text-zinc-400">
+                          {stockStatus[item.status] || item.status} • {(Number(item.file_size_bytes || 0) / 1024).toFixed(1)} KB
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <button className="premium-button-secondary text-xs" type="button" onClick={() => markStockImportStatus(item, 'reviewing')}>
+                          Marcar em análise
+                        </button>
+                        <button className="premium-button-secondary text-xs" type="button" onClick={() => markStockImportStatus(item, 'processed')}>
+                          Processado
+                        </button>
+                        <button className="premium-button-secondary text-xs" type="button" onClick={() => markStockImportStatus(item, 'rejected')}>
+                          Rejeitar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {!stockImports.length ? (
+                <p className="text-sm font-bold text-zinc-500">Nenhum arquivo XML/CSV enviado ainda.</p>
+              ) : null}
+            </div>
+          </section>
 
           <section className="premium-card mt-6 p-5">
             <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
@@ -418,10 +668,21 @@ export default function MasterSitePage() {
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-black text-zinc-950">Estoque da Landing</h2>
-                  <p className="mt-1 text-sm text-zinc-500">Cadastre os carros que aparecerão no simulador.</p>
+                  <p className="mt-1 text-sm text-zinc-500">Confira ou edite os carros antes de publicar no simulador.</p>
                 </div>
-                <button className="premium-button-secondary" type="button" onClick={() => setVehicleForm(emptyVehicle)}><Plus size={18} /> Novo</button>
+                <button className="premium-button-secondary" type="button" onClick={() => {
+                  setVehicleForm(emptyVehicle);
+                  setSelectedSubmissionId('');
+                  setImportPreview(null);
+                  setSelectedImportImages([]);
+                }}><Plus size={18} /> Novo</button>
               </div>
+
+              {selectedSubmissionId ? (
+                <div className="mt-4 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-red-700">
+                  Você está editando um veículo enviado por uma loja. Ao salvar, ele será marcado como publicado.
+                </div>
+              ) : null}
 
               <div className="mt-5 grid gap-3 md:grid-cols-2">
                 <input className="premium-input" placeholder="Marca" value={vehicleForm.brand} onChange={(e) => setVehicleForm({ ...vehicleForm, brand: e.target.value })} required />
@@ -467,7 +728,7 @@ export default function MasterSitePage() {
               </div>
 
               <button className="premium-button-primary mt-4 w-full" type="submit">
-                {vehicleForm.id ? 'Salvar alterações do veículo' : 'Adicionar veículo na landing'}
+                {vehicleForm.id ? 'Salvar alterações do veículo' : selectedSubmissionId ? 'Publicar veículo enviado pela loja' : 'Adicionar veículo na landing'}
               </button>
             </form>
           </div>
