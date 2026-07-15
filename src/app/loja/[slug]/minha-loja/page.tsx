@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
-import { BarChart3, Car, CheckCircle2, ClipboardList, ExternalLink, Link as LinkIcon, LockKeyhole, LogOut, Plus, Store } from 'lucide-react';
+import { BarChart3, Car, CheckCircle2, ClipboardList, ExternalLink, Link as LinkIcon, LockKeyhole, LogOut, Plus, Store, Upload } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
 const statusLabel: Record<string, string> = {
@@ -37,6 +37,8 @@ export default function StoreMyStorePage() {
   const [stockImports, setStockImports] = useState<any[]>([]);
   const [message, setMessage] = useState('Carregando Minha Loja...');
   const [saving, setSaving] = useState(false);
+  const [stockUploadFile, setStockUploadFile] = useState<File | null>(null);
+  const [uploadingStock, setUploadingStock] = useState(false);
 
   const [storeForm, setStoreForm] = useState({
     storeName: '',
@@ -206,6 +208,50 @@ export default function StoreMyStorePage() {
     setSaving(false);
   }
 
+  async function uploadStockFile(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!stockUploadFile) {
+      setMessage('Selecione um arquivo XML ou CSV.');
+      return;
+    }
+
+    const token = await getAuthToken();
+
+    if (!token) return;
+
+    setUploadingStock(true);
+    setMessage('Enviando estoque para análise do Master...');
+
+    try {
+      const formData = new FormData();
+      formData.append('slug', slug);
+      formData.append('stock_file', stockUploadFile);
+
+      const response = await fetch('/api/store-stock-upload', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Não foi possível enviar o arquivo.');
+      }
+
+      setStockUploadFile(null);
+      setMessage('Arquivo de estoque enviado com sucesso. O Master vai analisar.');
+      await loadData();
+    } catch (error: any) {
+      setMessage(error?.message || 'Erro ao enviar estoque.');
+    }
+
+    setUploadingStock(false);
+  }
+
   if (message && !store) {
     return <main className="flex min-h-screen items-center justify-center bg-[#071020] p-6 text-center text-white">{message}</main>;
   }
@@ -343,21 +389,57 @@ export default function StoreMyStorePage() {
           </section>
 
           <section className="premium-card mt-6 p-6">
-            <h2 className="text-2xl font-black text-zinc-950">Arquivos de estoque enviados</h2>
-            <p className="mt-1 text-sm text-zinc-500">Histórico de XML/CSV enviados no cadastro da loja.</p>
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <h2 className="text-2xl font-black text-zinc-950">Arquivos de estoque enviados</h2>
+                <p className="mt-1 text-sm text-zinc-500">Envie XML/CSV do seu estoque para análise do Master.</p>
+              </div>
+              <span className="rounded-full bg-red-50 px-4 py-2 text-xs font-black text-red-600">
+                {stockImports.length} arquivo(s)
+              </span>
+            </div>
+
+            <form onSubmit={uploadStockFile} className="mt-5 grid gap-3 xl:grid-cols-[1fr_auto]">
+              <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm font-bold text-zinc-600">
+                <Upload size={20} />
+                <span className="min-w-0 flex-1 truncate">
+                  {stockUploadFile ? stockUploadFile.name : 'Selecionar arquivo XML ou CSV'}
+                </span>
+                <input
+                  className="hidden"
+                  type="file"
+                  accept=".csv,.xml,.txt,text/csv,text/xml,application/xml"
+                  onChange={(event) => setStockUploadFile(event.target.files?.[0] || null)}
+                />
+              </label>
+
+              <button className="premium-button-primary" type="submit" disabled={uploadingStock}>
+                <Upload size={18} />
+                {uploadingStock ? 'Enviando...' : 'Enviar estoque'}
+              </button>
+            </form>
 
             <div className="mt-5 grid gap-3">
               {stockImports.map((item) => (
                 <div key={item.id} className="rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
-                  <p className="font-black text-zinc-950">{item.file_name}</p>
-                  <p className="mt-1 text-xs font-bold text-zinc-400">
-                    Status: {item.status} • {(Number(item.file_size_bytes || 0) / 1024).toFixed(1)} KB
-                  </p>
+                  <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+                    <div>
+                      <p className="font-black text-zinc-950">{item.file_name}</p>
+                      <p className="mt-1 text-xs font-bold text-zinc-400">
+                        Status: {item.status} • {(Number(item.file_size_bytes || 0) / 1024).toFixed(1)} KB
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-white px-3 py-2 text-xs font-black text-zinc-500">
+                      {new Date(item.created_at).toLocaleDateString('pt-BR')}
+                    </span>
+                  </div>
                 </div>
               ))}
 
               {!stockImports.length ? (
-                <p className="text-sm font-bold text-zinc-400">Nenhum arquivo enviado.</p>
+                <p className="rounded-2xl border border-dashed border-zinc-200 p-5 text-center text-sm font-bold text-zinc-400">
+                  Nenhum arquivo enviado.
+                </p>
               ) : null}
             </div>
           </section>
