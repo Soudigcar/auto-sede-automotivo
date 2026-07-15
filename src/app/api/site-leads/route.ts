@@ -10,18 +10,33 @@ function number(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function getSupabaseAdmin() {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error('Configuração do servidor incompleta. Verifique SUPABASE_SERVICE_ROLE_KEY e NEXT_PUBLIC_SUPABASE_URL.');
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false }
+  });
+}
+
+async function pickNextStore(supabase: any) {
+  const { data, error } = await supabase.rpc('pick_next_lead_store', {
+    p_routing_key: 'default'
+  });
+
+  if (error) {
+    throw new Error(`Erro ao escolher loja: ${error.message}`);
+  }
+
+  return Array.isArray(data) && data.length ? data[0] : null;
+}
+
 export async function POST(request: Request) {
   try {
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-    if (!supabaseUrl || !serviceKey) {
-      return NextResponse.json(
-        { error: 'Configuração do servidor incompleta. Verifique SUPABASE_SERVICE_ROLE_KEY e NEXT_PUBLIC_SUPABASE_URL.' },
-        { status: 500 }
-      );
-    }
-
     const body = await request.json();
 
     const name = text(body.name);
@@ -31,9 +46,60 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Nome e telefone são obrigatórios.' }, { status: 400 });
     }
 
-    const supabase = createClient(supabaseUrl, serviceKey, {
-      auth: { persistSession: false }
-    });
+    const supabase = getSupabaseAdmin();
+
+    const selectedStore = await pickNextStore(supabase);
+
+    let routedLeadId: string | null = null;
+    let assignedStoreId: string | null = null;
+    let assignedStoreName = '';
+    let assignedAt: string | null = null;
+    let routingStrategy = 'unassigned_no_store';
+
+    if (selectedStore?.store_id) {
+      assignedStoreId = selectedStore.store_id;
+      assignedStoreName = selectedStore.store_name || '';
+      assignedAt = new Date().toISOString();
+      routingStrategy = 'round_robin';
+
+      const { data: routedLead, error: routedLeadError } = await supabase
+        .from('leads')
+        .insert({
+          event_id: selectedStore.event_id || null,
+          customer_name: name,
+          customer_phone: phone,
+          customer_bank: '',
+          interested_vehicle: text(body.vehicle_name),
+          vehicle_category_interest: '',
+          origin: 'manual',
+          assigned_store_id: assignedStoreId,
+          status: 'new_lead',
+          notes: [
+            'Lead criado automaticamente pela Base/Simulador.',
+            body.campaign_name ? `Campanha: ${text(body.campaign_name)}.` : '',
+            body.vehicle_name ? `Veículo: ${text(body.vehicle_name)}.` : ''
+          ].filter(Boolean).join(' ')
+        })
+        .select('id')
+        .single();
+
+      if (routedLeadError) {
+        throw new Error(`Erro ao criar lead no pipeline da loja: ${routedLeadError.message}`);
+      }
+
+      routedLeadId = routedLead?.id || null;
+    }
+
+    const metadata = {
+      ...(body.metadata || {}),
+      routing: {
+        strategy: routingStrategy,
+        assigned_store_id: assignedStoreId,
+        assigned_store_name: assignedStoreName,
+        assigned_at: assignedAt,
+        routed_lead_id: routedLeadId
+      }
+    };
 
     const payload = {
       name,
@@ -52,8 +118,13 @@ export async function POST(request: Request) {
       estimated_installment: number(body.estimated_installment),
       interest_rate: number(body.interest_rate) || 1.89,
       status: 'Novo lead',
+      assigned_store_id: assignedStoreId,
+      assigned_store_name: assignedStoreName || null,
+      assigned_at: assignedAt,
+      routed_lead_id: routedLeadId,
+      routing_strategy: routingStrategy,
       notes: text(body.notes),
-      metadata: body.metadata || {},
+      metadata,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -64,7 +135,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      assigned_store_id: assignedStoreId,
+      assigned_store_name: assignedStoreName,
+      routed_lead_id: routedLeadId,
+      routing_strategy: routingStrategy
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || 'Erro ao salvar lead.' },
