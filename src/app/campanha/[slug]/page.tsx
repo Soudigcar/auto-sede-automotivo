@@ -48,6 +48,8 @@ export default function CampaignLandingPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState('');
+  const [galleryVehicle, setGalleryVehicle] = useState<any>(null);
+  const [galleryIndex, setGalleryIndex] = useState(0);
 
   const [form, setForm] = useState({
     name: '',
@@ -120,6 +122,24 @@ export default function CampaignLandingPage() {
     setSubmitted(false);
   }
 
+  function vehicleImages(vehicle: any) {
+    const images = [
+      ...(Array.isArray(vehicle?.image_urls) ? vehicle.image_urls : []),
+      vehicle?.image_url
+    ].filter(Boolean);
+
+    return Array.from(new Set(images));
+  }
+
+  function openGallery(vehicle: any) {
+    const images = vehicleImages(vehicle);
+
+    if (!images.length) return;
+
+    setGalleryVehicle(vehicle);
+    setGalleryIndex(0);
+  }
+
   async function submitSimulation(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!isValid || !selectedVehicle || !campaign) return;
@@ -179,6 +199,9 @@ export default function CampaignLandingPage() {
   if (message && !campaign) {
     return <main className="flex min-h-screen items-center justify-center bg-[#071020] p-6 text-center text-white">{message}</main>;
   }
+
+  const galleryImages = vehicleImages(galleryVehicle);
+  const activeGalleryImage = galleryImages[galleryIndex] || galleryImages[0];
 
   return (
     <main className="min-h-screen bg-[#071020] text-white">
@@ -250,7 +273,25 @@ export default function CampaignLandingPage() {
           <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {vehicles.map((vehicle) => (
               <div key={vehicle.id} className="overflow-hidden rounded-[32px] border border-zinc-100 bg-zinc-50 shadow-xl shadow-zinc-200/60">
-                {vehicle.image_url ? <img src={vehicle.image_url} alt={vehicle.model} className="h-56 w-full object-cover" /> : <div className="flex h-56 items-center justify-center bg-zinc-200 font-bold text-zinc-500">Sem imagem</div>}
+                {vehicle.image_url ? (
+                  <button
+                    type="button"
+                    onClick={() => openGallery(vehicle)}
+                    className="group relative block h-56 w-full overflow-hidden text-left"
+                  >
+                    <img src={vehicle.image_url} alt={vehicle.model} className="h-56 w-full object-cover transition duration-300 group-hover:scale-105" />
+                    <span className="absolute bottom-3 left-3 rounded-full bg-black/70 px-4 py-2 text-xs font-black uppercase tracking-wide text-white backdrop-blur">
+                      Ver fotos
+                    </span>
+                    {vehicleImages(vehicle).length > 1 ? (
+                      <span className="absolute right-3 top-3 rounded-full bg-white px-3 py-1 text-xs font-black text-zinc-950">
+                        {vehicleImages(vehicle).length} fotos
+                      </span>
+                    ) : null}
+                  </button>
+                ) : (
+                  <div className="flex h-56 items-center justify-center bg-zinc-200 font-bold text-zinc-500">Sem imagem</div>
+                )}
 
                 <div className="p-5">
                   <h3 className="text-xl font-black">{vehicle.brand} {vehicle.model}</h3>
@@ -287,6 +328,79 @@ export default function CampaignLandingPage() {
           SIMULAR MEU FINANCIAMENTO
         </button>
       </section>
+
+
+      {galleryVehicle ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-[32px] bg-white p-4 text-zinc-950 shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-zinc-100 pb-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.3em] text-red-600">Galeria do veículo</p>
+                <h2 className="mt-2 text-2xl font-black">
+                  {galleryVehicle.brand} {galleryVehicle.model}
+                </h2>
+                <p className="mt-1 text-sm font-bold text-zinc-500">
+                  {galleryVehicle.version} • {galleryVehicle.year} • {money(galleryVehicle.price)}
+                </p>
+              </div>
+
+              <button
+                className="rounded-xl bg-zinc-100 p-2 text-zinc-500"
+                type="button"
+                onClick={() => setGalleryVehicle(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {activeGalleryImage ? (
+              <div className="mt-4 overflow-hidden rounded-[28px] bg-zinc-100">
+                <img
+                  src={activeGalleryImage}
+                  alt="Foto do veículo"
+                  className="max-h-[62vh] w-full object-contain"
+                />
+              </div>
+            ) : null}
+
+            {galleryImages.length > 1 ? (
+              <div className="mt-4 grid gap-3 grid-cols-3 sm:grid-cols-4 md:grid-cols-6">
+                {galleryImages.map((image: string, index: number) => (
+                  <button
+                    key={image}
+                    type="button"
+                    onClick={() => setGalleryIndex(index)}
+                    className={`overflow-hidden rounded-2xl border ${index === galleryIndex ? 'border-red-500 ring-4 ring-red-500/10' : 'border-zinc-200'}`}
+                  >
+                    <img src={image} alt="Miniatura do veículo" className="h-24 w-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+              <button
+                className="flex-1 rounded-2xl bg-red-600 px-6 py-4 text-sm font-black uppercase tracking-wide text-white"
+                type="button"
+                onClick={() => {
+                  openWithVehicle(galleryVehicle.id);
+                  setGalleryVehicle(null);
+                }}
+              >
+                Simular este veículo
+              </button>
+
+              <button
+                className="flex-1 rounded-2xl bg-zinc-950 px-6 py-4 text-sm font-black uppercase tracking-wide text-white"
+                type="button"
+                onClick={() => setGalleryVehicle(null)}
+              >
+                Fechar galeria
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {modalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">

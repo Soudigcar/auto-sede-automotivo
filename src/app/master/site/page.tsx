@@ -42,6 +42,7 @@ const emptyVehicle = {
   fuel: '',
   price: '',
   image_url: '',
+  image_urls: [],
   store_name: '',
   status: 'disponivel',
   show_on_landing: true,
@@ -198,7 +199,11 @@ export default function MasterSitePage() {
     }
 
     const { data } = supabase.storage.from('vehicle-images').getPublicUrl(fileName);
-    setVehicleForm((current: any) => ({ ...current, image_url: data.publicUrl }));
+    setVehicleForm((current: any) => ({
+      ...current,
+      image_url: data.publicUrl,
+      image_urls: Array.from(new Set([...(current.image_urls || []), data.publicUrl]))
+    }));
     setUploading(false);
     setMessage('Imagem enviada com sucesso.');
   }
@@ -221,6 +226,11 @@ export default function MasterSitePage() {
       fuel: vehicleForm.fuel,
       price: Number(vehicleForm.price || 0),
       image_url: vehicleForm.image_url,
+      image_urls: Array.isArray(vehicleForm.image_urls) && vehicleForm.image_urls.length
+        ? vehicleForm.image_urls
+        : vehicleForm.image_url
+          ? [vehicleForm.image_url]
+          : [],
       store_name: vehicleForm.store_name,
       status: vehicleForm.status,
       show_on_landing: Boolean(vehicleForm.show_on_landing),
@@ -283,7 +293,12 @@ export default function MasterSitePage() {
   async function editVehicle(item: any) {
     setVehicleForm({
       ...item,
-      price: String(item.price || '')
+      price: String(item.price || ''),
+      image_urls: Array.isArray(item.image_urls) && item.image_urls.length
+        ? item.image_urls
+        : item.image_url
+          ? [item.image_url]
+          : []
     });
 
     setSelectedSubmissionId('');
@@ -420,7 +435,12 @@ export default function MasterSitePage() {
       version: result.vehicle?.version || current.version,
       year: result.vehicle?.year || current.year,
       price: result.price ? String(result.price) : current.price,
-      image_url: result.vehicle?.image_url || current.image_url
+      image_url: result.vehicle?.image_url || current.image_url,
+      image_urls: result.uploadedImages?.length
+        ? result.uploadedImages
+        : result.vehicle?.image_url
+          ? Array.from(new Set([...(current.image_urls || []), result.vehicle.image_url]))
+          : current.image_urls || []
     }));
 
     if (selectedSubmissionId) {
