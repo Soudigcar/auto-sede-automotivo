@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Copy, DownloadCloud, ExternalLink, Eye, FileSpreadsheet, Plus, Search, Upload, XCircle } from 'lucide-react';
+import { CheckCircle2, Copy, DownloadCloud, ExternalLink, Eye, FileSpreadsheet, Plus, Search, Trash2, Upload, XCircle } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { createClient } from '@/lib/supabase';
 
@@ -67,6 +67,14 @@ const stockStatus: Record<string, string> = {
   error: 'Erro'
 };
 
+const emptyVehicleOptions: Record<string, string[]> = {
+  brand: [],
+  model: [],
+  version: [],
+  transmission: [],
+  fuel: []
+};
+
 export default function MasterSitePage() {
   const supabase = createClient();
 
@@ -85,11 +93,36 @@ export default function MasterSitePage() {
   const [vehicleSubmissions, setVehicleSubmissions] = useState<any[]>([]);
   const [stockImports, setStockImports] = useState<any[]>([]);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState('');
+  const [vehicleOptions, setVehicleOptions] = useState<Record<string, string[]>>(emptyVehicleOptions);
 
   const publicLink = useMemo(() => {
     if (typeof window === 'undefined') return `/campanha/${campaign.slug}`;
     return `${window.location.origin}/campanha/${campaign.slug || 'festival-seu-carro-agora'}`;
   }, [campaign.slug]);
+
+  const activeVehicleSubmissions = useMemo(() => {
+    return vehicleSubmissions.filter((item) => !['published', 'rejected', 'duplicate'].includes(item.status));
+  }, [vehicleSubmissions]);
+
+  async function loadVehicleOptions() {
+    const { data } = await supabase
+      .from('vehicle_attribute_options')
+      .select('option_type,option_value')
+      .eq('is_active', true)
+      .order('option_type', { ascending: true })
+      .order('option_value', { ascending: true });
+
+    const grouped: Record<string, string[]> = { ...emptyVehicleOptions };
+
+    (data || []).forEach((item: any) => {
+      if (!grouped[item.option_type]) grouped[item.option_type] = [];
+      if (item.option_value && !grouped[item.option_type].includes(item.option_value)) {
+        grouped[item.option_type].push(item.option_value);
+      }
+    });
+
+    setVehicleOptions(grouped);
+  }
 
   async function loadStoreQueue() {
     const [{ data: submissionRows }, { data: stockRows }, { data: storeRows }] = await Promise.all([
@@ -134,12 +167,14 @@ export default function MasterSitePage() {
         .from('site_vehicles')
         .select('*')
         .eq('campaign_id', currentCampaign.id)
+        .neq('status', 'excluido')
         .order('created_at', { ascending: false });
 
       setVehicles(vehicleRows || []);
     }
 
     await loadStoreQueue();
+    await loadVehicleOptions();
     setMessage('');
   }
 
@@ -208,6 +243,46 @@ export default function MasterSitePage() {
     setMessage('Imagem enviada com sucesso.');
   }
 
+  async function saveAttributeOptions(payload: any) {
+    const options = [
+      { option_type: 'brand', option_value: payload.brand },
+      { option_type: 'model', option_value: payload.model },
+      { option_type: 'version', option_value: payload.version },
+      { option_type: 'transmission', option_value: payload.transmission },
+      { option_type: 'fuel', option_value: payload.fuel }
+    ].map((item) => ({
+      ...item,
+      option_value: String(item.option_value || '').trim()
+    })).filter((item) => item.option_value);
+
+    for (const item of options) {
+      const { data: existing } = await supabase
+        .from('vehicle_attribute_options')
+        .select('id,usage_count')
+        .eq('option_type', item.option_type)
+        .ilike('option_value', item.option_value)
+        .maybeSingle();
+
+      if (existing?.id) {
+        await supabase
+          .from('vehicle_attribute_options')
+          .update({
+            usage_count: Number(existing.usage_count || 1) + 1,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existing.id);
+      } else {
+        await supabase
+          .from('vehicle_attribute_options')
+          .insert({
+            option_type: item.option_type,
+            option_value: item.option_value,
+            is_active: true
+          });
+      }
+    }
+  }
+
   async function saveVehiclePayload() {
     if (!campaign.id) {
       setMessage('Salve a campanha antes de cadastrar veículos.');
@@ -248,6 +323,9 @@ export default function MasterSitePage() {
       setMessage('Erro ao salvar veículo.');
       return null;
     }
+
+    await saveAttributeOptions(payload);
+    await loadVehicleOptions();
 
     if (selectedSubmissionId && data?.id) {
       await supabase
@@ -307,6 +385,30 @@ export default function MasterSitePage() {
 
   async function toggleVehicle(item: any, payload: any) {
     await supabase.from('site_vehicles').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', item.id);
+    await loadData();
+  }
+
+  async function deleteVehicle(item: any) {
+    const confirmation = window.prompt(`Excluir o anúncio ${item.brand} ${item.model}? Digite EXCLUIR para confirmar.`);
+
+    if (confirmation !== 'EXCLUIR') return;
+
+    const { error } = await supabase
+      .from('site_vehicles')
+      .update({
+        status: 'excluido',
+        show_on_landing: false,
+        is_featured: false,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', item.id);
+
+    if (error) {
+      setMessage('Erro ao excluir anúncio.');
+      return;
+    }
+
+    setMessage('Anúncio excluído da landing.');
     await loadData();
   }
 
@@ -485,12 +587,12 @@ export default function MasterSitePage() {
                 <p className="mt-1 text-sm text-zinc-500">Fila de links enviados no cadastro da loja. Confira, edite e publique manualmente.</p>
               </div>
               <span className="rounded-full bg-red-50 px-4 py-2 text-xs font-black text-red-600">
-                {vehicleSubmissions.filter((item) => item.status === 'pending').length} pendente(s)
+                {activeVehicleSubmissions.filter((item) => item.status === 'pending').length} pendente(s)
               </span>
             </div>
 
             <div className="mt-5 grid gap-3">
-              {vehicleSubmissions.map((item) => {
+              {activeVehicleSubmissions.map((item) => {
                 const store = storeMap[item.store_id];
                 const isSelected = selectedSubmissionId === item.id;
 
@@ -537,7 +639,7 @@ export default function MasterSitePage() {
                 );
               })}
 
-              {!vehicleSubmissions.length ? (
+              {!activeVehicleSubmissions.length ? (
                 <p className="text-sm font-bold text-zinc-500">Nenhum link de veículo enviado pelas lojas ainda.</p>
               ) : null}
             </div>
@@ -704,15 +806,31 @@ export default function MasterSitePage() {
                 </div>
               ) : null}
 
+              <datalist id="vehicle-brand-options">
+                {vehicleOptions.brand.map((item) => <option key={item} value={item} />)}
+              </datalist>
+              <datalist id="vehicle-model-options">
+                {vehicleOptions.model.map((item) => <option key={item} value={item} />)}
+              </datalist>
+              <datalist id="vehicle-version-options">
+                {vehicleOptions.version.map((item) => <option key={item} value={item} />)}
+              </datalist>
+              <datalist id="vehicle-transmission-options">
+                {vehicleOptions.transmission.map((item) => <option key={item} value={item} />)}
+              </datalist>
+              <datalist id="vehicle-fuel-options">
+                {vehicleOptions.fuel.map((item) => <option key={item} value={item} />)}
+              </datalist>
+
               <div className="mt-5 grid gap-3 md:grid-cols-2">
-                <input className="premium-input" placeholder="Marca" value={vehicleForm.brand} onChange={(e) => setVehicleForm({ ...vehicleForm, brand: e.target.value })} required />
-                <input className="premium-input" placeholder="Modelo" value={vehicleForm.model} onChange={(e) => setVehicleForm({ ...vehicleForm, model: e.target.value })} required />
-                <input className="premium-input" placeholder="Versão" value={vehicleForm.version} onChange={(e) => setVehicleForm({ ...vehicleForm, version: e.target.value })} />
+                <input className="premium-input" list="vehicle-brand-options" placeholder="Marca" value={vehicleForm.brand} onChange={(e) => setVehicleForm({ ...vehicleForm, brand: e.target.value })} required />
+                <input className="premium-input" list="vehicle-model-options" placeholder="Modelo" value={vehicleForm.model} onChange={(e) => setVehicleForm({ ...vehicleForm, model: e.target.value })} required />
+                <input className="premium-input" list="vehicle-version-options" placeholder="Versão" value={vehicleForm.version} onChange={(e) => setVehicleForm({ ...vehicleForm, version: e.target.value })} />
                 <input className="premium-input" placeholder="Ano" value={vehicleForm.year} onChange={(e) => setVehicleForm({ ...vehicleForm, year: e.target.value })} />
                 <input className="premium-input" placeholder="KM" value={vehicleForm.mileage} onChange={(e) => setVehicleForm({ ...vehicleForm, mileage: e.target.value })} />
                 <input className="premium-input" placeholder="Cor" value={vehicleForm.color} onChange={(e) => setVehicleForm({ ...vehicleForm, color: e.target.value })} />
-                <input className="premium-input" placeholder="Câmbio" value={vehicleForm.transmission} onChange={(e) => setVehicleForm({ ...vehicleForm, transmission: e.target.value })} />
-                <input className="premium-input" placeholder="Combustível" value={vehicleForm.fuel} onChange={(e) => setVehicleForm({ ...vehicleForm, fuel: e.target.value })} />
+                <input className="premium-input" list="vehicle-transmission-options" placeholder="Câmbio" value={vehicleForm.transmission} onChange={(e) => setVehicleForm({ ...vehicleForm, transmission: e.target.value })} />
+                <input className="premium-input" list="vehicle-fuel-options" placeholder="Combustível" value={vehicleForm.fuel} onChange={(e) => setVehicleForm({ ...vehicleForm, fuel: e.target.value })} />
                 <input className="premium-input" type="number" placeholder="Preço" value={vehicleForm.price} onChange={(e) => setVehicleForm({ ...vehicleForm, price: e.target.value })} required />
                 <input className="premium-input" placeholder="Loja responsável" value={vehicleForm.store_name} onChange={(e) => setVehicleForm({ ...vehicleForm, store_name: e.target.value })} />
 
@@ -779,6 +897,9 @@ export default function MasterSitePage() {
                       </button>
                       <button className="premium-button-secondary text-xs" type="button" onClick={() => toggleVehicle(item, { is_featured: !item.is_featured })}>
                         {item.is_featured ? 'Remover destaque' : 'Destacar'}
+                      </button>
+                      <button className="premium-button-secondary text-xs" type="button" onClick={() => deleteVehicle(item)}>
+                        <Trash2 size={14} /> Excluir anúncio
                       </button>
                     </div>
                   </div>
