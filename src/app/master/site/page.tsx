@@ -75,14 +75,6 @@ const emptyVehicleOptions: Record<string, string[]> = {
   fuel: []
 };
 
-const emptyVehicleOptions: Record<string, string[]> = {
-  brand: [],
-  model: [],
-  version: [],
-  transmission: [],
-  fuel: []
-};
-
 export default function MasterSitePage() {
   const supabase = createClient();
 
@@ -101,11 +93,6 @@ export default function MasterSitePage() {
   const [vehicleSubmissions, setVehicleSubmissions] = useState<any[]>([]);
   const [stockImports, setStockImports] = useState<any[]>([]);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState('');
-  const [vehicleOptions, setVehicleOptions] = useState<Record<string, string[]>>(emptyVehicleOptions);
-  const [queueSearch, setQueueSearch] = useState('');
-  const [queueStatus, setQueueStatus] = useState('all');
-  const [queueStoreFilter, setQueueStoreFilter] = useState('all');
-  const [queueVisibleCount, setQueueVisibleCount] = useState(10);
   const [vehicleOptions, setVehicleOptions] = useState<Record<string, string[]>>(emptyVehicleOptions);
   const [queueSearch, setQueueSearch] = useState('');
   const [queueStatus, setQueueStatus] = useState('all');
@@ -156,44 +143,6 @@ export default function MasterSitePage() {
 
   const visibleVehicleSubmissions = filteredVehicleSubmissions.slice(0, queueVisibleCount);
 
-  const activeVehicleSubmissions = useMemo(() => {
-    return vehicleSubmissions.filter((item) => !['published', 'rejected', 'duplicate'].includes(item.status));
-  }, [vehicleSubmissions]);
-
-  const queueStoreOptions = useMemo(() => {
-    return Array.from(
-      new Set(
-        activeVehicleSubmissions
-          .map((item) => storeMap[item.store_id]?.store_name)
-          .filter(Boolean)
-      )
-    ).sort();
-  }, [activeVehicleSubmissions, storeMap]);
-
-  const filteredVehicleSubmissions = useMemo(() => {
-    const term = queueSearch.toLowerCase().trim();
-
-    return activeVehicleSubmissions.filter((item) => {
-      const store = storeMap[item.store_id];
-      const storeName = store?.store_name || '';
-
-      if (queueStatus !== 'all' && item.status !== queueStatus) return false;
-      if (queueStoreFilter !== 'all' && storeName !== queueStoreFilter) return false;
-
-      if (!term) return true;
-
-      return [
-        storeName,
-        store?.responsible_name,
-        store?.responsible_email,
-        store?.website_url,
-        item.vehicle_url,
-        item.status
-      ].some((value) => String(value || '').toLowerCase().includes(term));
-    });
-  }, [activeVehicleSubmissions, queueSearch, queueStatus, queueStoreFilter, storeMap]);
-
-  const visibleVehicleSubmissions = filteredVehicleSubmissions.slice(0, queueVisibleCount);
 
   async function loadVehicleOptions() {
     const { data } = await supabase
@@ -204,32 +153,6 @@ export default function MasterSitePage() {
       .order('option_value', { ascending: true });
 
     const grouped: Record<string, string[]> = { ...emptyVehicleOptions };
-
-    (data || []).forEach((item: any) => {
-      if (!grouped[item.option_type]) grouped[item.option_type] = [];
-      if (item.option_value && !grouped[item.option_type].includes(item.option_value)) {
-        grouped[item.option_type].push(item.option_value);
-      }
-    });
-
-    setVehicleOptions(grouped);
-  }
-
-  async function loadVehicleOptions() {
-    const { data } = await supabase
-      .from('vehicle_attribute_options')
-      .select('option_type,option_value')
-      .eq('is_active', true)
-      .order('option_type', { ascending: true })
-      .order('option_value', { ascending: true });
-
-    const grouped: Record<string, string[]> = {
-      brand: [],
-      model: [],
-      version: [],
-      transmission: [],
-      fuel: []
-    };
 
     (data || []).forEach((item: any) => {
       if (!grouped[item.option_type]) grouped[item.option_type] = [];
@@ -400,46 +323,6 @@ export default function MasterSitePage() {
     }
   }
 
-  async function saveAttributeOptions(payload: any) {
-    const options = [
-      { option_type: 'brand', option_value: payload.brand },
-      { option_type: 'model', option_value: payload.model },
-      { option_type: 'version', option_value: payload.version },
-      { option_type: 'transmission', option_value: payload.transmission },
-      { option_type: 'fuel', option_value: payload.fuel }
-    ].map((item) => ({
-      ...item,
-      option_value: String(item.option_value || '').trim()
-    })).filter((item) => item.option_value);
-
-    for (const item of options) {
-      const { data: existing } = await supabase
-        .from('vehicle_attribute_options')
-        .select('id,usage_count')
-        .eq('option_type', item.option_type)
-        .ilike('option_value', item.option_value)
-        .maybeSingle();
-
-      if (existing?.id) {
-        await supabase
-          .from('vehicle_attribute_options')
-          .update({
-            usage_count: Number(existing.usage_count || 1) + 1,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', existing.id);
-      } else {
-        await supabase
-          .from('vehicle_attribute_options')
-          .insert({
-            option_type: item.option_type,
-            option_value: item.option_value,
-            is_active: true
-          });
-      }
-    }
-  }
-
   async function saveVehiclePayload() {
     if (!campaign.id) {
       setMessage('Salve a campanha antes de cadastrar veículos.');
@@ -480,9 +363,6 @@ export default function MasterSitePage() {
       setMessage('Erro ao salvar veículo.');
       return null;
     }
-
-    await saveAttributeOptions(payload);
-    await loadVehicleOptions();
 
     await saveAttributeOptions(payload);
     await loadVehicleOptions();
@@ -545,30 +425,6 @@ export default function MasterSitePage() {
 
   async function toggleVehicle(item: any, payload: any) {
     await supabase.from('site_vehicles').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', item.id);
-    await loadData();
-  }
-
-  async function deleteVehicle(item: any) {
-    const confirmation = window.prompt(`Excluir o anúncio ${item.brand} ${item.model}? Digite EXCLUIR para confirmar.`);
-
-    if (confirmation !== 'EXCLUIR') return;
-
-    const { error } = await supabase
-      .from('site_vehicles')
-      .update({
-        status: 'excluido',
-        show_on_landing: false,
-        is_featured: false,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', item.id);
-
-    if (error) {
-      setMessage('Erro ao excluir anúncio.');
-      return;
-    }
-
-    setMessage('Anúncio excluído da landing.');
     await loadData();
   }
 
