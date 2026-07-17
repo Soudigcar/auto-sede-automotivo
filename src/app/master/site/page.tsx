@@ -102,7 +102,15 @@ export default function MasterSitePage() {
   const [stockImports, setStockImports] = useState<any[]>([]);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState('');
   const [vehicleOptions, setVehicleOptions] = useState<Record<string, string[]>>(emptyVehicleOptions);
+  const [queueSearch, setQueueSearch] = useState('');
+  const [queueStatus, setQueueStatus] = useState('all');
+  const [queueStoreFilter, setQueueStoreFilter] = useState('all');
+  const [queueVisibleCount, setQueueVisibleCount] = useState(10);
   const [vehicleOptions, setVehicleOptions] = useState<Record<string, string[]>>(emptyVehicleOptions);
+  const [queueSearch, setQueueSearch] = useState('');
+  const [queueStatus, setQueueStatus] = useState('all');
+  const [queueStoreFilter, setQueueStoreFilter] = useState('all');
+  const [queueVisibleCount, setQueueVisibleCount] = useState(10);
 
   const publicLink = useMemo(() => {
     if (typeof window === 'undefined') return `/campanha/${campaign.slug}`;
@@ -113,9 +121,79 @@ export default function MasterSitePage() {
     return vehicleSubmissions.filter((item) => !['published', 'rejected', 'duplicate'].includes(item.status));
   }, [vehicleSubmissions]);
 
+  const queueStoreOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        activeVehicleSubmissions
+          .map((item) => storeMap[item.store_id]?.store_name)
+          .filter(Boolean)
+      )
+    ).sort();
+  }, [activeVehicleSubmissions, storeMap]);
+
+  const filteredVehicleSubmissions = useMemo(() => {
+    const term = queueSearch.toLowerCase().trim();
+
+    return activeVehicleSubmissions.filter((item) => {
+      const store = storeMap[item.store_id];
+      const storeName = store?.store_name || '';
+
+      if (queueStatus !== 'all' && item.status !== queueStatus) return false;
+      if (queueStoreFilter !== 'all' && storeName !== queueStoreFilter) return false;
+
+      if (!term) return true;
+
+      return [
+        storeName,
+        store?.responsible_name,
+        store?.responsible_email,
+        store?.website_url,
+        item.vehicle_url,
+        item.status
+      ].some((value) => String(value || '').toLowerCase().includes(term));
+    });
+  }, [activeVehicleSubmissions, queueSearch, queueStatus, queueStoreFilter, storeMap]);
+
+  const visibleVehicleSubmissions = filteredVehicleSubmissions.slice(0, queueVisibleCount);
+
   const activeVehicleSubmissions = useMemo(() => {
     return vehicleSubmissions.filter((item) => !['published', 'rejected', 'duplicate'].includes(item.status));
   }, [vehicleSubmissions]);
+
+  const queueStoreOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        activeVehicleSubmissions
+          .map((item) => storeMap[item.store_id]?.store_name)
+          .filter(Boolean)
+      )
+    ).sort();
+  }, [activeVehicleSubmissions, storeMap]);
+
+  const filteredVehicleSubmissions = useMemo(() => {
+    const term = queueSearch.toLowerCase().trim();
+
+    return activeVehicleSubmissions.filter((item) => {
+      const store = storeMap[item.store_id];
+      const storeName = store?.store_name || '';
+
+      if (queueStatus !== 'all' && item.status !== queueStatus) return false;
+      if (queueStoreFilter !== 'all' && storeName !== queueStoreFilter) return false;
+
+      if (!term) return true;
+
+      return [
+        storeName,
+        store?.responsible_name,
+        store?.responsible_email,
+        store?.website_url,
+        item.vehicle_url,
+        item.status
+      ].some((value) => String(value || '').toLowerCase().includes(term));
+    });
+  }, [activeVehicleSubmissions, queueSearch, queueStatus, queueStoreFilter, storeMap]);
+
+  const visibleVehicleSubmissions = filteredVehicleSubmissions.slice(0, queueVisibleCount);
 
   async function loadVehicleOptions() {
     const { data } = await supabase
@@ -686,57 +764,148 @@ export default function MasterSitePage() {
 
           {message ? <div className="mt-5 rounded-2xl border border-zinc-200 bg-white p-4 text-sm font-bold text-zinc-700">{message}</div> : null}
 
-          <section className="premium-card mt-6 p-5">
+          <section className="premium-card mt-6 overflow-hidden p-5">
             <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-              <div>
+              <div className="min-w-0">
                 <h2 className="text-2xl font-black text-zinc-950">Veículos enviados pelas lojas</h2>
-                <p className="mt-1 text-sm text-zinc-500">Fila de links enviados no cadastro da loja. Confira, edite e publique manualmente.</p>
+                <p className="mt-1 text-sm text-zinc-500">
+                  Fila de links enviados no cadastro da loja. Confira, edite e publique manualmente.
+                </p>
               </div>
-              <span className="rounded-full bg-red-50 px-4 py-2 text-xs font-black text-red-600">
+
+              <span className="shrink-0 rounded-full bg-red-50 px-4 py-2 text-xs font-black text-red-600">
                 {activeVehicleSubmissions.filter((item) => item.status === 'pending').length} pendente(s)
               </span>
             </div>
 
+            <div className="mt-5 grid gap-3 xl:grid-cols-[1fr_180px_220px_140px]">
+              <label className="relative min-w-0">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
+                <input
+                  className="premium-input pl-11"
+                  placeholder="Buscar por loja, responsável, e-mail ou link"
+                  value={queueSearch}
+                  onChange={(event) => {
+                    setQueueSearch(event.target.value);
+                    setQueueVisibleCount(10);
+                  }}
+                />
+              </label>
+
+              <select
+                className="premium-input"
+                value={queueStatus}
+                onChange={(event) => {
+                  setQueueStatus(event.target.value);
+                  setQueueVisibleCount(10);
+                }}
+              >
+                <option value="all">Todos status</option>
+                <option value="pending">Pendente</option>
+                <option value="reviewing">Em conferência</option>
+                <option value="imported">Importado</option>
+              </select>
+
+              <select
+                className="premium-input"
+                value={queueStoreFilter}
+                onChange={(event) => {
+                  setQueueStoreFilter(event.target.value);
+                  setQueueVisibleCount(10);
+                }}
+              >
+                <option value="all">Todas as lojas</option>
+                {queueStoreOptions.map((storeName) => (
+                  <option key={storeName} value={storeName}>{storeName}</option>
+                ))}
+              </select>
+
+              <button
+                className="premium-button-secondary justify-center text-xs"
+                type="button"
+                onClick={() => {
+                  setQueueSearch('');
+                  setQueueStatus('all');
+                  setQueueStoreFilter('all');
+                  setQueueVisibleCount(10);
+                }}
+              >
+                Limpar
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-2xl bg-zinc-50 p-3 text-xs font-bold text-zinc-500">
+              Mostrando {Math.min(visibleVehicleSubmissions.length, filteredVehicleSubmissions.length)} de {filteredVehicleSubmissions.length} link(s) em aberto.
+              Publicados, rejeitados e duplicados ficam fora desta fila principal.
+            </div>
+
             <div className="mt-5 grid gap-3">
-              {activeVehicleSubmissions.map((item) => {
+              {visibleVehicleSubmissions.map((item) => {
                 const store = storeMap[item.store_id];
                 const isSelected = selectedSubmissionId === item.id;
 
                 return (
-                  <div key={item.id} className={`rounded-3xl border p-4 ${isSelected ? 'border-red-300 bg-red-50/40' : 'border-zinc-100 bg-zinc-50'}`}>
-                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                      <div className="min-w-0 flex-1">
+                  <div
+                    key={item.id}
+                    className={`overflow-hidden rounded-3xl border p-4 ${isSelected ? 'border-red-300 bg-red-50/40' : 'border-zinc-100 bg-zinc-50'}`}
+                  >
+                    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_220px] xl:items-start">
+                      <div className="min-w-0">
                         <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Loja</p>
-                        <h3 className="mt-1 text-lg font-black text-zinc-950">{store?.store_name || 'Loja não encontrada'}</h3>
-                        <p className="mt-1 text-sm text-zinc-500">{store?.responsible_name || '-'} • {store?.responsible_email || '-'}</p>
+
+                        <h3 className="mt-1 truncate text-lg font-black text-zinc-950">
+                          {store?.store_name || 'Loja não encontrada'}
+                        </h3>
+
+                        <p className="mt-1 truncate text-sm text-zinc-500">
+                          {store?.responsible_name || '-'} • {store?.responsible_email || '-'}
+                        </p>
 
                         {store?.website_url ? (
-                          <a className="mt-2 inline-flex text-xs font-bold text-red-600" href={store.website_url} target="_blank">
-                            Site da loja: {store.website_url}
-                          </a>
+                          <div className="mt-2 max-w-full overflow-hidden rounded-2xl bg-white p-3">
+                            <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Site da loja</p>
+                            <a
+                              className="mt-1 block truncate text-xs font-bold text-red-600"
+                              href={store.website_url}
+                              target="_blank"
+                              title={store.website_url}
+                            >
+                              {store.website_url}
+                            </a>
+                          </div>
                         ) : null}
 
-                        <p className="mt-3 break-all rounded-2xl bg-white p-3 text-xs font-bold text-zinc-600">{item.vehicle_url}</p>
+                        <div className="mt-3 max-w-full overflow-hidden rounded-2xl bg-white p-3">
+                          <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Link do veículo</p>
+                          <a
+                            className="mt-1 block truncate text-sm font-black text-zinc-700"
+                            href={item.vehicle_url}
+                            target="_blank"
+                            title={item.vehicle_url}
+                          >
+                            {item.vehicle_url}
+                          </a>
+                        </div>
                       </div>
 
-                      <div className="flex flex-col gap-2 xl:w-56">
+                      <div className="flex min-w-0 flex-col gap-2">
                         <span className="rounded-full bg-white px-3 py-2 text-center text-xs font-black text-zinc-500">
                           {submissionStatus[item.status] || item.status}
                         </span>
 
-                        <button className="premium-button-secondary text-xs" type="button" onClick={() => reviewSubmission(item)}>
+                        <button className="premium-button-secondary justify-center text-xs" type="button" onClick={() => reviewSubmission(item)}>
                           <Search size={14} /> Conferir
                         </button>
 
-                        <button className="premium-button-secondary text-xs" type="button" onClick={() => reviewSubmission(item)}>
+                        <button className="premium-button-secondary justify-center text-xs" type="button" onClick={() => reviewSubmission(item)}>
                           <Eye size={14} /> Editar dados
                         </button>
 
-                        <button className="premium-button-primary text-xs" type="button" onClick={() => publishSelectedSubmission(item)}>
+                        <button className="premium-button-primary justify-center text-xs" type="button" onClick={() => publishSelectedSubmission(item)}>
                           <CheckCircle2 size={14} /> Publicar após edição
                         </button>
 
-                        <button className="premium-button-secondary text-xs" type="button" onClick={() => rejectSubmission(item)}>
+                        <button className="premium-button-secondary justify-center text-xs" type="button" onClick={() => rejectSubmission(item)}>
                           <XCircle size={14} /> Rejeitar
                         </button>
                       </div>
@@ -745,8 +914,20 @@ export default function MasterSitePage() {
                 );
               })}
 
-              {!activeVehicleSubmissions.length ? (
-                <p className="text-sm font-bold text-zinc-500">Nenhum link de veículo enviado pelas lojas ainda.</p>
+              {!filteredVehicleSubmissions.length ? (
+                <p className="rounded-2xl border border-dashed border-zinc-200 p-5 text-center text-sm font-bold text-zinc-500">
+                  Nenhum link em aberto encontrado para os filtros selecionados.
+                </p>
+              ) : null}
+
+              {queueVisibleCount < filteredVehicleSubmissions.length ? (
+                <button
+                  className="premium-button-secondary mx-auto mt-2 justify-center"
+                  type="button"
+                  onClick={() => setQueueVisibleCount((current) => current + 10)}
+                >
+                  Ver mais links
+                </button>
               ) : null}
             </div>
           </section>
