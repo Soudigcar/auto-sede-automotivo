@@ -43,6 +43,7 @@ const emptyVehicle = {
   price: '',
   image_url: '',
   image_urls: [],
+  source_url: '',
   store_name: '',
   status: 'disponivel',
   show_on_landing: true,
@@ -100,6 +101,7 @@ export default function MasterSitePage() {
   const [queueVisibleCount, setQueueVisibleCount] = useState(10);
   const [bulkPublishing, setBulkPublishing] = useState(false);
   const [bulkProgress, setBulkProgress] = useState('');
+  const [inlineEditingVehicleId, setInlineEditingVehicleId] = useState('');
 
   const publicLink = useMemo(() => {
     if (typeof window === 'undefined') return `/campanha/${campaign.slug}`;
@@ -400,6 +402,7 @@ export default function MasterSitePage() {
         : vehicleForm.image_url
           ? [vehicleForm.image_url]
           : [],
+      source_url: vehicleForm.source_url,
       store_name: vehicleForm.store_name,
       status: vehicleForm.status,
       show_on_landing: Boolean(vehicleForm.show_on_landing),
@@ -436,6 +439,7 @@ export default function MasterSitePage() {
     setImportPreview(null);
     setSelectedImportImages([]);
     setSelectedSubmissionId('');
+    setInlineEditingVehicleId('');
 
     setMessage('Veículo publicado na landing.');
     await loadData();
@@ -446,6 +450,22 @@ export default function MasterSitePage() {
   async function saveVehicle(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await saveVehiclePayload();
+  }
+
+  async function saveInlineVehicleEdit() {
+    const saved = await saveVehiclePayload();
+
+    if (saved?.id) {
+      setInlineEditingVehicleId('');
+    }
+  }
+
+  function cancelInlineVehicleEdit() {
+    setInlineEditingVehicleId('');
+    setVehicleForm(emptyVehicle);
+    setSelectedSubmissionId('');
+    setImportPreview(null);
+    setSelectedImportImages([]);
   }
 
   async function publishSelectedSubmission(item: any) {
@@ -533,6 +553,7 @@ export default function MasterSitePage() {
     setVehicleForm({
       ...item,
       price: String(item.price || ''),
+      source_url: item.source_url || '',
       image_urls: Array.isArray(item.image_urls) && item.image_urls.length
         ? item.image_urls
         : item.image_url
@@ -541,7 +562,8 @@ export default function MasterSitePage() {
     });
 
     setSelectedSubmissionId('');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setInlineEditingVehicleId(item.id);
+    setImportUrl(item.source_url || '');
   }
 
   async function toggleVehicle(item: any, payload: any) {
@@ -609,8 +631,13 @@ export default function MasterSitePage() {
       model: result.vehicle?.model || current.model,
       version: result.vehicle?.version || current.version,
       year: result.vehicle?.year || current.year,
+      mileage: result.vehicle?.mileage || current.mileage,
+      color: result.vehicle?.color || current.color,
+      transmission: result.vehicle?.transmission || current.transmission,
+      fuel: result.vehicle?.fuel || current.fuel,
       price: result.price ? String(result.price) : current.price,
       image_url: result.images?.[0] || current.image_url,
+      source_url: result.vehicle?.source_url || url || current.source_url,
       store_name: storeName || current.store_name
     }));
 
@@ -697,8 +724,13 @@ export default function MasterSitePage() {
       model: result.vehicle?.model || current.model,
       version: result.vehicle?.version || current.version,
       year: result.vehicle?.year || current.year,
+      mileage: result.vehicle?.mileage || current.mileage,
+      color: result.vehicle?.color || current.color,
+      transmission: result.vehicle?.transmission || current.transmission,
+      fuel: result.vehicle?.fuel || current.fuel,
       price: result.price ? String(result.price) : current.price,
       image_url: result.vehicle?.image_url || current.image_url,
+      source_url: result.vehicle?.source_url || importUrl || current.source_url,
       image_urls: result.uploadedImages?.length
         ? result.uploadedImages
         : result.vehicle?.image_url
@@ -1075,6 +1107,7 @@ export default function MasterSitePage() {
                 <button className="premium-button-secondary" type="button" onClick={() => {
                   setVehicleForm(emptyVehicle);
                   setSelectedSubmissionId('');
+                  setInlineEditingVehicleId('');
                   setImportPreview(null);
                   setSelectedImportImages([]);
                 }}><Plus size={18} /> Novo</button>
@@ -1223,42 +1256,137 @@ export default function MasterSitePage() {
             <h2 className="text-2xl font-black text-zinc-950">Veículos cadastrados</h2>
 
             <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {vehicles.map((item) => (
-                <div key={item.id} className="overflow-hidden rounded-3xl border border-zinc-100 bg-zinc-50">
-                  {item.image_url ? <img src={item.image_url} alt={item.model} className="h-44 w-full object-cover" /> : <div className="flex h-44 items-center justify-center bg-zinc-200 text-sm font-bold text-zinc-500">Sem imagem</div>}
+              {vehicles.map((item) => {
+                const isEditing = inlineEditingVehicleId === item.id;
 
-                  <div className="p-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <h3 className="font-black text-zinc-950">{item.brand} {item.model}</h3>
-                        <p className="text-sm font-bold text-zinc-500">{item.version} • {item.year}</p>
+                return (
+                  <div key={item.id} className={`overflow-hidden rounded-3xl border bg-zinc-50 ${isEditing ? 'border-red-300 ring-4 ring-red-500/10' : 'border-zinc-100'}`}>
+                    {item.image_url ? (
+                      <img src={item.image_url} alt={item.model} className="h-44 w-full object-cover" />
+                    ) : (
+                      <div className="flex h-44 items-center justify-center bg-zinc-200 text-sm font-bold text-zinc-500">
+                        Sem imagem
                       </div>
-                      <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-zinc-500">{item.status}</span>
-                    </div>
+                    )}
 
-                    <strong className="mt-3 block text-xl font-black text-red-600">{money(item.price)}</strong>
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h3 className="break-words font-black text-zinc-950">{item.brand} {item.model}</h3>
+                          <p className="break-words text-sm font-bold text-zinc-500">{item.version} • {item.year}</p>
+                        </div>
 
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <button className="premium-button-secondary text-xs" type="button" onClick={() => editVehicle(item)}>Editar</button>
-                      <button className="premium-button-secondary text-xs" type="button" onClick={() => toggleVehicle(item, { show_on_landing: !item.show_on_landing })}>
-                        <Eye size={14} /> {item.show_on_landing ? 'Ocultar' : 'Exibir'}
-                      </button>
-                      <button className="premium-button-secondary text-xs" type="button" onClick={() => toggleVehicle(item, { is_featured: !item.is_featured })}>
-                        {item.is_featured ? 'Remover destaque' : 'Destacar'}
-                      </button>
-                      <button className="premium-button-secondary text-xs" type="button" onClick={() => deleteVehicle(item)}>
-                        <Trash2 size={14} /> Excluir anúncio
-                      </button>
-                      <button className="premium-button-secondary text-xs" type="button" onClick={() => deleteVehicle(item)}>
-                        <Trash2 size={14} /> Excluir anúncio
-                      </button>
+                        <span className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-black text-zinc-500">
+                          {item.status}
+                        </span>
+                      </div>
+
+                      <strong className="mt-3 block text-xl font-black text-red-600">{money(item.price)}</strong>
+
+                      {item.source_url ? (
+                        <a
+                          href={item.source_url}
+                          target="_blank"
+                          className="mt-2 block truncate text-xs font-black text-red-600"
+                          title={item.source_url}
+                        >
+                          Link importado: {item.source_url}
+                        </a>
+                      ) : (
+                        <p className="mt-2 text-xs font-bold text-zinc-400">Link original não encontrado</p>
+                      )}
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button className="premium-button-secondary text-xs" type="button" onClick={() => editVehicle(item)}>
+                          Editar
+                        </button>
+
+                        <button className="premium-button-secondary text-xs" type="button" onClick={() => toggleVehicle(item, { show_on_landing: !item.show_on_landing })}>
+                          <Eye size={14} /> {item.show_on_landing ? 'Ocultar' : 'Exibir'}
+                        </button>
+
+                        <button className="premium-button-secondary text-xs" type="button" onClick={() => toggleVehicle(item, { is_featured: !item.is_featured })}>
+                          {item.is_featured ? 'Remover destaque' : 'Destacar'}
+                        </button>
+
+                        <button className="premium-button-secondary text-xs" type="button" onClick={() => deleteVehicle(item)}>
+                          <Trash2 size={14} /> Excluir anúncio
+                        </button>
+                      </div>
+
+                      {isEditing ? (
+                        <div className="mt-5 rounded-[28px] border border-red-100 bg-white p-4">
+                          <div className="mb-4 rounded-2xl bg-red-50 p-4">
+                            <p className="text-xs font-black uppercase tracking-wide text-red-500">Link original do anúncio</p>
+
+                            {vehicleForm.source_url ? (
+                              <a
+                                className="mt-1 block break-words text-sm font-black text-red-700"
+                                href={vehicleForm.source_url}
+                                target="_blank"
+                              >
+                                {vehicleForm.source_url}
+                              </a>
+                            ) : (
+                              <p className="mt-1 text-sm font-bold text-zinc-500">Link original não encontrado</p>
+                            )}
+
+                            <input
+                              className="premium-input mt-3 bg-white"
+                              placeholder="Link original do anúncio"
+                              value={vehicleForm.source_url || ''}
+                              onChange={(event) => setVehicleForm({ ...vehicleForm, source_url: event.target.value })}
+                            />
+                          </div>
+
+                          <div className="grid gap-3">
+                            <input className="premium-input" list="vehicle-brand-options" placeholder="Marca" value={vehicleForm.brand || ''} onChange={(event) => setVehicleForm({ ...vehicleForm, brand: event.target.value })} />
+                            <input className="premium-input" list="vehicle-model-options" placeholder="Modelo" value={vehicleForm.model || ''} onChange={(event) => setVehicleForm({ ...vehicleForm, model: event.target.value })} />
+                            <input className="premium-input" list="vehicle-version-options" placeholder="Versão" value={vehicleForm.version || ''} onChange={(event) => setVehicleForm({ ...vehicleForm, version: event.target.value })} />
+                            <input className="premium-input" placeholder="Ano" value={vehicleForm.year || ''} onChange={(event) => setVehicleForm({ ...vehicleForm, year: event.target.value })} />
+                            <input className="premium-input" placeholder="KM" value={vehicleForm.mileage || ''} onChange={(event) => setVehicleForm({ ...vehicleForm, mileage: event.target.value })} />
+                            <input className="premium-input" placeholder="Cor" value={vehicleForm.color || ''} onChange={(event) => setVehicleForm({ ...vehicleForm, color: event.target.value })} />
+                            <input className="premium-input" list="vehicle-transmission-options" placeholder="Câmbio" value={vehicleForm.transmission || ''} onChange={(event) => setVehicleForm({ ...vehicleForm, transmission: event.target.value })} />
+                            <input className="premium-input" list="vehicle-fuel-options" placeholder="Combustível" value={vehicleForm.fuel || ''} onChange={(event) => setVehicleForm({ ...vehicleForm, fuel: event.target.value })} />
+                            <input className="premium-input" type="number" placeholder="Preço" value={vehicleForm.price || ''} onChange={(event) => setVehicleForm({ ...vehicleForm, price: event.target.value })} />
+                            <input className="premium-input" placeholder="Loja responsável" value={vehicleForm.store_name || ''} onChange={(event) => setVehicleForm({ ...vehicleForm, store_name: event.target.value })} />
+
+                            <select className="premium-input" value={vehicleForm.status || 'disponivel'} onChange={(event) => setVehicleForm({ ...vehicleForm, status: event.target.value })}>
+                              <option value="disponivel">Disponível</option>
+                              <option value="vendido">Vendido</option>
+                              <option value="oculto">Oculto</option>
+                            </select>
+
+                            <label className="flex items-center gap-3 rounded-2xl border border-zinc-100 bg-zinc-50 p-4 text-sm font-bold text-zinc-600">
+                              <input type="checkbox" checked={Boolean(vehicleForm.show_on_landing)} onChange={(event) => setVehicleForm({ ...vehicleForm, show_on_landing: event.target.checked })} />
+                              Exibir na landing
+                            </label>
+
+                            <label className="flex items-center gap-3 rounded-2xl border border-zinc-100 bg-zinc-50 p-4 text-sm font-bold text-zinc-600">
+                              <input type="checkbox" checked={Boolean(vehicleForm.is_featured)} onChange={(event) => setVehicleForm({ ...vehicleForm, is_featured: event.target.checked })} />
+                              Destaque
+                            </label>
+                          </div>
+
+                          <div className="mt-4 grid gap-2 md:grid-cols-2">
+                            <button className="premium-button-primary justify-center" type="button" onClick={saveInlineVehicleEdit}>
+                              Salvar alterações
+                            </button>
+
+                            <button className="premium-button-secondary justify-center" type="button" onClick={cancelInlineVehicleEdit}>
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               {!vehicles.length ? <p className="text-sm font-bold text-zinc-500">Nenhum veículo cadastrado ainda.</p> : null}
             </div>
+          </section>
           </section>
         </div>
       </section>
