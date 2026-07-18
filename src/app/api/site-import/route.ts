@@ -190,9 +190,163 @@ function extractStructuredPrice(html: string) {
   return 0;
 }
 
+function isMoneyNumber(value: string) {
+  return /^\d{1,3}(?:\.\d{3})*(?:,\d{2})?$/.test(cleanText(value));
+}
+
+function extractPriceFromMainLines(lines: string[]) {
+  const stopWords = [
+    'fale conosco pelo whatsapp',
+    'ligar para a loja',
+    'endereco',
+    'endereço',
+    'servicos',
+    'serviços',
+    'opcionais do veiculo',
+    'opcionais do veículo',
+    'detalhes do veiculo',
+    'detalhes do veículo',
+    'veiculos relacionados',
+    'veículos relacionados',
+    'siga-nos',
+    'receba as melhores ofertas',
+    'marcas',
+    'modelos'
+  ];
+
+  let limit = lines.length;
+
+  for (let index = 0; index < lines.length; index++) {
+    const normalized = normalize(lines[index]);
+
+    if (stopWords.some((word) => normalized.includes(normalize(word)))) {
+      limit = index;
+      break;
+    }
+  }
+
+  const mainLines = lines.slice(0, limit);
+  const candidates: { value: number; score: number; index: number; line: string }[] = [];
+
+  for (let index = 0; index < mainLines.length; index++) {
+    const line = cleanText(mainLines[index]);
+    const normalizedLine = normalize(line);
+
+    const sameLineMatches = Array.from(line.matchAll(/R\$\s*[\d.]+(?:,\d{2})?/gi));
+
+    for (const match of sameLineMatches) {
+      const value = parseCurrency(match[0]);
+
+      if (value >= 5000 && value <= 2000000) {
+        let score = 100;
+
+        if (index > 0 && normalize(mainLines[index - 1]).includes('placa')) score += 15;
+        if (index > 0 && normalize(mainLines[index - 1]).includes('cor')) score += 8;
+        if (index < mainLines.length - 1 && normalize(mainLines[index + 1]).includes('whatsapp')) score += 25;
+        if (index < mainLines.length - 1 && normalize(mainLines[index + 1]).includes('fale conosco')) score += 25;
+
+        candidates.push({ value, score, index, line });
+      }
+    }
+
+    const hasCurrencySymbol = normalizedLine === 'r$' || normalizedLine.startsWith('r$') || normalizedLine.includes('r$');
+
+    if (hasCurrencySymbol) {
+      for (let next = index + 1; next <= index + 4 && next < mainLines.length; next++) {
+        const candidateLine = cleanText(mainLines[next]);
+        const numberMatch = candidateLine.match(/[\d.]+,\d{2}/);
+
+        if (!numberMatch) continue;
+
+        const value = parseCurrency(numberMatch[0]);
+
+        if (value >= 5000 && value <= 2000000) {
+          let score = 95;
+
+          if (next < mainLines.length - 1 && normalize(mainLines[next + 1]).includes('whatsapp')) score += 25;
+          if (next < mainLines.length - 1 && normalize(mainLines[next + 1]).includes('fale conosco')) score += 25;
+
+          candidates.push({ value, score, index: next, line: candidateLine });
+          break;
+        }
+      }
+    }
+
+    if (isMoneyNumber(line)) {
+      const previousLines = [
+        mainLines[index - 4],
+        mainLines[index - 3],
+        mainLines[index - 2],
+        mainLines[index - 1]
+      ].filter(Boolean).map(normalize).join(' ');
+
+      const nextLines = [
+        mainLines[index + 1],
+        mainLines[index + 2]
+      ].filter(Boolean).map(normalize).join(' ');
+
+      const previousHasCurrency = previousLines.includes('r$');
+      const nextHasWhatsapp = nextLines.includes('whatsapp') || nextLines.includes('fale conosco');
+
+      if (previousHasCurrency || nextHasWhatsapp) {
+        const value = parseCurrency(line);
+
+        if (value >= 5000 && value <= 2000000) {
+          let score = 90;
+
+          if (previousHasCurrency) score += 15;
+          if (nextHasWhatsapp) score += 25;
+
+          candidates.push({ value, score, index, line });
+        }
+      }
+    }
+  }
+
+  if (!candidates.length) return 0;
+
+  candidates.sort((a, b) => b.score - a.score || a.index - b.index);
+  return candidates[0].value;
+}
+
+function extractPriceFromRawMainHtml(html: string) {
+  const rawCandidates: { value: number; score: number; index: number }[] = [];
+
+  const directMatches = Array.from(html.matchAll(/R\$\s*(?:<[^>]+>\s*)*([\d.]+(?:,\d{2})?)/gi));
+
+  for (const match of directMatches) {
+    const value = parseCurrency(match[1] || match[0]);
+
+    if (value >= 5000 && value <= 2000000) {
+      const index = match.index || 0;
+      const context = normalize(html.slice(Math.max(0, index - 1200), Math.min(html.length, index + 1200)));
+
+      let score = 50;
+
+      if (context.includes('ano fab')) score += 20;
+      if (context.includes('ano mod')) score += 20;
+      if (context.includes('combustivel')) score += 10;
+      if (context.includes('cor')) score += 10;
+      if (context.includes('whatsapp')) score += 20;
+      if (context.includes('veiculos relacionados')) score -= 100;
+      if (context.includes('veículos relacionados')) score -= 100;
+
+      rawCandidates.push({ value, score, index });
+    }
+  }
+
+  if (!rawCandidates.length) return 0;
+
+  rawCandidates.sort((a, b) => b.score - a.score || a.index - b.index);
+  return rawCandidates[0].value;
+}
+
 function extractPrice(html: string, lines: string[], title: string) {
-  const structuredPrice = extractStructuredPrice(html);
-  if (structuredPrice) return structuredPrice;
+  const visibleMainPrice = extractPriceFromMainLines(lines);
+  if (visibleMainPrice) return visibleMainPrice;
+
+  const rawMainPrice = extractPriceFromRawMainHtml(html);
+  if (rawMainPrice) return rawMainPrice;
 
   const titleWords = normalize(title).split(' ').filter((word) => word.length > 2).slice(0, 8);
   const candidates: { value: number; score: number; line: string }[] = [];
@@ -215,11 +369,12 @@ function extractPrice(html: string, lines: string[], title: string) {
 
       let score = 0;
 
-      if (context.includes('preco') || context.includes('valor')) score += 20;
+      if (context.includes('preco') || context.includes('preço') || context.includes('valor')) score += 20;
       if (context.includes('oferta')) score += 8;
       if (titleWords.some((word) => context.includes(word))) score += 8;
-      if (context.includes('parcela') || context.includes('entrada') || context.includes('simulacao') || context.includes('financiamento')) score -= 20;
+      if (context.includes('parcela') || context.includes('entrada') || context.includes('simulacao') || context.includes('simulação') || context.includes('financiamento')) score -= 20;
       if (context.includes('telefone') || context.includes('whatsapp') || context.includes('contato')) score -= 15;
+      if (context.includes('veiculos relacionados') || context.includes('veículos relacionados')) score -= 100;
 
       score += Math.min(value / 100000, 10);
 
@@ -227,10 +382,15 @@ function extractPrice(html: string, lines: string[], title: string) {
     }
   });
 
-  if (!candidates.length) return 0;
+  if (candidates.length) {
+    candidates.sort((a, b) => b.score - a.score || b.value - a.value);
+    return candidates[0].value;
+  }
 
-  candidates.sort((a, b) => b.score - a.score || b.value - a.value);
-  return candidates[0].value;
+  const structuredPrice = extractStructuredPrice(html);
+  if (structuredPrice) return structuredPrice;
+
+  return 0;
 }
 
 function cleanSegment(value: string) {
