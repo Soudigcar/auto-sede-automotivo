@@ -1387,7 +1387,6 @@ export default function MasterSitePage() {
               {!vehicles.length ? <p className="text-sm font-bold text-zinc-500">Nenhum veículo cadastrado ainda.</p> : null}
             </div>
           </section>
-          </section>
         </div>
       </section>
     </main>
