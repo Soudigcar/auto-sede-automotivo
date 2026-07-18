@@ -27,15 +27,11 @@ async function assertMaster(request: Request, supabase: any) {
   const authorization = request.headers.get('authorization') || '';
   const token = authorization.replace(/^Bearer\s+/i, '').trim();
 
-  if (!token) {
-    throw new Error('Sessão não encontrada.');
-  }
+  if (!token) throw new Error('Sessão não encontrada.');
 
   const { data: authData, error: authError } = await supabase.auth.getUser(token);
 
-  if (authError || !authData.user) {
-    throw new Error('Sessão inválida.');
-  }
+  if (authError || !authData.user) throw new Error('Sessão inválida.');
 
   let profile: any = null;
 
@@ -77,23 +73,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Lead e loja são obrigatórios.' }, { status: 400 });
     }
 
-    const { data: leadBase, error: leadError } = await supabase
+    const { data: leadBase } = await supabase
       .from('leads_base')
       .select('*')
       .eq('id', leadId)
       .maybeSingle();
 
-    if (leadError || !leadBase) {
+    if (!leadBase) {
       return NextResponse.json({ error: 'Lead da Base não encontrado.' }, { status: 404 });
     }
 
-    const { data: store, error: storeError } = await supabase
+    const { data: store } = await supabase
       .from('stores')
-      .select('id,store_name,event_id,status,portal_enabled')
+      .select('id,store_name,event_id,status')
       .eq('id', storeId)
       .maybeSingle();
 
-    if (storeError || !store || store.status !== 'active') {
+    if (!store || store.status !== 'active') {
       return NextResponse.json({ error: 'Loja ativa não encontrada.' }, { status: 404 });
     }
 
@@ -128,11 +124,7 @@ export async function POST(request: Request) {
           origin: 'manual',
           assigned_store_id: store.id,
           status: 'new_lead',
-          notes: [
-            'Lead redirecionado manualmente pela Base Master.',
-            leadBase.campaign_name ? `Campanha: ${leadBase.campaign_name}.` : '',
-            leadBase.vehicle_name ? `Veículo: ${leadBase.vehicle_name}.` : ''
-          ].filter(Boolean).join(' ')
+          notes: 'Lead redirecionado manualmente pela Base Master.'
         })
         .select('id')
         .single();
@@ -147,16 +139,13 @@ export async function POST(request: Request) {
       routedLeadId = createdLead.id;
     }
 
-    const previousStoreId = leadBase.assigned_store_id || null;
-    const previousStoreName = leadBase.assigned_store_name || leadBase.metadata?.routing?.assigned_store_name || null;
-
     const metadata = {
       ...(leadBase.metadata || {}),
       routing: {
         ...(leadBase.metadata?.routing || {}),
         strategy: 'manual_override',
-        previous_store_id: previousStoreId,
-        previous_store_name: previousStoreName,
+        previous_store_id: leadBase.assigned_store_id || null,
+        previous_store_name: leadBase.assigned_store_name || null,
         assigned_store_id: store.id,
         assigned_store_name: store.store_name,
         assigned_at: new Date().toISOString(),
@@ -164,7 +153,7 @@ export async function POST(request: Request) {
       }
     };
 
-    const { error: updateBaseError } = await supabase
+    const { error: updateError } = await supabase
       .from('leads_base')
       .update({
         assigned_store_id: store.id,
@@ -177,8 +166,8 @@ export async function POST(request: Request) {
       })
       .eq('id', leadBase.id);
 
-    if (updateBaseError) {
-      return NextResponse.json({ error: updateBaseError.message }, { status: 500 });
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
     return NextResponse.json({
