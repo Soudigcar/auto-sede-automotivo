@@ -52,34 +52,42 @@ export default function MasterBasePage() {
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token || '';
 
-    const [leadResult, storeResponse] = await Promise.all([
+    const [leadResult, directStoreResult] = await Promise.all([
       supabase.from('leads_base').select('*').order('created_at', { ascending: false }),
-      fetch('/api/base-stores', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
-      })
+      supabase.from('stores').select('id,store_name,status,portal_enabled,event_id,slug').order('store_name', { ascending: true })
     ]);
 
     const { data: leadRows, error: leadError } = leadResult;
-    let storeRows: any[] = [];
-    let nextMessage = '';
 
     if (leadError) {
       setMessage('Não foi possível carregar a Base. Confirme se o SQL foi executado no Supabase.');
       return;
     }
 
-    if (storeResponse.ok) {
-      const storeResult = await storeResponse.json();
-      storeRows = storeResult.stores || [];
-    } else {
-      nextMessage = 'Base carregada, mas não foi possível carregar todas as lojas para redirecionamento.';
+    let storeRows = (directStoreResult.data || []).filter((store: any) => {
+      const storeStatus = String(store.status || '').toLowerCase();
+      return storeStatus !== 'deleted' && storeStatus !== 'excluido';
+    });
+
+    if (!storeRows.length) {
+      try {
+        const storeResponse = await fetch('/api/base-stores', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+
+        if (storeResponse.ok) {
+          const storeResult = await storeResponse.json();
+          storeRows = storeResult.stores || [];
+        }
+      } catch {
+        storeRows = [];
+      }
     }
 
     setLeads(leadRows || []);
     setStores(storeRows || []);
-    setMessage(nextMessage);
+    setMessage('');
   }
-
   useEffect(() => {
     loadLeads().catch(() => setMessage('Erro ao carregar a Base.'));
   }, []);

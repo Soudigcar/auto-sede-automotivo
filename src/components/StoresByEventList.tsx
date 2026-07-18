@@ -20,6 +20,19 @@ function portalLink(slug?: string) {
   return `${window.location.origin}/loja/${slug}`;
 }
 
+function storeIdentity(store: any) {
+  const eventId = String(store.event_id || 'sem-evento').trim().toLowerCase();
+  const email = String(store.responsible_email || '').trim().toLowerCase();
+  const name = String(store.store_name || '').trim().toLowerCase();
+
+  return `${eventId}|${email || name || store.id}`;
+}
+
+function isValidStore(store: any) {
+  const status = String(store.status || '').toLowerCase();
+  return status !== 'deleted' && status !== 'excluido';
+}
+
 export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
   const supabase = createClient();
   const [events, setEvents] = useState<any[]>([]);
@@ -40,17 +53,19 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
   async function loadData() {
     const [{ data: eventRows }, { data: storeRows }, { data: saleRows }, { data: inventoryRows }] = await Promise.all([
       supabase.from('events').select('*').neq('status', 'deleted').order('created_at', { ascending: false }),
-      supabase.from('stores').select('*').eq('status', 'active').order('store_name'),
+      supabase.from('stores').select('*').order('store_name'),
       supabase.from('sales').select('*'),
       supabase.from('inventory').select('*')
     ]);
 
     const eventList = eventRows || [];
+    const storeList = (storeRows || []).filter(isValidStore);
+
     setEvents(eventList);
 
     if (!eventId && eventList[0]?.id) setEventId(eventList[0].id);
 
-    setStores(storeRows || []);
+    setStores(storeList);
     setSales(saleRows || []);
     setInventory(inventoryRows || []);
   }
@@ -58,7 +73,24 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
   useEffect(() => { loadData().catch(() => null); }, [refreshKey]);
 
   const eventNameById = useMemo(() => Object.fromEntries(events.map((item) => [item.id, item.event_name])), [events]);
-  const selectedStores = stores.filter((store) => store.event_id === eventId);
+
+  const dedupedStores = useMemo(() => {
+    const map = new Map<string, any>();
+
+    stores.filter(isValidStore).forEach((store) => {
+      const key = storeIdentity(store);
+
+      if (!map.has(key)) {
+        map.set(key, store);
+      }
+    });
+
+    return Array.from(map.values());
+  }, [stores]);
+
+  const selectedStores = dedupedStores.filter((store) => store.event_id === eventId);
+  const selectedStoreIds = new Set(selectedStores.map((store) => store.id));
+  const generalStores = dedupedStores.filter((store) => !selectedStoreIds.has(store.id));
 
   function startEdit(store: any) {
     setEditingId(store.id);
@@ -203,7 +235,7 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
               <Mini label="Carros no estoque" value={String(stock)} />
             </div>
 
-            {showHistory ? <StoreParticipationHistory store={store} events={events} stores={stores} sales={sales} inventory={inventory} /> : null}
+            {showHistory ? <StoreParticipationHistory store={store} events={events} stores={dedupedStores} sales={sales} inventory={inventory} /> : null}
 
             <div className="mt-4 flex flex-wrap gap-2">
               <button className="premium-button-secondary text-xs" type="button" onClick={() => startEdit(store)}>
@@ -237,12 +269,12 @@ return (
       </div>
 
       <div className="premium-card p-6">
-        <h2 className="text-2xl font-black text-zinc-950">Registro geral de lojas cadastradas</h2>
-        <p className="mt-1 text-sm text-zinc-500">Este histórico permanece salvo mesmo se o evento for excluído.</p>
+        <h2 className="text-2xl font-black text-zinc-950">Outras lojas cadastradas</h2>
+        <p className="mt-1 text-sm text-zinc-500">Lista geral sem repetir as lojas já exibidas no evento selecionado.</p>
 
         <div className="mt-5 space-y-3">
-          {stores.map((store) => renderStoreCard(store, false))}
-          {stores.length === 0 ? <p className="text-sm text-zinc-500">Nenhuma loja cadastrada.</p> : null}
+          {generalStores.map((store) => renderStoreCard(store, false))}
+          {generalStores.length === 0 ? <p className="text-sm text-zinc-500">Nenhuma outra loja cadastrada.</p> : null}
         </div>
       </div>
 

@@ -27,6 +27,14 @@ function registrationPublicLink(token?: string) {
   return `${window.location.origin}/cadastro-loja/${token}`;
 }
 
+function generatePublicToken() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID().replace(/-/g, '');
+  }
+
+  return `${Date.now()}${Math.random()}`.replace(/\D/g, '');
+}
+
 export function StoreEventCreateForm({ onSaved }: { onSaved?: () => void }) {
   const supabase = createClient();
   const [events, setEvents] = useState<any[]>([]);
@@ -52,7 +60,21 @@ export function StoreEventCreateForm({ onSaved }: { onSaved?: () => void }) {
       .eq('event_id', currentEventId)
       .maybeSingle();
 
-    setRegistrationLink(data || null);
+    if (data) {
+      setRegistrationLink(data);
+      return;
+    }
+
+    const { data: created } = await supabase
+      .from('store_registration_links')
+      .insert({
+        event_id: currentEventId,
+        public_token: generatePublicToken()
+      })
+      .select('*')
+      .single();
+
+    setRegistrationLink(created || null);
   }
 
   useEffect(() => { loadEvents().catch(() => null); }, []);
@@ -95,6 +117,37 @@ export function StoreEventCreateForm({ onSaved }: { onSaved?: () => void }) {
     setMessage('Link de cadastro da loja copiado.');
   }
 
+  async function findExistingStore() {
+    const email = form.email.trim();
+    const storeName = form.storeName.trim();
+
+    if (email) {
+      const { data } = await supabase
+        .from('stores')
+        .select('*')
+        .eq('event_id', eventId)
+        .ilike('responsible_email', email)
+        .neq('status', 'deleted')
+        .maybeSingle();
+
+      if (data) return data;
+    }
+
+    if (storeName) {
+      const { data } = await supabase
+        .from('stores')
+        .select('*')
+        .eq('event_id', eventId)
+        .ilike('store_name', storeName)
+        .neq('status', 'deleted')
+        .maybeSingle();
+
+      if (data) return data;
+    }
+
+    return null;
+  }
+
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -105,9 +158,10 @@ export function StoreEventCreateForm({ onSaved }: { onSaved?: () => void }) {
       return;
     }
 
-    const slug = await buildUniqueSlug(form.storeName);
+    const existingStore = await findExistingStore();
+    const slug = existingStore?.slug || await buildUniqueSlug(form.storeName);
 
-    const { data, error } = await supabase.from('stores').insert({
+    const payload = {
       event_id: eventId,
       store_name: form.storeName,
       slug,
@@ -120,8 +174,15 @@ export function StoreEventCreateForm({ onSaved }: { onSaved?: () => void }) {
       event_end_date_snapshot: selectedEvent.end_date || null,
       event_state_snapshot: selectedEvent.state || null,
       event_city_snapshot: selectedEvent.city || null,
-      status: 'active'
-    }).select('*').single();
+      status: 'active',
+      updated_at: new Date().toISOString()
+    };
+
+    const result = existingStore?.id
+      ? await supabase.from('stores').update(payload).eq('id', existingStore.id).select('*').single()
+      : await supabase.from('stores').insert(payload).select('*').single();
+
+    const { data, error } = result;
 
     if (error) {
       setMessage('Erro ao cadastrar loja no evento. Confirme se o SQL do portal da loja foi executado.');
@@ -129,7 +190,7 @@ export function StoreEventCreateForm({ onSaved }: { onSaved?: () => void }) {
     }
 
     setLastStore(data);
-    setMessage('Loja cadastrada e vinculada ao evento. Link de login da loja gerado abaixo.');
+    setMessage(existingStore?.id ? 'Loja já existia neste evento. Dados atualizados sem duplicar.' : 'Loja cadastrada e vinculada ao evento. Link de login da loja gerado abaixo.');
     setForm({ storeName: '', responsibleName: '', phone: '', email: '' });
     onSaved?.();
   }
