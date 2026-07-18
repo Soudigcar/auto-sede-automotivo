@@ -98,6 +98,8 @@ export default function MasterSitePage() {
   const [queueStatus, setQueueStatus] = useState('all');
   const [queueStoreFilter, setQueueStoreFilter] = useState('all');
   const [queueVisibleCount, setQueueVisibleCount] = useState(10);
+  const [bulkPublishing, setBulkPublishing] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState('');
 
   const publicLink = useMemo(() => {
     if (typeof window === 'undefined') return `/campanha/${campaign.slug}`;
@@ -408,6 +410,73 @@ export default function MasterSitePage() {
     await saveVehiclePayload();
   }
 
+  async function bulkPublishVisibleSubmissions() {
+    const candidates = filteredVehicleSubmissions.filter((item) => ['pending', 'reviewing', 'imported'].includes(item.status));
+
+    if (!candidates.length) {
+      setMessage('Nenhum link em aberto para publicar com os filtros atuais.');
+      return;
+    }
+
+    const confirmation = window.prompt(
+      `Você está prestes a publicar ${candidates.length} link(s) na landing. Digite PUBLICAR para confirmar.`
+    );
+
+    if (confirmation !== 'PUBLICAR') return;
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      setMessage('Sessão expirada. Faça login novamente.');
+      return;
+    }
+
+    setBulkPublishing(true);
+
+    let published = 0;
+    let failed = 0;
+    let skipped = 0;
+
+    for (let index = 0; index < candidates.length; index += 5) {
+      const batch = candidates.slice(index, index + 5);
+      setBulkProgress(`Publicando ${Math.min(index + batch.length, candidates.length)} de ${candidates.length}...`);
+
+      try {
+        const response = await fetch('/api/site-bulk-publish', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            campaign_id: campaign.id,
+            submission_ids: batch.map((item) => item.id)
+          })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          failed += batch.length;
+          continue;
+        }
+
+        published += Number(result.published || 0);
+        failed += Number(result.failed || 0);
+        skipped += Number(result.skipped || 0);
+      } catch {
+        failed += batch.length;
+      }
+    }
+
+    setBulkPublishing(false);
+    setBulkProgress('');
+    setMessage(`Publicação em lote finalizada. Publicados: ${published}. Falharam: ${failed}. Ignorados: ${skipped}.`);
+    await loadData();
+  }
+
+
   async function editVehicle(item: any) {
     setVehicleForm({
       ...item,
@@ -634,7 +703,7 @@ export default function MasterSitePage() {
               </span>
             </div>
 
-            <div className="mt-5 grid gap-3 xl:grid-cols-[1fr_180px_220px_140px]">
+            <div className="mt-5 grid gap-3 xl:grid-cols-[1fr_180px_220px_140px_230px]">
               <label className="relative min-w-0">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
                 <input
@@ -688,12 +757,28 @@ export default function MasterSitePage() {
               >
                 Limpar
               </button>
+
+              <button
+                className="premium-button-primary justify-center text-xs"
+                type="button"
+                onClick={bulkPublishVisibleSubmissions}
+                disabled={bulkPublishing || !filteredVehicleSubmissions.length}
+              >
+                <CheckCircle2 size={14} />
+                {bulkPublishing ? 'Publicando...' : 'Publicar todos visíveis'}
+              </button>
             </div>
 
             <div className="mt-4 rounded-2xl bg-zinc-50 p-3 text-xs font-bold text-zinc-500">
               Mostrando {Math.min(visibleVehicleSubmissions.length, filteredVehicleSubmissions.length)} de {filteredVehicleSubmissions.length} link(s) em aberto.
               Publicados, rejeitados e duplicados ficam fora desta fila principal.
             </div>
+
+            {bulkProgress ? (
+              <div className="mt-3 rounded-2xl bg-red-50 p-3 text-xs font-black text-red-600">
+                {bulkProgress}
+              </div>
+            ) : null}
 
             <div className="mt-5 grid gap-3">
               {visibleVehicleSubmissions.map((item) => {
