@@ -145,6 +145,15 @@ export default function MasterSitePage() {
 
   const visibleVehicleSubmissions = filteredVehicleSubmissions.slice(0, queueVisibleCount);
 
+  const vehicleFormImages = useMemo(() => {
+    const images = [
+      ...(Array.isArray(vehicleForm.image_urls) ? vehicleForm.image_urls : []),
+      vehicleForm.image_url
+    ].filter(Boolean);
+
+    return Array.from(new Set(images));
+  }, [vehicleForm.image_urls, vehicleForm.image_url]);
+
 
   async function loadVehicleOptions() {
     const { data } = await supabase
@@ -254,7 +263,7 @@ export default function MasterSitePage() {
     await loadData();
   }
 
-  async function uploadVehicleImage(file?: File) {
+  async function uploadVehicleImage(file?: File, mode: 'cover' | 'gallery' = 'cover') {
     if (!file) return;
 
     if (!campaign.id) {
@@ -276,13 +285,56 @@ export default function MasterSitePage() {
     }
 
     const { data } = supabase.storage.from('vehicle-images').getPublicUrl(fileName);
-    setVehicleForm((current: any) => ({
-      ...current,
-      image_url: data.publicUrl,
-      image_urls: Array.from(new Set([...(current.image_urls || []), data.publicUrl]))
-    }));
+    setVehicleForm((current: any) => {
+      const currentImages = Array.isArray(current.image_urls) ? current.image_urls : [];
+      const nextImages = Array.from(new Set([
+        ...currentImages,
+        current.image_url,
+        data.publicUrl
+      ].filter(Boolean)));
+
+      return {
+        ...current,
+        image_url: mode === 'gallery' && current.image_url ? current.image_url : data.publicUrl,
+        image_urls: nextImages
+      };
+    });
+
     setUploading(false);
-    setMessage('Imagem enviada com sucesso.');
+    setMessage(mode === 'gallery' ? 'Foto adicionada à galeria.' : 'Imagem principal atualizada.');
+  }
+
+  function setVehicleCoverImage(imageUrl: string) {
+    setVehicleForm((current: any) => {
+      const images = Array.from(new Set([
+        imageUrl,
+        ...(Array.isArray(current.image_urls) ? current.image_urls : []),
+        current.image_url
+      ].filter(Boolean)));
+
+      return {
+        ...current,
+        image_url: imageUrl,
+        image_urls: images
+      };
+    });
+  }
+
+  function removeVehicleImage(imageUrl: string) {
+    setVehicleForm((current: any) => {
+      const images = Array.from(new Set([
+        ...(Array.isArray(current.image_urls) ? current.image_urls : []),
+        current.image_url
+      ].filter(Boolean))).filter((item) => item !== imageUrl);
+
+      const nextCover = current.image_url === imageUrl ? (images[0] || '') : current.image_url;
+
+      return {
+        ...current,
+        image_url: nextCover,
+        image_urls: images
+      };
+    });
   }
 
   async function saveAttributeOptions(payload: any) {
@@ -1075,11 +1127,79 @@ export default function MasterSitePage() {
                 </label>
               </div>
 
-              {vehicleForm.image_url ? (
-                <div className="mt-3 overflow-hidden rounded-2xl border border-zinc-100">
-                  <img src={vehicleForm.image_url} alt="Imagem do veículo" className="h-48 w-full object-cover" />
+              <div className="mt-4 rounded-[28px] border border-zinc-100 bg-zinc-50 p-4">
+                <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                  <div>
+                    <h3 className="text-lg font-black text-zinc-950">Galeria do veículo</h3>
+                    <p className="mt-1 text-sm font-bold text-zinc-500">
+                      {vehicleFormImages.length} foto(s) cadastrada(s). Escolha a capa, adicione ou remova fotos.
+                    </p>
+                  </div>
+
+                  <label className="premium-button-secondary cursor-pointer justify-center text-xs">
+                    <Upload size={16} />
+                    Adicionar foto
+                    <input
+                      className="hidden"
+                      type="file"
+                      accept="image/*"
+                      onChange={(event) => uploadVehicleImage(event.target.files?.[0], 'gallery')}
+                    />
+                  </label>
                 </div>
-              ) : null}
+
+                {vehicleFormImages.length ? (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {vehicleFormImages.map((imageUrl: string) => {
+                      const isCover = vehicleForm.image_url === imageUrl;
+
+                      return (
+                        <div key={imageUrl} className={`overflow-hidden rounded-2xl border bg-white ${isCover ? 'border-red-500 ring-4 ring-red-500/10' : 'border-zinc-200'}`}>
+                          <img src={imageUrl} alt="Foto do veículo" className="h-36 w-full object-cover" />
+
+                          <div className="grid gap-2 p-3">
+                            <span className={`rounded-full px-3 py-2 text-center text-xs font-black ${isCover ? 'bg-red-50 text-red-600' : 'bg-zinc-100 text-zinc-500'}`}>
+                              {isCover ? 'Foto de capa' : 'Foto da galeria'}
+                            </span>
+
+                            {!isCover ? (
+                              <button
+                                className="premium-button-secondary justify-center text-xs"
+                                type="button"
+                                onClick={() => setVehicleCoverImage(imageUrl)}
+                              >
+                                Definir como capa
+                              </button>
+                            ) : null}
+
+                            <button
+                              className="premium-button-secondary justify-center text-xs"
+                              type="button"
+                              onClick={() => removeVehicleImage(imageUrl)}
+                            >
+                              <Trash2 size={14} /> Excluir foto
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-white p-5 text-center">
+                    <p className="text-sm font-bold text-zinc-400">Nenhuma foto cadastrada para este veículo.</p>
+                    <label className="premium-button-primary mx-auto mt-3 inline-flex cursor-pointer justify-center text-xs">
+                      <Upload size={16} />
+                      Adicionar primeira foto
+                      <input
+                        className="hidden"
+                        type="file"
+                        accept="image/*"
+                        onChange={(event) => uploadVehicleImage(event.target.files?.[0], 'cover')}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
 
               <div className="mt-3 grid gap-2 md:grid-cols-2">
                 <label className="flex items-center gap-3 rounded-2xl border border-zinc-100 bg-zinc-50 p-4 text-sm font-bold text-zinc-600">
