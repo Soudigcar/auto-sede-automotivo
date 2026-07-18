@@ -33,6 +33,15 @@ function isValidStore(store: any) {
   return status !== 'deleted' && status !== 'excluido';
 }
 
+function normalizeEventKey(value: any) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
 export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
   const supabase = createClient();
   const [events, setEvents] = useState<any[]>([]);
@@ -88,7 +97,16 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
     return Array.from(map.values());
   }, [stores]);
 
-  const selectedStores = dedupedStores.filter((store) => store.event_id === eventId);
+  const selectedEvent = events.find((event) => event.id === eventId);
+  const selectedEventKey = normalizeEventKey(selectedEvent?.event_name);
+
+  const selectedStores = dedupedStores.filter((store) => {
+    if (store.event_id === eventId) return true;
+
+    const storeEventKey = normalizeEventKey(store.event_name_snapshot);
+    return Boolean(selectedEventKey && storeEventKey && storeEventKey === selectedEventKey);
+  });
+
   const selectedStoreIds = new Set(selectedStores.map((store) => store.id));
   const generalStores = dedupedStores.filter((store) => !selectedStoreIds.has(store.id));
 
