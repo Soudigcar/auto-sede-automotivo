@@ -82,6 +82,29 @@ function getVisibleLines(html: string) {
     .filter(Boolean);
 }
 
+function getMainVehicleHtml(html: string) {
+  const cutPatterns = [
+    /ve[ií]culos\s+relacionados/i,
+    /siga-nos\s+nas\s+redes\s+sociais/i,
+    /receba\s+as\s+melhores\s+ofertas/i,
+    /desenvolvido\s+por/i,
+    />\s*marcas\s*</i,
+    />\s*modelos\s*</i
+  ];
+
+  let cutIndex = html.length;
+
+  for (const pattern of cutPatterns) {
+    const match = html.match(pattern);
+
+    if (match && typeof match.index === 'number' && match.index > 0) {
+      cutIndex = Math.min(cutIndex, match.index);
+    }
+  }
+
+  return html.slice(0, cutIndex);
+}
+
 function parseCurrency(value: string) {
   const raw = String(value || '').replace(/[^\d,.]/g, '');
 
@@ -536,10 +559,11 @@ export async function POST(request: Request) {
     }
 
     const html = await fetchHtml(url);
-    const title = extractTitle(html);
-    const lines = getVisibleLines(html);
-    const price = extractPrice(html, lines, title);
-    const images = extractImages(html, url);
+    const mainHtml = getMainVehicleHtml(html);
+    const title = extractTitle(mainHtml || html);
+    const lines = getVisibleLines(mainHtml || html);
+    const price = extractPrice(mainHtml || html, lines, title);
+    const images = extractImages(mainHtml || html, url);
     const parsed = parseVehicleFromSources(title, url, lines);
 
     if (action === 'preview') {
