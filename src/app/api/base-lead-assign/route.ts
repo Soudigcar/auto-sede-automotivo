@@ -85,12 +85,14 @@ export async function POST(request: Request) {
 
     const { data: store } = await supabase
       .from('stores')
-      .select('id,store_name,event_id,status')
+      .select('id,store_name,event_id,status,portal_enabled')
       .eq('id', storeId)
       .maybeSingle();
 
-    if (!store || store.status !== 'active') {
-      return NextResponse.json({ error: 'Loja ativa não encontrada.' }, { status: 404 });
+    const storeStatus = String(store?.status || '').toLowerCase();
+
+    if (!store || storeStatus === 'deleted' || storeStatus === 'excluido') {
+      return NextResponse.json({ error: 'Loja válida não encontrada.' }, { status: 404 });
     }
 
     let routedLeadId = leadBase.routed_lead_id || null;

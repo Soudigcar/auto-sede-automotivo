@@ -49,19 +49,35 @@ export default function MasterBasePage() {
   const [busyLeadId, setBusyLeadId] = useState('');
 
   async function loadLeads() {
-    const [{ data: leadRows, error: leadError }, { data: storeRows }] = await Promise.all([
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token || '';
+
+    const [leadResult, storeResponse] = await Promise.all([
       supabase.from('leads_base').select('*').order('created_at', { ascending: false }),
-      supabase.from('stores').select('id,store_name,status,portal_enabled').eq('status', 'active').order('store_name', { ascending: true })
+      fetch('/api/base-stores', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      })
     ]);
+
+    const { data: leadRows, error: leadError } = leadResult;
+    let storeRows: any[] = [];
+    let nextMessage = '';
 
     if (leadError) {
       setMessage('Não foi possível carregar a Base. Confirme se o SQL foi executado no Supabase.');
       return;
     }
 
+    if (storeResponse.ok) {
+      const storeResult = await storeResponse.json();
+      storeRows = storeResult.stores || [];
+    } else {
+      nextMessage = 'Base carregada, mas não foi possível carregar todas as lojas para redirecionamento.';
+    }
+
     setLeads(leadRows || []);
     setStores(storeRows || []);
-    setMessage('');
+    setMessage(nextMessage);
   }
 
   useEffect(() => {
