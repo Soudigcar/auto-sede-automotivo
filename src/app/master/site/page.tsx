@@ -102,6 +102,8 @@ export default function MasterSitePage() {
   const [bulkPublishing, setBulkPublishing] = useState(false);
   const [bulkProgress, setBulkProgress] = useState('');
   const [inlineEditingVehicleId, setInlineEditingVehicleId] = useState('');
+  const [refreshingPrices, setRefreshingPrices] = useState(false);
+  const [priceRefreshSummary, setPriceRefreshSummary] = useState('');
 
   const publicLink = useMemo(() => {
     if (typeof window === 'undefined') return `/campanha/${campaign.slug}`;
@@ -598,6 +600,53 @@ export default function MasterSitePage() {
   async function copyLink() {
     await navigator.clipboard.writeText(publicLink);
     setMessage('Link público copiado.');
+  }
+
+  async function refreshVehiclePrices() {
+    const confirmation = window.prompt(
+      'Isso vai reabrir os links originais dos anúncios e atualizar SOMENTE os preços. Digite ATUALIZAR para confirmar.'
+    );
+
+    if (confirmation !== 'ATUALIZAR') return;
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      setMessage('Sessão expirada. Faça login novamente.');
+      return;
+    }
+
+    setRefreshingPrices(true);
+    setPriceRefreshSummary('');
+    setMessage('Atualizando valores pelos links originais. Aguarde...');
+
+    try {
+      const response = await fetch('/api/site-refresh-prices', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setMessage(result.error || 'Não foi possível atualizar os valores.');
+        setRefreshingPrices(false);
+        return;
+      }
+
+      const summary = `Valores atualizados: ${result.updated}. Sem alteração: ${result.unchanged}. Sem preço encontrado: ${result.without_price}. Erros: ${result.failed}.`;
+
+      setPriceRefreshSummary(summary);
+      setMessage(summary);
+      await loadData();
+    } catch {
+      setMessage('Erro ao atualizar valores pelos links.');
+    }
+
+    setRefreshingPrices(false);
   }
 
   async function runPreviewFromUrl(url: string, storeName?: string, submissionId?: string) {
@@ -1253,7 +1302,29 @@ export default function MasterSitePage() {
           </div>
 
           <section className="premium-card mt-6 p-5">
-            <h2 className="text-2xl font-black text-zinc-950">Veículos cadastrados</h2>
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <h2 className="text-2xl font-black text-zinc-950">Veículos cadastrados</h2>
+                <p className="mt-1 text-sm font-bold text-zinc-500">
+                  Atualize os preços pelos links originais sem alterar fotos, marca, modelo, status ou destaque.
+                </p>
+              </div>
+
+              <button
+                className="premium-button-secondary justify-center text-xs"
+                type="button"
+                onClick={refreshVehiclePrices}
+                disabled={refreshingPrices || !vehicles.length}
+              >
+                {refreshingPrices ? 'Atualizando valores...' : 'Atualizar valores pelos links'}
+              </button>
+            </div>
+
+            {priceRefreshSummary ? (
+              <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm font-black text-emerald-700">
+                {priceRefreshSummary}
+              </div>
+            ) : null}
 
             <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {vehicles.map((item) => {
