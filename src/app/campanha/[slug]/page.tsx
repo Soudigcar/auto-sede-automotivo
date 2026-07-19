@@ -141,6 +141,15 @@ export default function CampaignLandingPage() {
     return Array.from(new Set(images));
   }
 
+  function vehicleSpecs(vehicle: any) {
+    return [
+      vehicle?.mileage ? { label: 'KM', value: vehicle.mileage } : null,
+      vehicle?.fuel ? { label: 'Comb.', value: vehicle.fuel } : null,
+      vehicle?.transmission ? { label: 'Câmbio', value: vehicle.transmission } : null,
+      vehicle?.color ? { label: 'Cor', value: vehicle.color } : null
+    ].filter(Boolean) as { label: string; value: string }[];
+  }
+
   function openGallery(vehicle: any) {
     const images = vehicleImages(vehicle);
 
@@ -307,8 +316,22 @@ export default function CampaignLandingPage() {
 
                 <div className="p-5">
                   <h3 className="text-xl font-black">{vehicle.brand} {vehicle.model}</h3>
-                  <p className="mt-1 text-sm font-bold text-zinc-500">{vehicle.version} • {vehicle.year}</p>
+                  <p className="mt-1 text-sm font-bold text-zinc-500">
+                    {[vehicle.version, vehicle.year].filter(Boolean).join(' • ') || 'Informações em atualização'}
+                  </p>
+
                   <strong className="mt-4 block text-3xl font-black text-red-600">{money(vehicle.price)}</strong>
+
+                  {vehicleSpecs(vehicle).length ? (
+                    <div className="mt-4 grid gap-2 text-xs font-black text-zinc-600 sm:grid-cols-2">
+                      {vehicleSpecs(vehicle).map((spec) => (
+                        <span key={`${vehicle.id}-${spec.label}`} className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                          <span className="text-zinc-400">{spec.label}:</span> {spec.value}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+
                   <button className="mt-5 w-full rounded-2xl bg-red-600 px-5 py-4 text-sm font-black text-white" type="button" onClick={() => openWithVehicle(vehicle.id)}>
                     Simular este veículo
                   </button>
@@ -474,11 +497,21 @@ export default function CampaignLandingPage() {
                           {selectedVehicle.brand} {selectedVehicle.model}
                         </h3>
                         <p className="mt-1 break-words text-sm font-bold text-zinc-500">
-                          {selectedVehicle.version} • {selectedVehicle.year}
+                          {[selectedVehicle.version, selectedVehicle.year].filter(Boolean).join(' • ')}
                         </p>
                         <strong className="mt-2 block text-xl font-black text-red-600">
                           {money(selectedVehicle.price)}
                         </strong>
+
+                        {vehicleSpecs(selectedVehicle).length ? (
+                          <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black text-zinc-600">
+                            {vehicleSpecs(selectedVehicle).map((spec) => (
+                              <span key={`selected-${spec.label}`} className="rounded-full bg-white px-3 py-1">
+                                <span className="text-zinc-400">{spec.label}:</span> {spec.value}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
 
