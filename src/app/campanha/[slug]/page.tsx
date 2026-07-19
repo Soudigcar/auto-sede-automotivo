@@ -226,55 +226,188 @@ export default function CampaignLandingPage() {
 
   return (
     <main className="min-h-screen bg-[#071020] text-white">
-      <section className="relative overflow-hidden px-5 py-10 md:px-10 md:py-16">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(220,38,38,0.35),transparent_35%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.10),transparent_30%)]" />
+      <section id="home" className="relative overflow-hidden bg-[#071020] px-5 pb-10 pt-5 text-white md:px-10 md:pb-14">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_15%,rgba(239,68,68,0.20),transparent_30%),radial-gradient(circle_at_85%_10%,rgba(239,68,68,0.28),transparent_34%),radial-gradient(circle_at_70%_85%,rgba(255,255,255,0.08),transparent_30%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(115deg,rgba(7,16,32,0.98),rgba(7,16,32,0.93)_45%,rgba(40,7,12,0.94))]" />
 
-        <div className="relative mx-auto grid max-w-7xl gap-10 lg:grid-cols-[1fr_0.8fr] lg:items-center">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-zinc-200">
-              <ShieldCheck size={18} className="text-red-400" /> Simulação segura e sem consulta oficial de score
+        <div className="relative mx-auto max-w-7xl">
+          <header className="flex items-center justify-between gap-4">
+            <a href="#home" className="flex items-center gap-3">
+              <img
+                src="/campaign-assets/auto-sede-logo.png"
+                alt="Auto Sede"
+                className="h-12 w-auto object-contain md:h-14"
+                onError={(event) => { event.currentTarget.style.display = 'none'; }}
+              />
+              <span className="sr-only">Auto Sede</span>
+            </a>
+
+            <nav className="hidden items-center gap-8 text-xs font-black uppercase tracking-wide text-zinc-300 lg:flex">
+              <a className="border-b-2 border-red-500 pb-1 text-white" href="#home">Home</a>
+              <button className="transition hover:text-white" type="button" onClick={openCleanSimulation}>Simulação</button>
+              <a className="transition hover:text-white" href="#veiculos">Veículos</a>
+              <a className="transition hover:text-white" href="#sobre-festival">Sobre o festival</a>
+            </nav>
+
+            <div className="flex items-center justify-end">
+              <img
+                src="/campaign-assets/festival-seu-carro-agora.png"
+                alt="Festival Seu Carro Agora"
+                className="h-14 w-auto object-contain md:h-20"
+                onError={(event) => { event.currentTarget.style.display = 'none'; }}
+              />
+            </div>
+          </header>
+
+          <div className="mt-10 grid gap-10 lg:grid-cols-[1fr_430px] lg:items-center">
+            <div>
+              <div className="max-w-xl">
+                <img
+                  src="/campaign-assets/festival-seu-carro-agora.png"
+                  alt="Festival Seu Carro Agora"
+                  className="mb-6 w-full max-w-[520px] object-contain drop-shadow-[0_22px_45px_rgba(239,68,68,0.35)]"
+                  onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                />
+
+                <h1 className="text-4xl font-black leading-[0.95] tracking-tight text-white md:text-6xl">
+                  É rápido e fácil. Escolha seu carro e faça uma simulação do seu financiamento
+                </h1>
+
+                <p className="mt-5 max-w-2xl text-base font-medium leading-relaxed text-zinc-300 md:text-lg">
+                  Escolha um veículo disponível em nosso estoque, informe seus dados e receba uma simulação inicial com taxa referencial de {campaign?.interest_rate || '2.89'}%.
+                </p>
+
+                <div className="mt-7 flex flex-wrap gap-3">
+                  <button
+                    className="rounded-full bg-red-600 px-7 py-4 text-sm font-black uppercase tracking-wide text-white shadow-xl shadow-red-600/30 transition hover:bg-red-700"
+                    type="button"
+                    onClick={openCleanSimulation}
+                  >
+                    Simular agora
+                  </button>
+
+                  <a
+                    className="rounded-full border border-white/25 bg-white/5 px-7 py-4 text-sm font-black uppercase tracking-wide text-white transition hover:bg-white/10"
+                    href="#veiculos"
+                  >
+                    Ver veículos
+                  </a>
+                </div>
+
+                <div className="mt-7 grid gap-3 text-sm font-bold text-zinc-300 sm:grid-cols-2">
+                  {[
+                    'Simulação rápida',
+                    'Sem diminuir seu score',
+                    'Não solicitamos códigos',
+                    'Atendimento consultivo',
+                    'Estoque disponível para pronta negociação'
+                  ].map((item) => (
+                    <span key={item} className="inline-flex items-center gap-2">
+                      <CheckCircle2 size={18} className="text-red-400" />
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              </div>
             </div>
 
-            <h1 className="mt-6 text-4xl font-black tracking-tight md:text-6xl">
-              {campaign?.title || 'Simule seu financiamento e descubra suas chances de sair de carro hoje'}
-            </h1>
+            <div className="rounded-[34px] border border-white/15 bg-white/10 p-3 shadow-2xl shadow-black/40 backdrop-blur">
+              <div className="rounded-[28px] bg-white p-6 text-zinc-950">
+                <div className="inline-flex items-center gap-2 rounded-full border border-red-100 bg-red-50 px-3 py-2 text-xs font-black text-red-600">
+                  <ShieldCheck size={15} /> Simulação segura e sem consulta oficial de score
+                </div>
 
-            <p className="mt-5 max-w-2xl text-lg font-medium leading-relaxed text-zinc-300">
-              {campaign?.description || 'Escolha um veículo disponível em nosso estoque e receba uma simulação inicial.'}
-            </p>
+                <p className="mt-6 text-xs font-black uppercase tracking-[0.32em] text-red-600">Simulador Online</p>
+                <h2 className="mt-2 text-3xl font-black leading-tight">Financiamento automotivo</h2>
+                <p className="mt-2 text-sm font-medium text-zinc-500">Taxa referencial de {campaign?.interest_rate || '2.89'}% ao mês.</p>
 
-            <div className="mt-8 flex flex-wrap gap-3">
-              <button className="rounded-2xl bg-red-600 px-7 py-4 text-sm font-black uppercase tracking-wide text-white shadow-xl shadow-red-600/25 transition hover:bg-red-700" type="button" onClick={openCleanSimulation}>
-                SIMULAR AGORA
-              </button>
-              <a className="rounded-2xl border border-white/10 bg-white/5 px-7 py-4 text-sm font-black uppercase tracking-wide text-white transition hover:bg-white/10" href="#veiculos">
-                Ver veículos
-              </a>
-            </div>
+                <div className="mt-6 rounded-[28px] bg-zinc-50 p-5">
+                  <p className="text-sm font-bold text-zinc-500">Parcela estimada</p>
+                  <strong className="mt-1 block text-4xl font-black text-red-600">{money(simulation.estimatedInstallment)}</strong>
+                  <p className="mt-2 text-xs font-bold text-zinc-400">Valores sujeitos à análise de crédito e condições vigentes.</p>
+                </div>
 
-            <div className="mt-8 grid gap-3 text-sm font-bold text-zinc-300 sm:grid-cols-2">
-              {['Simulação rápida', 'Sem diminuir seu score', 'Não solicitamos códigos', 'Atendimento consultivo', 'Estoque disponível para pronta negociação'].map((item) => (
-                <span key={item} className="inline-flex items-center gap-2"><CheckCircle2 size={18} className="text-red-400" /> {item}</span>
-              ))}
+                <button
+                  className="mt-6 w-full rounded-full bg-red-600 px-5 py-4 text-sm font-black uppercase tracking-wide text-white shadow-xl shadow-red-600/25 transition hover:bg-red-700"
+                  type="button"
+                  onClick={openCleanSimulation}
+                >
+                  Simular meu financiamento
+                </button>
+              </div>
             </div>
           </div>
 
-          <div className="rounded-[32px] border border-white/10 bg-white/[0.06] p-4 shadow-2xl shadow-black/30 backdrop-blur">
-            <div className="rounded-[28px] bg-white p-5 text-zinc-950">
-              <p className="text-xs font-black uppercase tracking-[0.3em] text-red-600">Simulador Online</p>
-              <h2 className="mt-2 text-2xl font-black">Financiamento automotivo</h2>
-              <p className="mt-2 text-sm font-medium text-zinc-500">Taxa referencial de {campaign?.interest_rate || '1.89'}% ao mês.</p>
-
-              <div className="mt-5 rounded-3xl bg-zinc-50 p-4">
-                <p className="text-sm font-bold text-zinc-500">Parcela estimada</p>
-                <strong className="mt-1 block text-4xl font-black text-red-600">{money(simulation.estimatedInstallment)}</strong>
-                <p className="mt-2 text-xs font-bold text-zinc-400">Valores sujeitos à análise de crédito e condições vigentes.</p>
+          <div className="mt-10 grid gap-3 rounded-[26px] border border-white/15 bg-white/5 p-4 text-white backdrop-blur md:grid-cols-4">
+            <div className="flex items-center gap-3 rounded-2xl bg-white/5 p-4">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-lg font-black">1</span>
+              <div>
+                <p className="text-sm font-black uppercase">Condições</p>
+                <p className="text-xs font-bold text-zinc-400">Jamais vistas</p>
               </div>
-
-              <button className="mt-5 w-full rounded-2xl bg-red-600 px-5 py-4 text-sm font-black text-white" type="button" onClick={openCleanSimulation}>
-                SIMULAR MEU FINANCIAMENTO
-              </button>
             </div>
+
+            <div className="flex items-center gap-3 rounded-2xl bg-white/5 p-4">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-lg font-black">2</span>
+              <div>
+                <p className="text-sm font-black uppercase">Veículos</p>
+                <p className="text-xs font-bold text-zinc-400">{vehicles.length || 0} disponíveis na landing</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 rounded-2xl bg-white/5 p-4">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-lg font-black">3</span>
+              <div>
+                <p className="text-sm font-black uppercase">Primeira parcela</p>
+                <p className="text-xs font-bold text-zinc-400">Conforme aprovação</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 rounded-2xl bg-white/5 p-4">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-lg font-black">4</span>
+              <div>
+                <p className="text-sm font-black uppercase">Lojas</p>
+                <p className="text-xs font-bold text-zinc-400">Participantes selecionadas</p>
+              </div>
+            </div>
+          </div>
+
+          <div id="sobre-festival" className="mt-5 rounded-[26px] border border-white/15 bg-black/25 p-4 backdrop-blur">
+            <p className="mb-3 text-center text-[11px] font-black uppercase tracking-[0.45em] text-zinc-400">Lojas participantes</p>
+            <div className="overflow-hidden rounded-2xl bg-white p-3">
+              <img
+                src="/campaign-assets/lojas-participantes.png"
+                alt="Lojas participantes"
+                className="mx-auto max-h-40 w-full object-contain"
+                onError={(event) => { event.currentTarget.style.display = 'none'; }}
+              />
+            </div>
+          </div>
+
+          <div className="mt-8 grid gap-5 text-center md:grid-cols-2 md:items-center">
+            <div className="rounded-[24px] border border-white/10 bg-white/5 p-5">
+              <p className="mb-3 text-xs font-black uppercase tracking-wide text-zinc-400">Realização</p>
+              <img
+                src="/campaign-assets/auto-sede-logo.png"
+                alt="Auto Sede"
+                className="mx-auto h-14 w-auto object-contain"
+                onError={(event) => { event.currentTarget.style.display = 'none'; }}
+              />
+            </div>
+
+            <div className="rounded-[24px] border border-white/10 bg-white/5 p-5">
+              <p className="mb-3 text-xs font-black uppercase tracking-wide text-zinc-400">Apoio</p>
+              <img
+                src="/campaign-assets/bradesco-financiamentos.png"
+                alt="Bradesco Financiamentos"
+                className="mx-auto h-14 w-auto object-contain"
+                onError={(event) => { event.currentTarget.style.display = 'none'; }}
+              />
+            </div>
+          </div>
+
+          <div className="mt-7 rounded-2xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-center text-[11px] font-black uppercase leading-relaxed tracking-wide text-white">
+            Atenção: as condições especiais do Festival Seu Carro Agora são válidas somente para as lojas participantes. Condições sujeitas à análise, cadastro, aprovação de crédito e regras das instituições financeiras.
           </div>
         </div>
       </section>
