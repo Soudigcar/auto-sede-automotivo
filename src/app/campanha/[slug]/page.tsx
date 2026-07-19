@@ -226,92 +226,96 @@ export default function CampaignLandingPage() {
 
   return (
     <main className="min-h-screen bg-[#071020] text-white">
-      <section id="home" className="relative overflow-hidden bg-[#071020] px-5 pb-10 pt-5 text-white md:px-10 md:pb-14">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_15%,rgba(239,68,68,0.20),transparent_30%),radial-gradient(circle_at_85%_10%,rgba(239,68,68,0.28),transparent_34%),radial-gradient(circle_at_70%_85%,rgba(255,255,255,0.08),transparent_30%)]" />
-        <div className="absolute inset-0 bg-[linear-gradient(115deg,rgba(7,16,32,0.98),rgba(7,16,32,0.93)_45%,rgba(40,7,12,0.94))]" />
+      <section id="home" className="relative overflow-hidden bg-[#071020] px-4 pb-8 pt-4 text-white md:px-8 lg:px-10">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_18%,rgba(239,68,68,0.22),transparent_28%),radial-gradient(circle_at_88%_12%,rgba(239,68,68,0.32),transparent_34%),radial-gradient(circle_at_70%_90%,rgba(255,255,255,0.08),transparent_32%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(115deg,rgba(5,13,28,0.99),rgba(7,16,32,0.96)_48%,rgba(38,5,12,0.95))]" />
 
         <div className="relative mx-auto max-w-7xl">
-          <header className="flex items-center justify-between gap-4">
-            <a href="#home" className="flex items-center gap-3">
-              <img
-                src="/campaign-assets/auto-sede-logo.png"
-                alt="Auto Sede"
-                className="h-12 w-auto object-contain md:h-14"
-                onError={(event) => { event.currentTarget.style.display = 'none'; }}
+          <header className="flex min-h-[74px] items-center justify-between gap-4">
+            <a href="#home" className="group flex h-16 w-36 shrink-0 items-center justify-start overflow-visible md:h-20 md:w-48">
+              <span
+                className="block h-full w-full bg-center bg-no-repeat transition group-hover:scale-105"
+                style={{
+                  backgroundImage: "url('/campaign-assets/auto-sede-logo.png')",
+                  backgroundSize: '430%'
+                }}
               />
               <span className="sr-only">Auto Sede</span>
             </a>
 
-            <nav className="hidden items-center gap-8 text-xs font-black uppercase tracking-wide text-zinc-300 lg:flex">
+            <nav className="hidden items-center gap-8 rounded-full border border-white/10 bg-white/5 px-7 py-4 text-xs font-black uppercase tracking-wide text-zinc-300 backdrop-blur lg:flex">
               <a className="border-b-2 border-red-500 pb-1 text-white" href="#home">Home</a>
               <button className="transition hover:text-white" type="button" onClick={openCleanSimulation}>Simulação</button>
               <a className="transition hover:text-white" href="#veiculos">Veículos</a>
               <a className="transition hover:text-white" href="#sobre-festival">Sobre o festival</a>
             </nav>
 
-            <div className="flex items-center justify-end">
-              <img
-                src="/campaign-assets/festival-seu-carro-agora.png"
-                alt="Festival Seu Carro Agora"
-                className="h-14 w-auto object-contain md:h-20"
-                onError={(event) => { event.currentTarget.style.display = 'none'; }}
+            <div className="flex h-16 w-36 shrink-0 items-center justify-end overflow-visible md:h-20 md:w-48">
+              <span
+                className="block h-full w-full bg-center bg-no-repeat"
+                style={{
+                  backgroundImage: "url('/campaign-assets/festival-seu-carro-agora.png')",
+                  backgroundSize: '290%'
+                }}
               />
             </div>
           </header>
 
-          <div className="mt-10 grid gap-10 lg:grid-cols-[1fr_430px] lg:items-center">
-            <div>
-              <div className="max-w-xl">
-                <img
-                  src="/campaign-assets/festival-seu-carro-agora.png"
-                  alt="Festival Seu Carro Agora"
-                  className="mb-6 w-full max-w-[520px] object-contain drop-shadow-[0_22px_45px_rgba(239,68,68,0.35)]"
-                  onError={(event) => { event.currentTarget.style.display = 'none'; }}
+          <div className="grid gap-8 pt-6 lg:grid-cols-[1fr_430px] lg:items-center lg:pt-8">
+            <div className="max-w-3xl">
+              <div className="h-44 w-full max-w-[620px] overflow-visible sm:h-56 md:h-64">
+                <div
+                  className="h-full w-full bg-left bg-no-repeat drop-shadow-[0_20px_45px_rgba(239,68,68,0.38)]"
+                  style={{
+                    backgroundImage: "url('/campaign-assets/festival-seu-carro-agora.png')",
+                    backgroundSize: '185%',
+                    backgroundPosition: 'center left'
+                  }}
                 />
+              </div>
 
-                <h1 className="text-4xl font-black leading-[0.95] tracking-tight text-white md:text-6xl">
-                  É rápido e fácil. Escolha seu carro e faça uma simulação do seu financiamento
-                </h1>
+              <h1 className="-mt-2 max-w-2xl text-4xl font-black leading-[0.96] tracking-tight text-white md:text-6xl">
+                É rápido e fácil. Escolha seu carro e faça uma simulação do seu financiamento
+              </h1>
 
-                <p className="mt-5 max-w-2xl text-base font-medium leading-relaxed text-zinc-300 md:text-lg">
-                  Escolha um veículo disponível em nosso estoque, informe seus dados e receba uma simulação inicial com taxa referencial de {campaign?.interest_rate || '2.89'}%.
-                </p>
+              <p className="mt-5 max-w-2xl text-base font-medium leading-relaxed text-zinc-300 md:text-lg">
+                Escolha um veículo disponível em nosso estoque, informe seus dados e receba uma simulação inicial com taxa referencial de {campaign?.interest_rate || '2.89'}%.
+              </p>
 
-                <div className="mt-7 flex flex-wrap gap-3">
-                  <button
-                    className="rounded-full bg-red-600 px-7 py-4 text-sm font-black uppercase tracking-wide text-white shadow-xl shadow-red-600/30 transition hover:bg-red-700"
-                    type="button"
-                    onClick={openCleanSimulation}
-                  >
-                    Simular agora
-                  </button>
+              <div className="mt-7 flex flex-wrap gap-3">
+                <button
+                  className="rounded-full bg-red-600 px-7 py-4 text-sm font-black uppercase tracking-wide text-white shadow-xl shadow-red-600/30 transition hover:bg-red-700"
+                  type="button"
+                  onClick={openCleanSimulation}
+                >
+                  Simular agora
+                </button>
 
-                  <a
-                    className="rounded-full border border-white/25 bg-white/5 px-7 py-4 text-sm font-black uppercase tracking-wide text-white transition hover:bg-white/10"
-                    href="#veiculos"
-                  >
-                    Ver veículos
-                  </a>
-                </div>
+                <a
+                  className="rounded-full border border-white/25 bg-white/5 px-7 py-4 text-sm font-black uppercase tracking-wide text-white transition hover:bg-white/10"
+                  href="#veiculos"
+                >
+                  Ver veículos
+                </a>
+              </div>
 
-                <div className="mt-7 grid gap-3 text-sm font-bold text-zinc-300 sm:grid-cols-2">
-                  {[
-                    'Simulação rápida',
-                    'Sem diminuir seu score',
-                    'Não solicitamos códigos',
-                    'Atendimento consultivo',
-                    'Estoque disponível para pronta negociação'
-                  ].map((item) => (
-                    <span key={item} className="inline-flex items-center gap-2">
-                      <CheckCircle2 size={18} className="text-red-400" />
-                      {item}
-                    </span>
-                  ))}
-                </div>
+              <div className="mt-7 grid gap-3 text-sm font-bold text-zinc-300 sm:grid-cols-2">
+                {[
+                  'Simulação rápida',
+                  'Sem diminuir seu score',
+                  'Não solicitamos códigos',
+                  'Atendimento consultivo',
+                  'Estoque disponível para pronta negociação'
+                ].map((item) => (
+                  <span key={item} className="inline-flex items-center gap-2">
+                    <CheckCircle2 size={18} className="text-red-400" />
+                    {item}
+                  </span>
+                ))}
               </div>
             </div>
 
-            <div className="rounded-[34px] border border-white/15 bg-white/10 p-3 shadow-2xl shadow-black/40 backdrop-blur">
+            <div className="rounded-[34px] border border-white/15 bg-white/10 p-3 shadow-2xl shadow-black/40 backdrop-blur lg:self-center">
               <div className="rounded-[28px] bg-white p-6 text-zinc-950">
                 <div className="inline-flex items-center gap-2 rounded-full border border-red-100 bg-red-50 px-3 py-2 text-xs font-black text-red-600">
                   <ShieldCheck size={15} /> Simulação segura e sem consulta oficial de score
@@ -338,7 +342,7 @@ export default function CampaignLandingPage() {
             </div>
           </div>
 
-          <div className="mt-10 grid gap-3 rounded-[26px] border border-white/15 bg-white/5 p-4 text-white backdrop-blur md:grid-cols-4">
+          <div className="mt-8 grid gap-3 rounded-[26px] border border-white/15 bg-white/5 p-4 text-white backdrop-blur md:grid-cols-4">
             <div className="flex items-center gap-3 rounded-2xl bg-white/5 p-4">
               <span className="flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-lg font-black">1</span>
               <div>
@@ -378,35 +382,41 @@ export default function CampaignLandingPage() {
               <img
                 src="/campaign-assets/lojas-participantes.png"
                 alt="Lojas participantes"
-                className="mx-auto max-h-40 w-full object-contain"
+                className="mx-auto max-h-56 w-full object-contain"
                 onError={(event) => { event.currentTarget.style.display = 'none'; }}
               />
             </div>
           </div>
 
-          <div className="mt-8 grid gap-5 text-center md:grid-cols-2 md:items-center">
+          <div className="mt-6 grid gap-5 text-center md:grid-cols-2 md:items-center">
             <div className="rounded-[24px] border border-white/10 bg-white/5 p-5">
               <p className="mb-3 text-xs font-black uppercase tracking-wide text-zinc-400">Realização</p>
-              <img
-                src="/campaign-assets/auto-sede-logo.png"
-                alt="Auto Sede"
-                className="mx-auto h-14 w-auto object-contain"
-                onError={(event) => { event.currentTarget.style.display = 'none'; }}
-              />
+              <div className="mx-auto h-20 w-56 overflow-visible">
+                <div
+                  className="h-full w-full bg-center bg-no-repeat"
+                  style={{
+                    backgroundImage: "url('/campaign-assets/auto-sede-logo.png')",
+                    backgroundSize: '360%'
+                  }}
+                />
+              </div>
             </div>
 
             <div className="rounded-[24px] border border-white/10 bg-white/5 p-5">
               <p className="mb-3 text-xs font-black uppercase tracking-wide text-zinc-400">Apoio</p>
-              <img
-                src="/campaign-assets/bradesco-financiamentos.png"
-                alt="Bradesco Financiamentos"
-                className="mx-auto h-14 w-auto object-contain"
-                onError={(event) => { event.currentTarget.style.display = 'none'; }}
-              />
+              <div className="mx-auto h-20 w-72 overflow-visible">
+                <div
+                  className="h-full w-full bg-center bg-no-repeat"
+                  style={{
+                    backgroundImage: "url('/campaign-assets/bradesco-financiamentos.png')",
+                    backgroundSize: '250%'
+                  }}
+                />
+              </div>
             </div>
           </div>
 
-          <div className="mt-7 rounded-2xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-center text-[11px] font-black uppercase leading-relaxed tracking-wide text-white">
+          <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-950/30 px-4 py-3 text-center text-[11px] font-black uppercase leading-relaxed tracking-wide text-white">
             Atenção: as condições especiais do Festival Seu Carro Agora são válidas somente para as lojas participantes. Condições sujeitas à análise, cadastro, aprovação de crédito e regras das instituições financeiras.
           </div>
         </div>
