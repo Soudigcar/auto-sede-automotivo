@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 function cleanText(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -33,6 +34,24 @@ function parsePrice(value: unknown) {
   if (!Number.isFinite(price)) return 0;
 
   return Math.round(price);
+}
+
+function requiredMissing(payload: any, imageCount: number) {
+  const missing: string[] = [];
+
+  if (!cleanText(payload.source_url || payload.vehicle_url)) missing.push('link original');
+  if (!cleanText(payload.brand)) missing.push('marca');
+  if (!cleanText(payload.model)) missing.push('modelo');
+  if (!cleanText(payload.version)) missing.push('versão');
+  if (!cleanText(payload.year)) missing.push('ano');
+  if (!cleanText(payload.mileage)) missing.push('km');
+  if (!cleanText(payload.fuel)) missing.push('combustível');
+  if (!cleanText(payload.transmission)) missing.push('câmbio');
+  if (!cleanText(payload.color)) missing.push('cor');
+  if (!parsePrice(payload.price)) missing.push('valor');
+  if (imageCount < 1) missing.push('pelo menos 1 foto');
+
+  return missing;
 }
 
 function getAdminClient() {
@@ -119,6 +138,63 @@ async function getStoreLink(supabase: any, storeId: string, linkId: string) {
   if (error || !link) return null;
 
   return link;
+}
+
+async function getActiveCampaign(supabase: any) {
+  const { data: campaign } = await supabase
+    .from('site_campaigns')
+    .select('*')
+    .eq('is_active', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return campaign;
+}
+
+async function callImporter(request: Request, vehicleUrl: string) {
+  const origin = new URL(request.url).origin;
+
+  const response = await fetch(`${origin}/api/site-import`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      action: 'import',
+      url: vehicleUrl
+    })
+  });
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.error || 'Não foi possível importar fotos e dados do anúncio.');
+  }
+
+  return result;
+}
+
+function buildImportedForm(importResult: any, sourceUrl: string) {
+  const vehicle = importResult.vehicle || {};
+  const uploadedImages = Array.isArray(importResult.uploadedImages) ? importResult.uploadedImages.filter(Boolean) : [];
+  const fallbackImages = Array.isArray(importResult.images) ? importResult.images.filter(Boolean) : [];
+  const images = uploadedImages.length ? uploadedImages : fallbackImages;
+
+  return {
+    source_url: sourceUrl,
+    brand: cleanText(vehicle.brand),
+    model: cleanText(vehicle.model),
+    version: cleanText(vehicle.version),
+    year: cleanText(vehicle.year),
+    mileage: cleanText(vehicle.mileage),
+    color: cleanText(vehicle.color),
+    transmission: cleanText(vehicle.transmission),
+    fuel: cleanText(vehicle.fuel),
+    price: parsePrice(importResult.price || vehicle.price),
+    image_url: images[0] || '',
+    image_urls: images.slice(0, 12)
+  };
 }
 
 export async function GET(request: Request) {
@@ -252,7 +328,8 @@ export async function POST(request: Request) {
           vehicle_url: vehicleUrl,
           status: 'pending',
           metadata: {
-            source: 'store_portal_stock'
+            source: 'store_portal_stock',
+            publication_status: 'link_enviado'
           }
         });
 
@@ -261,6 +338,53 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json({ success: true });
+    }
+
+    if (action === 'import-data') {
+      const linkId = cleanText(body.link_id);
+      const link = await getStoreLink(supabase, store.id, linkId);
+
+      if (!link) {
+        return NextResponse.json({ error: 'Link não encontrado para esta loja.' }, { status: 404 });
+      }
+
+      const sourceUrl = normalizeUrl(cleanText(body.vehicle_url || link.vehicle_url));
+
+      if (!sourceUrl || !isValidVehicleUrl(sourceUrl)) {
+        return NextResponse.json({ error: 'Link inválido para importação.' }, { status: 400 });
+      }
+
+      const importResult = await callImporter(request, sourceUrl);
+      const importedForm = buildImportedForm(importResult, sourceUrl);
+      const missing = requiredMissing(importedForm, importedForm.image_urls.length);
+
+      const { error } = await supabase
+        .from('store_vehicle_link_submissions')
+        .update({
+          vehicle_url: sourceUrl,
+          status: 'reviewing',
+          metadata: {
+            ...(link.metadata || {}),
+            source: 'store_portal_stock',
+            publication_status: missing.length ? 'aguardando_preenchimento' : 'pronto_para_publicar',
+            imported_preview: importedForm,
+            imported_at: new Date().toISOString(),
+            missing_fields: missing
+          },
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', link.id)
+        .eq('store_id', store.id);
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        imported: importedForm,
+        missing
+      });
     }
 
     if (action === 'update-link') {
@@ -286,7 +410,8 @@ export async function POST(request: Request) {
         payload.metadata = {
           ...(link.metadata || {}),
           edited_by_store: true,
-          edited_at: new Date().toISOString()
+          edited_at: new Date().toISOString(),
+          publication_status: 'link_editado'
         };
       }
 
@@ -313,17 +438,47 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true });
     }
 
-    if (action === 'update-vehicle') {
+    if (action === 'publish-vehicle' || action === 'update-vehicle') {
       const linkId = cleanText(body.link_id);
       const link = await getStoreLink(supabase, store.id, linkId);
 
-      if (!link || !link.imported_vehicle_id) {
-        return NextResponse.json({ error: 'Veículo publicado não encontrado para esta loja.' }, { status: 404 });
+      if (!link) {
+        return NextResponse.json({ error: 'Item não encontrado para esta loja.' }, { status: 404 });
       }
 
-      const sourceUrl = normalizeUrl(cleanText(body.source_url || link.vehicle_url));
+      const sourceUrl = normalizeUrl(cleanText(body.source_url || body.vehicle_url || link.vehicle_url));
+      const imageUrls = Array.isArray(body.image_urls)
+        ? body.image_urls.map((item: any) => cleanText(item)).filter(Boolean)
+        : [];
 
-      const payload = {
+      if (body.image_url && !imageUrls.includes(cleanText(body.image_url))) {
+        imageUrls.unshift(cleanText(body.image_url));
+      }
+
+      const missing = requiredMissing(
+        {
+          ...body,
+          source_url: sourceUrl,
+          price: parsePrice(body.price)
+        },
+        imageUrls.length
+      );
+
+      if (missing.length) {
+        return NextResponse.json({
+          error: `Preencha todos os campos obrigatórios antes de publicar: ${missing.join(', ')}.`,
+          missing
+        }, { status: 400 });
+      }
+
+      const campaign = await getActiveCampaign(supabase);
+
+      if (!campaign) {
+        return NextResponse.json({ error: 'Nenhuma campanha ativa encontrada para publicar o veículo.' }, { status: 400 });
+      }
+
+      const vehiclePayload: any = {
+        campaign_id: campaign.id,
         brand: cleanText(body.brand).toUpperCase(),
         model: cleanText(body.model).toUpperCase(),
         version: cleanText(body.version),
@@ -333,41 +488,68 @@ export async function POST(request: Request) {
         transmission: cleanText(body.transmission),
         fuel: cleanText(body.fuel),
         price: parsePrice(body.price),
-        source_url: sourceUrl || link.vehicle_url,
-        show_on_landing: Boolean(body.show_on_landing),
-        status: cleanText(body.status || 'disponivel'),
+        image_url: imageUrls[0],
+        image_urls: imageUrls,
+        store_name: store.store_name,
+        source_url: sourceUrl,
+        status: 'disponivel',
+        show_on_landing: true,
+        is_featured: Boolean(body.is_featured),
         updated_at: new Date().toISOString()
       };
 
-      if (!payload.brand || !payload.model) {
-        return NextResponse.json({ error: 'Marca e modelo são obrigatórios.' }, { status: 400 });
+      let vehicleId = link.imported_vehicle_id;
+
+      if (vehicleId) {
+        const { error } = await supabase
+          .from('site_vehicles')
+          .update(vehiclePayload)
+          .eq('id', vehicleId);
+
+        if (error) {
+          return NextResponse.json({ error: error.message }, { status: 400 });
+        }
+      } else {
+        const { data: created, error } = await supabase
+          .from('site_vehicles')
+          .insert({
+            ...vehiclePayload,
+            created_at: new Date().toISOString()
+          })
+          .select('id')
+          .single();
+
+        if (error) {
+          return NextResponse.json({ error: error.message }, { status: 400 });
+        }
+
+        vehicleId = created.id;
       }
 
-      const { error } = await supabase
-        .from('site_vehicles')
-        .update(payload)
-        .eq('id', link.imported_vehicle_id);
-
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 400 });
-      }
-
-      await supabase
+      const { error: linkError } = await supabase
         .from('store_vehicle_link_submissions')
         .update({
-          vehicle_url: sourceUrl || link.vehicle_url,
+          imported_vehicle_id: vehicleId,
+          vehicle_url: sourceUrl,
           status: 'published',
           metadata: {
             ...(link.metadata || {}),
-            edited_by_store: true,
-            edited_at: new Date().toISOString()
+            source: 'store_portal_stock',
+            publication_status: 'publicado',
+            published_by_store: true,
+            published_at: new Date().toISOString(),
+            missing_fields: []
           },
           updated_at: new Date().toISOString()
         })
         .eq('id', link.id)
         .eq('store_id', store.id);
 
-      return NextResponse.json({ success: true });
+      if (linkError) {
+        return NextResponse.json({ error: linkError.message }, { status: 400 });
+      }
+
+      return NextResponse.json({ success: true, vehicle_id: vehicleId });
     }
 
     if (action === 'delete-item') {
