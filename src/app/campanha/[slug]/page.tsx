@@ -226,21 +226,18 @@ export default function CampaignLandingPage() {
 
   return (
     <main className="min-h-screen bg-[#071020] text-white">
-      <section id="home" className="relative overflow-hidden bg-[#071020] px-4 pb-8 pt-4 text-white md:px-8 lg:px-10">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_18%,rgba(239,68,68,0.22),transparent_28%),radial-gradient(circle_at_88%_12%,rgba(239,68,68,0.32),transparent_34%),radial-gradient(circle_at_70%_90%,rgba(255,255,255,0.08),transparent_32%)]" />
+      <section id="home" className="relative overflow-hidden bg-[#071020] px-4 pb-10 pt-5 text-white md:px-8 lg:px-10">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_15%,rgba(239,68,68,0.22),transparent_28%),radial-gradient(circle_at_88%_12%,rgba(239,68,68,0.30),transparent_34%),radial-gradient(circle_at_70%_90%,rgba(255,255,255,0.08),transparent_32%)]" />
         <div className="absolute inset-0 bg-[linear-gradient(115deg,rgba(5,13,28,0.99),rgba(7,16,32,0.96)_48%,rgba(38,5,12,0.95))]" />
 
         <div className="relative mx-auto max-w-7xl">
-          <header className="flex min-h-[74px] items-center justify-between gap-4">
-            <a href="#home" className="group flex h-16 w-36 shrink-0 items-center justify-start overflow-visible md:h-20 md:w-48">
-              <span
-                className="block h-full w-full bg-center bg-no-repeat transition group-hover:scale-105"
-                style={{
-                  backgroundImage: "url('/campaign-assets/auto-sede-logo.png')",
-                  backgroundSize: '430%'
-                }}
+          <header className="flex items-center justify-between gap-4">
+            <a href="#home" className="flex items-center">
+              <img
+                src="/campaign-assets/auto-sede-logo-cropped.png"
+                alt="Auto Sede"
+                className="h-10 w-auto object-contain md:h-14"
               />
-              <span className="sr-only">Auto Sede</span>
             </a>
 
             <nav className="hidden items-center gap-8 rounded-full border border-white/10 bg-white/5 px-7 py-4 text-xs font-black uppercase tracking-wide text-zinc-300 backdrop-blur lg:flex">
@@ -250,31 +247,22 @@ export default function CampaignLandingPage() {
               <a className="transition hover:text-white" href="#sobre-festival">Sobre o festival</a>
             </nav>
 
-            <div className="flex h-16 w-36 shrink-0 items-center justify-end overflow-visible md:h-20 md:w-48">
-              <span
-                className="block h-full w-full bg-center bg-no-repeat"
-                style={{
-                  backgroundImage: "url('/campaign-assets/festival-seu-carro-agora.png')",
-                  backgroundSize: '290%'
-                }}
-              />
-            </div>
+            <img
+              src="/campaign-assets/festival-seu-carro-agora-cropped.png"
+              alt="Festival Seu Carro Agora"
+              className="h-10 w-auto object-contain md:h-16"
+            />
           </header>
 
-          <div className="grid gap-8 pt-6 lg:grid-cols-[1fr_430px] lg:items-center lg:pt-8">
+          <div className="mt-8 grid gap-10 lg:grid-cols-[1fr_430px] lg:items-center">
             <div className="max-w-3xl">
-              <div className="h-44 w-full max-w-[620px] overflow-visible sm:h-56 md:h-64">
-                <div
-                  className="h-full w-full bg-left bg-no-repeat drop-shadow-[0_20px_45px_rgba(239,68,68,0.38)]"
-                  style={{
-                    backgroundImage: "url('/campaign-assets/festival-seu-carro-agora.png')",
-                    backgroundSize: '185%',
-                    backgroundPosition: 'center left'
-                  }}
-                />
-              </div>
+              <img
+                src="/campaign-assets/festival-seu-carro-agora-cropped.png"
+                alt="Festival Seu Carro Agora"
+                className="mb-7 w-full max-w-[620px] object-contain drop-shadow-[0_24px_48px_rgba(239,68,68,0.38)]"
+              />
 
-              <h1 className="-mt-2 max-w-2xl text-4xl font-black leading-[0.96] tracking-tight text-white md:text-6xl">
+              <h1 className="max-w-3xl text-4xl font-black leading-[0.96] tracking-tight text-white md:text-6xl">
                 É rápido e fácil. Escolha seu carro e faça uma simulação do seu financiamento
               </h1>
 
@@ -315,7 +303,7 @@ export default function CampaignLandingPage() {
               </div>
             </div>
 
-            <div className="rounded-[34px] border border-white/15 bg-white/10 p-3 shadow-2xl shadow-black/40 backdrop-blur lg:self-center">
+            <div className="rounded-[34px] border border-white/15 bg-white/10 p-3 shadow-2xl shadow-black/40 backdrop-blur">
               <div className="rounded-[28px] bg-white p-6 text-zinc-950">
                 <div className="inline-flex items-center gap-2 rounded-full border border-red-100 bg-red-50 px-3 py-2 text-xs font-black text-red-600">
                   <ShieldCheck size={15} /> Simulação segura e sem consulta oficial de score
@@ -342,7 +330,7 @@ export default function CampaignLandingPage() {
             </div>
           </div>
 
-          <div className="mt-8 grid gap-3 rounded-[26px] border border-white/15 bg-white/5 p-4 text-white backdrop-blur md:grid-cols-4">
+          <div className="mt-10 grid gap-3 rounded-[26px] border border-white/15 bg-white/5 p-4 text-white backdrop-blur md:grid-cols-4">
             <div className="flex items-center gap-3 rounded-2xl bg-white/5 p-4">
               <span className="flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-lg font-black">1</span>
               <div>
@@ -378,12 +366,11 @@ export default function CampaignLandingPage() {
 
           <div id="sobre-festival" className="mt-5 rounded-[26px] border border-white/15 bg-black/25 p-4 backdrop-blur">
             <p className="mb-3 text-center text-[11px] font-black uppercase tracking-[0.45em] text-zinc-400">Lojas participantes</p>
-            <div className="overflow-hidden rounded-2xl bg-white p-3">
+            <div className="overflow-hidden rounded-2xl bg-white p-4">
               <img
-                src="/campaign-assets/lojas-participantes.png"
+                src="/campaign-assets/lojas-participantes-cropped.png"
                 alt="Lojas participantes"
                 className="mx-auto max-h-56 w-full object-contain"
-                onError={(event) => { event.currentTarget.style.display = 'none'; }}
               />
             </div>
           </div>
@@ -391,28 +378,20 @@ export default function CampaignLandingPage() {
           <div className="mt-6 grid gap-5 text-center md:grid-cols-2 md:items-center">
             <div className="rounded-[24px] border border-white/10 bg-white/5 p-5">
               <p className="mb-3 text-xs font-black uppercase tracking-wide text-zinc-400">Realização</p>
-              <div className="mx-auto h-20 w-56 overflow-visible">
-                <div
-                  className="h-full w-full bg-center bg-no-repeat"
-                  style={{
-                    backgroundImage: "url('/campaign-assets/auto-sede-logo.png')",
-                    backgroundSize: '360%'
-                  }}
-                />
-              </div>
+              <img
+                src="/campaign-assets/auto-sede-logo-cropped.png"
+                alt="Auto Sede"
+                className="mx-auto h-16 w-auto object-contain md:h-20"
+              />
             </div>
 
             <div className="rounded-[24px] border border-white/10 bg-white/5 p-5">
               <p className="mb-3 text-xs font-black uppercase tracking-wide text-zinc-400">Apoio</p>
-              <div className="mx-auto h-20 w-72 overflow-visible">
-                <div
-                  className="h-full w-full bg-center bg-no-repeat"
-                  style={{
-                    backgroundImage: "url('/campaign-assets/bradesco-financiamentos.png')",
-                    backgroundSize: '250%'
-                  }}
-                />
-              </div>
+              <img
+                src="/campaign-assets/bradesco-financiamentos-cropped.png"
+                alt="Bradesco Financiamentos"
+                className="mx-auto h-16 w-auto object-contain md:h-20"
+              />
             </div>
           </div>
 
