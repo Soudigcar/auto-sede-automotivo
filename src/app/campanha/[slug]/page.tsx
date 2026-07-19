@@ -43,13 +43,14 @@ export default function CampaignLandingPage() {
 
   const [campaign, setCampaign] = useState<any>(null);
   const [vehicles, setVehicles] = useState<any[]>([]);
-  const [modalOpen, setModalOpen] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState('');
   const [galleryVehicle, setGalleryVehicle] = useState<any>(null);
   const [galleryIndex, setGalleryIndex] = useState(0);
+  const [selectedVehicleImageIndex, setSelectedVehicleImageIndex] = useState(0);
 
   const [form, setForm] = useState({
     name: '',
@@ -75,10 +76,6 @@ export default function CampaignLandingPage() {
     setCampaign(result.campaign);
     setVehicles(result.vehicles || []);
 
-    if (result.vehicles?.[0]?.id) {
-      setForm((current) => ({ ...current, vehicle_id: result.vehicles[0].id }));
-    }
-
     setLoading(false);
   }
 
@@ -89,7 +86,7 @@ export default function CampaignLandingPage() {
     });
   }, [slug]);
 
-  const selectedVehicle = useMemo(() => vehicles.find((item) => item.id === form.vehicle_id) || vehicles[0], [vehicles, form.vehicle_id]);
+  const selectedVehicle = useMemo(() => vehicles.find((item) => item.id === form.vehicle_id) || null, [vehicles, form.vehicle_id]);
 
   const simulation = useMemo(() => {
     const vehiclePrice = Number(selectedVehicle?.price || 0);
@@ -116,8 +113,21 @@ export default function CampaignLandingPage() {
     form.consent
   );
 
+  function openCleanSimulation() {
+    setForm((current) => ({
+      ...current,
+      vehicle_id: '',
+      down_payment: '',
+      installments: '60'
+    }));
+    setSelectedVehicleImageIndex(0);
+    setModalOpen(true);
+    setSubmitted(false);
+  }
+
   function openWithVehicle(vehicleId: string) {
     setForm((current) => ({ ...current, vehicle_id: vehicleId }));
+    setSelectedVehicleImageIndex(0);
     setModalOpen(true);
     setSubmitted(false);
   }
@@ -202,6 +212,8 @@ export default function CampaignLandingPage() {
 
   const galleryImages = vehicleImages(galleryVehicle);
   const activeGalleryImage = galleryImages[galleryIndex] || galleryImages[0];
+  const selectedVehicleImages = selectedVehicle ? vehicleImages(selectedVehicle) : [];
+  const activeSelectedVehicleImage = selectedVehicleImages[selectedVehicleImageIndex] || selectedVehicleImages[0];
 
   return (
     <main className="min-h-screen bg-[#071020] text-white">
@@ -223,7 +235,7 @@ export default function CampaignLandingPage() {
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
-              <button className="rounded-2xl bg-red-600 px-7 py-4 text-sm font-black uppercase tracking-wide text-white shadow-xl shadow-red-600/25 transition hover:bg-red-700" type="button" onClick={() => setModalOpen(true)}>
+              <button className="rounded-2xl bg-red-600 px-7 py-4 text-sm font-black uppercase tracking-wide text-white shadow-xl shadow-red-600/25 transition hover:bg-red-700" type="button" onClick={openCleanSimulation}>
                 SIMULAR AGORA
               </button>
               <a className="rounded-2xl border border-white/10 bg-white/5 px-7 py-4 text-sm font-black uppercase tracking-wide text-white transition hover:bg-white/10" href="#veiculos">
@@ -250,7 +262,7 @@ export default function CampaignLandingPage() {
                 <p className="mt-2 text-xs font-bold text-zinc-400">Valores sujeitos à análise de crédito e condições vigentes.</p>
               </div>
 
-              <button className="mt-5 w-full rounded-2xl bg-red-600 px-5 py-4 text-sm font-black text-white" type="button" onClick={() => setModalOpen(true)}>
+              <button className="mt-5 w-full rounded-2xl bg-red-600 px-5 py-4 text-sm font-black text-white" type="button" onClick={openCleanSimulation}>
                 SIMULAR MEU FINANCIAMENTO
               </button>
             </div>
@@ -265,7 +277,7 @@ export default function CampaignLandingPage() {
               <p className="text-xs font-black uppercase tracking-[0.35em] text-red-600">Estoque disponível</p>
               <h2 className="mt-2 text-3xl font-black md:text-5xl">Veículos em destaque</h2>
             </div>
-            <button className="rounded-2xl bg-[#071020] px-6 py-4 text-sm font-black text-white" type="button" onClick={() => setModalOpen(true)}>
+            <button className="rounded-2xl bg-[#071020] px-6 py-4 text-sm font-black text-white" type="button" onClick={openCleanSimulation}>
               SIMULAR AGORA
             </button>
           </div>
@@ -324,7 +336,7 @@ export default function CampaignLandingPage() {
       <section className="bg-[#071020] px-5 py-14 text-center text-white md:px-10">
         <h2 className="mx-auto max-w-3xl text-3xl font-black md:text-5xl">Seu próximo carro pode estar mais perto do que você imagina.</h2>
         <p className="mx-auto mt-4 max-w-2xl text-zinc-300">Faça agora sua simulação e receba atendimento prioritário.</p>
-        <button className="mt-8 rounded-2xl bg-red-600 px-8 py-4 text-sm font-black uppercase tracking-wide text-white" type="button" onClick={() => setModalOpen(true)}>
+        <button className="mt-8 rounded-2xl bg-red-600 px-8 py-4 text-sm font-black uppercase tracking-wide text-white" type="button" onClick={openCleanSimulation}>
           SIMULAR MEU FINANCIAMENTO
         </button>
       </section>
@@ -423,7 +435,14 @@ export default function CampaignLandingPage() {
                 <input className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm font-bold outline-none focus:border-red-500" placeholder="CPF" value={form.cpf} onChange={(e) => setForm({ ...form, cpf: maskCpf(e.target.value) })} />
                 <input className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm font-bold outline-none focus:border-red-500" placeholder="E-mail" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
 
-                <select className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm font-bold outline-none focus:border-red-500" value={form.vehicle_id} onChange={(e) => setForm({ ...form, vehicle_id: e.target.value })}>
+                <select
+                  className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm font-bold outline-none focus:border-red-500"
+                  value={form.vehicle_id}
+                  onChange={(e) => {
+                    setForm({ ...form, vehicle_id: e.target.value });
+                    setSelectedVehicleImageIndex(0);
+                  }}
+                >
                   <option value="">Selecione o veículo</option>
                   {vehicles.map((vehicle) => (
                     <option key={vehicle.id} value={vehicle.id}>
@@ -431,6 +450,58 @@ export default function CampaignLandingPage() {
                     </option>
                   ))}
                 </select>
+
+                {selectedVehicle ? (
+                  <div className="overflow-hidden rounded-[28px] border border-zinc-100 bg-zinc-50 p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start">
+                      {activeSelectedVehicleImage ? (
+                        <div className="overflow-hidden rounded-2xl bg-zinc-100 md:w-52">
+                          <img
+                            src={activeSelectedVehicleImage}
+                            alt="Foto do veículo selecionado"
+                            className="h-36 w-full object-cover md:h-32"
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex h-32 items-center justify-center rounded-2xl bg-zinc-200 text-sm font-bold text-zinc-500 md:w-52">
+                          Sem foto
+                        </div>
+                      )}
+
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-black uppercase tracking-wide text-red-600">Veículo selecionado</p>
+                        <h3 className="mt-1 break-words text-lg font-black text-zinc-950">
+                          {selectedVehicle.brand} {selectedVehicle.model}
+                        </h3>
+                        <p className="mt-1 break-words text-sm font-bold text-zinc-500">
+                          {selectedVehicle.version} • {selectedVehicle.year}
+                        </p>
+                        <strong className="mt-2 block text-xl font-black text-red-600">
+                          {money(selectedVehicle.price)}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {selectedVehicleImages.length > 1 ? (
+                      <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+                        {selectedVehicleImages.map((image: string, index: number) => (
+                          <button
+                            key={image}
+                            type="button"
+                            onClick={() => setSelectedVehicleImageIndex(index)}
+                            className={`h-16 w-20 shrink-0 overflow-hidden rounded-xl border ${index === selectedVehicleImageIndex ? 'border-red-500 ring-4 ring-red-500/10' : 'border-zinc-200'}`}
+                          >
+                            <img src={image} alt="Miniatura do veículo" className="h-full w-full object-cover" />
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="rounded-[24px] border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm font-bold text-zinc-500">
+                    Selecione um veículo para visualizar fotos, valor e prévia da simulação.
+                  </div>
+                )}
 
                 <div className="grid gap-3 md:grid-cols-2">
                   <input className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm font-bold outline-none focus:border-red-500" value={selectedVehicle ? money(selectedVehicle.price) : ''} readOnly placeholder="Valor do veículo" />
@@ -441,17 +512,19 @@ export default function CampaignLandingPage() {
                   {[12, 24, 36, 48, 60].map((item) => <option key={item} value={item}>{item} parcelas</option>)}
                 </select>
 
-                <div className="rounded-[28px] border border-red-100 bg-red-50 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-red-600">Prévia da simulação</p>
-                  <div className="mt-3 grid gap-2 text-sm font-bold text-zinc-700 md:grid-cols-2">
-                    <span>Valor do veículo: {money(simulation.vehiclePrice)}</span>
-                    <span>Entrada: {money(simulation.downPayment)}</span>
-                    <span>Valor financiado: {money(simulation.financedAmount)}</span>
-                    <span>Parcelas: {simulation.installments}x</span>
+                {selectedVehicle ? (
+                  <div className="rounded-[28px] border border-red-100 bg-red-50 p-4">
+                    <p className="text-xs font-black uppercase tracking-wide text-red-600">Prévia da simulação</p>
+                    <div className="mt-3 grid gap-2 text-sm font-bold text-zinc-700 md:grid-cols-2">
+                      <span>Valor do veículo: {money(simulation.vehiclePrice)}</span>
+                      <span>Entrada: {money(simulation.downPayment)}</span>
+                      <span>Valor financiado: {money(simulation.financedAmount)}</span>
+                      <span>Parcelas: {simulation.installments}x</span>
+                    </div>
+                    <strong className="mt-3 block text-2xl font-black text-red-600">{money(simulation.estimatedInstallment)}</strong>
+                    <p className="mt-2 text-xs font-bold text-zinc-500">Valores sujeitos à análise de crédito, cadastro, aprovação da instituição financeira e condições vigentes.</p>
                   </div>
-                  <strong className="mt-3 block text-2xl font-black text-red-600">{money(simulation.estimatedInstallment)}</strong>
-                  <p className="mt-2 text-xs font-bold text-zinc-500">Valores sujeitos à análise de crédito, cadastro, aprovação da instituição financeira e condições vigentes.</p>
-                </div>
+                ) : null}
 
                 <div className="rounded-2xl bg-zinc-50 p-4 text-xs font-bold leading-relaxed text-zinc-500">
                   Seguimos rigorosamente a LGPD — Lei Geral de Proteção de Dados. Seus dados serão utilizados apenas para atendimento, simulação e contato comercial. Não solicitamos senhas, tokens, códigos de confirmação ou dados bancários sensíveis. Esta simulação não realiza consulta oficial ao seu score e não reduz sua pontuação.
