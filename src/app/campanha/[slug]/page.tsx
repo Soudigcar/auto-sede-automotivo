@@ -43,7 +43,7 @@ export default function CampaignLandingPage() {
 
   const [campaign, setCampaign] = useState<any>(null);
   const [vehicles, setVehicles] = useState<any[]>([]);
-  const [modalOpen, setModalOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(true);
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
