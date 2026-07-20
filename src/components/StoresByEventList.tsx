@@ -227,6 +227,12 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
         return;
       }
 
+      if (!result.password) {
+        setMessage('A senha foi atualizada, mas o servidor não devolveu a senha para exibir. Faça o redeploy e tente novamente.');
+        setPasswordLoadingId('');
+        return;
+      }
+
       setPasswordResult(result);
       setMessage('Senha gerada com sucesso. Copie e envie para a loja.');
       await loadData();
@@ -362,37 +368,78 @@ return (
       </div>
 
       {passwordResult ? (
-        <div className="rounded-[28px] border border-emerald-100 bg-emerald-50 p-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <p className="text-xs font-black uppercase tracking-wide text-emerald-700">Senha gerada com sucesso</p>
-              <h3 className="mt-2 text-2xl font-black text-zinc-950">{passwordResult.store_name}</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur">
+          <div className="w-full max-w-3xl rounded-[34px] bg-white p-6 shadow-2xl">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wide text-emerald-700">
+                  Senha gerada com sucesso
+                </p>
 
-              <div className="mt-4 grid gap-3 text-sm font-bold text-zinc-700 md:grid-cols-3">
-                <div className="rounded-2xl bg-white p-3">
-                  <p className="text-xs font-black uppercase text-zinc-400">Login</p>
-                  <p className="mt-1 break-all">{passwordResult.email}</p>
-                </div>
+                <h3 className="mt-2 text-3xl font-black text-zinc-950">
+                  {passwordResult.store_name}
+                </h3>
 
-                <div className="rounded-2xl bg-white p-3">
-                  <p className="text-xs font-black uppercase text-zinc-400">Nova senha</p>
-                  <p className="mt-1 break-all text-red-600">{passwordResult.password}</p>
-                </div>
+                <p className="mt-2 text-sm font-bold text-zinc-500">
+                  Copie este acesso e envie para a loja. A senha aparece somente agora.
+                </p>
+              </div>
 
-                <div className="rounded-2xl bg-white p-3">
-                  <p className="text-xs font-black uppercase text-zinc-400">Portal</p>
-                  <p className="mt-1 break-all">{passwordResult.portal_path}</p>
-                </div>
+              <button
+                className="rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-black text-zinc-600"
+                type="button"
+                onClick={() => setPasswordResult(null)}
+              >
+                <X size={16} /> Fechar
+              </button>
+            </div>
+
+            <div className="mt-6 grid gap-4">
+              <div className="rounded-[24px] border border-zinc-100 bg-zinc-50 p-5">
+                <p className="text-xs font-black uppercase tracking-wide text-zinc-400">
+                  Login da loja
+                </p>
+                <p className="mt-2 break-all text-xl font-black text-zinc-950">
+                  {passwordResult.email}
+                </p>
+              </div>
+
+              <div className="rounded-[24px] border-2 border-red-200 bg-red-50 p-5">
+                <p className="text-xs font-black uppercase tracking-wide text-red-600">
+                  Nova senha
+                </p>
+                <p className="mt-2 select-all break-all text-4xl font-black text-red-600">
+                  {passwordResult.password}
+                </p>
+              </div>
+
+              <div className="rounded-[24px] border border-zinc-100 bg-zinc-50 p-5">
+                <p className="text-xs font-black uppercase tracking-wide text-zinc-400">
+                  Portal da loja
+                </p>
+                <p className="mt-2 break-all text-sm font-black text-zinc-950">
+                  {typeof window !== 'undefined'
+                    ? `${window.location.origin}${passwordResult.portal_path}`
+                    : passwordResult.portal_path}
+                </p>
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <button className="premium-button-primary text-xs" type="button" onClick={copyGeneratedPassword}>
-                <Copy size={14} /> Copiar acesso
+            <div className="mt-6 grid gap-3 md:grid-cols-2">
+              <button
+                className="premium-button-primary justify-center"
+                type="button"
+                onClick={copyGeneratedPassword}
+              >
+                <Copy size={16} /> Copiar acesso completo
               </button>
 
-              <button className="premium-button-secondary text-xs" type="button" onClick={() => setPasswordResult(null)}>
-                <X size={14} /> Fechar
+              <button
+                className="premium-button-secondary justify-center"
+                type="button"
+                onClick={() => setPasswordResult(null)}
+              >
+                Fechar
               </button>
             </div>
           </div>
