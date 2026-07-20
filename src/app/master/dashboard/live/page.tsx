@@ -80,6 +80,105 @@ function isInsidePeriod(item: any, dateFrom: string, dateTo: string) {
   return true;
 }
 
+function normalizeStockText(value: any) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function isActiveStore(store: any) {
+  const status = String(store?.status || '').toLowerCase();
+  return status !== 'deleted' && status !== 'excluido';
+}
+
+function isActiveSiteVehicle(vehicle: any) {
+  const status = String(vehicle?.status || '').toLowerCase();
+
+  if (vehicle?.show_on_landing === false) return false;
+  if (['oculto', 'deleted', 'excluido', 'rejected', 'duplicate'].includes(status)) return false;
+
+  return true;
+}
+
+function isPublishedStockLink(link: any) {
+  const status = String(link?.status || '').toLowerCase();
+  const metadata = link?.metadata || {};
+
+  if (metadata.store_removed === true) return false;
+  if (['rejected', 'duplicate', 'deleted', 'excluido'].includes(status)) return false;
+
+  return status === 'published' || Boolean(link?.imported_vehicle_id);
+}
+
+function buildRealStockRows({
+  stores,
+  siteVehicles,
+  submissions,
+  selectedEventId,
+  selectedStoreId
+}: {
+  stores: any[];
+  siteVehicles: any[];
+  submissions: any[];
+  selectedEventId: string;
+  selectedStoreId: string;
+}) {
+  const activeStores = stores.filter(isActiveStore);
+  const visibleStores = activeStores.filter((store) => {
+    if (selectedEventId !== 'all' && store.event_id !== selectedEventId) return false;
+    if (selectedStoreId !== 'all' && store.id !== selectedStoreId) return false;
+    return true;
+  });
+
+  const storeById = new Map(visibleStores.map((store) => [store.id, store]));
+  const storeByName = new Map(visibleStores.map((store) => [normalizeStockText(store.store_name), store]));
+
+  const linkedRows = submissions
+    .filter(isPublishedStockLink)
+    .map((link) => {
+      const store = storeById.get(link.store_id);
+      if (!store) return null;
+
+      return {
+        id: link.imported_vehicle_id || link.id,
+        store_id: store.id,
+        event_id: store.event_id,
+        source: 'store_vehicle_link_submissions'
+      };
+    })
+    .filter(Boolean);
+
+  const linkedVehicleIds = new Set(linkedRows.map((item: any) => item.id).filter(Boolean));
+
+  const manualSiteRows = siteVehicles
+    .filter(isActiveSiteVehicle)
+    .filter((vehicle) => !linkedVehicleIds.has(vehicle.id))
+    .map((vehicle) => {
+      const store = storeByName.get(normalizeStockText(vehicle.store_name));
+      if (!store) return null;
+
+      return {
+        id: vehicle.id,
+        store_id: store.id,
+        event_id: store.event_id,
+        source: 'site_vehicles'
+      };
+    })
+    .filter(Boolean);
+
+  const unique = new Map<string, any>();
+
+  [...linkedRows, ...manualSiteRows].forEach((item: any) => {
+    const key = `${item.store_id}:${item.id}`;
+    if (!unique.has(key)) unique.set(key, item);
+  });
+
+  return Array.from(unique.values());
+}
+
 export default function MasterLiveDashboardPage() {
   const [summary, setSummary] = useState<Summary>(initialSummary);
   const [goal, setGoal] = useState<GoalSummary>(initialGoal);
@@ -96,12 +195,21 @@ export default function MasterLiveDashboardPage() {
     setMessage('Carregando indicadores...');
     try {
       const supabase = createClient();
-      const [eventsResult, storesResult, leadsResult, salesResult, inventoryResult, financeResult] = await Promise.all([
+      const [
+        eventsResult,
+        storesResult,
+        leadsResult,
+        salesResult,
+        siteVehiclesResult,
+        submissionsResult,
+        financeResult
+      ] = await Promise.all([
         supabase.from('events').select('*').neq('status', 'deleted').order('created_at', { ascending: false }),
         supabase.from('stores').select('*').neq('status', 'deleted').order('store_name'),
         supabase.from('leads').select('*'),
         supabase.from('sales').select('*'),
-        supabase.from('inventory').select('*'),
+        supabase.from('site_vehicles').select('*'),
+        supabase.from('store_vehicle_link_submissions').select('*'),
         supabase.from('financial_entries').select('*').neq('status', 'deleted')
       ]);
 
@@ -109,7 +217,8 @@ export default function MasterLiveDashboardPage() {
       if (storesResult.error) throw storesResult.error;
       if (leadsResult.error) throw leadsResult.error;
       if (salesResult.error) throw salesResult.error;
-      if (inventoryResult.error) throw inventoryResult.error;
+      if (siteVehiclesResult.error) throw siteVehiclesResult.error;
+      if (submissionsResult.error) throw submissionsResult.error;
       if (financeResult.error) throw financeResult.error;
 
       const eventRows = eventsResult.data || [];
@@ -118,13 +227,20 @@ export default function MasterLiveDashboardPage() {
 
       let leadRows = (leadsResult.data || []).filter((lead: any) => selectedEventId === 'all' || lead.event_id === selectedEventId).filter((lead: any) => isInsidePeriod(lead, dateFrom, dateTo));
       let saleRows = (salesResult.data || []).filter((sale: any) => selectedEventId === 'all' || sale.event_id === selectedEventId).filter((sale: any) => isInsidePeriod(sale, dateFrom, dateTo));
-      let inventoryRows = (inventoryResult.data || []).filter((item: any) => selectedEventId === 'all' || item.event_id === selectedEventId);
+      const stockRows = buildRealStockRows({
+        stores: allStores,
+        siteVehicles: siteVehiclesResult.data || [],
+        submissions: submissionsResult.data || [],
+        selectedEventId,
+        selectedStoreId
+      });
+
       const financeRows = (financeResult.data || []).filter((item: any) => selectedEventId === 'all' || item.event_id === selectedEventId).filter((item: any) => isInsidePeriod(item, dateFrom, dateTo));
 
       if (selectedStoreId !== 'all') {
         leadRows = leadRows.filter((lead: any) => lead.assigned_store_id === selectedStoreId);
         saleRows = saleRows.filter((sale: any) => sale.store_id === selectedStoreId);
-        inventoryRows = inventoryRows.filter((item: any) => item.store_id === selectedStoreId);
+        // Estoque já é filtrado em buildRealStockRows pelo evento e pela loja selecionada.
       }
 
       const totalLeads = leadRows.length;
@@ -134,8 +250,7 @@ export default function MasterLiveDashboardPage() {
       const salesCount = saleRows.length;
       const conversionRate = leadsWithPhone > 0 ? Math.round((salesCount / leadsWithPhone) * 100) : 0;
       const totalRevenue = saleRows.reduce((sum: number, sale: any) => {
-        const inventoryItem = inventoryRows.find((item: any) => item.id === sale.vehicle_id);
-        return sum + Number(sale.sale_value || inventoryItem?.web_price || inventoryItem?.price || 0);
+        return sum + Number(sale.sale_value || 0);
       }, 0);
       const financedBanksCount = new Set(saleRows.map((sale: any) => sale.financing_bank).filter(Boolean)).size;
 
@@ -153,7 +268,7 @@ export default function MasterLiveDashboardPage() {
       setEvents(eventRows);
       setStores(visibleStores);
       setStoreRanking(ranking.length ? ranking : ['Sem vendas registradas']);
-      setSummary({ totalLeads, leadsWithPhone, surveysWithoutPhone, salesCount, conversionRate, totalRevenue, financedBanksCount, directedToStore, receivedLeads: totalLeads, totalCarsInEvent: inventoryRows.length });
+      setSummary({ totalLeads, leadsWithPhone, surveysWithoutPhone, salesCount, conversionRate, totalRevenue, financedBanksCount, directedToStore, receivedLeads: totalLeads, totalCarsInEvent: stockRows.length });
       setGoal({ sponsorship, goal: goalValue, done, progress, label: selectedEventId === 'all' ? 'Todos os eventos' : selectedEvent?.event_name || 'Evento selecionado' });
       setMessage('');
     } catch {
@@ -180,7 +295,7 @@ export default function MasterLiveDashboardPage() {
     { label: 'Faturamento Total', value: formatMoney(summary.totalRevenue), helper: 'Valor dos carros vendidos', icon: Wallet, accent: 'from-emerald-500 to-green-700', progress: summary.salesCount > 0 ? 85 : 8 },
     { label: 'Direcionados para Loja', value: formatNumber(summary.directedToStore), helper: 'Leads com loja definida', icon: ArrowRightLeft, accent: 'from-red-500 to-rose-600', progress: getProgress(summary.directedToStore, Math.max(summary.totalLeads, 1)) },
     { label: 'Leads Recebidos', value: formatNumber(summary.receivedLeads), helper: 'Entradas no sistema', icon: Inbox, accent: 'from-cyan-500 to-blue-700', progress: Math.min(summary.receivedLeads * 10, 100) },
-    { label: 'Total de Carros no Evento', value: formatNumber(summary.totalCarsInEvent), helper: selectedEventId === 'all' ? 'Estoque geral cadastrado' : 'Estoque do evento selecionado', icon: Car, accent: 'from-indigo-500 to-blue-700', progress: Math.min(summary.totalCarsInEvent * 5, 100) }
+    { label: 'Total de Carros no Evento', value: formatNumber(summary.totalCarsInEvent), helper: selectedEventId === 'all' ? 'Links/veículos publicados pelas lojas' : 'Estoque real do evento selecionado', icon: Car, accent: 'from-indigo-500 to-blue-700', progress: Math.min(summary.totalCarsInEvent * 5, 100) }
   ], [summary, selectedEventId]);
 
   return (

@@ -42,12 +42,42 @@ function normalizeEventKey(value: any) {
     .trim();
 }
 
+function normalizeStoreName(value: any) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function isValidPublishedLink(item: any) {
+  const status = String(item?.status || '').toLowerCase();
+  const metadata = item?.metadata || {};
+
+  if (metadata.store_removed === true) return false;
+  if (['rejected', 'duplicate', 'deleted', 'excluido'].includes(status)) return false;
+
+  return status === 'published' || Boolean(item?.imported_vehicle_id);
+}
+
+function isValidPublishedVehicle(item: any) {
+  const status = String(item?.status || '').toLowerCase();
+
+  if (item?.show_on_landing === false) return false;
+  if (['oculto', 'deleted', 'excluido', 'rejected', 'duplicate'].includes(status)) return false;
+
+  return true;
+}
+
 export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
   const supabase = createClient();
   const [events, setEvents] = useState<any[]>([]);
   const [stores, setStores] = useState<any[]>([]);
   const [sales, setSales] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
+  const [siteVehicles, setSiteVehicles] = useState<any[]>([]);
+  const [vehicleSubmissions, setVehicleSubmissions] = useState<any[]>([]);
   const [eventId, setEventId] = useState('');
   const [message, setMessage] = useState('');
   const [passwordLoadingId, setPasswordLoadingId] = useState('');
@@ -62,11 +92,20 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
   });
 
   async function loadData() {
-    const [{ data: eventRows }, { data: storeRows }, { data: saleRows }, { data: inventoryRows }] = await Promise.all([
+    const [
+      { data: eventRows },
+      { data: storeRows },
+      { data: saleRows },
+      { data: inventoryRows },
+      { data: siteVehicleRows },
+      { data: vehicleSubmissionRows }
+    ] = await Promise.all([
       supabase.from('events').select('*').neq('status', 'deleted').order('created_at', { ascending: false }),
       supabase.from('stores').select('*').order('store_name'),
       supabase.from('sales').select('*'),
-      supabase.from('inventory').select('*')
+      supabase.from('inventory').select('*'),
+      supabase.from('site_vehicles').select('*'),
+      supabase.from('store_vehicle_link_submissions').select('*')
     ]);
 
     const eventList = eventRows || [];
@@ -79,6 +118,8 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
     setStores(storeList);
     setSales(saleRows || []);
     setInventory(inventoryRows || []);
+    setSiteVehicles(siteVehicleRows || []);
+    setVehicleSubmissions(vehicleSubmissionRows || []);
   }
 
   useEffect(() => { loadData().catch(() => null); }, [refreshKey]);
@@ -111,6 +152,52 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
 
   const selectedStoreIds = new Set(selectedStores.map((store) => store.id));
   const generalStores = dedupedStores.filter((store) => !selectedStoreIds.has(store.id));
+
+  const realStockRows = useMemo(() => {
+    const storeById = new Map(dedupedStores.map((store) => [store.id, store]));
+    const storeByName = new Map(dedupedStores.map((store) => [normalizeStoreName(store.store_name), store]));
+    const rows: any[] = [];
+
+    vehicleSubmissions
+      .filter(isValidPublishedLink)
+      .forEach((link) => {
+        const store = storeById.get(link.store_id);
+        if (!store) return;
+
+        rows.push({
+          id: link.imported_vehicle_id || link.id,
+          store_id: store.id,
+          event_id: store.event_id,
+          source: 'store_vehicle_link_submissions'
+        });
+      });
+
+    const linkedIds = new Set(rows.map((item) => item.id).filter(Boolean));
+
+    siteVehicles
+      .filter(isValidPublishedVehicle)
+      .filter((vehicle) => !linkedIds.has(vehicle.id))
+      .forEach((vehicle) => {
+        const store = storeByName.get(normalizeStoreName(vehicle.store_name));
+        if (!store) return;
+
+        rows.push({
+          id: vehicle.id,
+          store_id: store.id,
+          event_id: store.event_id,
+          source: 'site_vehicles'
+        });
+      });
+
+    const unique = new Map<string, any>();
+
+    rows.forEach((item) => {
+      const key = `${item.store_id}:${item.id}`;
+      if (!unique.has(key)) unique.set(key, item);
+    });
+
+    return Array.from(unique.values());
+  }, [dedupedStores, siteVehicles, vehicleSubmissions]);
 
   function startEdit(store: any) {
     setEditingId(store.id);
@@ -251,7 +338,7 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
   }
 
   function renderStoreCard(store: any, showHistory = true) {
-    const stock = inventory.filter((item) => item.store_id === store.id && item.event_id === store.event_id).length;
+    const stock = realStockRows.filter((item: any) => item.store_id === store.id && item.event_id === store.event_id).length;
     const sold = sales.filter((sale) => sale.store_id === store.id && sale.event_id === store.event_id).length;
 
     return (
@@ -320,7 +407,7 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
               <Mini label="Carros no estoque" value={String(stock)} />
             </div>
 
-            {showHistory ? <StoreParticipationHistory store={store} events={events} stores={dedupedStores} sales={sales} inventory={inventory} /> : null}
+            {showHistory ? <StoreParticipationHistory store={store} events={events} stores={dedupedStores} sales={sales} inventory={realStockRows as any[]} /> : null}
 
             <div className="mt-4 flex flex-wrap gap-2">
               <button className="premium-button-secondary text-xs" type="button" onClick={() => startEdit(store)}>
