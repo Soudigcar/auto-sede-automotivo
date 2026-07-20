@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Copy, ExternalLink, Pencil, Trash2 } from 'lucide-react';
+import { Copy, ExternalLink, KeyRound, Pencil, Trash2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { EventSelectField } from '@/components/EventSelectField';
 import { StoreParticipationHistory } from '@/components/StoreParticipationHistory';
@@ -50,6 +50,8 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
   const [inventory, setInventory] = useState<any[]>([]);
   const [eventId, setEventId] = useState('');
   const [message, setMessage] = useState('');
+  const [passwordLoadingId, setPasswordLoadingId] = useState('');
+  const [passwordResult, setPasswordResult] = useState<any>(null);
   const [editingId, setEditingId] = useState('');
   const [form, setForm] = useState({
     storeName: '',
@@ -183,6 +185,65 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
     setMessage(`Link do portal da loja ${store.store_name} copiado.`);
   }
 
+  async function generateStorePassword(store: any) {
+    if (!store.responsible_email) {
+      setMessage('Esta loja precisa ter e-mail cadastrado antes de gerar senha.');
+      return;
+    }
+
+    const confirmation = window.confirm(`Gerar nova senha para ${store.store_name}? O login será ${store.responsible_email}.`);
+
+    if (!confirmation) return;
+
+    setPasswordLoadingId(store.id);
+    setMessage('Gerando nova senha da loja...');
+
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+
+      if (!token) {
+        setMessage('Sessão expirada. Faça login novamente.');
+        setPasswordLoadingId('');
+        return;
+      }
+
+      const response = await fetch('/api/master/store-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          store_id: store.id
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setMessage(result.error || 'Erro ao gerar senha.');
+        setPasswordLoadingId('');
+        return;
+      }
+
+      setPasswordResult(result);
+      setMessage('Senha gerada com sucesso. Copie e envie para a loja.');
+      await loadData();
+    } catch {
+      setMessage('Erro ao gerar senha da loja.');
+    }
+
+    setPasswordLoadingId('');
+  }
+
+  async function copyGeneratedPassword() {
+    if (!passwordResult?.password) return;
+
+    await navigator.clipboard.writeText(`Login: ${passwordResult.email}\nSenha: ${passwordResult.password}\nPortal: ${window.location.origin}${passwordResult.portal_path}`);
+    setMessage('Login, senha e portal copiados.');
+  }
+
   function renderStoreCard(store: any, showHistory = true) {
     const stock = inventory.filter((item) => item.store_id === store.id && item.event_id === store.event_id).length;
     const sold = sales.filter((sale) => sale.store_id === store.id && sale.event_id === store.event_id).length;
@@ -260,6 +321,10 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
                 <Pencil size={14} /> Editar
               </button>
 
+              <button className="premium-button-secondary text-xs" type="button" onClick={() => generateStorePassword(store)} disabled={passwordLoadingId === store.id}>
+                <KeyRound size={14} /> {passwordLoadingId === store.id ? 'Gerando...' : 'Gerar nova senha'}
+              </button>
+
               <button className="premium-button-secondary text-xs" type="button" onClick={() => removeStore(store)}>
                 <Trash2 size={14} /> Excluir
               </button>
@@ -295,6 +360,44 @@ return (
           {generalStores.length === 0 ? <p className="text-sm text-zinc-500">Nenhuma outra loja cadastrada.</p> : null}
         </div>
       </div>
+
+      {passwordResult ? (
+        <div className="rounded-[28px] border border-emerald-100 bg-emerald-50 p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-emerald-700">Senha gerada com sucesso</p>
+              <h3 className="mt-2 text-2xl font-black text-zinc-950">{passwordResult.store_name}</h3>
+
+              <div className="mt-4 grid gap-3 text-sm font-bold text-zinc-700 md:grid-cols-3">
+                <div className="rounded-2xl bg-white p-3">
+                  <p className="text-xs font-black uppercase text-zinc-400">Login</p>
+                  <p className="mt-1 break-all">{passwordResult.email}</p>
+                </div>
+
+                <div className="rounded-2xl bg-white p-3">
+                  <p className="text-xs font-black uppercase text-zinc-400">Nova senha</p>
+                  <p className="mt-1 break-all text-red-600">{passwordResult.password}</p>
+                </div>
+
+                <div className="rounded-2xl bg-white p-3">
+                  <p className="text-xs font-black uppercase text-zinc-400">Portal</p>
+                  <p className="mt-1 break-all">{passwordResult.portal_path}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button className="premium-button-primary text-xs" type="button" onClick={copyGeneratedPassword}>
+                <Copy size={14} /> Copiar acesso
+              </button>
+
+              <button className="premium-button-secondary text-xs" type="button" onClick={() => setPasswordResult(null)}>
+                <X size={14} /> Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {message ? (
         <p className="rounded-2xl bg-white p-3 text-sm font-bold text-zinc-600">{message}</p>
