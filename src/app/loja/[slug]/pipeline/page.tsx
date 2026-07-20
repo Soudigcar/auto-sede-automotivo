@@ -68,6 +68,48 @@ export default function StoreSlugPipelinePage() {
     setMessage('');
   }
 
+  function onlyDigits(value: any) {
+    return String(value || '').replace(/\D/g, '');
+  }
+
+  function firstName(value: any) {
+    return String(value || '').trim().split(/\s+/)[0] || 'tudo bem';
+  }
+
+  function leadWhatsappUrl(lead: any) {
+    let phone = onlyDigits(lead?.customer_phone);
+
+    if (!phone) return '';
+
+    if (!phone.startsWith('55') && (phone.length === 10 || phone.length === 11)) {
+      phone = `55${phone}`;
+    }
+
+    const customer = firstName(lead?.customer_name);
+    const vehicle = String(lead?.interested_vehicle || '').trim();
+
+    const message = encodeURIComponent(
+      vehicle
+        ? `Olá, ${customer}! Tudo bem? Recebemos sua simulação pelo site sobre o veículo ${vehicle} e estou entrando em contato para dar continuidade ao seu atendimento.`
+        : `Olá, ${customer}! Tudo bem? Recebemos sua simulação pelo site e estou entrando em contato para dar continuidade ao seu atendimento.`
+    );
+
+    return `https://wa.me/${phone}?text=${message}`;
+  }
+
+  async function startWhatsAppService(lead: any) {
+    const url = leadWhatsappUrl(lead);
+
+    if (!url) {
+      setMessage('Este lead não possui telefone para iniciar atendimento pelo WhatsApp.');
+      return;
+    }
+
+    window.open(url, '_blank', 'noopener,noreferrer');
+
+    await changeStatus(lead.id, 'in_service');
+  }
+
   useEffect(() => {
     loadData().catch(() => setMessage('Nao foi possivel carregar o pipeline.'));
   }, [slug]);
@@ -140,7 +182,24 @@ export default function StoreSlugPipelinePage() {
                         <h3 className="text-sm font-black">{lead.customer_name}</h3>
                         <p className="mt-1 text-xs text-zinc-500">{lead.interested_vehicle || 'Interesse nao informado'}</p>
                         <p className="mt-1 text-[11px] text-zinc-400">{lead.customer_phone || 'Sem telefone'}</p>
-                        <button className="mt-3 w-full rounded-xl bg-sky-600 px-3 py-2 text-[11px] font-black uppercase text-white" onClick={() => changeStatus(lead.id, column.action.status)}>{column.action.label}</button>
+                        {column.key === 'new_lead' ? (
+                          <button
+                            className="mt-3 w-full rounded-xl bg-emerald-600 px-3 py-2 text-[11px] font-black uppercase text-white disabled:cursor-not-allowed disabled:bg-zinc-300"
+                            type="button"
+                            disabled={!lead.customer_phone}
+                            onClick={() => startWhatsAppService(lead)}
+                          >
+                            {lead.customer_phone ? 'Iniciar atendimento no WhatsApp' : 'Lead sem telefone'}
+                          </button>
+                        ) : (
+                          <button
+                            className="mt-3 w-full rounded-xl bg-sky-600 px-3 py-2 text-[11px] font-black uppercase text-white"
+                            type="button"
+                            onClick={() => changeStatus(lead.id, column.action.status)}
+                          >
+                            {column.action.label}
+                          </button>
+                        )}
                       </div>
                     ))}
 
