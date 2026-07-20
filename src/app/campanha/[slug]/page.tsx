@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { useParams } from 'next/navigation';
+import { MetaPixelTracker } from '@/components/MetaPixelTracker';
 
 function money(value: number) {
   return `R$ ${Number(value || 0).toLocaleString('pt-BR', {
@@ -51,6 +52,7 @@ export default function CampaignLandingPage() {
   const [galleryVehicle, setGalleryVehicle] = useState<any>(null);
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [selectedVehicleImageIndex, setSelectedVehicleImageIndex] = useState(0);
+  const [simulationStartedTracked, setSimulationStartedTracked] = useState(false);
 
   const [form, setForm] = useState({
     name: '',
@@ -113,6 +115,42 @@ export default function CampaignLandingPage() {
     form.consent
   );
 
+  useEffect(() => {
+    if (!modalOpen || simulationStartedTracked) return;
+
+    if (form.name || form.phone || form.cpf || form.email || form.vehicle_id || form.down_payment) {
+      trackMetaPixel('SimulationStarted', {
+        vehicle_id: form.vehicle_id || undefined,
+        installments: form.installments
+      });
+      setSimulationStartedTracked(true);
+    }
+  }, [
+    modalOpen,
+    simulationStartedTracked,
+    form.name,
+    form.phone,
+    form.cpf,
+    form.email,
+    form.vehicle_id,
+    form.down_payment,
+    form.installments
+  ]);
+
+  function trackMetaPixel(eventName: string, params: Record<string, any> = {}) {
+    if (typeof window === 'undefined') return;
+
+    const tracker = (window as any).autoControleMetaPixel;
+
+    if (!tracker?.track) return;
+
+    tracker.track(eventName, {
+      campaign_slug: slug,
+      campaign_name: campaign?.name,
+      ...params
+    });
+  }
+
   function openCleanSimulation() {
     setForm((current) => ({
       ...current,
@@ -121,15 +159,32 @@ export default function CampaignLandingPage() {
       installments: '60'
     }));
     setSelectedVehicleImageIndex(0);
+    setSimulationStartedTracked(false);
     setModalOpen(true);
     setSubmitted(false);
+    trackMetaPixel('SimulatorOpened', { mode: 'clean' });
   }
 
   function openWithVehicle(vehicleId: string) {
+    const vehicle = vehicles.find((item) => item.id === vehicleId);
+
     setForm((current) => ({ ...current, vehicle_id: vehicleId }));
     setSelectedVehicleImageIndex(0);
+    setSimulationStartedTracked(false);
     setModalOpen(true);
     setSubmitted(false);
+
+    if (vehicle) {
+      trackMetaPixel('ViewContent', {
+        content_ids: [vehicle.id],
+        content_name: `${vehicle.brand || ''} ${vehicle.model || ''}`.trim(),
+        content_type: 'vehicle',
+        value: Number(vehicle.price || 0),
+        currency: 'BRL'
+      });
+    }
+
+    trackMetaPixel('SimulatorOpened', { mode: 'vehicle_selected', vehicle_id: vehicleId });
   }
 
   function vehicleImages(vehicle: any) {
@@ -203,6 +258,16 @@ export default function CampaignLandingPage() {
     }
 
     setSubmitted(true);
+
+    trackMetaPixel('Lead', {
+      content_name: vehicleName,
+      content_ids: [selectedVehicle.id],
+      content_type: 'vehicle_financing_simulation',
+      value: Number(simulation.vehiclePrice || 0),
+      currency: 'BRL',
+      installments: simulation.installments,
+      estimated_installment: simulation.estimatedInstallment
+    });
   }
 
   function whatsappUrl() {
@@ -226,6 +291,7 @@ export default function CampaignLandingPage() {
 
   return (
     <main className="min-h-screen bg-[#071020] text-white">
+      <MetaPixelTracker />
       <section id="home" className="relative overflow-hidden bg-[#071020] px-4 pb-10 pt-5 text-white md:px-8 lg:px-10">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_15%,rgba(239,68,68,0.22),transparent_28%),radial-gradient(circle_at_88%_12%,rgba(239,68,68,0.30),transparent_34%),radial-gradient(circle_at_70%_90%,rgba(255,255,255,0.08),transparent_32%)]" />
         <div className="absolute inset-0 bg-[linear-gradient(115deg,rgba(5,13,28,0.99),rgba(7,16,32,0.96)_48%,rgba(38,5,12,0.95))]" />
@@ -584,8 +650,21 @@ export default function CampaignLandingPage() {
                   className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm font-bold outline-none focus:border-red-500"
                   value={form.vehicle_id}
                   onChange={(e) => {
-                    setForm({ ...form, vehicle_id: e.target.value });
+                    const vehicleId = e.target.value;
+                    const vehicle = vehicles.find((item) => item.id === vehicleId);
+
+                    setForm({ ...form, vehicle_id: vehicleId });
                     setSelectedVehicleImageIndex(0);
+
+                    if (vehicle) {
+                      trackMetaPixel('ViewContent', {
+                        content_ids: [vehicle.id],
+                        content_name: `${vehicle.brand || ''} ${vehicle.model || ''}`.trim(),
+                        content_type: 'vehicle',
+                        value: Number(vehicle.price || 0),
+                        currency: 'BRL'
+                      });
+                    }
                   }}
                 >
                   <option value="">Selecione o veículo</option>
@@ -710,7 +789,12 @@ export default function CampaignLandingPage() {
                   Você foi direcionado para atendimento prioritário na campanha {campaign?.name}. Um consultor entrará em contato em breve.
                 </p>
 
-                <a href={whatsappUrl()} target="_blank" className="mt-6 inline-flex w-full items-center justify-center rounded-2xl bg-white px-6 py-4 text-sm font-black uppercase tracking-wide text-red-700">
+                <a
+                  href={whatsappUrl()}
+                  target="_blank"
+                  onClick={() => trackMetaPixel('Contact', { method: 'WhatsApp' })}
+                  className="mt-6 inline-flex w-full items-center justify-center rounded-2xl bg-white px-6 py-4 text-sm font-black uppercase tracking-wide text-red-700"
+                >
                   ANTECIPAR ATENDIMENTO
                 </a>
               </div>
