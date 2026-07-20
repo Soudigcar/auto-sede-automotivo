@@ -20,6 +20,21 @@ function cleanPixelId(value: unknown) {
   return cleanText(value).replace(/\D/g, '');
 }
 
+function parsePixelIds(value: unknown) {
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map(cleanPixelId).filter((item) => item.length >= 8)));
+  }
+
+  return Array.from(
+    new Set(
+      cleanText(value)
+        .split(/[\n,;| ]+/)
+        .map(cleanPixelId)
+        .filter((item) => item.length >= 8)
+    )
+  );
+}
+
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -66,14 +81,53 @@ async function getMasterProfile(supabase: any, token: string) {
   return profile;
 }
 
-async function getIntegration(supabase: any) {
+function normalizeIntegration(integration: any) {
+  const primaryPixelId = cleanPixelId(integration?.pixel_id);
+  const additionalPixelIds = parsePixelIds(integration?.settings?.additional_pixel_ids || []);
+  const pixelIds = Array.from(new Set([primaryPixelId, ...additionalPixelIds].filter(Boolean)));
+
+  return {
+    ...integration,
+    pixel_id: primaryPixelId,
+    pixel_ids: pixelIds,
+    settings: {
+      ...(integration?.settings || {}),
+      additional_pixel_ids: additionalPixelIds,
+      events: {
+        ...defaultEvents,
+        ...(integration?.settings?.events || {})
+      }
+    }
+  };
+}
+
+async function getOrCreateIntegration(supabase: any) {
   const { data } = await supabase
     .from('marketing_integrations')
     .select('*')
     .eq('integration_type', 'meta_pixel')
     .maybeSingle();
 
-  return data;
+  if (data) return data;
+
+  const { data: created, error } = await supabase
+    .from('marketing_integrations')
+    .insert({
+      integration_type: 'meta_pixel',
+      name: 'Pixel do Facebook / Meta',
+      pixel_id: '',
+      is_active: false,
+      settings: {
+        additional_pixel_ids: [],
+        events: defaultEvents
+      }
+    })
+    .select('*')
+    .single();
+
+  if (error) throw error;
+
+  return created;
 }
 
 export async function GET(request: Request) {
@@ -92,39 +146,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Apenas usuário Master pode acessar integrações.' }, { status: 403 });
     }
 
-    let integration = await getIntegration(supabase);
-
-    if (!integration) {
-      const { data: created, error } = await supabase
-        .from('marketing_integrations')
-        .insert({
-          integration_type: 'meta_pixel',
-          name: 'Pixel do Facebook / Meta',
-          pixel_id: '',
-          is_active: false,
-          settings: { events: defaultEvents }
-        })
-        .select('*')
-        .single();
-
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 400 });
-      }
-
-      integration = created;
-    }
+    const integration = await getOrCreateIntegration(supabase);
 
     return NextResponse.json({
       success: true,
-      integration: {
-        ...integration,
-        settings: {
-          events: {
-            ...defaultEvents,
-            ...(integration?.settings?.events || {})
-          }
-        }
-      }
+      integration: normalizeIntegration(integration)
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -151,7 +177,9 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const pixelId = cleanPixelId(body.pixel_id);
+    const primaryPixelId = cleanPixelId(body.pixel_id);
+    const additionalPixelIds = parsePixelIds(body.additional_pixel_ids);
+    const pixelIds = Array.from(new Set([primaryPixelId, ...additionalPixelIds].filter(Boolean)));
     const isActive = Boolean(body.is_active);
     const name = cleanText(body.name) || 'Pixel do Facebook / Meta';
     const events = {
@@ -159,9 +187,9 @@ export async function POST(request: Request) {
       ...(body.events || {})
     };
 
-    if (isActive && pixelId.length < 8) {
+    if (isActive && pixelIds.length < 1) {
       return NextResponse.json(
-        { error: 'Informe um ID de Pixel válido antes de ativar.' },
+        { error: 'Informe pelo menos um ID de Pixel válido antes de ativar.' },
         { status: 400 }
       );
     }
@@ -169,9 +197,12 @@ export async function POST(request: Request) {
     const payload = {
       integration_type: 'meta_pixel',
       name,
-      pixel_id: pixelId,
+      pixel_id: primaryPixelId,
       is_active: isActive,
-      settings: { events },
+      settings: {
+        additional_pixel_ids: additionalPixelIds,
+        events
+      },
       updated_by: masterProfile.id,
       updated_at: new Date().toISOString()
     };
@@ -188,7 +219,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      integration: data
+      integration: normalizeIntegration(data)
     });
   } catch (error: any) {
     return NextResponse.json(

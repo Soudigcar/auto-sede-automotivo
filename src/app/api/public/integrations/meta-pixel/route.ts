@@ -12,6 +12,29 @@ const defaultEvents = {
   contact: true
 };
 
+function cleanText(value: unknown) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function cleanPixelId(value: unknown) {
+  return cleanText(value).replace(/\D/g, '');
+}
+
+function parsePixelIds(value: unknown) {
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map(cleanPixelId).filter((item) => item.length >= 8)));
+  }
+
+  return Array.from(
+    new Set(
+      cleanText(value)
+        .split(/[\n,;| ]+/)
+        .map(cleanPixelId)
+        .filter((item) => item.length >= 8)
+    )
+  );
+}
+
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -39,17 +62,22 @@ export async function GET() {
       .eq('is_active', true)
       .maybeSingle();
 
-    if (error) {
-      return NextResponse.json({ active: false, error: error.message }, { status: 200 });
+    if (error || !data?.is_active) {
+      return NextResponse.json({ active: false });
     }
 
-    if (!data?.pixel_id) {
+    const primaryPixelId = cleanPixelId(data.pixel_id);
+    const additionalPixelIds = parsePixelIds(data?.settings?.additional_pixel_ids || []);
+    const pixelIds = Array.from(new Set([primaryPixelId, ...additionalPixelIds].filter(Boolean)));
+
+    if (!pixelIds.length) {
       return NextResponse.json({ active: false });
     }
 
     return NextResponse.json({
       active: true,
-      pixel_id: data.pixel_id,
+      pixel_id: pixelIds[0],
+      pixel_ids: pixelIds,
       events: {
         ...defaultEvents,
         ...(data?.settings?.events || {})

@@ -9,6 +9,7 @@ declare global {
     autoControleMetaPixel?: {
       track: (eventName: string, params?: Record<string, any>) => void;
       pixelId?: string;
+      pixelIds?: string[];
       active?: boolean;
     };
   }
@@ -25,8 +26,12 @@ const eventKeyByName: Record<string, string> = {
 
 const standardEvents = new Set(['PageView', 'ViewContent', 'Lead', 'Contact']);
 
-function installFacebookPixel(pixelId: string) {
+function installFacebookPixel(pixelIds: string[]) {
   if (typeof window === 'undefined') return;
+
+  const uniquePixelIds = Array.from(new Set(pixelIds.filter(Boolean)));
+
+  if (!uniquePixelIds.length) return;
 
   if (!window.fbq) {
     const win = window as any;
@@ -56,7 +61,9 @@ function installFacebookPixel(pixelId: string) {
     document.head.appendChild(script);
   }
 
-  window.fbq('init', pixelId);
+  uniquePixelIds.forEach((pixelId) => {
+    window.fbq('init', pixelId);
+  });
 }
 
 export function MetaPixelTracker() {
@@ -71,15 +78,22 @@ export function MetaPixelTracker() {
 
         const config = await response.json();
 
-        if (!mounted || !config?.active || !config?.pixel_id) return;
+        const pixelIds = Array.isArray(config?.pixel_ids)
+          ? config.pixel_ids.filter(Boolean)
+          : config?.pixel_id
+            ? [config.pixel_id]
+            : [];
 
-        installFacebookPixel(config.pixel_id);
+        if (!mounted || !config?.active || !pixelIds.length) return;
+
+        installFacebookPixel(pixelIds);
 
         const enabledEvents = config.events || {};
 
         window.autoControleMetaPixel = {
           active: true,
-          pixelId: config.pixel_id,
+          pixelId: pixelIds[0],
+          pixelIds,
           track(eventName: string, params: Record<string, any> = {}) {
             const eventKey = eventKeyByName[eventName] || eventName;
 
@@ -96,11 +110,13 @@ export function MetaPixelTracker() {
         };
 
         window.autoControleMetaPixel.track('PageView', {
-          source: 'auto_controle_landing'
+          source: 'auto_controle_landing',
+          pixel_count: pixelIds.length
         });
       } catch {
         window.autoControleMetaPixel = {
           active: false,
+          pixelIds: [],
           track() {}
         };
       }
