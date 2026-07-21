@@ -62,6 +62,9 @@ export default function MasterIntegrationsPage() {
   const [loading, setLoading] = useState(true);
   const [savingPixel, setSavingPixel] = useState(false);
   const [savingMetaLeads, setSavingMetaLeads] = useState(false);
+  const [testingMetaLeads, setTestingMetaLeads] = useState(false);
+  const [subscribingMetaLeads, setSubscribingMetaLeads] = useState(false);
+  const [metaLeadsDiagnostic, setMetaLeadsDiagnostic] = useState<any>(null);
   const [message, setMessage] = useState('');
   const [origin, setOrigin] = useState('');
 
@@ -280,6 +283,78 @@ export default function MasterIntegrationsPage() {
     setMessage('Copiado.');
   }
 
+  async function testMetaLeadsConnection() {
+    setTestingMetaLeads(true);
+    setMessage('Testando conexão com a Meta...');
+    setMetaLeadsDiagnostic(null);
+
+    try {
+      const token = await getAuthToken();
+
+      if (!token) {
+        setMessage('Sessão expirada. Faça login novamente.');
+        setTestingMetaLeads(false);
+        return;
+      }
+
+      const response = await fetch('/api/master/integrations/meta-leads/test', {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      const result = await response.json();
+      setMetaLeadsDiagnostic(result);
+
+      if (!response.ok) {
+        setMessage(result.error || 'Erro ao testar integração.');
+      } else {
+        setMessage(result.summary || 'Teste concluído.');
+      }
+    } catch {
+      setMessage('Erro ao testar conexão com a Meta.');
+    }
+
+    setTestingMetaLeads(false);
+  }
+
+  async function subscribeMetaLeadsPage() {
+    setSubscribingMetaLeads(true);
+    setMessage('Inscrevendo página no webhook leadgen...');
+    setMetaLeadsDiagnostic(null);
+
+    try {
+      const token = await getAuthToken();
+
+      if (!token) {
+        setMessage('Sessão expirada. Faça login novamente.');
+        setSubscribingMetaLeads(false);
+        return;
+      }
+
+      const response = await fetch('/api/master/integrations/meta-leads/subscribe', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      const result = await response.json();
+      setMetaLeadsDiagnostic(result);
+
+      if (!response.ok) {
+        setMessage(result.error || 'Não foi possível inscrever a página.');
+      } else {
+        setMessage(result.message || 'Página inscrita com sucesso.');
+        await testMetaLeadsConnection();
+      }
+    } catch {
+      setMessage('Erro ao inscrever página no webhook leadgen.');
+    }
+
+    setSubscribingMetaLeads(false);
+  }
+
   useEffect(() => {
     if (typeof window !== 'undefined') setOrigin(window.location.origin);
     loadAll();
@@ -484,6 +559,49 @@ export default function MasterIntegrationsPage() {
                 <p>5. Assine o campo leadgen.</p>
                 <p>6. Gere um lead teste e confira em Base.</p>
               </div>
+
+              <div className="mt-6 grid gap-3">
+                <button
+                  className="premium-button-primary justify-center"
+                  type="button"
+                  onClick={subscribeMetaLeadsPage}
+                  disabled={subscribingMetaLeads || testingMetaLeads || loading}
+                >
+                  <ShieldCheck size={18} /> {subscribingMetaLeads ? 'Inscrevendo...' : 'Inscrever página no leadgen'}
+                </button>
+
+                <button
+                  className="premium-button-secondary justify-center"
+                  type="button"
+                  onClick={testMetaLeadsConnection}
+                  disabled={subscribingMetaLeads || testingMetaLeads || loading}
+                >
+                  <CheckCircle2 size={18} /> {testingMetaLeads ? 'Testando...' : 'Testar token e webhook'}
+                </button>
+              </div>
+
+              {metaLeadsDiagnostic ? (
+                <div className="mt-6 rounded-2xl border border-zinc-100 bg-zinc-950 p-4 text-xs text-white">
+                  <p className="font-black uppercase tracking-wide text-zinc-400">Diagnóstico da Meta</p>
+
+                  {(metaLeadsDiagnostic.checks || []).length ? (
+                    <div className="mt-4 grid gap-3">
+                      {metaLeadsDiagnostic.checks.map((check: any, index: number) => (
+                        <div key={`${check.name}-${index}`} className="rounded-xl bg-white/5 p-3">
+                          <p className={check.ok ? 'font-black text-emerald-300' : 'font-black text-red-300'}>
+                            {check.ok ? 'OK' : 'ERRO'} — {check.name}
+                          </p>
+                          <p className="mt-1 break-words text-zinc-300">{check.message}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <pre className="mt-4 max-h-80 overflow-auto whitespace-pre-wrap break-words text-zinc-300">
+                      {JSON.stringify(metaLeadsDiagnostic, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              ) : null}
 
               <div className="mt-6 rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
                 <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Callback URL</p>
