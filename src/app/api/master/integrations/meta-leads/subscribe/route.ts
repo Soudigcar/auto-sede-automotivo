@@ -80,6 +80,42 @@ async function getIntegration(supabase: any) {
   };
 }
 
+async function graphGetWithToken(path: string, token: string, graphVersion: string, params: Record<string, string> = {}) {
+  const url = new URL(`https://graph.facebook.com/${graphVersion}/${path.replace(/^\//, '')}`);
+  url.searchParams.set('access_token', token);
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value) url.searchParams.set(key, value);
+  });
+
+  const response = await fetch(url.toString(), { cache: 'no-store' });
+  const data = await response.json();
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    data
+  };
+}
+
+async function resolvePageAccessToken(settings: any) {
+  const graphVersion = cleanText(settings.graph_version) || defaultSettings.graph_version;
+  const savedToken = cleanText(settings.page_access_token);
+  const pageId = cleanText(settings.page_id);
+
+  if (!savedToken || !pageId) return savedToken;
+
+  const pageCheck = await graphGetWithToken(`/${pageId}`, savedToken, graphVersion, {
+    fields: 'id,name,access_token'
+  });
+
+  if (pageCheck.ok && pageCheck.data?.access_token) {
+    return cleanText(pageCheck.data.access_token);
+  }
+
+  return savedToken;
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = getAdminClient();
@@ -117,8 +153,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Page Access Token não informado.' }, { status: 400 });
     }
 
+    const tokenToUse = await resolvePageAccessToken(settings);
+
     const url = new URL(`https://graph.facebook.com/${graphVersion}/${pageId}/subscribed_apps`);
-    url.searchParams.set('access_token', pageAccessToken);
+    url.searchParams.set('access_token', tokenToUse);
     url.searchParams.set('subscribed_fields', 'leadgen');
 
     const response = await fetch(url.toString(), {
@@ -142,6 +180,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       message: 'Página inscrita no webhook leadgen com sucesso.',
+      token_resolved: tokenToUse !== pageAccessToken,
       meta: data
     });
   } catch (error: any) {

@@ -135,9 +135,45 @@ function extractLead(metaLead: any) {
   };
 }
 
+async function graphGetWithToken(path: string, token: string, graphVersion: string, params: Record<string, string> = {}) {
+  const url = new URL(`https://graph.facebook.com/${graphVersion}/${path.replace(/^\//, '')}`);
+  url.searchParams.set('access_token', token);
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value) url.searchParams.set(key, value);
+  });
+
+  const response = await fetch(url.toString(), { cache: 'no-store' });
+  const data = await response.json();
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    data
+  };
+}
+
+async function resolvePageAccessToken(settings: any) {
+  const graphVersion = cleanText(settings.graph_version) || defaultSettings.graph_version;
+  const savedToken = cleanText(settings.page_access_token);
+  const pageId = cleanText(settings.page_id);
+
+  if (!savedToken || !pageId) return savedToken;
+
+  const pageCheck = await graphGetWithToken(`/${pageId}`, savedToken, graphVersion, {
+    fields: 'id,name,access_token'
+  });
+
+  if (pageCheck.ok && pageCheck.data?.access_token) {
+    return cleanText(pageCheck.data.access_token);
+  }
+
+  return savedToken;
+}
+
 async function fetchMetaLead(leadgenId: string, settings: any) {
   const graphVersion = cleanText(settings.graph_version) || defaultSettings.graph_version;
-  const token = cleanText(settings.page_access_token);
+  const token = await resolvePageAccessToken(settings);
 
   if (!token) {
     throw new Error('Page Access Token não configurado.');
