@@ -117,6 +117,9 @@ export default function StoreSlugPipelinePage() {
   const [lostLead, setLostLead] = useState<any>(null);
   const [lostReason, setLostReason] = useState('');
 
+  const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
+  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+
   async function loadData() {
     const context = await getStorePortalContext(slug);
 
@@ -298,6 +301,65 @@ export default function StoreSlugPipelinePage() {
     closeLostModal();
   }
 
+  function startCardDrag(event: any, leadId: string) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', leadId);
+    setDraggedLeadId(leadId);
+  }
+
+  function stopCardDrag() {
+    setDraggedLeadId(null);
+    setDragOverColumn(null);
+  }
+
+  function allowColumnDrop(event: any, columnKey: string) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setDragOverColumn(columnKey);
+  }
+
+  async function dropCardOnColumn(event: any, targetStatus: string) {
+    event.preventDefault();
+
+    const leadId = event.dataTransfer.getData('text/plain') || draggedLeadId;
+    const lead = leads.find((item) => item.id === leadId);
+
+    setDraggedLeadId(null);
+    setDragOverColumn(null);
+
+    if (!lead) return;
+
+    if (lead.status === targetStatus) return;
+
+    if (targetStatus === 'scheduled') {
+      openScheduleModal(lead);
+      setMessage('Informe data e hora para concluir o agendamento.');
+      return;
+    }
+
+    if (targetStatus === 'appointment_cancelled') {
+      openCancelModal(lead);
+      return;
+    }
+
+    if (targetStatus === 'new_lead' || targetStatus === 'in_service') {
+      await updateLead(
+        lead.id,
+        {
+          status: targetStatus,
+          scheduled_at: null,
+          appointment_notes: null,
+          appointment_cancelled_at: null,
+          appointment_cancelled_reason: null
+        },
+        'Movendo lead...'
+      );
+      return;
+    }
+
+    await updateLead(lead.id, { status: targetStatus }, 'Movendo lead...');
+  }
+
   useEffect(() => {
     loadData().catch(() => setMessage('Nao foi possivel carregar o pipeline.'));
   }, [slug]);
@@ -354,7 +416,7 @@ export default function StoreSlugPipelinePage() {
               <p className="premium-eyebrow">Loja Participante</p>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Pipeline da Loja</h1>
               <p className="premium-muted mt-3 max-w-3xl text-sm">
-                Controle o atendimento da loja com data, hora, reagendamento, cancelamento, nao comparecimento, venda e perda.
+                Arraste os cards entre as colunas ou use os botoes de acao. Para agendar, cancelar ou registrar perda, o sistema abre uma tela de confirmacao.
               </p>
             </div>
 
@@ -375,8 +437,24 @@ export default function StoreSlugPipelinePage() {
 
           <div className="mt-5 overflow-x-auto pb-2">
             <div className="grid min-w-[1440px] grid-cols-6 gap-4">
-              {grouped.map((column) => (
-                <div key={column.key} className="rounded-[26px] border border-zinc-200 bg-white p-4 shadow-sm">
+              {grouped.map((column) => {
+                const isDropTarget = dragOverColumn === column.key;
+
+                return (
+                  <div
+                    key={column.key}
+                    onDragOver={(event) => allowColumnDrop(event, column.key)}
+                    onDragLeave={() => setDragOverColumn(null)}
+                    onDrop={(event) => dropCardOnColumn(event, column.key)}
+                    className={[
+                      'rounded-[26px] border p-4 shadow-sm transition',
+                      isDropTarget
+                        ? 'border-red-300 bg-red-50/70 ring-2 ring-red-100'
+                       DropTarget
+                        ? 'border-red-300 bg-red-50/70 ring-2 ring-red-100'
+                        : 'border-zinc-200 bg-white'
+                    ].join(' ')}
+                  >
                   <div className="mb-4 flex items-center justify-between">
                     <div>
                       <h2 className="text-sm font-black">{column.title}</h2>
@@ -398,6 +476,9 @@ export default function StoreSlugPipelinePage() {
                         onCancel={() => openCancelModal(lead)}
                         onSale={() => changeStatus(lead.id, 'sale_confirmed')}
                         onLost={() => openLostModal(lead)}
+                        isDragging={draggedLeadId === lead.id}
+                        onDragStart={(event: any) => startCardDrag(event, lead.id)}
+                        onDragEnd={stopCardDrag}
                       />
                     ))}
 
@@ -407,8 +488,9 @@ export default function StoreSlugPipelinePage() {
                       </div>
                     ) : null}
                   </div>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -549,7 +631,10 @@ function LeadCard({
   onNoShow,
   onCancel,
   onSale,
-  onLost
+  onLost,
+  isDragging,
+  onDragStart,
+  onDragEnd
 }: {
   lead: any;
   columnKey: string;
@@ -560,12 +645,24 @@ function LeadCard({
   onCancel: () => void;
   onSale: () => void;
   onLost: () => void;
+  isDragging: boolean;
+  onDragStart: (event: any) => void;
+  onDragEnd: () => void;
 }) {
   const scheduledAt = formatDateTime(lead.scheduled_at);
   const cancelledAt = formatDateTime(lead.appointment_cancelled_at);
 
   return (
-    <div className="rounded-2xl border border-zinc-100 bg-[#F8FAFC] p-3 shadow-sm">
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className={[
+        'rounded-2xl border border-zinc-100 bg-[#F8FAFC] p-3 shadow-sm transition active:cursor-grabbing',
+        'cursor-grab hover:-translate-y-0.5 hover:shadow-md',
+        isDragging ? 'opacity-50 ring-2 ring-red-300' : ''
+      ].join(' ')}
+    >
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-black">{lead.customer_name || 'Cliente sem nome'}</h3>
