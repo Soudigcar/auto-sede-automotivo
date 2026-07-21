@@ -12,9 +12,12 @@ import {
   CheckCircle2,
   ClipboardList,
   Clock3,
+  Edit3,
   LogOut,
   Package,
+  Save,
   Store,
+  Trash2,
   X,
   XCircle
 } from 'lucide-react';
@@ -41,6 +44,17 @@ const statusLabels: Record<string, string> = {
   lost: 'Perdido'
 };
 
+const editableStatusOptions = [
+  { value: 'new_lead', label: 'Novo lead' },
+  { value: 'in_service', label: 'Em atendimento' },
+  { value: 'scheduled', label: 'Agendado' },
+  { value: 'appointment_cancelled', label: 'Cancelou agendamento' },
+  { value: 'no_show', label: 'Nao compareceu' },
+  { value: 'showed_up', label: 'Compareceu' },
+  { value: 'sale_confirmed', label: 'Venda confirmada' },
+  { value: 'lost', label: 'Perdido' }
+];
+
 function onlyDigits(value: any) {
   return String(value || '').replace(/\D/g, '');
 }
@@ -53,6 +67,7 @@ function formatDateTime(value: any) {
   if (!value) return '';
 
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) return '';
 
   return date.toLocaleString('pt-BR', {
@@ -68,6 +83,7 @@ function toInputDate(value: any) {
   if (!value) return '';
 
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) return '';
 
   const year = date.getFullYear();
@@ -81,6 +97,7 @@ function toInputTime(value: any) {
   if (!value) return '';
 
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) return '';
 
   const hour = String(date.getHours()).padStart(2, '0');
@@ -116,6 +133,17 @@ export default function StoreSlugPipelinePage() {
 
   const [lostLead, setLostLead] = useState<any>(null);
   const [lostReason, setLostReason] = useState('');
+
+  const [editingLead, setEditingLead] = useState<any>(null);
+  const [editCustomerName, setEditCustomerName] = useState('');
+  const [editCustomerPhone, setEditCustomerPhone] = useState('');
+  const [editVehicle, setEditVehicle] = useState('');
+  const [editOrigin, setEditOrigin] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editStatus, setEditStatus] = useState('new_lead');
+  const [editDate, setEditDate] = useState('');
+  const [editTime, setEditTime] = useState('');
+  const [editAppointmentNotes, setEditAppointmentNotes] = useState('');
 
   const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
@@ -204,10 +232,7 @@ export default function StoreSlugPipelinePage() {
         .limit(1)
     ]);
 
-    if (leadConflict.error || taskConflict.error) {
-      setMessage('Nao foi possivel validar disponibilidade do calendario.');
-      return true;
-    }
+    if (leadConflict.error || taskConflict.error) return true;
 
     return Boolean((leadConflict.data || []).length || (taskConflict.data || []).length);
   }
@@ -348,6 +373,105 @@ export default function StoreSlugPipelinePage() {
     closeLostModal();
   }
 
+  function openLeadEditor(lead: any) {
+    setEditingLead(lead);
+    setEditCustomerName(lead.customer_name || '');
+    setEditCustomerPhone(lead.customer_phone || '');
+    setEditVehicle(lead.interested_vehicle || '');
+    setEditOrigin(lead.origin || '');
+    setEditNotes(lead.notes || '');
+    setEditStatus(lead.status || 'new_lead');
+    setEditDate(toInputDate(lead.scheduled_at));
+    setEditTime(toInputTime(lead.scheduled_at));
+    setEditAppointmentNotes(lead.appointment_notes || '');
+  }
+
+  function closeLeadEditor() {
+    setEditingLead(null);
+    setEditCustomerName('');
+    setEditCustomerPhone('');
+    setEditVehicle('');
+    setEditOrigin('');
+    setEditNotes('');
+    setEditStatus('new_lead');
+    setEditDate('');
+    setEditTime('');
+    setEditAppointmentNotes('');
+  }
+
+  async function saveLeadEditor() {
+    if (!editingLead) return;
+
+    const payload: Record<string, any> = {
+      customer_name: editCustomerName.trim() || null,
+      customer_phone: editCustomerPhone.trim() || null,
+      interested_vehicle: editVehicle.trim() || null,
+      origin: editOrigin.trim() || null,
+      notes: editNotes.trim() || null,
+      status: editStatus
+    };
+
+    if (editStatus === 'scheduled' || editDate || editTime) {
+      if (!editDate || !editTime) {
+        setMessage('Para agendar, informe data e hora.');
+        return;
+      }
+
+      const { start, end } = buildSlotWindow(editDate, editTime);
+
+      if (Number.isNaN(start.getTime())) {
+        setMessage('Data ou hora invalida.');
+        return;
+      }
+
+      if (start.getTime() < Date.now()) {
+        setMessage('Nao e permitido agendar em horario passado.');
+        return;
+      }
+
+      const occupied = await hasScheduleConflict(start, end, editingLead.id);
+
+      if (occupied) {
+        setMessage('Horario ocupado no calendario. Escolha outro horario.');
+        return;
+      }
+
+      payload.scheduled_at = start.toISOString();
+      payload.appointment_notes = editAppointmentNotes.trim() || null;
+    } else {
+      payload.scheduled_at = null;
+      payload.appointment_notes = null;
+    }
+
+    await updateLead(editingLead.id, payload, 'Salvando informacoes do lead...');
+    closeLeadEditor();
+  }
+
+  async function deleteEditingLead() {
+    if (!editingLead || !store?.id) return;
+
+    const confirmed = window.confirm('Tem certeza que deseja excluir este lead? Esta acao nao pode ser desfeita.');
+
+    if (!confirmed) return;
+
+    setMessage('Excluindo lead...');
+
+    const { error } = await supabase
+      .from('leads')
+      .delete()
+      .eq('id', editingLead.id)
+      .eq('assigned_store_id', store.id);
+
+    if (error) {
+      setMessage('Erro ao excluir lead.');
+      return;
+    }
+
+    closeLeadEditor();
+    await loadData();
+    setMessage('Lead excluido com sucesso.');
+  }
+
   function startCardDrag(event: DragEvent<HTMLDivElement>, leadId: string) {
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('text/plain', leadId);
@@ -462,7 +586,7 @@ export default function StoreSlugPipelinePage() {
               <p className="premium-eyebrow">Loja Participante</p>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Pipeline da Loja</h1>
               <p className="premium-muted mt-3 max-w-3xl text-sm">
-                Arraste os cards entre as colunas ou use os botoes de acao. Para agendar, o calendario valida se o horario ja esta ocupado.
+                Clique no card para editar dados do lead, alterar agendamento ou excluir. Arraste entre as colunas para mudar etapa.
               </p>
             </div>
 
@@ -517,6 +641,7 @@ export default function StoreSlugPipelinePage() {
                           isDragging={draggedLeadId === lead.id}
                           onDragStart={(event) => startCardDrag(event, lead.id)}
                           onDragEnd={stopCardDrag}
+                          onOpen={() => openLeadEditor(lead)}
                           onStart={() => startWhatsAppService(lead)}
                           onSchedule={() => openScheduleModal(lead)}
                           onShowedUp={() => changeStatus(lead.id, 'showed_up')}
@@ -550,16 +675,89 @@ export default function StoreSlugPipelinePage() {
         </div>
       </section>
 
+      {editingLead ? (
+        <Modal title="Adicionar, alterar ou excluir informacoes do lead" onClose={closeLeadEditor} maxWidth="max-w-4xl">
+          <div className="grid gap-5">
+            <div className="relative overflow-hidden rounded-[28px] border border-cyan-200/40 bg-[#071020] p-5 text-white shadow-2xl">
+              <div className="absolute inset-0 opacity-40" style={{ background: 'radial-gradient(circle at 35% 25%, rgba(34,211,238,0.45), transparent 28%), radial-gradient(circle at 75% 70%, rgba(239,68,68,0.35), transparent 30%)' }} />
+              <div className="relative grid gap-4 md:grid-cols-[1.2fr_0.8fr] md:items-center">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.35em] text-cyan-200">Detalhes do Lead</p>
+                  <h3 className="mt-2 text-3xl font-black">{editCustomerName || 'Cliente sem nome'}</h3>
+                  <p className="mt-2 text-sm text-zinc-300">Origem/anuncio: {editOrigin || editingLead.origin || 'Nao informado'}</p>
+                  <div className="mt-5 grid gap-2 text-sm text-zinc-200">
+                    <p><strong className="text-cyan-200">Carro:</strong> {editVehicle || 'Nao informado'}</p>
+                    <p><strong className="text-cyan-200">Telefone:</strong> {editCustomerPhone || 'Nao informado'}</p>
+                    <p><strong className="text-cyan-200">Agendamento:</strong> {editDate && editTime ? `${editDate} às ${editTime}` : 'Sem agendamento'}</p>
+                  </div>
+                </div>
+                <div className="rounded-[24px] border border-white/10 bg-white/10 p-5 text-center backdrop-blur">
+                  <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full border border-cyan-200/50 bg-cyan-300/10 text-3xl font-black text-cyan-100">
+                    {(store?.store_name || 'L').slice(0, 2).toUpperCase()}
+                  </div>
+                  <p className="mt-3 text-xs uppercase tracking-wider text-zinc-300">Responsavel</p>
+                  <p className="font-black">{store?.store_name || 'Loja'}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Nome do cliente" value={editCustomerName} onChange={setEditCustomerName} placeholder="Nome completo" />
+              <Field label="Telefone / WhatsApp" value={editCustomerPhone} onChange={setEditCustomerPhone} placeholder="(61) 99999-9999" />
+              <Field label="Carro de interesse" value={editVehicle} onChange={setEditVehicle} placeholder="Ex: Honda HR-V EXL CVT 2017" />
+              <Field label="Origem / anuncio" value={editOrigin} onChange={setEditOrigin} placeholder="Ex: Facebook Lead Ads, campanha X" />
+
+              <label className="text-sm font-bold text-zinc-700">
+                Status do lead
+                <select className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-red-500" value={editStatus} onChange={(event) => setEditStatus(event.target.value)}>
+                  {editableStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-sm font-bold text-zinc-700">
+                  Data
+                  <input className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-red-500" type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} />
+                </label>
+                <label className="text-sm font-bold text-zinc-700">
+                  Hora
+                  <input className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-red-500" type="time" value={editTime} onChange={(event) => setEditTime(event.target.value)} />
+                </label>
+              </div>
+            </div>
+
+            <label className="text-sm font-bold text-zinc-700">
+              Observacao do lead
+              <textarea className="mt-2 min-h-24 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-red-500" value={editNotes} onChange={(event) => setEditNotes(event.target.value)} placeholder="Informacoes gerais do lead, financiamento, entrada, preferencia, historico..." />
+            </label>
+
+            <label className="text-sm font-bold text-zinc-700">
+              Observacao do agendamento
+              <textarea className="mt-2 min-h-24 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-red-500" value={editAppointmentNotes} onChange={(event) => setEditAppointmentNotes(event.target.value)} placeholder="Ex: vem visitar a loja, quer simular entrada, trazer usado na troca..." />
+            </label>
+
+            <div className="flex flex-col-reverse gap-3 md:flex-row md:items-center md:justify-between">
+              <button className="flex items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-5 py-3 text-sm font-black uppercase tracking-wide text-red-700" type="button" onClick={deleteEditingLead}>
+                <Trash2 size={18} /> Excluir lead
+              </button>
+
+              <div className="flex gap-3">
+                <button className="rounded-2xl border border-zinc-200 px-5 py-3 text-sm font-black text-zinc-600" type="button" onClick={closeLeadEditor}>Cancelar</button>
+                <button className="flex items-center gap-2 rounded-2xl bg-red-600 px-5 py-3 text-sm font-black text-white" type="button" onClick={saveLeadEditor}>
+                  <Save size={18} /> Salvar alteracoes
+                </button>
+              </div>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
       {scheduleLead ? (
         <Modal title={scheduleLead.status === 'scheduled' ? 'Reagendar atendimento' : 'Agendar atendimento'} onClose={closeScheduleModal}>
           <div className="grid gap-4">
             <div>
               <p className="text-sm font-black text-zinc-950">{scheduleLead.customer_name}</p>
               <p className="mt-1 text-xs text-zinc-500">{scheduleLead.interested_vehicle || 'Interesse nao informado'}</p>
-            </div>
-
-            <div className="rounded-2xl bg-zinc-50 p-4 text-xs font-bold text-zinc-500">
-              O calendario bloqueia automaticamente qualquer horario ja ocupado por outro agendamento ou tarefa futura.
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
@@ -638,6 +836,7 @@ function LeadCard({
   isDragging,
   onDragStart,
   onDragEnd,
+  onOpen,
   onStart,
   onSchedule,
   onShowedUp,
@@ -651,6 +850,7 @@ function LeadCard({
   isDragging: boolean;
   onDragStart: (event: DragEvent<HTMLDivElement>) => void;
   onDragEnd: () => void;
+  onOpen: () => void;
   onStart: () => void;
   onSchedule: () => void;
   onShowedUp: () => void;
@@ -662,13 +862,25 @@ function LeadCard({
   const scheduledAt = formatDateTime(lead.scheduled_at);
   const cancelledAt = formatDateTime(lead.appointment_cancelled_at);
 
+  function action(event: React.MouseEvent<HTMLButtonElement>, callback: () => void) {
+    event.stopPropagation();
+    callback();
+  }
+
   return (
     <div
+      role="button"
+      tabIndex={0}
       draggable
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') onOpen();
+      }}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       className={[
-        'cursor-grab rounded-2xl border border-zinc-100 bg-[#F8FAFC] p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:cursor-grabbing',
+        'rounded-2xl border border-zinc-100 bg-[#F8FAFC] p-3 shadow-sm transition active:cursor-grabbing',
+        'cursor-pointer hover:-translate-y-0.5 hover:shadow-md',
         isDragging ? 'opacity-50 ring-2 ring-red-300' : ''
       ].join(' ')}
     >
@@ -697,40 +909,44 @@ function LeadCard({
       ) : null}
 
       <div className="mt-3 grid gap-2">
+        <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={(event) => action(event, onOpen)}>
+          <Edit3 size={13} className="inline" /> Editar informacoes
+        </button>
+
         {columnKey === 'new_lead' ? (
           <>
-            <button className="w-full rounded-xl bg-emerald-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={onStart}>{lead.customer_phone ? 'Iniciar no WhatsApp' : 'Marcar em atendimento'}</button>
-            <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={onLost}>Registrar perda</button>
+            <button className="w-full rounded-xl bg-emerald-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={(event) => action(event, onStart)}>{lead.customer_phone ? 'Iniciar no WhatsApp' : 'Marcar em atendimento'}</button>
+            <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={(event) => action(event, onLost)}>Registrar perda</button>
           </>
         ) : null}
 
         {columnKey === 'in_service' ? (
           <>
-            <button className="w-full rounded-xl bg-red-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={onSchedule}>Agendar com data e hora</button>
-            <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={onLost}>Registrar perda</button>
+            <button className="w-full rounded-xl bg-red-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={(event) => action(event, onSchedule)}>Agendar com data e hora</button>
+            <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={(event) => action(event, onLost)}>Registrar perda</button>
           </>
         ) : null}
 
         {columnKey === 'scheduled' ? (
           <>
-            <button className="w-full rounded-xl bg-sky-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={onShowedUp}>Confirmar chegada</button>
-            <button className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={onSchedule}>Reagendar</button>
-            <button className="w-full rounded-xl bg-orange-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={onCancel}>Cliente cancelou</button>
-            <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={onNoShow}>Nao compareceu</button>
+            <button className="w-full rounded-xl bg-sky-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={(event) => action(event, onShowedUp)}>Confirmar chegada</button>
+            <button className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={(event) => action(event, onSchedule)}>Reagendar</button>
+            <button className="w-full rounded-xl bg-orange-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={(event) => action(event, onCancel)}>Cliente cancelou</button>
+            <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={(event) => action(event, onNoShow)}>Nao compareceu</button>
           </>
         ) : null}
 
         {columnKey === 'appointment_cancelled' || columnKey === 'no_show' ? (
           <>
-            <button className="w-full rounded-xl bg-red-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={onSchedule}>Reagendar</button>
-            <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={onLost}>Registrar perda</button>
+            <button className="w-full rounded-xl bg-red-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={(event) => action(event, onSchedule)}>Reagendar</button>
+            <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={(event) => action(event, onLost)}>Registrar perda</button>
           </>
         ) : null}
 
         {columnKey === 'showed_up' ? (
           <>
-            <button className="w-full rounded-xl bg-emerald-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={onSale}>Confirmar venda</button>
-            <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={onLost}>Registrar perda</button>
+            <button className="w-full rounded-xl bg-emerald-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={(event) => action(event, onSale)}>Confirmar venda</button>
+            <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={(event) => action(event, onLost)}>Registrar perda</button>
           </>
         ) : null}
       </div>
@@ -738,18 +954,40 @@ function LeadCard({
   );
 }
 
+function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder: string }) {
+  return (
+    <label className="text-sm font-bold text-zinc-700">
+      {label}
+      <input className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-red-500" value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+    </label>
+  );
+}
+
 function Kpi({ label, value }: { label: string; value: number }) {
-  return <div className="premium-card p-5"><p className="text-xs font-bold text-zinc-400">{label}</p><strong className="mt-2 block text-3xl font-black">{value}</strong></div>;
+  return (
+    <div className="premium-card p-5">
+      <p className="text-xs font-bold text-zinc-400">{label}</p>
+      <strong className="mt-2 block text-3xl font-black">{value}</strong>
+    </div>
+  );
 }
 
 function Status({ label, value, icon }: { label: string; value: number; icon: ReactNode }) {
-  return <div className="flex items-center justify-between rounded-2xl bg-zinc-50 p-4"><div className="flex items-center gap-3 text-zinc-500">{icon}<span className="font-bold">{label}</span></div><strong>{value}</strong></div>;
+  return (
+    <div className="flex items-center justify-between rounded-2xl bg-zinc-50 p-4">
+      <div className="flex items-center gap-3 text-zinc-500">
+        {icon}
+        <span className="font-bold">{label}</span>
+      </div>
+      <strong>{value}</strong>
+    </div>
+  );
 }
 
-function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+function Modal({ title, children, onClose, maxWidth = 'max-w-2xl' }: { title: string; children: ReactNode; onClose: () => void; maxWidth?: string }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-2xl">
+      <div className={`max-h-[92vh] w-full overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl ${maxWidth}`}>
         <div className="mb-5 flex items-center justify-between gap-4">
           <h2 className="text-2xl font-black text-zinc-950">{title}</h2>
           <button className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-zinc-500" type="button" onClick={onClose}><X size={20} /></button>
