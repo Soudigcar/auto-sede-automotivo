@@ -553,6 +553,34 @@ export default function StoreSlugPipelinePage() {
 
   return (
     <main className="premium-page">
+      <style>{`
+        .lead-editor-dark-fields input,
+        .lead-editor-dark-fields textarea,
+        .lead-editor-dark-fields select {
+          background: rgba(39, 39, 42, 0.96) !important;
+          color: #ffffff !important;
+          -webkit-text-fill-color: #ffffff !important;
+          border-color: #3f3f46 !important;
+          caret-color: #ffffff !important;
+          color-scheme: dark;
+        }
+
+        .lead-editor-dark-fields input::placeholder,
+        .lead-editor-dark-fields textarea::placeholder {
+          color: #d4d4d8 !important;
+          -webkit-text-fill-color: #d4d4d8 !important;
+        }
+
+        .lead-editor-dark-fields option {
+          color: #111827 !important;
+          background: #ffffff !important;
+        }
+
+        .lead-editor-dark-fields input[type="date"]::-webkit-calendar-picker-indicator,
+        .lead-editor-dark-fields input[type="time"]::-webkit-calendar-picker-indicator {
+          filter: invert(1);
+        }
+      `}</style>
       <section className="premium-shell flex min-h-screen">
         <aside className="hidden w-72 shrink-0 bg-[#071020] px-6 py-7 text-white lg:block">
           <div className="flex items-center gap-3">
@@ -677,7 +705,7 @@ export default function StoreSlugPipelinePage() {
 
       {editingLead ? (
         <Modal title="Adicionar, alterar ou excluir informacoes do lead" onClose={closeLeadEditor} maxWidth="max-w-4xl">
-          <div className="grid gap-5">
+          <div className="lead-editor-dark-fields grid gap-5">
             <div className="relative overflow-hidden rounded-[28px] border border-cyan-200/40 bg-[#071020] p-5 text-white shadow-2xl">
               <div className="absolute inset-0 opacity-40" style={{ background: 'radial-gradient(circle at 35% 25%, rgba(34,211,238,0.45), transparent 28%), radial-gradient(circle at 75% 70%, rgba(239,68,68,0.35), transparent 30%)' }} />
               <div className="relative grid gap-4 md:grid-cols-[1.2fr_0.8fr] md:items-center">
