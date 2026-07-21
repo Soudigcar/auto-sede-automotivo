@@ -7,17 +7,23 @@ import {
   BarChart3,
   CalendarDays,
   Car,
-  CheckCircle2,
   ClipboardList,
   Clock3,
   LogOut,
   Package,
   Plus,
   Store,
-  XCircle
+  X
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { getStorePortalContext } from '@/lib/storePortalClient';
+
+type ResponsibleInfo = {
+  name: string;
+  phone: string;
+  email: string;
+  photo_url: string;
+};
 
 type CalendarEvent = {
   id: string;
@@ -26,6 +32,13 @@ type CalendarEvent = {
   subtitle: string;
   starts_at: string;
   status: string;
+  adSource: string;
+  customerName: string;
+  customerPhone: string;
+  vehicle: string;
+  notes: string;
+  responsible: ResponsibleInfo;
+  raw: any;
 };
 
 function formatBrazilTime(date = new Date()) {
@@ -99,6 +112,22 @@ function buildSlotWindow(date: string, time: string) {
   return { start, end };
 }
 
+function initials(value: string) {
+  const words = String(value || '').trim().split(/\s+/).filter(Boolean);
+  const first = words[0]?.[0] || 'A';
+  const second = words[1]?.[0] || 'C';
+  return `${first}${second}`.toUpperCase();
+}
+
+function buildResponsible(store: any, responsibleUser: any): ResponsibleInfo {
+  return {
+    name: responsibleUser?.full_name || store?.responsible_name || store?.store_name || 'Responsável da loja',
+    phone: responsibleUser?.phone || store?.responsible_phone || 'Telefone não informado',
+    email: responsibleUser?.email || store?.responsible_email || 'E-mail não informado',
+    photo_url: responsibleUser?.photo_url || store?.photo_url || store?.responsible_photo_url || ''
+  };
+}
+
 export default function StoreCalendarPage() {
   const supabase = createClient();
   const params = useParams();
@@ -109,6 +138,8 @@ export default function StoreCalendarPage() {
   const [store, setStore] = useState<any>(null);
   const [leads, setLeads] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
+  const [responsibleUser, setResponsibleUser] = useState<any>(null);
+  const [activeEvent, setActiveEvent] = useState<CalendarEvent | null>(null);
   const [message, setMessage] = useState('Validando acesso da loja...');
   const [brasiliaClock, setBrasiliaClock] = useState(formatBrazilTime());
 
@@ -133,7 +164,7 @@ export default function StoreCalendarPage() {
       return;
     }
 
-    const [leadsResponse, tasksResponse] = await Promise.all([
+    const [leadsResponse, tasksResponse, responsibleResponse] = await Promise.all([
       supabase
         .from('leads')
         .select('*')
@@ -144,7 +175,13 @@ export default function StoreCalendarPage() {
         .from('store_calendar_tasks')
         .select('*')
         .eq('store_id', context.store.id)
-        .order('starts_at', { ascending: true })
+        .order('starts_at', { ascending: true }),
+      supabase
+        .from('users')
+        .select('full_name, photo_url, email, phone')
+        .eq('store_id', context.store.id)
+        .eq('role', 'store')
+        .limit(1)
     ]);
 
     if (leadsResponse.error) {
@@ -162,6 +199,7 @@ export default function StoreCalendarPage() {
     setStore(context.store);
     setLeads(leadsResponse.data || []);
     setTasks(tasksResponse.data || []);
+    setResponsibleUser(responsibleResponse.error ? null : (responsibleResponse.data || [])[0] || null);
     setMessage('');
   }
 
@@ -174,27 +212,43 @@ export default function StoreCalendarPage() {
     return () => window.clearInterval(timer);
   }, []);
 
+  const responsible = buildResponsible(store, responsibleUser);
+
   const events: CalendarEvent[] = useMemo(() => {
-    const leadEvents = leads.map((lead) => ({
+    const leadEvents: CalendarEvent[] = leads.map((lead) => ({
       id: `lead-${lead.id}`,
       source: 'lead' as const,
       title: lead.customer_name || 'Cliente sem nome',
       subtitle: lead.interested_vehicle || 'Agendamento de lead',
       starts_at: lead.scheduled_at,
-      status: lead.status || 'scheduled'
+      status: lead.status || 'scheduled',
+      adSource: lead.origin || lead.source || lead.campaign_name || lead.ad_name || 'Anúncio / origem não informado',
+      customerName: lead.customer_name || 'Cliente sem nome',
+      customerPhone: lead.customer_phone || 'Telefone não informado',
+      vehicle: lead.interested_vehicle || lead.vehicle_category_interest || 'Veículo não informado',
+      notes: lead.appointment_notes || lead.notes || 'Sem observação registrada.',
+      responsible,
+      raw: lead
     }));
 
-    const taskEvents = tasks.map((task) => ({
+    const taskEvents: CalendarEvent[] = tasks.map((task) => ({
       id: `task-${task.id}`,
       source: 'task' as const,
       title: task.title,
       subtitle: task.description || 'Tarefa futura',
       starts_at: task.starts_at,
-      status: task.status || 'pending'
+      status: task.status || 'pending',
+      adSource: 'Tarefa interna da loja',
+      customerName: task.title,
+      customerPhone: 'Não se aplica',
+      vehicle: 'Não se aplica',
+      notes: task.description || 'Sem observação registrada.',
+      responsible,
+      raw: task
     }));
 
     return [...leadEvents, ...taskEvents].sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime());
-  }, [leads, tasks]);
+  }, [leads, tasks, responsible.name, responsible.phone, responsible.email, responsible.photo_url]);
 
   const selectedEvents = events.filter((event) => toDateKey(new Date(event.starts_at)) === selectedDate);
   const todayEvents = events.filter((event) => toDateKey(new Date(event.starts_at)) === toDateKey(new Date()));
@@ -319,7 +373,7 @@ export default function StoreCalendarPage() {
               <p className="premium-eyebrow">Agenda da Loja</p>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Calendário</h1>
               <p className="premium-muted mt-3 max-w-3xl text-sm">
-                Todos os agendamentos e tarefas futuras da loja ficam registrados aqui. Horários ocupados não podem ser usados novamente.
+                Todos os agendamentos e tarefas futuras da loja ficam registrados aqui. Passe o mouse ou clique no card para abrir os detalhes em 3D.
               </p>
             </div>
 
@@ -412,17 +466,25 @@ export default function StoreCalendarPage() {
 
                 <div className="mt-5 grid gap-3">
                   {selectedEvents.map((event) => (
-                    <div key={event.id} className="rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
+                    <button
+                      key={event.id}
+                      type="button"
+                      onMouseEnter={() => setActiveEvent(event)}
+                      onFocus={() => setActiveEvent(event)}
+                      onClick={() => setActiveEvent(event)}
+                      className="group rounded-2xl border border-zinc-100 bg-zinc-50 p-4 text-left transition hover:-translate-y-1 hover:border-cyan-200 hover:bg-slate-950 hover:text-white hover:shadow-2xl hover:shadow-cyan-500/10"
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-sm font-black text-zinc-950">{event.title}</p>
-                          <p className="mt-1 text-xs text-zinc-500">{event.subtitle}</p>
+                          <p className="text-sm font-black text-zinc-950 group-hover:text-white">{event.title}</p>
+                          <p className="mt-1 text-xs text-zinc-500 group-hover:text-cyan-100">{event.subtitle}</p>
                         </div>
                         <span className={event.source === 'lead' ? 'rounded-full bg-red-50 px-3 py-1 text-[10px] font-black uppercase text-red-700' : 'rounded-full bg-sky-50 px-3 py-1 text-[10px] font-black uppercase text-sky-700'}>{event.source === 'lead' ? 'Lead' : 'Tarefa'}</span>
                       </div>
-                      <p className="mt-3 text-sm font-black text-zinc-700">{formatEventTime(event.starts_at)}</p>
-                      <p className="mt-1 text-xs text-zinc-400">{formatEventDateTime(event.starts_at)}</p>
-                    </div>
+                      <p className="mt-3 text-sm font-black text-zinc-700 group-hover:text-cyan-100">{formatEventTime(event.starts_at)}</p>
+                      <p className="mt-1 text-xs text-zinc-400 group-hover:text-cyan-200">{formatEventDateTime(event.starts_at)}</p>
+                      <p className="mt-3 text-[10px] font-black uppercase tracking-wide text-red-600 group-hover:text-cyan-300">Ver detalhes 3D</p>
+                    </button>
                   ))}
 
                   {selectedEvents.length === 0 ? <div className="rounded-2xl border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-400">Nenhum compromisso neste dia.</div> : null}
@@ -432,7 +494,109 @@ export default function StoreCalendarPage() {
           </section>
         </div>
       </section>
+
+      {activeEvent ? <Appointment3DModal event={activeEvent} onClose={() => setActiveEvent(null)} /> : null}
     </main>
+  );
+}
+
+function Appointment3DModal({ event, onClose }: { event: CalendarEvent; onClose: () => void }) {
+  const responsible = event.responsible;
+  const isLead = event.source === 'lead';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-md" onClick={onClose}>
+      <div className="w-full max-w-5xl" style={{ perspective: '1400px' }}>
+        <div
+          className="relative overflow-hidden rounded-[34px] border border-cyan-300/30 bg-slate-950 text-white shadow-2xl shadow-cyan-500/20"
+          style={{ transform: 'rotateX(5deg) rotateY(-5deg)', transformStyle: 'preserve-3d' }}
+          onClick={(eventClick) => eventClick.stopPropagation()}
+        >
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(34,211,238,0.20),transparent_32%),radial-gradient(circle_at_70%_10%,rgba(239,68,68,0.16),transparent_28%),linear-gradient(135deg,rgba(15,23,42,0.92),rgba(2,6,23,0.98))]" />
+          <div className="absolute inset-0 opacity-25" style={{ backgroundImage: 'linear-gradient(rgba(34,211,238,.18) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,.12) 1px, transparent 1px)', backgroundSize: '28px 28px' }} />
+
+          <button className="absolute right-5 top-5 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur hover:bg-white/20" type="button" onClick={onClose}>
+            <X size={20} />
+          </button>
+
+          <div className="relative z-10 grid gap-6 p-6 lg:grid-cols-[1.2fr_0.8fr]">
+            <div>
+              <div className="mb-5 flex items-center gap-3">
+                <span className="rounded-full border border-cyan-300/40 bg-cyan-300/10 px-4 py-2 text-xs font-black uppercase tracking-[0.28em] text-cyan-100">
+                  {isLead ? 'Detalhes do Agendamento' : 'Detalhes da Tarefa'}
+                </span>
+                <span className="rounded-full bg-red-500/20 px-4 py-2 text-xs font-black uppercase tracking-wide text-red-100">{event.status}</span>
+              </div>
+
+              <div className="relative min-h-[285px] overflow-hidden rounded-[30px] border border-cyan-200/20 bg-black/30 p-5">
+                <div className="absolute inset-x-8 bottom-10 h-24 rounded-[100%] border border-cyan-300/50 shadow-[0_0_35px_rgba(34,211,238,.45)]" />
+                <div className="absolute inset-x-16 bottom-14 h-12 rounded-[100%] border border-red-300/50 shadow-[0_0_30px_rgba(239,68,68,.35)]" />
+                <div className="absolute left-1/2 top-1/2 flex h-32 w-32 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-[34px] border border-cyan-300/30 bg-cyan-300/10 shadow-[0_0_60px_rgba(34,211,238,.32)]">
+                  <Car size={76} className="text-cyan-100 drop-shadow-[0_0_18px_rgba(34,211,238,.8)]" />
+                </div>
+                <div className="absolute bottom-4 left-5 right-5 grid grid-cols-3 gap-3 text-[10px] font-black uppercase tracking-wide text-cyan-100">
+                  <span className="rounded-xl bg-white/10 px-3 py-2">Origem</span>
+                  <span className="rounded-xl bg-white/10 px-3 py-2">Cliente</span>
+                  <span className="rounded-xl bg-white/10 px-3 py-2">Agenda</span>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                <DataBlock label="Anúncio / origem do lead" value={event.adSource} />
+                <DataBlock label="Carro de interesse" value={event.vehicle} />
+                <DataBlock label="Cliente" value={event.customerName} />
+                <DataBlock label="Telefone" value={event.customerPhone} />
+                <DataBlock label="Data e hora" value={formatEventDateTime(event.starts_at)} />
+                <DataBlock label="Observação" value={event.notes} />
+              </div>
+            </div>
+
+            <div className="rounded-[30px] border border-white/10 bg-white/10 p-5 backdrop-blur">
+              <p className="text-xs font-black uppercase tracking-[0.25em] text-cyan-100">Responsável pelo agendamento</p>
+
+              <div className="mt-5 flex items-center gap-4">
+                {responsible.photo_url ? (
+                  <img src={responsible.photo_url} alt={responsible.name} className="h-24 w-24 rounded-3xl object-cover ring-4 ring-cyan-300/20" />
+                ) : (
+                  <div className="flex h-24 w-24 items-center justify-center rounded-3xl bg-cyan-300/15 text-3xl font-black text-cyan-100 ring-4 ring-cyan-300/20">
+                    {initials(responsible.name)}
+                  </div>
+                )}
+
+                <div>
+                  <h3 className="text-2xl font-black">{responsible.name}</h3>
+                  <p className="mt-1 text-sm text-cyan-100">{responsible.phone}</p>
+                  <p className="mt-1 text-xs text-white/50">{responsible.email}</p>
+                </div>
+              </div>
+
+              <div className="mt-6 rounded-3xl bg-black/25 p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-white/50">Resumo rápido</p>
+                <p className="mt-3 text-sm leading-relaxed text-white/80">
+                  {isLead
+                    ? `Lead ${event.customerName} agendado para ${formatEventDateTime(event.starts_at)}. Origem: ${event.adSource}. Interesse: ${event.vehicle}.`
+                    : `Tarefa futura registrada para ${formatEventDateTime(event.starts_at)}. Descrição: ${event.notes}.`}
+                </p>
+              </div>
+
+              <div className="mt-6 grid gap-3">
+                <span className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm font-bold text-cyan-50">Horário bloqueado no calendário</span>
+                <span className="rounded-2xl border border-red-300/20 bg-red-400/10 px-4 py-3 text-sm font-bold text-red-50">Não permite outro agendamento no mesmo horário</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DataBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
+      <p className="text-[10px] font-black uppercase tracking-wide text-cyan-100/70">{label}</p>
+      <p className="mt-2 text-sm font-bold text-white">{value || 'Não informado'}</p>
+    </div>
   );
 }
 
