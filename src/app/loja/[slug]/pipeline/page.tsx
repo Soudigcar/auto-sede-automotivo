@@ -111,9 +111,6 @@ export default function StoreSlugPipelinePage() {
   const [scheduleTime, setScheduleTime] = useState('');
   const [scheduleNotes, setScheduleNotes] = useState('');
 
-  const [scheduleTime, setScheduleTime] = useState('');
-  const [scheduleNotes, setScheduleNotes] = useState('');
-
   const [cancelLead, setCancelLead] = useState<any>(null);
   const [cancelReason, setCancelReason] = useState('');
 
