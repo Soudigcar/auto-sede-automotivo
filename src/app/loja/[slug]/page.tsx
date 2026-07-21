@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import {
   ArrowRight,
@@ -257,14 +256,7 @@ function FlowPerformanceChart({ metrics }: { metrics: any }) {
       color: '#2F9EEB',
       fill: 'rgba(47, 158, 235, 0.16)',
       value: metrics.newLeads,
-      points: [
-        [0, 245],
-        [80, scaleY(metrics.newLeads)],
-        [160, 245],
-        [320, 245],
-        [480, scaleY(Math.max(0, Math.round(metrics.newLeads * 0.25)))],
-        [610, scaleY(Math.max(0, Math.round(metrics.newLeads * 0.4)))]
-      ]
+      points: [[0, 245], [80, scaleY(metrics.newLeads)], [160, 245], [320, 245], [480, scaleY(Math.max(0, Math.round(metrics.newLeads * 0.25)))], [610, scaleY(Math.max(0, Math.round(metrics.newLeads * 0.4)))]]
     },
     {
       key: 'in_service',
@@ -272,14 +264,7 @@ function FlowPerformanceChart({ metrics }: { metrics: any }) {
       color: '#CBD2DC',
       fill: 'rgba(203, 210, 220, 0.16)',
       value: metrics.inService,
-      points: [
-        [0, 245],
-        [80, scaleY(Math.max(0, Math.round(metrics.inService * 0.45)))],
-        [160, scaleY(metrics.inService)],
-        [320, scaleY(Math.max(0, Math.round(metrics.inService * 0.2)))],
-        [480, scaleY(Math.max(0, Math.round(metrics.inService * 0.15)))],
-        [610, scaleY(Math.max(0, Math.round(metrics.inService * 0.25)))]
-      ]
+      points: [[0, 245], [80, scaleY(Math.max(0, Math.round(metrics.inService * 0.45)))], [160, scaleY(metrics.inService)], [320, scaleY(Math.max(0, Math.round(metrics.inService * 0.2)))], [480, scaleY(Math.max(0, Math.round(metrics.inService * 0.15)))], [610, scaleY(Math.max(0, Math.round(metrics.inService * 0.25)))]]
     },
     {
       key: 'scheduled',
@@ -287,14 +272,7 @@ function FlowPerformanceChart({ metrics }: { metrics: any }) {
       color: '#52738A',
       fill: 'rgba(82, 115, 138, 0.14)',
       value: metrics.scheduled,
-      points: [
-        [0, 245],
-        [80, scaleY(Math.max(0, Math.round(metrics.scheduled * 0.25)))],
-        [160, 245],
-        [320, scaleY(metrics.scheduled)],
-        [480, scaleY(Math.max(0, Math.round(metrics.scheduled * 0.35)))],
-        [610, scaleY(Math.max(0, Math.round(metrics.scheduled * 0.5)))]
-      ]
+      points: [[0, 245], [80, scaleY(Math.max(0, Math.round(metrics.scheduled * 0.25)))], [160, 245], [320, scaleY(metrics.scheduled)], [480, scaleY(Math.max(0, Math.round(metrics.scheduled * 0.35)))], [610, scaleY(Math.max(0, Math.round(metrics.scheduled * 0.5)))]]
     },
     {
       key: 'showed_up',
@@ -302,14 +280,7 @@ function FlowPerformanceChart({ metrics }: { metrics: any }) {
       color: '#BDA55B',
       fill: 'rgba(189, 165, 91, 0.16)',
       value: metrics.showedUp,
-      points: [
-        [0, 245],
-        [80, scaleY(Math.max(0, Math.round(metrics.showedUp * 0.5)))],
-        [160, 245],
-        [320, scaleY(metrics.showedUp)],
-        [480, scaleY(Math.max(0, Math.round(metrics.showedUp * 0.6)))],
-        [610, scaleY(Math.max(0, Math.round(metrics.showedUp * 0.3)))]
-      ]
+      points: [[0, 245], [80, scaleY(Math.max(0, Math.round(metrics.showedUp * 0.5)))], [160, 245], [320, scaleY(metrics.showedUp)], [480, scaleY(Math.max(0, Math.round(metrics.showedUp * 0.6)))], [610, scaleY(Math.max(0, Math.round(metrics.showedUp * 0.3)))]]
     },
     {
       key: 'sold',
@@ -317,14 +288,7 @@ function FlowPerformanceChart({ metrics }: { metrics: any }) {
       color: '#4CA06E',
       fill: 'rgba(76, 160, 110, 0.18)',
       value: metrics.sold,
-      points: [
-        [0, 245],
-        [80, 245],
-        [160, 245],
-        [320, scaleY(Math.max(0, Math.round(metrics.sold * 0.15)))],
-        [480, scaleY(Math.max(0, Math.round(metrics.sold * 0.55)))],
-        [610, scaleY(metrics.sold)]
-      ]
+      points: [[0, 245], [80, 245], [160, 245], [320, scaleY(Math.max(0, Math.round(metrics.sold * 0.15)))], [480, scaleY(Math.max(0, Math.round(metrics.sold * 0.55)))], [610, scaleY(metrics.sold)]]
     }
   ];
 
@@ -346,16 +310,12 @@ function FlowPerformanceChart({ metrics }: { metrics: any }) {
         <div className="overflow-x-auto">
           <svg viewBox="0 0 660 310" className="min-h-[300px] min-w-[660px]">
             <defs>
-              {series.map((item) => {
-                const area = [...item.points, [610, 245], [0, 245]];
-
-                return (
-                  <linearGradient key={item.key} id={`flowGradient-${item.key}`} x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor={item.fill} />
-                    <stop offset="100%" stopColor="rgba(255,255,255,0)" />
-                  </linearGradient>
-                );
-              })}
+              {series.map((item) => (
+                <linearGradient key={item.key} id={`flowGradient-${item.key}`} x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor={item.fill} />
+                  <stop offset="100%" stopColor="rgba(255,255,255,0)" />
+                </linearGradient>
+              ))}
               <filter id="chartShadow" x="-10%" y="-10%" width="120%" height="120%">
                 <feDropShadow dx="0" dy="8" stdDeviation="8" floodColor="#0F172A" floodOpacity="0.08" />
               </filter>
@@ -383,15 +343,7 @@ function FlowPerformanceChart({ metrics }: { metrics: any }) {
               return (
                 <g key={item.key}>
                   <polyline points={areaPoints} fill={`url(#flowGradient-${item.key})`} opacity="0.9" />
-                  <polyline
-                    points={points}
-                    fill="none"
-                    stroke={item.color}
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    filter="url(#chartShadow)"
-                  />
+                  <polyline points={points} fill="none" stroke={item.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" filter="url(#chartShadow)" />
                   {item.points.slice(1).map(([x, y], index) => (
                     <circle key={`${item.key}-${index}`} cx={x} cy={y} r="7" fill="white" stroke={item.color} strokeWidth="3" />
                   ))}
