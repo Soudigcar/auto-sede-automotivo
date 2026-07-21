@@ -138,7 +138,7 @@ function LoginContent() {
         return;
       }
 
-      const storeHome = `/loja/${store.slug}`;
+      const storeHome = `/loja/${store.slug}/pipeline`;
       const storePrefix = `/loja/${store.slug}`;
 
       target = redirectedFrom?.startsWith(storePrefix) ? redirectedFrom : storeHome;
