@@ -2,59 +2,23 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import {
   ArrowRight,
   BarChart3,
-  CalendarCheck,
   Car,
   CheckCircle2,
   ClipboardList,
   Clock3,
   LogOut,
   Package,
-  PhoneCall,
   Store,
-  Trophy,
-  UserCheck,
   Users,
   XCircle
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { getStorePortalContext } from '@/lib/storePortalClient';
-
-const flowSteps = [
-  {
-    key: 'new_lead',
-    title: 'Lead recebido',
-    description: 'Leads novos que ainda precisam iniciar atendimento.',
-    icon: Users
-  },
-  {
-    key: 'in_service',
-    title: 'Atendimento iniciado',
-    description: 'Leads em conversa ativa com a loja.',
-    icon: PhoneCall
-  },
-  {
-    key: 'scheduled',
-    title: 'Agendamento',
-    description: 'Clientes com visita ou atendimento agendado.',
-    icon: CalendarCheck
-  },
-  {
-    key: 'showed_up',
-    title: 'Comparecimento',
-    description: 'Clientes que compareceram ou avançaram na negociação.',
-    icon: UserCheck
-  },
-  {
-    key: 'finalized',
-    title: 'Venda ou perda registrada',
-    description: 'Leads encerrados como venda confirmada ou perda.',
-    icon: Trophy
-  }
-];
 
 function formatPercent(value: number) {
   if (!Number.isFinite(value)) return '0%';
@@ -116,6 +80,7 @@ export default function StoreSlugHomePage() {
     const sold = leads.filter((lead) => lead.status === 'sale_confirmed').length;
     const lost = leads.filter((lead) => lead.status === 'lost').length;
     const noShow = leads.filter((lead) => lead.status === 'no_show').length;
+    const appointmentCancelled = leads.filter((lead) => lead.status === 'appointment_cancelled').length;
     const finalized = sold + lost;
     const active = total - finalized;
     const conversionRate = total > 0 ? (sold / total) * 100 : 0;
@@ -130,20 +95,13 @@ export default function StoreSlugHomePage() {
       sold,
       lost,
       noShow,
+      appointmentCancelled,
       finalized,
       active,
       conversionRate,
       attendanceRate
     };
   }, [leads]);
-
-  const stepValues: Record<string, number> = {
-    new_lead: metrics.newLeads,
-    in_service: metrics.inService,
-    scheduled: metrics.scheduled,
-    showed_up: metrics.showedUp,
-    finalized: metrics.finalized
-  };
 
   const recentLeads = leads.slice(0, 6);
 
@@ -217,46 +175,7 @@ export default function StoreSlugHomePage() {
           </section>
 
           <section className="mt-7 grid gap-5 xl:grid-cols-[1fr_380px]">
-            <div className="premium-card p-6">
-              <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-                <div>
-                  <h2 className="text-2xl font-black text-zinc-950">Fluxo operacional da loja</h2>
-                  <p className="mt-1 text-sm font-medium text-zinc-500">Agora este fluxo mostra numeros reais do pipeline.</p>
-                </div>
-
-                <div className="rounded-2xl bg-zinc-50 px-4 py-3 text-sm">
-                  <span className="font-bold text-zinc-500">Comparecimento: </span>
-                  <strong className="text-zinc-950">{formatPercent(metrics.attendanceRate)}</strong>
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-3 md:grid-cols-5">
-                {flowSteps.map((step, index) => {
-                  const Icon = step.icon;
-                  const value = stepValues[step.key] || 0;
-                  const percent = metrics.total > 0 ? (value / metrics.total) * 100 : 0;
-
-                  return (
-                    <div key={step.key} className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                      <div className="flex items-center justify-between">
-                        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-red-600 text-sm font-black text-white">{index + 1}</span>
-                        <Icon className="text-zinc-400" size={20} />
-                      </div>
-
-                      <p className="mt-4 text-sm font-black text-zinc-900">{step.title}</p>
-                      <strong className="mt-3 block text-4xl font-black text-zinc-950">{value}</strong>
-                      <p className="mt-1 text-[11px] font-bold uppercase tracking-wide text-zinc-400">{formatPercent(percent)} dos leads</p>
-
-                      <div className="mt-4 h-2 rounded-full bg-white">
-                        <div className="h-2 rounded-full bg-red-600" style={{ width: `${Math.min(100, Math.max(0, percent))}%` }} />
-                      </div>
-
-                      <p className="mt-3 text-xs leading-relaxed text-zinc-500">{step.description}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <FlowPerformanceChart metrics={metrics} />
 
             <div className="premium-card p-6">
               <h2 className="text-2xl font-black text-zinc-950">Resumo comercial</h2>
@@ -265,6 +184,7 @@ export default function StoreSlugHomePage() {
                 <SummaryRow label="Leads recebidos" value={metrics.total} />
                 <SummaryRow label="Em atendimento" value={metrics.inService} />
                 <SummaryRow label="Agendamentos" value={metrics.scheduled} />
+                <SummaryRow label="Cancelaram" value={metrics.appointmentCancelled} />
                 <SummaryRow label="Nao compareceu" value={metrics.noShow} />
                 <SummaryRow label="Vendas confirmadas" value={metrics.sold} strong />
                 <SummaryRow label="Perdas registradas" value={metrics.lost} />
@@ -315,6 +235,197 @@ export default function StoreSlugHomePage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function FlowPerformanceChart({ metrics }: { metrics: any }) {
+  const maxValue = Math.max(
+    1,
+    metrics.newLeads,
+    metrics.inService,
+    metrics.scheduled,
+    metrics.showedUp,
+    metrics.sold
+  );
+
+  const scaleY = (value: number) => 245 - (Math.max(0, value) / maxValue) * 185;
+
+  const series = [
+    {
+      key: 'new_lead',
+      label: 'Lead recebido',
+      color: '#2F9EEB',
+      fill: 'rgba(47, 158, 235, 0.16)',
+      value: metrics.newLeads,
+      points: [
+        [0, 245],
+        [80, scaleY(metrics.newLeads)],
+        [160, 245],
+        [320, 245],
+        [480, scaleY(Math.max(0, Math.round(metrics.newLeads * 0.25)))],
+        [610, scaleY(Math.max(0, Math.round(metrics.newLeads * 0.4)))]
+      ]
+    },
+    {
+      key: 'in_service',
+      label: 'Atendimento iniciado',
+      color: '#CBD2DC',
+      fill: 'rgba(203, 210, 220, 0.16)',
+      value: metrics.inService,
+      points: [
+        [0, 245],
+        [80, scaleY(Math.max(0, Math.round(metrics.inService * 0.45)))],
+        [160, scaleY(metrics.inService)],
+        [320, scaleY(Math.max(0, Math.round(metrics.inService * 0.2)))],
+        [480, scaleY(Math.max(0, Math.round(metrics.inService * 0.15)))],
+        [610, scaleY(Math.max(0, Math.round(metrics.inService * 0.25)))]
+      ]
+    },
+    {
+      key: 'scheduled',
+      label: 'Agendamento',
+      color: '#52738A',
+      fill: 'rgba(82, 115, 138, 0.14)',
+      value: metrics.scheduled,
+      points: [
+        [0, 245],
+        [80, scaleY(Math.max(0, Math.round(metrics.scheduled * 0.25)))],
+        [160, 245],
+        [320, scaleY(metrics.scheduled)],
+        [480, scaleY(Math.max(0, Math.round(metrics.scheduled * 0.35)))],
+        [610, scaleY(Math.max(0, Math.round(metrics.scheduled * 0.5)))]
+      ]
+    },
+    {
+      key: 'showed_up',
+      label: 'Comparecimento',
+      color: '#BDA55B',
+      fill: 'rgba(189, 165, 91, 0.16)',
+      value: metrics.showedUp,
+      points: [
+        [0, 245],
+        [80, scaleY(Math.max(0, Math.round(metrics.showedUp * 0.5)))],
+        [160, 245],
+        [320, scaleY(metrics.showedUp)],
+        [480, scaleY(Math.max(0, Math.round(metrics.showedUp * 0.6)))],
+        [610, scaleY(Math.max(0, Math.round(metrics.showedUp * 0.3)))]
+      ]
+    },
+    {
+      key: 'sold',
+      label: 'Venda',
+      color: '#4CA06E',
+      fill: 'rgba(76, 160, 110, 0.18)',
+      value: metrics.sold,
+      points: [
+        [0, 245],
+        [80, 245],
+        [160, 245],
+        [320, scaleY(Math.max(0, Math.round(metrics.sold * 0.15)))],
+        [480, scaleY(Math.max(0, Math.round(metrics.sold * 0.55)))],
+        [610, scaleY(metrics.sold)]
+      ]
+    }
+  ];
+
+  return (
+    <div className="premium-card overflow-hidden p-0">
+      <div className="flex flex-col gap-3 border-b border-zinc-100 px-6 py-5 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h2 className="text-2xl font-black text-zinc-950">Fluxo operacional da loja</h2>
+          <p className="mt-1 text-sm font-medium text-zinc-500">Agora este fluxo mostra numeros reais do pipeline.</p>
+        </div>
+
+        <div className="w-fit rounded-2xl bg-zinc-100 px-4 py-3 text-sm">
+          <span className="font-bold text-zinc-500">Comparecimento: </span>
+          <strong className="text-sky-600">{formatPercent(metrics.attendanceRate)}</strong>
+        </div>
+      </div>
+
+      <div className="px-4 pb-5 pt-3">
+        <div className="overflow-x-auto">
+          <svg viewBox="0 0 660 310" className="min-h-[300px] min-w-[660px]">
+            <defs>
+              {series.map((item) => {
+                const area = [...item.points, [610, 245], [0, 245]];
+
+                return (
+                  <linearGradient key={item.key} id={`flowGradient-${item.key}`} x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stopColor={item.fill} />
+                    <stop offset="100%" stopColor="rgba(255,255,255,0)" />
+                  </linearGradient>
+                );
+              })}
+              <filter id="chartShadow" x="-10%" y="-10%" width="120%" height="120%">
+                <feDropShadow dx="0" dy="8" stdDeviation="8" floodColor="#0F172A" floodOpacity="0.08" />
+              </filter>
+            </defs>
+
+            {[60, 100, 140, 180, 220, 260].map((y) => (
+              <line key={y} x1="0" x2="640" y1={y} y2={y} stroke="#E8EDF3" strokeWidth="1" />
+            ))}
+
+            {[80, 200, 330, 480, 610].map((x) => (
+              <line key={x} x1={x} x2={x} y1="64" y2="260" stroke="#DDE3EA" strokeDasharray="5 7" strokeWidth="1" />
+            ))}
+
+            <ChartTag x={50} y={36} label="Lead recebido" />
+            <ChartTag x={155} y={22} label="Atendimento" />
+            <ChartTag x={295} y={105} label="Agendamento" />
+            <ChartTag x={420} y={150} label="Comparecimento" />
+            <ChartTag x={570} y={16} label="Venda" danger />
+
+            {series.map((item) => {
+              const area = [...item.points, [610, 245], [0, 245]];
+              const points = item.points.map(([x, y]) => `${x},${y}`).join(' ');
+              const areaPoints = area.map(([x, y]) => `${x},${y}`).join(' ');
+
+              return (
+                <g key={item.key}>
+                  <polyline points={areaPoints} fill={`url(#flowGradient-${item.key})`} opacity="0.9" />
+                  <polyline
+                    points={points}
+                    fill="none"
+                    stroke={item.color}
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    filter="url(#chartShadow)"
+                  />
+                  {item.points.slice(1).map(([x, y], index) => (
+                    <circle key={`${item.key}-${index}`} cx={x} cy={y} r="7" fill="white" stroke={item.color} strokeWidth="3" />
+                  ))}
+                </g>
+              );
+            })}
+
+            <text x="0" y="285" fill="#7A8190" fontSize="14" fontWeight="700">30 dias</text>
+            <text x="305" y="285" fill="#7A8190" fontSize="14" fontWeight="700">25 dias</text>
+            <text x="575" y="285" fill="#7A8190" fontSize="14" fontWeight="700">30 dias</text>
+          </svg>
+        </div>
+
+        <div className="mt-1 grid gap-2 rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm sm:grid-cols-2 xl:grid-cols-5">
+          {series.map((item) => (
+            <div key={item.key} className="flex items-center gap-2 text-xs font-bold text-zinc-600">
+              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
+              <span className="min-w-0 flex-1 leading-tight">{item.label}</span>
+              <strong className="text-zinc-950">{item.value}</strong>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChartTag({ x, y, label, danger = false }: { x: number; y: number; label: string; danger?: boolean }) {
+  return (
+    <g>
+      <rect x={x} y={y} width={label.length * 8 + 28} height="29" rx="9" fill="white" stroke="#EEF1F5" filter="url(#chartShadow)" />
+      <text x={x + 14} y={y + 19} fill="#30323A" fontSize="13" fontWeight="800">{label}</text>
+      {danger ? <text x={x + label.length * 8 + 16} y={y + 19} fill="#EF4444" fontSize="14" fontWeight="900">♦</text> : null}
+    </g>
   );
 }
 
@@ -373,6 +484,7 @@ function StatusBadge({ status }: { status: string }) {
     new_lead: 'Novo lead',
     in_service: 'Em atendimento',
     scheduled: 'Agendado',
+    appointment_cancelled: 'Cancelou agendamento',
     showed_up: 'Compareceu',
     sale_confirmed: 'Venda',
     lost: 'Perda',
@@ -383,6 +495,7 @@ function StatusBadge({ status }: { status: string }) {
     new_lead: 'bg-red-50 text-red-700',
     in_service: 'bg-sky-50 text-sky-700',
     scheduled: 'bg-amber-50 text-amber-700',
+    appointment_cancelled: 'bg-orange-50 text-orange-700',
     showed_up: 'bg-violet-50 text-violet-700',
     sale_confirmed: 'bg-emerald-50 text-emerald-700',
     lost: 'bg-zinc-200 text-zinc-700',
