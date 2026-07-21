@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import {
   BarChart3,
@@ -12,12 +12,8 @@ import {
   ClipboardList,
   Clock3,
   LogOut,
-  MessageCircle,
   Package,
-  PhoneCall,
-  RefreshCcw,
   Store,
-  UserCheck,
   X,
   XCircle
 } from 'lucide-react';
@@ -301,7 +297,7 @@ export default function StoreSlugPipelinePage() {
     closeLostModal();
   }
 
-  function startCardDrag(event: any, leadId: string) {
+  function startCardDrag(event: DragEvent<HTMLDivElement>, leadId: string) {
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('text/plain', leadId);
     setDraggedLeadId(leadId);
@@ -312,13 +308,13 @@ export default function StoreSlugPipelinePage() {
     setDragOverColumn(null);
   }
 
-  function allowColumnDrop(event: any, columnKey: string) {
+  function allowColumnDrop(event: DragEvent<HTMLDivElement>, columnKey: string) {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
     setDragOverColumn(columnKey);
   }
 
-  async function dropCardOnColumn(event: any, targetStatus: string) {
+  async function dropCardOnColumn(event: DragEvent<HTMLDivElement>, targetStatus: string) {
     event.preventDefault();
 
     const leadId = event.dataTransfer.getData('text/plain') || draggedLeadId;
@@ -327,9 +323,7 @@ export default function StoreSlugPipelinePage() {
     setDraggedLeadId(null);
     setDragOverColumn(null);
 
-    if (!lead) return;
-
-    if (lead.status === targetStatus) return;
+    if (!lead || lead.status === targetStatus) return;
 
     if (targetStatus === 'scheduled') {
       openScheduleModal(lead);
@@ -438,6 +432,7 @@ export default function StoreSlugPipelinePage() {
           <div className="mt-5 overflow-x-auto pb-2">
             <div className="grid min-w-[1440px] grid-cols-6 gap-4">
               {grouped.map((column) => {
+                const isDropTarget = dragOverColumn === column.key;
 
                 return (
                   <div
@@ -447,44 +442,44 @@ export default function StoreSlugPipelinePage() {
                     onDrop={(event) => dropCardOnColumn(event, column.key)}
                     className={[
                       'rounded-[26px] border p-4 shadow-sm transition',
-                        ? 'border-red-300 bg-red-50/70 ring-2 ring-red-100'
+                      isDropTarget
                         ? 'border-red-300 bg-red-50/70 ring-2 ring-red-100'
                         : 'border-zinc-200 bg-white'
                     ].join(' ')}
                   >
-                  <div className="mb-4 flex items-center justify-between">
-                    <div>
-                      <h2 className="text-sm font-black">{column.title}</h2>
-                      <p className="text-xs text-zinc-400">{column.leads.length} cards</p>
-                    </div>
-                    <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-black text-zinc-500">{column.leads.length}</span>
-                  </div>
-
-                  <div className="space-y-3">
-                    {column.leads.map((lead) => (
-                      <LeadCard
-                        key={lead.id}
-                        lead={lead}
-                        columnKey={column.key}
-                        onStart={() => startWhatsAppService(lead)}
-                        onSchedule={() => openScheduleModal(lead)}
-                        onShowedUp={() => changeStatus(lead.id, 'showed_up')}
-                        onNoShow={() => changeStatus(lead.id, 'no_show')}
-                        onCancel={() => openCancelModal(lead)}
-                        onSale={() => changeStatus(lead.id, 'sale_confirmed')}
-                        onLost={() => openLostModal(lead)}
-                        isDragging={draggedLeadId === lead.id}
-                        onDragStart={(event: any) => startCardDrag(event, lead.id)}
-                        onDragEnd={stopCardDrag}
-                      />
-                    ))}
-
-                    {column.leads.length === 0 ? (
-                      <div className="rounded-2xl border border-dashed border-zinc-200 p-5 text-center text-xs text-zinc-400">
-                        Sem leads nesta etapa
+                    <div className="mb-4 flex items-center justify-between">
+                      <div>
+                        <h2 className="text-sm font-black">{column.title}</h2>
+                        <p className="text-xs text-zinc-400">{column.leads.length} cards</p>
                       </div>
-                    ) : null}
-                  </div>
+                      <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-black text-zinc-500">{column.leads.length}</span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {column.leads.map((lead) => (
+                        <LeadCard
+                          key={lead.id}
+                          lead={lead}
+                          columnKey={column.key}
+                          isDragging={draggedLeadId === lead.id}
+                          onDragStart={(event) => startCardDrag(event, lead.id)}
+                          onDragEnd={stopCardDrag}
+                          onStart={() => startWhatsAppService(lead)}
+                          onSchedule={() => openScheduleModal(lead)}
+                          onShowedUp={() => changeStatus(lead.id, 'showed_up')}
+                          onNoShow={() => changeStatus(lead.id, 'no_show')}
+                          onCancel={() => openCancelModal(lead)}
+                          onSale={() => changeStatus(lead.id, 'sale_confirmed')}
+                          onLost={() => openLostModal(lead)}
+                        />
+                      ))}
+
+                      {column.leads.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-zinc-200 p-5 text-center text-xs text-zinc-400">
+                          Solte o card aqui
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 );
               })}
@@ -622,19 +617,22 @@ export default function StoreSlugPipelinePage() {
 function LeadCard({
   lead,
   columnKey,
+  isDragging,
+  onDragStart,
+  onDragEnd,
   onStart,
   onSchedule,
   onShowedUp,
   onNoShow,
   onCancel,
   onSale,
-  onLost,
-  isDragging,
-  onDragStart,
-  onDragEnd
+  onLost
 }: {
   lead: any;
   columnKey: string;
+  isDragging: boolean;
+  onDragStart: (event: DragEvent<HTMLDivElement>) => void;
+  onDragEnd: () => void;
   onStart: () => void;
   onSchedule: () => void;
   onShowedUp: () => void;
@@ -642,9 +640,6 @@ function LeadCard({
   onCancel: () => void;
   onSale: () => void;
   onLost: () => void;
-  isDragging: boolean;
-  onDragStart: (event: any) => void;
-  onDragEnd: () => void;
 }) {
   const scheduledAt = formatDateTime(lead.scheduled_at);
   const cancelledAt = formatDateTime(lead.appointment_cancelled_at);
@@ -763,7 +758,7 @@ function Kpi({ label, value }: { label: string; value: number }) {
   );
 }
 
-function Status({ label, value, icon }: { label: string; value: number; icon: React.ReactNode }) {
+function Status({ label, value, icon }: { label: string; value: number; icon: ReactNode }) {
   return (
     <div className="flex items-center justify-between rounded-2xl bg-zinc-50 p-4">
       <div className="flex items-center gap-3 text-zinc-500">
@@ -775,7 +770,7 @@ function Status({ label, value, icon }: { label: string; value: number; icon: Re
   );
 }
 
-function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-2xl">
