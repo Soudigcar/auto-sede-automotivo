@@ -438,7 +438,6 @@ export default function StoreSlugPipelinePage() {
           <div className="mt-5 overflow-x-auto pb-2">
             <div className="grid min-w-[1440px] grid-cols-6 gap-4">
               {grouped.map((column) => {
-                const isDropTarget = dragOverColumn === column.key;
 
                 return (
                   <div
@@ -448,9 +447,7 @@ export default function StoreSlugPipelinePage() {
                     onDrop={(event) => dropCardOnColumn(event, column.key)}
                     className={[
                       'rounded-[26px] border p-4 shadow-sm transition',
-                      isDropTarget
                         ? 'border-red-300 bg-red-50/70 ring-2 ring-red-100'
-                       DropTarget
                         ? 'border-red-300 bg-red-50/70 ring-2 ring-red-100'
                         : 'border-zinc-200 bg-white'
                     ].join(' ')}
