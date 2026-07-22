@@ -4,9 +4,20 @@ import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
+function slugify(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'evento';
+}
+
 export function EventCreateForm({ onSaved }: { onSaved?: () => void }) {
   const supabase = createClient();
   const [message, setMessage] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState({
     eventName: '',
     startDate: '',
@@ -18,23 +29,64 @@ export function EventCreateForm({ onSaved }: { onSaved?: () => void }) {
     liveUrl: ''
   });
 
+  async function buildUniqueSlug(eventName: string) {
+    const baseSlug = slugify(eventName);
+    let candidate = baseSlug;
+    let counter = 2;
+
+    while (counter <= 20) {
+      const { data, error } = await supabase
+        .from('events')
+        .select('id')
+        .eq('slug', candidate)
+        .maybeSingle();
+
+      if (error) {
+        return `${baseSlug}-${Date.now().toString(36)}`;
+      }
+
+      if (!data) return candidate;
+
+      candidate = `${baseSlug}-${counter}`;
+      counter += 1;
+    }
+
+    return `${baseSlug}-${Date.now().toString(36)}`;
+  }
+
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    const eventName = form.eventName.trim();
+
+    if (!eventName) {
+      setMessage('Informe o nome do evento.');
+      return;
+    }
+
+    setIsSaving(true);
+    setMessage('Salvando evento...');
+
+    const slug = await buildUniqueSlug(eventName);
+
     const { error } = await supabase.from('events').insert({
-      event_name: form.eventName,
+      event_name: eventName,
+      slug,
       start_date: form.startDate || null,
       end_date: form.endDate || form.startDate || null,
-      state: form.state || null,
-      city: form.city || null,
-      location: form.location || null,
+      state: form.state.trim() || null,
+      city: form.city.trim() || null,
+      location: form.location.trim() || null,
       sponsor_bank: form.sponsorBank || null,
-      live_url: form.liveUrl || null,
-      status: 'active'
+      live_url: form.liveUrl.trim() || null,
+      status: 'active',
+      store_registration_enabled: true
     });
 
+    setIsSaving(false);
+
     if (error) {
-      setMessage('Erro ao cadastrar evento. Confira os campos no Supabase.');
+      setMessage(`Erro ao cadastrar evento: ${error.message}`);
       return;
     }
 
@@ -134,8 +186,8 @@ export function EventCreateForm({ onSaved }: { onSaved?: () => void }) {
         />
       </div>
 
-      <button className="premium-button-primary mt-5 w-full" type="submit">
-        Cadastrar evento
+      <button className="premium-button-primary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSaving}>
+        {isSaving ? 'Cadastrando...' : 'Cadastrar evento'}
       </button>
 
       {message ? (
