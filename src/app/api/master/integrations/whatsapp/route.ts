@@ -92,6 +92,7 @@ export async function GET(request: Request) {
       supabase
         .from('whatsapp_numbers')
         .select('*, stores(id, store_name, slug)')
+        .neq('status', 'archived')
         .order('created_at', { ascending: false })
     ]);
 
@@ -146,7 +147,14 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Informe o ID do número.' }, { status: 400 });
       }
 
-      const { error } = await supabase.from('whatsapp_numbers').delete().eq('id', id);
+      const { error } = await supabase
+        .from('whatsapp_numbers')
+        .update({
+          is_active: false,
+          status: 'archived',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 400 });
