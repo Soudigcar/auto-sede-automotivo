@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type DragEvent, type MouseEvent, type ReactNode } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import {
   BarChart3,
@@ -14,7 +14,9 @@ import {
   Clock3,
   Edit3,
   LogOut,
+  MessageCircle,
   Package,
+  Phone,
   Save,
   Store,
   Trash2,
@@ -25,12 +27,54 @@ import { createClient } from '@/lib/supabase';
 import { getStorePortalContext } from '@/lib/storePortalClient';
 
 const columns = [
-  { key: 'new_lead', title: 'Novo Lead Recebido' },
-  { key: 'in_service', title: 'Em Atendimento' },
-  { key: 'scheduled', title: 'Agendado' },
-  { key: 'appointment_cancelled', title: 'Cancelou Agendamento' },
-  { key: 'no_show', title: 'Nao Compareceu' },
-  { key: 'showed_up', title: 'Compareceu' }
+  {
+    key: 'new_lead',
+    title: 'Novo Lead Recebido',
+    shortTitle: 'Novo Lead',
+    barClass: 'bg-blue-500',
+    headerClass: 'border-blue-100 bg-blue-50 text-blue-700',
+    badgeClass: 'bg-blue-100 text-blue-700'
+  },
+  {
+    key: 'in_service',
+    title: 'Em Atendimento',
+    shortTitle: 'Atendimento',
+    barClass: 'bg-violet-500',
+    headerClass: 'border-violet-100 bg-violet-50 text-violet-700',
+    badgeClass: 'bg-violet-100 text-violet-700'
+  },
+  {
+    key: 'scheduled',
+    title: 'Agendado',
+    shortTitle: 'Agendado',
+    barClass: 'bg-amber-500',
+    headerClass: 'border-amber-100 bg-amber-50 text-amber-700',
+    badgeClass: 'bg-amber-100 text-amber-700'
+  },
+  {
+    key: 'appointment_cancelled',
+    title: 'Cancelou Agendamento',
+    shortTitle: 'Cancelou',
+    barClass: 'bg-orange-500',
+    headerClass: 'border-orange-100 bg-orange-50 text-orange-700',
+    badgeClass: 'bg-orange-100 text-orange-700'
+  },
+  {
+    key: 'no_show',
+    title: 'Nao Compareceu',
+    shortTitle: 'Nao veio',
+    barClass: 'bg-zinc-500',
+    headerClass: 'border-zinc-200 bg-zinc-50 text-zinc-700',
+    badgeClass: 'bg-zinc-200 text-zinc-700'
+  },
+  {
+    key: 'showed_up',
+    title: 'Compareceu',
+    shortTitle: 'Compareceu',
+    barClass: 'bg-emerald-500',
+    headerClass: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+    badgeClass: 'bg-emerald-100 text-emerald-700'
+  }
 ];
 
 const statusLabels: Record<string, string> = {
@@ -79,6 +123,28 @@ function formatDateTime(value: any) {
   });
 }
 
+function formatRelativeTime(value: any) {
+  if (!value) return 'Sem data';
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return 'Sem data';
+
+  const diffMs = Date.now() - date.getTime();
+  const diffMin = Math.max(0, Math.floor(diffMs / 60000));
+
+  if (diffMin < 1) return 'Agora';
+  if (diffMin < 60) return `Ha ${diffMin} min`;
+
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `Ha ${diffHours}h`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 8) return `Ha ${diffDays}d`;
+
+  return formatDateTime(value);
+}
+
 function toInputDate(value: any) {
   if (!value) return '';
 
@@ -112,6 +178,10 @@ function buildSlotWindow(date: string, time: string) {
   return { start, end };
 }
 
+function columnConfig(columnKey: string) {
+  return columns.find((column) => column.key === columnKey) || columns[0];
+}
+
 export default function StoreSlugPipelinePage() {
   const supabase = createClient();
   const params = useParams();
@@ -133,6 +203,8 @@ export default function StoreSlugPipelinePage() {
 
   const [lostLead, setLostLead] = useState<any>(null);
   const [lostReason, setLostReason] = useState('');
+
+  const [saleLead, setSaleLead] = useState<any>(null);
 
   const [editingLead, setEditingLead] = useState<any>(null);
   const [editCustomerName, setEditCustomerName] = useState('');
@@ -373,6 +445,21 @@ export default function StoreSlugPipelinePage() {
     closeLostModal();
   }
 
+  function openSaleModal(lead: any) {
+    setSaleLead(lead);
+  }
+
+  function closeSaleModal() {
+    setSaleLead(null);
+  }
+
+  async function saveSaleConfirmation() {
+    if (!saleLead) return;
+
+    await updateLead(saleLead.id, { status: 'sale_confirmed' }, 'Confirmando venda...');
+    closeSaleModal();
+  }
+
   function openLeadEditor(lead: any) {
     setEditingLead(lead);
     setEditCustomerName(lead.customer_name || '');
@@ -600,9 +687,10 @@ export default function StoreSlugPipelinePage() {
           <nav className="mt-8 space-y-3 text-sm">
             <Link href={`/loja/${slug}`} className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><Store size={18} /> Dashboard</Link>
             <Link href={`/loja/${slug}/minha-loja`} className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><Store size={18} /> Minha Loja</Link>
-            <Link href={`/loja/${slug}/estoque`} className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><Package size={18} /> Estoque</Link>
             <Link href={`/loja/${slug}/pipeline`} className="flex items-center gap-3 rounded-2xl bg-red-600 px-4 py-4 font-bold shadow-lg shadow-red-600/20"><BarChart3 size={18} /> Pipeline</Link>
+            <Link href={`/loja/${slug}/whatsapp`} className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><MessageCircle size={18} /> WhatsApp CRM</Link>
             <Link href={`/loja/${slug}/calendario`} className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><CalendarDays size={18} /> Calendario</Link>
+            <Link href={`/loja/${slug}/estoque`} className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><Package size={18} /> Estoque</Link>
             <Link href={`/loja/${slug}/operacao`} className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><ClipboardList size={18} /> Operacao</Link>
             <Link href="/logout" className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><LogOut size={18} /> Sair</Link>
           </nav>
@@ -614,7 +702,7 @@ export default function StoreSlugPipelinePage() {
               <p className="premium-eyebrow">Loja Participante</p>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Pipeline da Loja</h1>
               <p className="premium-muted mt-3 max-w-3xl text-sm">
-                Clique no card para editar dados do lead, alterar agendamento ou excluir. Arraste entre as colunas para mudar etapa.
+                Cards compactos para atendimento diario. Clique para editar, arraste para mudar etapa e use os atalhos rapidos para acao comercial.
               </p>
             </div>
 
@@ -636,8 +724,8 @@ export default function StoreSlugPipelinePage() {
             <Kpi label="Perdas" value={lostCount} />
           </section>
 
-          <div className="mt-5 overflow-x-auto pb-2">
-            <div className="grid min-w-[1440px] grid-cols-6 gap-4">
+          <div className="mt-5 overflow-x-auto pb-3">
+            <div className="grid min-w-[1260px] grid-cols-6 gap-3">
               {grouped.map((column) => {
                 const isDropTarget = dragOverColumn === column.key;
 
@@ -648,19 +736,22 @@ export default function StoreSlugPipelinePage() {
                     onDragLeave={() => setDragOverColumn(null)}
                     onDrop={(event) => dropCardOnColumn(event, column.key)}
                     className={[
-                      'rounded-[26px] border p-4 shadow-sm transition',
-                      isDropTarget ? 'border-red-300 bg-red-50/70 ring-2 ring-red-100' : 'border-zinc-200 bg-white'
+                      'overflow-hidden rounded-[24px] border shadow-sm transition',
+                      isDropTarget ? 'border-red-300 bg-red-50/80 ring-2 ring-red-100' : 'border-zinc-200 bg-white'
                     ].join(' ')}
                   >
-                    <div className="mb-4 flex items-center justify-between">
-                      <div>
-                        <h2 className="text-sm font-black">{column.title}</h2>
-                        <p className="text-xs text-zinc-400">{column.leads.length} cards</p>
+                    <div className={`h-1.5 ${column.barClass}`} />
+                    <div className={`m-3 rounded-2xl border px-3 py-3 ${column.headerClass}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <h2 className="truncate text-sm font-black">{column.title}</h2>
+                          <p className="mt-0.5 text-[11px] font-bold opacity-70">{column.leads.length} cards</p>
+                        </div>
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-black ${column.badgeClass}`}>{column.leads.length}</span>
                       </div>
-                      <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-black text-zinc-500">{column.leads.length}</span>
                     </div>
 
-                    <div className="space-y-3">
+                    <div className="space-y-2 px-3 pb-3">
                       {column.leads.map((lead) => (
                         <LeadCard
                           key={lead.id}
@@ -675,13 +766,13 @@ export default function StoreSlugPipelinePage() {
                           onShowedUp={() => changeStatus(lead.id, 'showed_up')}
                           onNoShow={() => changeStatus(lead.id, 'no_show')}
                           onCancel={() => openCancelModal(lead)}
-                          onSale={() => changeStatus(lead.id, 'sale_confirmed')}
+                          onSale={() => openSaleModal(lead)}
                           onLost={() => openLostModal(lead)}
                         />
                       ))}
 
                       {column.leads.length === 0 ? (
-                        <div className="rounded-2xl border border-dashed border-zinc-200 p-5 text-center text-xs text-zinc-400">
+                        <div className="rounded-2xl border border-dashed border-zinc-200 p-4 text-center text-xs font-bold text-zinc-400">
                           Solte o card aqui
                         </div>
                       ) : null}
@@ -716,7 +807,7 @@ export default function StoreSlugPipelinePage() {
                   <div className="mt-5 grid gap-2 text-sm text-zinc-200">
                     <p><strong className="text-cyan-200">Carro:</strong> {editVehicle || 'Nao informado'}</p>
                     <p><strong className="text-cyan-200">Telefone:</strong> {editCustomerPhone || 'Nao informado'}</p>
-                    <p><strong className="text-cyan-200">Agendamento:</strong> {editDate && editTime ? `${editDate} às ${editTime}` : 'Sem agendamento'}</p>
+                    <p><strong className="text-cyan-200">Agendamento:</strong> {editDate && editTime ? `${editDate} as ${editTime}` : 'Sem agendamento'}</p>
                   </div>
                 </div>
                 <div className="rounded-[24px] border border-white/10 bg-white/10 p-5 text-center backdrop-blur">
@@ -775,6 +866,31 @@ export default function StoreSlugPipelinePage() {
                   <Save size={18} /> Salvar alteracoes
                 </button>
               </div>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
+      {saleLead ? (
+        <Modal title="Confirmar venda" onClose={closeSaleModal}>
+          <div className="grid gap-4">
+            <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-5">
+              <p className="text-xs font-black uppercase tracking-[0.28em] text-emerald-700">Venda pronta para confirmar</p>
+              <h3 className="mt-2 text-2xl font-black text-zinc-950">{saleLead.customer_name || 'Cliente sem nome'}</h3>
+              <div className="mt-4 grid gap-2 text-sm font-bold text-zinc-700">
+                <p>Carro de interesse: {saleLead.interested_vehicle || 'Nao informado'}</p>
+                <p>Telefone: {saleLead.customer_phone || 'Sem telefone'}</p>
+                <p>Origem: {saleLead.origin || 'Nao informado'}</p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">
+              Nesta primeira rodada, a venda sera confirmada apenas como etapa do Pipeline. Na proxima rodada com banco de dados, entram carro vendido, banco, forma de pagamento, valor, entrada e parcelas.
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button className="rounded-2xl border border-zinc-200 px-5 py-3 text-sm font-black text-zinc-600" type="button" onClick={closeSaleModal}>Voltar</button>
+              <button className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white" type="button" onClick={saveSaleConfirmation}>Confirmar venda</button>
             </div>
           </div>
         </Modal>
@@ -889,8 +1005,10 @@ function LeadCard({
 }) {
   const scheduledAt = formatDateTime(lead.scheduled_at);
   const cancelledAt = formatDateTime(lead.appointment_cancelled_at);
+  const column = columnConfig(columnKey);
+  const origin = String(lead.origin || 'Origem nao informada');
 
-  function action(event: React.MouseEvent<HTMLButtonElement>, callback: () => void) {
+  function action(event: MouseEvent<HTMLButtonElement>, callback: () => void) {
     event.stopPropagation();
     callback();
   }
@@ -907,78 +1025,100 @@ function LeadCard({
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       className={[
-        'rounded-2xl border border-zinc-100 bg-[#F8FAFC] p-3 shadow-sm transition active:cursor-grabbing',
-        'cursor-pointer hover:-translate-y-0.5 hover:shadow-md',
+        'group rounded-2xl border border-zinc-100 bg-[#F8FAFC] p-3 shadow-sm transition active:cursor-grabbing',
+        'cursor-pointer hover:-translate-y-0.5 hover:border-zinc-200 hover:bg-white hover:shadow-md',
         isDragging ? 'opacity-50 ring-2 ring-red-300' : ''
       ].join(' ')}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-black">{lead.customer_name || 'Cliente sem nome'}</h3>
-          <p className="mt-1 text-xs text-zinc-500">{lead.interested_vehicle || 'Interesse nao informado'}</p>
-          <p className="mt-1 text-[11px] text-zinc-400">{lead.customer_phone || 'Sem telefone'}</p>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-[15px] font-black leading-tight text-zinc-950">{lead.customer_name || 'Cliente sem nome'}</h3>
+          <p className="mt-1 truncate text-xs font-bold text-zinc-600">{lead.interested_vehicle || 'Interesse nao informado'}</p>
         </div>
 
-        <span className="rounded-full bg-white px-2 py-1 text-[10px] font-black uppercase text-zinc-400">{statusLabels[lead.status] || lead.status}</span>
+        <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-black uppercase ${column.badgeClass}`}>{column.shortTitle}</span>
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-black uppercase tracking-wide">
+        <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-zinc-500"><Phone size={11} /> {lead.customer_phone || 'Sem telefone'}</span>
+        <span className="rounded-full bg-white px-2 py-1 text-zinc-500">{origin}</span>
+        <span className="rounded-full bg-zinc-900 px-2 py-1 text-white">{formatRelativeTime(lead.created_at)}</span>
       </div>
 
       {scheduledAt ? (
-        <div className="mt-3 rounded-xl bg-white p-3 text-xs text-zinc-600">
-          <p className="flex items-center gap-2 font-black text-zinc-900"><CalendarClock size={14} /> {scheduledAt}</p>
-          {lead.appointment_notes ? <p className="mt-2 leading-relaxed">{lead.appointment_notes}</p> : null}
+        <div className="mt-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <p className="flex items-center gap-2 font-black"><CalendarClock size={14} /> {scheduledAt}</p>
+          {lead.appointment_notes ? <p className="mt-1 leading-relaxed">{lead.appointment_notes}</p> : null}
         </div>
       ) : null}
 
       {columnKey === 'appointment_cancelled' ? (
-        <div className="mt-3 rounded-xl bg-orange-50 p-3 text-xs text-orange-800">
+        <div className="mt-2 rounded-xl border border-orange-100 bg-orange-50 px-3 py-2 text-xs text-orange-800">
           <p className="font-black">Cancelado {cancelledAt ? `em ${cancelledAt}` : ''}</p>
           <p className="mt-1 leading-relaxed">{lead.appointment_cancelled_reason || 'Cliente cancelou o agendamento.'}</p>
         </div>
       ) : null}
 
-      <div className="mt-3 grid gap-2">
-        <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={(event) => action(event, onOpen)}>
-          <Edit3 size={13} className="inline" /> Editar informacoes
-        </button>
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        <CompactAction label="Editar" onClick={(event) => action(event, onOpen)} icon={<Edit3 size={12} />} />
 
         {columnKey === 'new_lead' ? (
           <>
-            <button className="w-full rounded-xl bg-emerald-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={(event) => action(event, onStart)}>{lead.customer_phone ? 'Iniciar no WhatsApp' : 'Marcar em atendimento'}</button>
-            <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={(event) => action(event, onLost)}>Registrar perda</button>
+            <CompactAction label={lead.customer_phone ? 'WhatsApp' : 'Atender'} onClick={(event) => action(event, onStart)} icon={<MessageCircle size={12} />} tone="green" />
+            <CompactAction label="Perda" onClick={(event) => action(event, onLost)} tone="danger" />
           </>
         ) : null}
 
         {columnKey === 'in_service' ? (
           <>
-            <button className="w-full rounded-xl bg-red-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={(event) => action(event, onSchedule)}>Agendar com data e hora</button>
-            <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={(event) => action(event, onLost)}>Registrar perda</button>
+            <CompactAction label="Agendar" onClick={(event) => action(event, onSchedule)} tone="red" />
+            <CompactAction label="Perda" onClick={(event) => action(event, onLost)} tone="danger" />
           </>
         ) : null}
 
         {columnKey === 'scheduled' ? (
           <>
-            <button className="w-full rounded-xl bg-sky-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={(event) => action(event, onShowedUp)}>Confirmar chegada</button>
-            <button className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={(event) => action(event, onSchedule)}>Reagendar</button>
-            <button className="w-full rounded-xl bg-orange-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={(event) => action(event, onCancel)}>Cliente cancelou</button>
-            <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={(event) => action(event, onNoShow)}>Nao compareceu</button>
+            <CompactAction label="Chegou" onClick={(event) => action(event, onShowedUp)} tone="blue" />
+            <CompactAction label="Reagendar" onClick={(event) => action(event, onSchedule)} />
+            <CompactAction label="Cancelou" onClick={(event) => action(event, onCancel)} tone="orange" />
+            <CompactAction label="Nao veio" onClick={(event) => action(event, onNoShow)} tone="dark" />
           </>
         ) : null}
 
         {columnKey === 'appointment_cancelled' || columnKey === 'no_show' ? (
           <>
-            <button className="w-full rounded-xl bg-red-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={(event) => action(event, onSchedule)}>Reagendar</button>
-            <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={(event) => action(event, onLost)}>Registrar perda</button>
+            <CompactAction label="Reagendar" onClick={(event) => action(event, onSchedule)} tone="red" />
+            <CompactAction label="Perda" onClick={(event) => action(event, onLost)} tone="danger" />
           </>
         ) : null}
 
         {columnKey === 'showed_up' ? (
           <>
-            <button className="w-full rounded-xl bg-emerald-600 px-3 py-2 text-[11px] font-black uppercase text-white" type="button" onClick={(event) => action(event, onSale)}>Confirmar venda</button>
-            <button className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-black uppercase text-zinc-600" type="button" onClick={(event) => action(event, onLost)}>Registrar perda</button>
+            <CompactAction label="Venda" onClick={(event) => action(event, onSale)} tone="green" />
+            <CompactAction label="Perda" onClick={(event) => action(event, onLost)} tone="danger" />
           </>
         ) : null}
       </div>
     </div>
+  );
+}
+
+function CompactAction({ label, onClick, icon, tone = 'default' }: { label: string; onClick: (event: MouseEvent<HTMLButtonElement>) => void; icon?: ReactNode; tone?: 'default' | 'green' | 'red' | 'blue' | 'orange' | 'dark' | 'danger' }) {
+  const tones = {
+    default: 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50',
+    green: 'border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700',
+    red: 'border-red-600 bg-red-600 text-white hover:bg-red-700',
+    blue: 'border-sky-600 bg-sky-600 text-white hover:bg-sky-700',
+    orange: 'border-orange-500 bg-orange-500 text-white hover:bg-orange-600',
+    dark: 'border-zinc-900 bg-zinc-900 text-white hover:bg-black',
+    danger: 'border-red-100 bg-red-50 text-red-700 hover:bg-red-100'
+  } as const;
+
+  return (
+    <button className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-[10px] font-black uppercase transition ${tones[tone]}`} type="button" onClick={onClick}>
+      {icon}
+      {label}
+    </button>
   );
 }
 
@@ -993,9 +1133,9 @@ function Field({ label, value, onChange, placeholder }: { label: string; value: 
 
 function Kpi({ label, value }: { label: string; value: number }) {
   return (
-    <div className="premium-card p-5">
+    <div className="premium-card p-4">
       <p className="text-xs font-bold text-zinc-400">{label}</p>
-      <strong className="mt-2 block text-3xl font-black">{value}</strong>
+      <strong className="mt-1 block text-2xl font-black">{value}</strong>
     </div>
   );
 }
