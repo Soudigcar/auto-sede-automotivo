@@ -246,7 +246,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: conversationError.message }, { status: 400 });
     }
 
-    if (!conversation || conversation.whatsapp_numbers?.store_id) {
+    if (!conversation) {
+      return NextResponse.json({ error: 'Conversa não pertence ao Inbox central do Master.' }, { status: 404 });
+    }
+
+    const numberRelation = (conversation as any).whatsapp_numbers;
+    const linkedNumber = Array.isArray(numberRelation) ? numberRelation[0] : numberRelation;
+
+    if (linkedNumber?.store_id) {
       return NextResponse.json({ error: 'Conversa não pertence ao Inbox central do Master.' }, { status: 404 });
     }
 
