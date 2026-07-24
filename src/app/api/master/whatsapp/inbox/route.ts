@@ -79,46 +79,48 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Apenas usuário Master pode acessar o Inbox WhatsApp.' }, { status: 403 });
     }
 
-    const [{ data: conversations, error: conversationsError }, { data: stores, error: storesError }, { data: numbers, error: numbersError }] = await Promise.all([
-      supabase
-        .from('whatsapp_conversations')
-        .select('*')
-        .order('last_message_at', { ascending: false })
-        .limit(300),
-      supabase
-        .from('stores')
-        .select('id, store_name, slug, status')
-        .order('store_name', { ascending: true }),
-      supabase
-        .from('whatsapp_numbers')
-        .select('id, label, phone_number, phone_number_id, status, is_active, store_id')
-        .neq('status', 'archived')
-        .order('label', { ascending: true })
-    ]);
-
-    if (conversationsError) {
-      return NextResponse.json({ error: conversationsError.message }, { status: 400 });
-    }
-
-    if (storesError) {
-      return NextResponse.json({ error: storesError.message }, { status: 400 });
-    }
+    const { data: centralNumbers, error: numbersError } = await supabase
+      .from('whatsapp_numbers')
+      .select('id, label, phone_number, phone_number_id, status, is_active, store_id')
+      .is('store_id', null)
+      .neq('status', 'archived')
+      .order('label', { ascending: true });
 
     if (numbersError) {
       return NextResponse.json({ error: numbersError.message }, { status: 400 });
     }
 
+    const centralNumberIds = unique((centralNumbers || []).map((item: any) => item.id));
+
+    if (!centralNumberIds.length) {
+      return NextResponse.json({
+        success: true,
+        conversations: [],
+        messages: [],
+        selected_conversation_id: conversationId || null,
+        numbers: [],
+        scope: 'central_master'
+      });
+    }
+
+    const { data: conversations, error: conversationsError } = await supabase
+      .from('whatsapp_conversations')
+      .select('*')
+      .in('whatsapp_number_id', centralNumberIds)
+      .order('last_message_at', { ascending: false })
+      .limit(300);
+
+    if (conversationsError) {
+      return NextResponse.json({ error: conversationsError.message }, { status: 400 });
+    }
+
     const contactIds = unique((conversations || []).map((item: any) => item.contact_id));
-    const numberIds = unique((conversations || []).map((item: any) => item.whatsapp_number_id));
     const leadIds = unique((conversations || []).map((item: any) => item.lead_id));
     const baseLeadIds = unique((conversations || []).map((item: any) => item.base_lead_id));
 
-    const [contactsResponse, numberRowsResponse, leadsResponse, baseLeadsResponse] = await Promise.all([
+    const [contactsResponse, leadsResponse, baseLeadsResponse] = await Promise.all([
       contactIds.length
         ? supabase.from('whatsapp_contacts').select('*').in('id', contactIds)
-        : Promise.resolve({ data: [], error: null }),
-      numberIds.length
-        ? supabase.from('whatsapp_numbers').select('id, label, phone_number, phone_number_id, status, is_active, store_id').in('id', numberIds)
         : Promise.resolve({ data: [], error: null }),
       leadIds.length
         ? supabase.from('leads').select('id, customer_name, customer_phone, status, interested_vehicle, origin, scheduled_at, assigned_store_id, created_at').in('id', leadIds)
@@ -128,24 +130,38 @@ export async function GET(request: Request) {
         : Promise.resolve({ data: [], error: null })
     ]);
 
-    const loadError = contactsResponse.error || numberRowsResponse.error || leadsResponse.error || baseLeadsResponse.error;
+    const loadError = contactsResponse.error || leadsResponse.error || baseLeadsResponse.error;
 
     if (loadError) {
       return NextResponse.json({ error: loadError.message }, { status: 400 });
     }
 
     const contactsById = buildMap(contactsResponse.data || []);
-    const numbersById = buildMap(numberRowsResponse.data || []);
+    const numbersById = buildMap(centralNumbers || []);
     const leadsById = buildMap(leadsResponse.data || []);
     const baseLeadsById = buildMap(baseLeadsResponse.data || []);
-    const storesById = buildMap(stores || []);
+
+    const assignedStoreIds = unique([
+      ...(leadsResponse.data || []).map((lead: any) => lead.assigned_store_id),
+      ...(baseLeadsResponse.data || []).map((lead: any) => lead.assigned_store_id)
+    ]);
+
+    const storesResponse = assignedStoreIds.length
+      ? await supabase.from('stores').select('id, store_name, slug, status').in('id', assignedStoreIds)
+      : { data: [], error: null };
+
+    if (storesResponse.error) {
+      return NextResponse.json({ error: storesResponse.error.message }, { status: 400 });
+    }
+
+    const storesById = buildMap(storesResponse.data || []);
 
     const enrichedConversations = (conversations || []).map((conversation: any) => {
       const contact = contactsById[conversation.contact_id] || null;
       const number = numbersById[conversation.whatsapp_number_id] || null;
       const lead = leadsById[conversation.lead_id] || null;
       const baseLead = baseLeadsById[conversation.base_lead_id] || null;
-      const storeId = conversation.store_id || lead?.assigned_store_id || baseLead?.assigned_store_id || number?.store_id || null;
+      const assignedStoreId = lead?.assigned_store_id || baseLead?.assigned_store_id || null;
 
       return {
         ...conversation,
@@ -153,7 +169,7 @@ export async function GET(request: Request) {
         number,
         lead,
         base_lead: baseLead,
-        store: storeId ? storesById[storeId] || null : null
+        store: assignedStoreId ? storesById[assignedStoreId] || null : null
       };
     });
 
@@ -163,7 +179,7 @@ export async function GET(request: Request) {
       const allowed = enrichedConversations.some((conversation: any) => conversation.id === conversationId);
 
       if (!allowed) {
-        return NextResponse.json({ error: 'Conversa não encontrada.' }, { status: 404 });
+        return NextResponse.json({ error: 'Conversa não encontrada no Inbox central do Master.' }, { status: 404 });
       }
 
       const { data: messageRows, error: messagesError } = await supabase
@@ -185,8 +201,8 @@ export async function GET(request: Request) {
       conversations: enrichedConversations,
       messages,
       selected_conversation_id: conversationId || null,
-      stores: stores || [],
-      numbers: numbers || []
+      numbers: centralNumbers || [],
+      scope: 'central_master'
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -218,6 +234,20 @@ export async function POST(request: Request) {
 
     if (!conversationId) {
       return NextResponse.json({ error: 'Informe a conversa.' }, { status: 400 });
+    }
+
+    const { data: conversation, error: conversationError } = await supabase
+      .from('whatsapp_conversations')
+      .select('id, whatsapp_number_id, whatsapp_numbers(id, store_id)')
+      .eq('id', conversationId)
+      .maybeSingle();
+
+    if (conversationError) {
+      return NextResponse.json({ error: conversationError.message }, { status: 400 });
+    }
+
+    if (!conversation || conversation.whatsapp_numbers?.store_id) {
+      return NextResponse.json({ error: 'Conversa não pertence ao Inbox central do Master.' }, { status: 404 });
     }
 
     if (action === 'mark-read') {
