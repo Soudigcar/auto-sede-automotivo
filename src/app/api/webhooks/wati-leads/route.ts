@@ -11,114 +11,25 @@ const defaultSettings = {
 };
 
 const knownVehicles = [
-  'onix plus',
-  'corolla cross',
-  'grand siena',
-  'honda civic',
-  'honda fit',
-  'honda city',
-  'hyundai hb20s',
-  'hyundai hb20',
-  'jeep compass',
-  'jeep renegade',
-  'toyota corolla',
-  'toyota hilux',
-  'volkswagen polo',
-  'volkswagen virtus',
-  'volkswagen nivus',
-  'volkswagen t-cross',
-  'chevrolet tracker',
-  'chevrolet cruze',
-  'chevrolet spin',
-  'fiat argo',
-  'fiat cronos',
-  'fiat mobi',
-  'fiat toro',
-  'fiat strada',
-  'nissan kicks',
-  'nissan versa',
-  'nissan sentra',
-  'renault duster',
-  'renault sandero',
-  'renault logan',
-  'renault kwid',
-  'ford ranger',
-  'ford ecosport',
-  'ford fusion',
-  'peugeot 208',
-  'peugeot 2008',
-  'citroen c3',
-  'citroën c3',
-  'kia sportage',
-  'kia cerato',
-  'mitsubishi asx',
-  'mercedes c200',
-  'gwm haval',
-  'byd dolphin',
-  'onix',
-  'hb20',
-  'hb20s',
-  'civic',
-  'corolla',
-  'hilux',
-  'sw4',
-  'argo',
-  'mobi',
-  'cronos',
-  'siena',
-  'palio',
-  'uno',
-  'strada',
-  'toro',
-  'gol',
-  'polo',
-  'fox',
-  'voyage',
-  'saveiro',
-  'virtus',
-  'nivus',
-  'creta',
-  'kicks',
-  'versa',
-  'sentra',
-  'renegade',
-  'compass',
-  'duster',
-  'sandero',
-  'logan',
-  'kwid',
-  'hr-v',
-  'hrv',
-  'fit',
-  'city',
-  'tracker',
-  'cruze',
-  'spin',
-  'cobalt',
-  'montana',
-  's10',
-  'ranger',
-  'ecosport',
-  'fusion',
-  'asx',
-  'sportage',
-  'cerato',
-  'tiggo',
-  'haval'
+  'onix plus', 'corolla cross', 'grand siena', 'honda civic', 'honda fit', 'honda city',
+  'hyundai hb20s', 'hyundai hb20', 'jeep compass', 'jeep renegade', 'toyota corolla',
+  'toyota hilux', 'volkswagen polo', 'volkswagen virtus', 'volkswagen nivus',
+  'volkswagen t-cross', 'chevrolet tracker', 'chevrolet cruze', 'chevrolet spin',
+  'fiat argo', 'fiat cronos', 'fiat mobi', 'fiat toro', 'fiat strada', 'nissan kicks',
+  'nissan versa', 'nissan sentra', 'renault duster', 'renault sandero', 'renault logan',
+  'renault kwid', 'ford ranger', 'ford ecosport', 'ford fusion', 'peugeot 208',
+  'peugeot 2008', 'citroen c3', 'citroën c3', 'kia sportage', 'kia cerato',
+  'mitsubishi asx', 'mercedes c200', 'gwm haval', 'byd dolphin', 'onix', 'hb20',
+  'hb20s', 'civic', 'corolla', 'hilux', 'sw4', 'argo', 'mobi', 'cronos', 'siena',
+  'palio', 'uno', 'strada', 'toro', 'gol', 'polo', 'fox', 'voyage', 'saveiro',
+  'virtus', 'nivus', 'creta', 'kicks', 'versa', 'sentra', 'renegade', 'compass',
+  'duster', 'sandero', 'logan', 'kwid', 'hr-v', 'hrv', 'fit', 'city', 'tracker',
+  'cruze', 'spin', 'cobalt', 'montana', 's10', 'ranger', 'ecosport', 'fusion',
+  'asx', 'sportage', 'cerato', 'tiggo', 'haval'
 ];
 
 const weakMessages = new Set([
-  'oi',
-  'ola',
-  'olá',
-  'bom dia',
-  'boa tarde',
-  'boa noite',
-  'tudo bem',
-  'ok',
-  'teste',
-  'hello',
-  'hi'
+  'oi', 'ola', 'olá', 'bom dia', 'boa tarde', 'boa noite', 'tudo bem', 'ok', 'teste', 'hello', 'hi'
 ]);
 
 function cleanText(value: unknown) {
@@ -136,6 +47,39 @@ function normalize(value: unknown) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
+}
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error('Supabase Service Role não configurada no servidor.');
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false
+    }
+  });
+}
+
+async function getIntegration(supabase: any) {
+  const { data } = await supabase
+    .from('marketing_integrations')
+    .select('*')
+    .eq('integration_type', 'wati_leads')
+    .maybeSingle();
+
+  return {
+    ...(data || {}),
+    is_active: Boolean(data?.is_active),
+    settings: {
+      ...defaultSettings,
+      ...(data?.settings || {})
+    }
+  };
 }
 
 function cleanVehicleCandidate(value: unknown) {
@@ -185,7 +129,7 @@ function hasWeakMessageOnly(message: string) {
 function extractKnownVehicle(message: string) {
   const normalizedMessage = normalize(message);
 
-  for (const known of knownVehicles.sort((a, b) => b.length - a.length)) {
+  for (const known of [...knownVehicles].sort((a, b) => b.length - a.length)) {
     const normalizedKnown = normalize(known);
     const index = normalizedMessage.indexOf(normalizedKnown);
 
@@ -223,39 +167,6 @@ function extractVehicleFromMessage(message: string) {
   }
 
   return '';
-}
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-
-  if (!supabaseUrl || !serviceKey) {
-    throw new Error('Supabase Service Role não configurada no servidor.');
-  }
-
-  return createClient(supabaseUrl, serviceKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false
-    }
-  });
-}
-
-async function getIntegration(supabase: any) {
-  const { data } = await supabase
-    .from('marketing_integrations')
-    .select('*')
-    .eq('integration_type', 'wati_leads')
-    .maybeSingle();
-
-  return {
-    ...(data || {}),
-    is_active: Boolean(data?.is_active),
-    settings: {
-      ...defaultSettings,
-      ...(data?.settings || {})
-    }
-  };
 }
 
 function extractToken(request: Request, url: URL) {
@@ -326,101 +237,55 @@ function extractLead(payload: any) {
 
   const phone = digits(
     firstValue(data, [
-      'waId',
-      'wa_id',
-      'whatsappNumber',
-      'whatsapp_number',
-      'phone',
-      'phoneNumber',
-      'mobile',
-      'from',
-      'senderPhone',
-      'sender.phone',
-      'sender.waId',
-      'contact.phone',
-      'contact.waId',
-      'customer.phone',
-      'customer.whatsapp',
-      'customer.mobile',
+      'waId', 'wa_id', 'whatsappNumber', 'whatsapp_number', 'phone', 'phoneNumber',
+      'mobile', 'from', 'senderPhone', 'sender.phone', 'sender.waId', 'contact.phone',
+      'contact.waId', 'customer.phone', 'customer.whatsapp', 'customer.mobile',
       'contact.attributes.phone'
     ]) || findNestedValue(payload, ['waId', 'whatsappNumber', 'phone', 'phoneNumber', 'mobile', 'from'])
   );
 
   const name =
     firstValue(data, [
-      'name',
-      'contactName',
-      'senderName',
-      'sender.name',
-      'contact.name',
-      'contact.fullName',
-      'customer.name',
-      'customer.fullName',
-      'profileName'
+      'name', 'contactName', 'senderName', 'sender.name', 'contact.name', 'contact.fullName',
+      'customer.name', 'customer.fullName', 'profileName'
     ]) || findNestedValue(payload, ['contactName', 'senderName', 'profileName', 'fullName', 'name']) || phone || 'Lead WATI';
 
   const message =
     firstValue(data, [
-      'text',
-      'message',
-      'body',
-      'messageText',
-      'lastMessage',
-      'lastMessageText',
-      'text.body',
-      'message.text',
-      'message.body',
-      'payload.text',
-      'payload.body',
-      'template.text',
-      'conversation.lastMessage'
+      'text', 'message', 'body', 'messageText', 'lastMessage', 'lastMessageText',
+      'text.body', 'message.text', 'message.body', 'payload.text', 'payload.body',
+      'template.text', 'conversation.lastMessage'
     ]) || findNestedValue(payload, ['messageText', 'lastMessageText', 'body', 'text', 'message']);
 
   const structuredVehicle =
     firstValue(data, [
-      'vehicle',
-      'vehicle_name',
-      'vehicleName',
-      'car',
-      'carro',
-      'interest',
-      'interested_vehicle',
-      'customParams.vehicle',
-      'customParams.carro',
-      'attributes.vehicle',
-      'attributes.carro'
+      'vehicle', 'vehicle_name', 'vehicleName', 'car', 'carro', 'interest',
+      'interested_vehicle', 'customParams.vehicle', 'customParams.carro',
+      'attributes.vehicle', 'attributes.carro'
     ]) || findNestedValue(payload, ['vehicle', 'vehicle_name', 'vehicleName', 'carro', 'car', 'interested_vehicle']);
 
   const vehicle = titleVehicle(structuredVehicle) || extractVehicleFromMessage(message);
 
   const campaign =
-    firstValue(data, [
-      'campaignName',
-      'campaign_name',
-      'campaign',
-      'sourceCampaign',
-      'adName',
-      'ad_name',
-      'ctwa.campaign_name'
-    ]) || findNestedValue(payload, ['campaignName', 'campaign_name', 'campaign', 'adName', 'ad_name']);
+    firstValue(data, ['campaignName', 'campaign_name', 'campaign', 'sourceCampaign', 'adName', 'ad_name', 'ctwa.campaign_name']) ||
+    findNestedValue(payload, ['campaignName', 'campaign_name', 'campaign', 'adName', 'ad_name']);
 
   const conversationId =
-    firstValue(data, [
-      'conversationId',
-      'conversation_id',
-      'chatId',
-      'ticketId',
-      'id'
-    ]) || findNestedValue(payload, ['conversationId', 'conversation_id', 'chatId', 'ticketId']);
+    firstValue(data, ['conversationId', 'conversation_id', 'chatId', 'ticketId', 'id']) ||
+    findNestedValue(payload, ['conversationId', 'conversation_id', 'chatId', 'ticketId']);
 
-  return {
-    name,
-    phone,
-    message,
-    vehicle,
-    campaign,
-    conversationId
-  };
+  return { name, phone, message, vehicle, campaign, conversationId };
+}
+
+async function claimWatiLock(supabase: any, phone: string) {
+  const { data, error } = await supabase.rpc('claim_lead_ingestion_lock', {
+    p_source: 'wati_leads',
+    p_dedup_key: phone,
+    p_window_seconds: 120
+  });
+
+  if (error) throw new Error(`Erro ao criar trava anti-duplicidade WATI: ${error.message}`);
+  return data !== false;
 }
 
 async function pickNextStore(supabase: any) {
@@ -428,10 +293,7 @@ async function pickNextStore(supabase: any) {
     p_routing_key: 'wati_leads'
   });
 
-  if (error) {
-    throw new Error(`Erro ao escolher loja para o lead WATI: ${error.message}`);
-  }
-
+  if (error) throw new Error(`Erro ao escolher loja para o lead WATI: ${error.message}`);
   return Array.isArray(data) && data.length ? data[0] : null;
 }
 
@@ -461,7 +323,6 @@ async function routeLeadToStore(supabase: any, lead: any, sourceName: string) {
   }
 
   const assignedAt = new Date().toISOString();
-
   const { data: routedLead, error: routedLeadError } = await supabase
     .from('leads')
     .insert({
@@ -555,11 +416,7 @@ async function upsertLeadBase(supabase: any, lead: any, sourceName: string, payl
       updates.routing_strategy = route.routingStrategy;
     }
 
-    const { error } = await supabase
-      .from('leads_base')
-      .update(updates)
-      .eq('id', existing.id);
-
+    const { error } = await supabase.from('leads_base').update(updates).eq('id', existing.id);
     if (error) throw error;
 
     await updateRoutedLeadDetails(supabase, updates.routed_lead_id || existing.routed_lead_id || null, lead);
@@ -705,16 +562,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'Payload WATI sem telefone.', extracted: lead }, { status: 200 });
     }
 
+    const lockClaimed = await claimWatiLock(supabase, lead.phone);
+
+    if (!lockClaimed) {
+      await updateIntegrationStatus(supabase, settings, '');
+      return NextResponse.json({
+        success: true,
+        ignored: true,
+        reason: 'duplicate_wati_webhook_in_progress',
+        extracted: lead
+      });
+    }
+
     const sourceName = cleanText(settings.source_name) || defaultSettings.source_name;
     const result = await upsertLeadBase(supabase, lead, sourceName, payload);
 
     await updateIntegrationStatus(supabase, settings, '');
 
-    return NextResponse.json({
-      success: true,
-      extracted: lead,
-      result
-    });
+    return NextResponse.json({ success: true, extracted: lead, result });
   } catch (error: any) {
     try {
       const supabase = getAdminClient();
