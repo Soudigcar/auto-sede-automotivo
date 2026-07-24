@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { BarChart3, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, Globe2, Landmark, LogOut, Plug, Store, UserCog } from 'lucide-react';
+import { BarChart3, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, Globe2, Landmark, LogOut, MessageCircle, Plug, Store, UserCog } from 'lucide-react';
 
 const masterMenu = [
   { label: 'Dashboard', href: '/master/dashboard/live', icon: BarChart3 },
@@ -14,6 +14,7 @@ const masterMenu = [
   { label: 'Site', href: '/master/site', icon: Globe2 },
   { label: 'Base', href: '/master/base', icon: Database },
   { label: 'Integração', href: '/master/integrations', icon: Plug },
+  { label: 'WhatsApp Oficial', href: '/master/integrations/whatsapp', icon: MessageCircle },
   { label: 'Sair', href: '/logout', icon: LogOut }
 ];
 
