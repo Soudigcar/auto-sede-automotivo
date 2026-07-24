@@ -10,12 +10,219 @@ const defaultSettings = {
   routing_mode: 'round_robin'
 };
 
+const knownVehicles = [
+  'onix plus',
+  'corolla cross',
+  'grand siena',
+  'honda civic',
+  'honda fit',
+  'honda city',
+  'hyundai hb20s',
+  'hyundai hb20',
+  'jeep compass',
+  'jeep renegade',
+  'toyota corolla',
+  'toyota hilux',
+  'volkswagen polo',
+  'volkswagen virtus',
+  'volkswagen nivus',
+  'volkswagen t-cross',
+  'chevrolet tracker',
+  'chevrolet cruze',
+  'chevrolet spin',
+  'fiat argo',
+  'fiat cronos',
+  'fiat mobi',
+  'fiat toro',
+  'fiat strada',
+  'nissan kicks',
+  'nissan versa',
+  'nissan sentra',
+  'renault duster',
+  'renault sandero',
+  'renault logan',
+  'renault kwid',
+  'ford ranger',
+  'ford ecosport',
+  'ford fusion',
+  'peugeot 208',
+  'peugeot 2008',
+  'citroen c3',
+  'citroën c3',
+  'kia sportage',
+  'kia cerato',
+  'mitsubishi asx',
+  'mercedes c200',
+  'gwm haval',
+  'byd dolphin',
+  'onix',
+  'hb20',
+  'hb20s',
+  'civic',
+  'corolla',
+  'hilux',
+  'sw4',
+  'argo',
+  'mobi',
+  'cronos',
+  'siena',
+  'palio',
+  'uno',
+  'strada',
+  'toro',
+  'gol',
+  'polo',
+  'fox',
+  'voyage',
+  'saveiro',
+  'virtus',
+  'nivus',
+  'creta',
+  'kicks',
+  'versa',
+  'sentra',
+  'renegade',
+  'compass',
+  'duster',
+  'sandero',
+  'logan',
+  'kwid',
+  'hr-v',
+  'hrv',
+  'fit',
+  'city',
+  'tracker',
+  'cruze',
+  'spin',
+  'cobalt',
+  'montana',
+  's10',
+  'ranger',
+  'ecosport',
+  'fusion',
+  'asx',
+  'sportage',
+  'cerato',
+  'tiggo',
+  'haval'
+];
+
+const weakMessages = new Set([
+  'oi',
+  'ola',
+  'olá',
+  'bom dia',
+  'boa tarde',
+  'boa noite',
+  'tudo bem',
+  'ok',
+  'teste',
+  'hello',
+  'hi'
+]);
+
 function cleanText(value: unknown) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') return '';
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
 function digits(value: unknown) {
   return cleanText(value).replace(/\D/g, '');
+}
+
+function normalize(value: unknown) {
+  return cleanText(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function cleanVehicleCandidate(value: unknown) {
+  let candidate = cleanText(value)
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/\b(tenho|tenho interesse|interesse|quero|queria|gostaria|saber|mais|sobre|no|na|em|do|da|de|um|uma|o|a|esse|essa|este|esta|carro|veiculo|veículo)\b/gi, ' ')
+    .replace(/\b(valor|preco|preço|parcela|financiamento|entrada|disponivel|disponível|ainda|tem|qual|quanto|simular|comprar|ver|olhar)\b.*$/gi, '')
+    .replace(/[|•_]+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s.\-/]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!candidate || candidate.length < 3) return '';
+
+  const words = candidate.split(' ').filter(Boolean);
+  if (words.length > 8) candidate = words.slice(0, 8).join(' ');
+
+  return candidate.replace(/\b(ola|olá|oi|bom|dia|boa|tarde|noite)\b/gi, '').replace(/\s+/g, ' ').trim();
+}
+
+function titleVehicle(value: unknown) {
+  const candidate = cleanVehicleCandidate(value);
+  if (!candidate) return '';
+
+  return candidate
+    .split(' ')
+    .map((word) => {
+      if (/^\d+$/.test(word)) return word;
+      if (/^[A-Z0-9\-]{2,}$/.test(word)) return word.toUpperCase();
+      if (word.length <= 3 && /[a-z]/i.test(word)) return word.toUpperCase();
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(' ')
+    .replace(/Hb20/gi, 'HB20')
+    .replace(/Hrv/gi, 'HR-V')
+    .replace(/Sw4/gi, 'SW4')
+    .replace(/S10/gi, 'S10')
+    .replace(/T-cross/gi, 'T-Cross')
+    .replace(/Onix/gi, 'Onix');
+}
+
+function hasWeakMessageOnly(message: string) {
+  const normalized = normalize(message).replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+  return weakMessages.has(normalized);
+}
+
+function extractKnownVehicle(message: string) {
+  const normalizedMessage = normalize(message);
+
+  for (const known of knownVehicles.sort((a, b) => b.length - a.length)) {
+    const normalizedKnown = normalize(known);
+    const index = normalizedMessage.indexOf(normalizedKnown);
+
+    if (index === -1) continue;
+
+    const yearMatch = normalizedMessage.slice(index, index + normalizedKnown.length + 40).match(/\b(19\d{2}|20\d{2}|\d{2}\/\d{2}|\d{4}\/\d{4})\b/);
+    const versionMatch = cleanText(message).slice(index, index + normalizedKnown.length + 35).match(/\b(lx|lxs|ex|exl|gli|xli|xei|altis|lt|ltz|premier|comfortline|highline|trendline|sense|advance|platinum|like|active|ranch|volcano|sportline|attractive|adventure)\b/i);
+    const candidate = [known, versionMatch?.[0] || '', yearMatch?.[0] || ''].filter(Boolean).join(' ');
+
+    return titleVehicle(candidate);
+  }
+
+  return '';
+}
+
+function extractVehicleFromMessage(message: string) {
+  const messageText = cleanText(message);
+  if (!messageText || hasWeakMessageOnly(messageText)) return '';
+
+  const knownVehicle = extractKnownVehicle(messageText);
+  if (knownVehicle) return knownVehicle;
+
+  const patterns = [
+    /(?:tenho\s+interesse|interesse|interessado|interessada)\s+(?:no|na|em|pelo|pela|sobre|de|do|da)?\s*([^?.!,\n]{3,90})/i,
+    /(?:quero|queria|gostaria)\s+(?:ver|olhar|saber\s+mais|simular|financiar|comprar)?\s*(?:o|a|um|uma|no|na|sobre|de|do|da)?\s+([^?.!,\n]{3,90})/i,
+    /(?:sobre|do|da|no|na)\s+(?:carro|veiculo|veículo)?\s*([^?.!,\n]{3,90})/i,
+    /(?:modelo|veiculo|veículo|carro)\s*[:\-]\s*([^?.!,\n]{3,90})/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = messageText.match(pattern);
+    const candidate = titleVehicle(match?.[1] || '');
+
+    if (candidate && !hasWeakMessageOnly(candidate)) return candidate;
+  }
+
+  return '';
 }
 
 function getAdminClient() {
@@ -77,8 +284,10 @@ function firstValue(payload: any, paths: string[]) {
     }, payload);
 
     if (Array.isArray(value) && value.length) {
-      const first = cleanText(value[0]);
-      if (first) return first;
+      for (const item of value) {
+        const first = cleanText(item);
+        if (first) return first;
+      }
     }
 
     const textValue = cleanText(value);
@@ -160,14 +369,18 @@ function extractLead(payload: any) {
       'lastMessageText',
       'text.body',
       'message.text',
+      'message.body',
       'payload.text',
-      'payload.body'
-    ]) || findNestedValue(payload, ['messageText', 'lastMessage', 'body', 'text', 'message']);
+      'payload.body',
+      'template.text',
+      'conversation.lastMessage'
+    ]) || findNestedValue(payload, ['messageText', 'lastMessageText', 'body', 'text', 'message']);
 
-  const vehicle =
+  const structuredVehicle =
     firstValue(data, [
       'vehicle',
       'vehicle_name',
+      'vehicleName',
       'car',
       'carro',
       'interest',
@@ -176,7 +389,9 @@ function extractLead(payload: any) {
       'customParams.carro',
       'attributes.vehicle',
       'attributes.carro'
-    ]) || findNestedValue(payload, ['vehicle', 'vehicle_name', 'carro', 'car', 'interested_vehicle']);
+    ]) || findNestedValue(payload, ['vehicle', 'vehicle_name', 'vehicleName', 'carro', 'car', 'interested_vehicle']);
+
+  const vehicle = titleVehicle(structuredVehicle) || extractVehicleFromMessage(message);
 
   const campaign =
     firstValue(data, [
@@ -220,6 +435,18 @@ async function pickNextStore(supabase: any) {
   return Array.isArray(data) && data.length ? data[0] : null;
 }
 
+async function updateRoutedLeadDetails(supabase: any, routedLeadId: string | null, lead: any) {
+  if (!routedLeadId || !lead.vehicle) return;
+
+  await supabase
+    .from('leads')
+    .update({
+      interested_vehicle: lead.vehicle,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', routedLeadId);
+}
+
 async function routeLeadToStore(supabase: any, lead: any, sourceName: string) {
   const selectedStore = await pickNextStore(supabase);
 
@@ -244,13 +471,13 @@ async function routeLeadToStore(supabase: any, lead: any, sourceName: string) {
       customer_bank: '',
       interested_vehicle: lead.vehicle || '',
       vehicle_category_interest: '',
-      origin: 'WhatsApp Oficial',
+      origin: sourceName,
       assigned_store_id: selectedStore.store_id,
       status: 'new_lead',
       notes: [
         `Lead criado automaticamente pelo ${sourceName}.`,
         lead.campaign ? `Campanha/anúncio: ${lead.campaign}.` : '',
-        lead.vehicle ? `Interesse informado: ${lead.vehicle}.` : '',
+        lead.vehicle ? `Interesse identificado: ${lead.vehicle}.` : '',
         lead.message ? `Primeira mensagem: ${lead.message}` : ''
       ].filter(Boolean).join(' ')
     })
@@ -273,7 +500,7 @@ async function routeLeadToStore(supabase: any, lead: any, sourceName: string) {
 async function upsertLeadBase(supabase: any, lead: any, sourceName: string, payload: any) {
   const { data: existing } = await supabase
     .from('leads_base')
-    .select('id, phone, assigned_store_id, assigned_store_name, assigned_at, routed_lead_id, routing_strategy, metadata, notes')
+    .select('id, name, phone, assigned_store_id, assigned_store_name, assigned_at, routed_lead_id, routing_strategy, metadata, notes')
     .eq('phone', lead.phone)
     .order('created_at', { ascending: false })
     .limit(1)
@@ -294,6 +521,7 @@ async function upsertLeadBase(supabase: any, lead: any, sourceName: string, payl
         last_message: lead.message || null,
         campaign: lead.campaign || null,
         conversation_id: lead.conversationId || null,
+        extracted_vehicle: lead.vehicle || null,
         raw_payload: payload
       },
       routing: route ? {
@@ -310,11 +538,12 @@ async function upsertLeadBase(supabase: any, lead: any, sourceName: string, payl
       metadata,
       notes: [
         existing.notes || '',
+        lead.vehicle ? `Interesse identificado pelo WATI: ${lead.vehicle}` : '',
         lead.message ? `Última mensagem WATI: ${lead.message}` : ''
       ].filter(Boolean).join('\n').slice(0, 4000)
     };
 
-    if (lead.name && (!existing.metadata?.wati?.name || existing.name === existing.phone)) updates.name = lead.name;
+    if (lead.name && (!existing.name || existing.name === existing.phone)) updates.name = lead.name;
     if (lead.vehicle) updates.vehicle_name = lead.vehicle;
     if (lead.campaign) updates.campaign_name = lead.campaign;
 
@@ -333,13 +562,16 @@ async function upsertLeadBase(supabase: any, lead: any, sourceName: string, payl
 
     if (error) throw error;
 
+    await updateRoutedLeadDetails(supabase, updates.routed_lead_id || existing.routed_lead_id || null, lead);
+
     return {
       status: route ? 'duplicate_routed' : 'duplicate_updated',
       id: existing.id,
       assigned_store_id: updates.assigned_store_id || existing.assigned_store_id || null,
       assigned_store_name: updates.assigned_store_name || existing.assigned_store_name || null,
       routed_lead_id: updates.routed_lead_id || existing.routed_lead_id || null,
-      routing_strategy: updates.routing_strategy || existing.routing_strategy || null
+      routing_strategy: updates.routing_strategy || existing.routing_strategy || null,
+      vehicle_name: updates.vehicle_name || null
     };
   }
 
@@ -353,6 +585,7 @@ async function upsertLeadBase(supabase: any, lead: any, sourceName: string, payl
       first_message: lead.message || null,
       campaign: lead.campaign || null,
       conversation_id: lead.conversationId || null,
+      extracted_vehicle: lead.vehicle || null,
       raw_payload: payload
     },
     routing: {
@@ -391,7 +624,7 @@ async function upsertLeadBase(supabase: any, lead: any, sourceName: string, payl
       notes: [
         `Lead recebido automaticamente pelo ${sourceName}.`,
         lead.campaign ? `Campanha/anúncio: ${lead.campaign}.` : '',
-        lead.vehicle ? `Interesse informado: ${lead.vehicle}.` : '',
+        lead.vehicle ? `Interesse identificado: ${lead.vehicle}.` : '',
         lead.message ? `Primeira mensagem: ${lead.message}` : ''
       ].filter(Boolean).join(' '),
       metadata,
@@ -409,7 +642,8 @@ async function upsertLeadBase(supabase: any, lead: any, sourceName: string, payl
     assigned_store_id: route.assignedStoreId,
     assigned_store_name: route.assignedStoreName,
     routed_lead_id: route.routedLeadId,
-    routing_strategy: route.routingStrategy
+    routing_strategy: route.routingStrategy,
+    vehicle_name: lead.vehicle || null
   };
 }
 
