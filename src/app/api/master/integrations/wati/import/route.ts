@@ -481,7 +481,7 @@ export async function POST(request: Request) {
       return true;
     });
 
-    const results = [];
+    const results: any[] = [];
 
     for (const lead of uniqueLeads) {
       try {
