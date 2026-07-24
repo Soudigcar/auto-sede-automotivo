@@ -11,7 +11,7 @@ const defaultSettings = {
   page_access_token: '',
   verify_token: 'auto-controle-meta-leads-2026',
   graph_version: 'v20.0',
-  routing_mode: 'base_only'
+  routing_mode: 'round_robin'
 };
 
 function cleanText(value: unknown) {
@@ -104,6 +104,14 @@ function extractLead(metaLead: any) {
     'telefone',
     'celular',
     'whatsapp',
+    'whatsapp_number',
+    'whatsapp number',
+    'numero_do_whatsapp',
+    'número_do_whatsapp',
+    'numero_whatsapp',
+    'número_whatsapp',
+    'numero_de_whatsapp',
+    'número_de_whatsapp',
     'numero_de_telefone',
     'número_de_telefone'
   ]);
@@ -231,8 +239,71 @@ function extractLeadgenEvents(body: any) {
   return events;
 }
 
+async function pickNextStore(supabase: any) {
+  const { data, error } = await supabase.rpc('pick_next_lead_store', {
+    p_routing_key: 'default'
+  });
+
+  if (error) {
+    throw new Error(`Erro ao escolher loja para o lead: ${error.message}`);
+  }
+
+  return Array.isArray(data) && data.length ? data[0] : null;
+}
+
+async function routeLeadToStore(supabase: any, metaLead: any, extracted: any, normalizedPhone: string) {
+  const selectedStore = await pickNextStore(supabase);
+
+  if (!selectedStore?.store_id) {
+    return {
+      routedLeadId: null,
+      assignedStoreId: null,
+      assignedStoreName: '',
+      assignedAt: null,
+      routingStrategy: 'facebook_unassigned_no_store'
+    };
+  }
+
+  const assignedAt = new Date().toISOString();
+
+  const { data: routedLead, error: routedLeadError } = await supabase
+    .from('leads')
+    .insert({
+      event_id: selectedStore.event_id || null,
+      customer_name: extracted.name,
+      customer_phone: normalizedPhone,
+      customer_bank: '',
+      interested_vehicle: extracted.vehicle || '',
+      vehicle_category_interest: '',
+      origin: 'Facebook Lead Ads',
+      assigned_store_id: selectedStore.store_id,
+      status: 'new_lead',
+      notes: [
+        'Lead criado automaticamente pelo formulário do Facebook/Instagram.',
+        metaLead.campaign_name ? `Campanha: ${metaLead.campaign_name}.` : '',
+        extracted.vehicle ? `Interesse informado: ${extracted.vehicle}.` : '',
+        extracted.city ? `Cidade: ${extracted.city}.` : ''
+      ].filter(Boolean).join(' ')
+    })
+    .select('id')
+    .single();
+
+  if (routedLeadError) {
+    throw new Error(`Erro ao criar lead no pipeline da loja: ${routedLeadError.message}`);
+  }
+
+  return {
+    routedLeadId: routedLead?.id || null,
+    assignedStoreId: selectedStore.store_id,
+    assignedStoreName: selectedStore.store_name || '',
+    assignedAt,
+    routingStrategy: 'facebook_round_robin'
+  };
+}
+
 async function insertLeadBase(supabase: any, event: any, metaLead: any) {
   const extracted = extractLead(metaLead);
+  const normalizedPhone = digits(extracted.phone);
 
   const duplicateMetadata = {
     meta_leadgen_id: event.leadgen_id
@@ -240,16 +311,59 @@ async function insertLeadBase(supabase: any, event: any, metaLead: any) {
 
   const { data: existing } = await supabase
     .from('leads_base')
-    .select('id')
+    .select('id, phone, assigned_store_id, assigned_store_name, routed_lead_id, metadata')
     .contains('metadata', duplicateMetadata)
     .limit(1);
 
   if (existing?.length) {
+    const current = existing[0];
+    const updates: any = {
+      updated_at: new Date().toISOString()
+    };
+
+    let route = null;
+
+    if (!current.phone && normalizedPhone) {
+      updates.phone = normalizedPhone;
+    }
+
+    if (!current.assigned_store_id && !current.routed_lead_id) {
+      route = await routeLeadToStore(supabase, metaLead, extracted, normalizedPhone);
+      updates.assigned_store_id = route.assignedStoreId;
+      updates.assigned_store_name = route.assignedStoreName || null;
+      updates.assigned_at = route.assignedAt;
+      updates.routed_lead_id = route.routedLeadId;
+      updates.routing_strategy = route.routingStrategy;
+    }
+
+    if (route) {
+      updates.metadata = {
+        ...(current.metadata || {}),
+        routing: {
+          strategy: route.routingStrategy,
+          assigned_store_id: route.assignedStoreId,
+          assigned_store_name: route.assignedStoreName,
+          assigned_at: route.assignedAt,
+          routed_lead_id: route.routedLeadId
+        }
+      };
+    }
+
+    await supabase
+      .from('leads_base')
+      .update(updates)
+      .eq('id', current.id);
+
     return {
-      status: 'duplicate',
-      id: existing[0].id
+      status: Object.keys(updates).length > 1 ? 'duplicate_updated' : 'duplicate',
+      id: current.id,
+      phone: updates.phone || current.phone || null,
+      assigned_store_id: updates.assigned_store_id || current.assigned_store_id || null,
+      routed_lead_id: updates.routed_lead_id || current.routed_lead_id || null
     };
   }
+
+  const route = await routeLeadToStore(supabase, metaLead, extracted, normalizedPhone);
 
   const metadata = {
     source: 'facebook_lead_ads',
@@ -265,13 +379,20 @@ async function insertLeadBase(supabase: any, event: any, metaLead: any) {
     meta_created_time: metaLead.created_time || event.created_time || null,
     city: extracted.city || null,
     field_map: extracted.fieldMap,
+    routing: {
+      strategy: route.routingStrategy,
+      assigned_store_id: route.assignedStoreId,
+      assigned_store_name: route.assignedStoreName,
+      assigned_at: route.assignedAt,
+      routed_lead_id: route.routedLeadId
+    },
     raw_meta_lead: metaLead,
     raw_webhook_event: event
   };
 
   const payload = {
     name: extracted.name,
-    phone: digits(extracted.phone),
+    phone: normalizedPhone,
     cpf: digits(extracted.cpf),
     email: extracted.email,
     source: 'Facebook Lead Ads',
@@ -286,11 +407,11 @@ async function insertLeadBase(supabase: any, event: any, metaLead: any) {
     estimated_installment: 0,
     interest_rate: 1.89,
     status: 'Novo lead',
-    assigned_store_id: null,
-    assigned_store_name: null,
-    assigned_at: null,
-    routed_lead_id: null,
-    routing_strategy: 'facebook_base_only',
+    assigned_store_id: route.assignedStoreId,
+    assigned_store_name: route.assignedStoreName || null,
+    assigned_at: route.assignedAt,
+    routed_lead_id: route.routedLeadId,
+    routing_strategy: route.routingStrategy,
     notes: [
       'Lead recebido automaticamente pelo formulário do Facebook/Instagram.',
       extracted.vehicle ? `Interesse informado: ${extracted.vehicle}.` : '',
@@ -311,7 +432,12 @@ async function insertLeadBase(supabase: any, event: any, metaLead: any) {
 
   return {
     status: 'inserted',
-    id: data?.id || null
+    id: data?.id || null,
+    phone: normalizedPhone || null,
+    assigned_store_id: route.assignedStoreId,
+    assigned_store_name: route.assignedStoreName,
+    routed_lead_id: route.routedLeadId,
+    routing_strategy: route.routingStrategy
   };
 }
 
