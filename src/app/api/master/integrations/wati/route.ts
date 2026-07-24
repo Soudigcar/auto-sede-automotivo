@@ -145,6 +145,33 @@ export async function POST(request: Request) {
 
     const current = await getOrCreateIntegration(supabase);
     const body = await request.json();
+    const action = cleanText(body.action);
+
+    if (action === 'clear_error') {
+      const payload = {
+        ...(current?.settings || defaultSettings),
+        last_error: ''
+      };
+
+      const { data, error } = await supabase
+        .from('marketing_integrations')
+        .update({
+          settings: payload,
+          updated_by: masterProfile.id,
+          updated_at: new Date().toISOString()
+        })
+        .eq('integration_type', 'wati_leads')
+        .select('*')
+        .single();
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+      return NextResponse.json({
+        success: true,
+        integration: normalizeIntegration(data)
+      });
+    }
+
     const isActive = Boolean(body.is_active);
     const verifyToken = cleanText(body.verify_token) || defaultSettings.verify_token;
     const sourceName = cleanText(body.source_name) || defaultSettings.source_name;
