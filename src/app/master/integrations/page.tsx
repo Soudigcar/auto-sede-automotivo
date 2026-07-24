@@ -10,9 +10,11 @@ import {
   Globe,
   MousePointerClick,
   Plug,
+  RefreshCcw,
   Save,
   ShieldCheck,
-  UploadCloud
+  UploadCloud,
+  XCircle
 } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { createClient } from '@/lib/supabase';
@@ -67,7 +69,6 @@ function parsePixelIds(value: string) {
 
 function formatDateTime(value: string) {
   if (!value) return 'Nunca';
-
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'Nunca';
 
@@ -87,6 +88,8 @@ export default function MasterIntegrationsPage() {
   const [savingPixel, setSavingPixel] = useState(false);
   const [savingMetaLeads, setSavingMetaLeads] = useState(false);
   const [savingWatiLeads, setSavingWatiLeads] = useState(false);
+  const [refreshingWati, setRefreshingWati] = useState(false);
+  const [clearingWatiError, setClearingWatiError] = useState(false);
   const [testingMetaLeads, setTestingMetaLeads] = useState(false);
   const [subscribingMetaLeads, setSubscribingMetaLeads] = useState(false);
   const [metaLeadsDiagnostic, setMetaLeadsDiagnostic] = useState<any>(null);
@@ -129,18 +132,14 @@ export default function MasterIntegrationsPage() {
 
   async function loadPixel() {
     const token = await getAuthToken();
-
     if (!token) {
       setMessage('Sessão expirada. Faça login novamente.');
       return;
     }
 
     const response = await fetch('/api/master/integrations/meta-pixel', {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
+      headers: { Authorization: `Bearer ${token}` }
     });
-
     const result = await response.json();
 
     if (!response.ok) {
@@ -167,18 +166,14 @@ export default function MasterIntegrationsPage() {
 
   async function loadMetaLeads() {
     const token = await getAuthToken();
-
     if (!token) {
       setMessage('Sessão expirada. Faça login novamente.');
       return;
     }
 
     const response = await fetch('/api/master/integrations/meta-leads', {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
+      headers: { Authorization: `Bearer ${token}` }
     });
-
     const result = await response.json();
 
     if (!response.ok) {
@@ -200,20 +195,16 @@ export default function MasterIntegrationsPage() {
     });
   }
 
-  async function loadWatiLeads() {
+  async function loadWatiLeads(showStatusMessage = false) {
     const token = await getAuthToken();
-
     if (!token) {
       setMessage('Sessão expirada. Faça login novamente.');
       return;
     }
 
     const response = await fetch('/api/master/integrations/wati', {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
+      headers: { Authorization: `Bearer ${token}` }
     });
-
     const result = await response.json();
 
     if (!response.ok) {
@@ -232,6 +223,8 @@ export default function MasterIntegrationsPage() {
       last_webhook_at: settings.last_webhook_at || '',
       last_error: settings.last_error || ''
     });
+
+    if (showStatusMessage) setMessage('Status do WATI atualizado.');
   }
 
   async function loadAll() {
@@ -250,13 +243,11 @@ export default function MasterIntegrationsPage() {
 
   async function savePixel(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     setSavingPixel(true);
     setMessage('Salvando Pixels...');
 
     try {
       const token = await getAuthToken();
-
       if (!token) {
         setMessage('Sessão expirada. Faça login novamente.');
         setSavingPixel(false);
@@ -274,7 +265,6 @@ export default function MasterIntegrationsPage() {
           additional_pixel_ids: parsePixelIds(pixelForm.additional_pixel_ids)
         })
       });
-
       const result = await response.json();
 
       if (!response.ok) {
@@ -294,13 +284,11 @@ export default function MasterIntegrationsPage() {
 
   async function saveMetaLeads(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     setSavingMetaLeads(true);
     setMessage('Salvando Facebook Lead Forms...');
 
     try {
       const token = await getAuthToken();
-
       if (!token) {
         setMessage('Sessão expirada. Faça login novamente.');
         setSavingMetaLeads(false);
@@ -315,7 +303,6 @@ export default function MasterIntegrationsPage() {
         },
         body: JSON.stringify(metaLeadsForm)
       });
-
       const result = await response.json();
 
       if (!response.ok) {
@@ -335,13 +322,11 @@ export default function MasterIntegrationsPage() {
 
   async function saveWatiLeads(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     setSavingWatiLeads(true);
     setMessage('Salvando WATI Leads...');
 
     try {
       const token = await getAuthToken();
-
       if (!token) {
         setMessage('Sessão expirada. Faça login novamente.');
         setSavingWatiLeads(false);
@@ -356,7 +341,6 @@ export default function MasterIntegrationsPage() {
         },
         body: JSON.stringify(watiLeadsForm)
       });
-
       const result = await response.json();
 
       if (!response.ok) {
@@ -372,6 +356,49 @@ export default function MasterIntegrationsPage() {
     }
 
     setSavingWatiLeads(false);
+  }
+
+  async function refreshWatiStatus() {
+    setRefreshingWati(true);
+    await loadWatiLeads(true);
+    setRefreshingWati(false);
+  }
+
+  async function clearWatiError() {
+    setClearingWatiError(true);
+    setMessage('Limpando erro do WATI...');
+
+    try {
+      const token = await getAuthToken();
+      if (!token) {
+        setMessage('Sessão expirada. Faça login novamente.');
+        setClearingWatiError(false);
+        return;
+      }
+
+      const response = await fetch('/api/master/integrations/wati', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ action: 'clear_error' })
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        setMessage(result.error || 'Não foi possível limpar o erro do WATI.');
+        setClearingWatiError(false);
+        return;
+      }
+
+      setMessage('Erro do WATI limpo com sucesso.');
+      await loadWatiLeads();
+    } catch {
+      setMessage('Erro ao limpar o status do WATI.');
+    }
+
+    setClearingWatiError(false);
   }
 
   function updatePixelEvent(key: string, value: boolean) {
@@ -396,7 +423,6 @@ export default function MasterIntegrationsPage() {
 
     try {
       const token = await getAuthToken();
-
       if (!token) {
         setMessage('Sessão expirada. Faça login novamente.');
         setTestingMetaLeads(false);
@@ -404,19 +430,13 @@ export default function MasterIntegrationsPage() {
       }
 
       const response = await fetch('/api/master/integrations/meta-leads/test', {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` }
       });
-
       const result = await response.json();
       setMetaLeadsDiagnostic(result);
 
-      if (!response.ok) {
-        setMessage(result.error || 'Erro ao testar integração.');
-      } else {
-        setMessage(result.summary || 'Teste concluído.');
-      }
+      if (!response.ok) setMessage(result.error || 'Erro ao testar integração.');
+      else setMessage(result.summary || 'Teste concluído.');
     } catch {
       setMessage('Erro ao testar conexão com a Meta.');
     }
@@ -431,7 +451,6 @@ export default function MasterIntegrationsPage() {
 
     try {
       const token = await getAuthToken();
-
       if (!token) {
         setMessage('Sessão expirada. Faça login novamente.');
         setSubscribingMetaLeads(false);
@@ -440,11 +459,8 @@ export default function MasterIntegrationsPage() {
 
       const response = await fetch('/api/master/integrations/meta-leads/subscribe', {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` }
       });
-
       const result = await response.json();
       setMetaLeadsDiagnostic(result);
 
@@ -493,98 +509,33 @@ export default function MasterIntegrationsPage() {
           ) : null}
 
           <section className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-            <div className={`premium-card p-5 ${metaLeadsForm.is_active ? 'border-blue-200 bg-blue-50/40' : ''}`}>
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
-                <ShieldCheck size={22} />
-              </div>
-              <h2 className="mt-5 text-xl font-black text-zinc-950">Facebook Lead Forms</h2>
-              <p className="mt-2 text-sm font-bold text-zinc-500">
-                {metaLeadsForm.is_active ? 'Ativo' : 'Configurar'}
-              </p>
-            </div>
-
-            <div className={`premium-card p-5 ${watiLeadsForm.is_active ? 'border-emerald-200 bg-emerald-50/40' : ''}`}>
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
-                <Plug size={22} />
-              </div>
-              <h2 className="mt-5 text-xl font-black text-zinc-950">WATI Leads</h2>
-              <p className="mt-2 text-sm font-bold text-zinc-500">
-                {watiLeadsForm.is_active ? 'Ativo' : 'Configurar'}
-              </p>
-            </div>
-
-            <div className={`premium-card p-5 ${pixelForm.is_active ? 'border-emerald-200 bg-emerald-50/40' : ''}`}>
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-600">
-                <MousePointerClick size={22} />
-              </div>
-              <h2 className="mt-5 text-xl font-black text-zinc-950">Pixel do Facebook</h2>
-              <p className="mt-2 text-sm font-bold text-zinc-500">
-                {pixelForm.is_active ? `${allPixelIds.length} ID(s) ativo(s)` : 'Inativo'}
-              </p>
-            </div>
-
+            <IntegrationCard title="Facebook Lead Forms" status={metaLeadsForm.is_active ? 'Ativo' : 'Configurar'} active={metaLeadsForm.is_active} icon={<ShieldCheck size={22} />} />
+            <IntegrationCard title="WATI Leads" status={watiLeadsForm.is_active ? 'Ativo' : 'Configurar'} active={watiLeadsForm.is_active} icon={<Plug size={22} />} />
+            <IntegrationCard title="Pixel do Facebook" status={pixelForm.is_active ? `${allPixelIds.length} ID(s) ativo(s)` : 'Inativo'} active={pixelForm.is_active} icon={<MousePointerClick size={22} />} />
             {baseItems.map((item) => {
               const Icon = item.icon;
-
-              return (
-                <div key={item.title} className="premium-card premium-card-hover p-5">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-600">
-                    <Icon size={22} />
-                  </div>
-                  <h2 className="mt-5 text-xl font-black text-zinc-950">{item.title}</h2>
-                  <p className="mt-2 text-sm font-bold text-zinc-500">{item.status}</p>
-                </div>
-              );
+              return <IntegrationCard key={item.title} title={item.title} status={item.status} icon={<Icon size={22} />} />;
             })}
           </section>
 
           <section className="mt-7 grid gap-5 xl:grid-cols-[1fr_420px]">
             <form onSubmit={saveWatiLeads} className="premium-card p-6">
-              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <p className="premium-eyebrow text-emerald-700">WATI / WhatsApp Ads</p>
-                  <h2 className="mt-2 text-3xl font-black text-zinc-950">WATI Leads</h2>
-                  <p className="mt-2 text-sm font-bold text-zinc-500">
-                    Receba contatos do WATI, registre na Base Master e distribua automaticamente para as lojas.
-                  </p>
-                </div>
-
-                <span className={`rounded-full px-4 py-2 text-xs font-black uppercase ${watiLeadsForm.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-500'}`}>
-                  {watiLeadsForm.is_active ? 'Ativo' : 'Inativo'}
-                </span>
-              </div>
+              <PanelHeader eyebrow="WATI / WhatsApp Ads" title="WATI Leads" description="Receba contatos do WATI, registre na Base Master e distribua automaticamente para as lojas." active={watiLeadsForm.is_active} />
 
               <div className="mt-6 grid gap-4">
                 <div className="rounded-[24px] border border-emerald-100 bg-emerald-50/60 p-4">
                   <p className="text-xs font-black uppercase tracking-wide text-emerald-700">Webhook URL para colar no WATI</p>
                   <p className="mt-2 break-all text-sm font-black text-zinc-950">{watiCallbackUrl}</p>
-                  <button
-                    className="mt-3 inline-flex items-center gap-2 text-xs font-black text-emerald-700"
-                    type="button"
-                    onClick={() => copy(watiCallbackUrl)}
-                  >
+                  <button className="mt-3 inline-flex items-center gap-2 text-xs font-black text-emerald-700" type="button" onClick={() => copy(watiCallbackUrl)}>
                     <Copy size={14} /> Copiar Webhook URL
                   </button>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <label className="grid gap-2">
-                    <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Nome da origem</span>
-                    <input
-                      className="premium-input"
-                      value={watiLeadsForm.source_name}
-                      onChange={(event) => setWatiLeadsForm({ ...watiLeadsForm, source_name: event.target.value })}
-                      placeholder="WATI / Click-to-WhatsApp"
-                    />
-                  </label>
-
+                  <FormInput label="Nome da origem" value={watiLeadsForm.source_name} onChange={(value) => setWatiLeadsForm({ ...watiLeadsForm, source_name: value })} placeholder="WATI / Click-to-WhatsApp" />
                   <label className="grid gap-2">
                     <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Modo de distribuição</span>
-                    <select
-                      className="premium-input"
-                      value={watiLeadsForm.routing_mode}
-                      onChange={(event) => setWatiLeadsForm({ ...watiLeadsForm, routing_mode: event.target.value })}
-                    >
+                    <select className="premium-input" value={watiLeadsForm.routing_mode} onChange={(event) => setWatiLeadsForm({ ...watiLeadsForm, routing_mode: event.target.value })}>
                       <option value="round_robin">Distribuição uniforme / round-robin</option>
                     </select>
                   </label>
@@ -593,37 +544,14 @@ export default function MasterIntegrationsPage() {
                 <label className="grid gap-2">
                   <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Token de segurança</span>
                   <div className="flex gap-2">
-                    <input
-                      className="premium-input"
-                      value={watiLeadsForm.verify_token}
-                      onChange={(event) => setWatiLeadsForm({ ...watiLeadsForm, verify_token: event.target.value.trim() })}
-                      placeholder="auto-controle-wati-leads-2026"
-                    />
-                    <button
-                      className="premium-button-secondary shrink-0"
-                      type="button"
-                      onClick={() => copy(watiLeadsForm.verify_token)}
-                    >
+                    <input className="premium-input" value={watiLeadsForm.verify_token} onChange={(event) => setWatiLeadsForm({ ...watiLeadsForm, verify_token: event.target.value.trim() })} placeholder="auto-controle-wati-leads-2026" />
+                    <button className="premium-button-secondary shrink-0" type="button" onClick={() => copy(watiLeadsForm.verify_token)}>
                       <Copy size={16} />
                     </button>
                   </div>
                 </label>
 
-                <label className="flex items-center justify-between gap-4 rounded-[24px] border border-zinc-100 bg-zinc-50 p-4">
-                  <div>
-                    <p className="text-sm font-black text-zinc-950">Ativar recebimento de leads WATI</p>
-                    <p className="mt-1 text-xs font-bold text-zinc-500">
-                      Quando ativo, cada novo contato recebido pelo webhook entra na Base e é direcionado para uma loja.
-                    </p>
-                  </div>
-
-                  <input
-                    className="h-5 w-5"
-                    type="checkbox"
-                    checked={watiLeadsForm.is_active}
-                    onChange={(event) => setWatiLeadsForm({ ...watiLeadsForm, is_active: event.target.checked })}
-                  />
-                </label>
+                <ToggleCard title="Ativar recebimento de leads WATI" description="Quando ativo, cada novo contato recebido pelo webhook entra na Base e é direcionado para uma loja." checked={watiLeadsForm.is_active} onChange={(checked) => setWatiLeadsForm({ ...watiLeadsForm, is_active: checked })} />
 
                 <button className="premium-button-primary justify-center" type="submit" disabled={savingWatiLeads || loading}>
                   <Save size={18} /> {savingWatiLeads ? 'Salvando...' : 'Salvar WATI Leads'}
@@ -636,7 +564,7 @@ export default function MasterIntegrationsPage() {
               <div className="mt-5 space-y-4 text-sm font-bold text-zinc-500">
                 <p>1. No WATI, abra a área de Webhooks ou integrações.</p>
                 <p>2. Cole a Webhook URL exibida neste painel.</p>
-                <p>3. Ative eventos de nova mensagem, novo chat ou mensagem recebida.</p>
+                <p>3. Ative apenas o evento de mensagem recebida para evitar duplicidade.</p>
                 <p>4. Salve a integração e envie uma mensagem teste para o número conectado.</p>
                 <p>5. Confira se o lead entrou na Base Master e no Pipeline da loja.</p>
               </div>
@@ -651,12 +579,27 @@ export default function MasterIntegrationsPage() {
                   <p className="text-xs font-black uppercase tracking-wide text-red-600">Último erro</p>
                   <p className="mt-2 break-words text-xs font-black text-red-700">{watiLeadsForm.last_error}</p>
                 </div>
-              ) : null}
+              ) : (
+                <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-emerald-700">Status</p>
+                  <p className="mt-2 text-xs font-black text-emerald-700">Sem erro salvo no WATI Leads.</p>
+                </div>
+              )}
+
+              <div className="mt-4 grid gap-3">
+                <button className="premium-button-secondary justify-center" type="button" onClick={refreshWatiStatus} disabled={refreshingWati || loading}>
+                  <RefreshCcw size={18} /> {refreshingWati ? 'Atualizando...' : 'Atualizar status'}
+                </button>
+
+                <button className="premium-button-secondary justify-center" type="button" onClick={clearWatiError} disabled={clearingWatiError || loading || !watiLeadsForm.last_error}>
+                  <XCircle size={18} /> {clearingWatiError ? 'Limpando...' : 'Limpar erro'}
+                </button>
+              </div>
 
               <div className="mt-4 rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
                 <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Importante</p>
                 <p className="mt-2 text-xs font-bold leading-relaxed text-zinc-500">
-                  O AUTO CONTROLE cria lead apenas quando recebe telefone. Se o primeiro payload do WATI vier diferente, o sistema salva erro e depois ajustamos o mapeamento com base no teste real.
+                  O AUTO CONTROLE agora bloqueia webhooks duplicados do WATI por telefone em uma janela curta de segurança.
                 </p>
               </div>
             </aside>
@@ -664,124 +607,29 @@ export default function MasterIntegrationsPage() {
 
           <section className="mt-7 grid gap-5 xl:grid-cols-[1fr_420px]">
             <form onSubmit={saveMetaLeads} className="premium-card p-6">
-              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <p className="premium-eyebrow text-blue-700">Facebook / Instagram</p>
-                  <h2 className="mt-2 text-3xl font-black text-zinc-950">Facebook Lead Forms</h2>
-                  <p className="mt-2 text-sm font-bold text-zinc-500">
-                    Configure o webhook para os leads dos formulários instantâneos caírem automaticamente na Base.
-                  </p>
-                </div>
-
-                <span className={`rounded-full px-4 py-2 text-xs font-black uppercase ${metaLeadsForm.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-500'}`}>
-                  {metaLeadsForm.is_active ? 'Ativo' : 'Inativo'}
-                </span>
-              </div>
+              <PanelHeader eyebrow="Facebook / Instagram" title="Facebook Lead Forms" description="Configure o webhook para os leads dos formulários instantâneos caírem automaticamente na Base." active={metaLeadsForm.is_active} />
 
               <div className="mt-6 grid gap-4">
-                <div className="rounded-[24px] border border-blue-100 bg-blue-50/50 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-blue-700">Callback URL para Meta Developers</p>
-                  <p className="mt-2 break-all text-sm font-black text-zinc-950">{callbackUrl}</p>
-                  <button
-                    className="mt-3 inline-flex items-center gap-2 text-xs font-black text-blue-700"
-                    type="button"
-                    onClick={() => copy(callbackUrl)}
-                  >
-                    <Copy size={14} /> Copiar Callback URL
-                  </button>
+                <InfoBox label="Callback URL para Meta Developers" value={callbackUrl} onCopy={() => copy(callbackUrl)} />
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <FormInput label="App ID" value={metaLeadsForm.app_id} onChange={(value) => setMetaLeadsForm({ ...metaLeadsForm, app_id: value.replace(/\D/g, '') })} placeholder="Ex: 588388460517343" />
+                  <FormInput label="Page ID" value={metaLeadsForm.page_id} onChange={(value) => setMetaLeadsForm({ ...metaLeadsForm, page_id: value.replace(/\D/g, '') })} placeholder="ID da página" />
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <label className="grid gap-2">
-                    <span className="text-xs font-black uppercase tracking-wide text-zinc-500">App ID</span>
-                    <input
-                      className="premium-input"
-                      value={metaLeadsForm.app_id}
-                      onChange={(event) => setMetaLeadsForm({ ...metaLeadsForm, app_id: event.target.value.replace(/\D/g, '') })}
-                      placeholder="Ex: 588388460517343"
-                      inputMode="numeric"
-                    />
-                  </label>
-
-                  <label className="grid gap-2">
-                    <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Page ID</span>
-                    <input
-                      className="premium-input"
-                      value={metaLeadsForm.page_id}
-                      onChange={(event) => setMetaLeadsForm({ ...metaLeadsForm, page_id: event.target.value.replace(/\D/g, '') })}
-                      placeholder="ID da página"
-                      inputMode="numeric"
-                    />
-                  </label>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <label className="grid gap-2">
-                    <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Form ID opcional</span>
-                    <input
-                      className="premium-input"
-                      value={metaLeadsForm.form_id}
-                      onChange={(event) => setMetaLeadsForm({ ...metaLeadsForm, form_id: event.target.value.replace(/\D/g, '') })}
-                      placeholder="ID do formulário"
-                      inputMode="numeric"
-                    />
-                  </label>
-
-                  <label className="grid gap-2">
-                    <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Graph API Version</span>
-                    <input
-                      className="premium-input"
-                      value={metaLeadsForm.graph_version}
-                      onChange={(event) => setMetaLeadsForm({ ...metaLeadsForm, graph_version: event.target.value.trim() })}
-                      placeholder="v20.0"
-                    />
-                  </label>
+                  <FormInput label="Form ID opcional" value={metaLeadsForm.form_id} onChange={(value) => setMetaLeadsForm({ ...metaLeadsForm, form_id: value.replace(/\D/g, '') })} placeholder="ID do formulário" />
+                  <FormInput label="Graph API Version" value={metaLeadsForm.graph_version} onChange={(value) => setMetaLeadsForm({ ...metaLeadsForm, graph_version: value.trim() })} placeholder="v20.0" />
                 </div>
 
                 <label className="grid gap-2">
                   <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Page Access Token</span>
-                  <textarea
-                    className="premium-input min-h-28"
-                    value={metaLeadsForm.page_access_token}
-                    onChange={(event) => setMetaLeadsForm({ ...metaLeadsForm, page_access_token: event.target.value.trim() })}
-                    placeholder="Cole aqui o token da Página. Não envie esse token por print ou no chat."
-                  />
+                  <textarea className="premium-input min-h-28" value={metaLeadsForm.page_access_token} onChange={(event) => setMetaLeadsForm({ ...metaLeadsForm, page_access_token: event.target.value.trim() })} placeholder="Cole aqui o token da Página. Não envie esse token por print ou no chat." />
                 </label>
 
-                <label className="grid gap-2">
-                  <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Verify Token</span>
-                  <div className="flex gap-2">
-                    <input
-                      className="premium-input"
-                      value={metaLeadsForm.verify_token}
-                      onChange={(event) => setMetaLeadsForm({ ...metaLeadsForm, verify_token: event.target.value.trim() })}
-                      placeholder="auto-controle-meta-leads-2026"
-                    />
-                    <button
-                      className="premium-button-secondary shrink-0"
-                      type="button"
-                      onClick={() => copy(metaLeadsForm.verify_token)}
-                    >
-                      <Copy size={16} />
-                    </button>
-                  </div>
-                </label>
+                <FormInput label="Verify Token" value={metaLeadsForm.verify_token} onChange={(value) => setMetaLeadsForm({ ...metaLeadsForm, verify_token: value.trim() })} placeholder="auto-controle-meta-leads-2026" />
 
-                <label className="flex items-center justify-between gap-4 rounded-[24px] border border-zinc-100 bg-zinc-50 p-4">
-                  <div>
-                    <p className="text-sm font-black text-zinc-950">Ativar recebimento de leads</p>
-                    <p className="mt-1 text-xs font-bold text-zinc-500">
-                      Quando ativo, os leads do formulário entram automaticamente na Base.
-                    </p>
-                  </div>
-
-                  <input
-                    className="h-5 w-5"
-                    type="checkbox"
-                    checked={metaLeadsForm.is_active}
-                    onChange={(event) => setMetaLeadsForm({ ...metaLeadsForm, is_active: event.target.checked })}
-                  />
-                </label>
+                <ToggleCard title="Ativar recebimento de leads" description="Quando ativo, os leads do formulário entram automaticamente na Base." checked={metaLeadsForm.is_active} onChange={(checked) => setMetaLeadsForm({ ...metaLeadsForm, is_active: checked })} />
 
                 <button className="premium-button-primary justify-center" type="submit" disabled={savingMetaLeads || loading}>
                   <Save size={18} /> {savingMetaLeads ? 'Salvando...' : 'Salvar Facebook Lead Forms'}
@@ -801,109 +649,38 @@ export default function MasterIntegrationsPage() {
               </div>
 
               <div className="mt-6 grid gap-3">
-                <button
-                  className="premium-button-primary justify-center"
-                  type="button"
-                  onClick={subscribeMetaLeadsPage}
-                  disabled={subscribingMetaLeads || testingMetaLeads || loading}
-                >
+                <button className="premium-button-primary justify-center" type="button" onClick={subscribeMetaLeadsPage} disabled={subscribingMetaLeads || testingMetaLeads || loading}>
                   <ShieldCheck size={18} /> {subscribingMetaLeads ? 'Inscrevendo...' : 'Inscrever página no leadgen'}
                 </button>
 
-                <button
-                  className="premium-button-secondary justify-center"
-                  type="button"
-                  onClick={testMetaLeadsConnection}
-                  disabled={subscribingMetaLeads || testingMetaLeads || loading}
-                >
+                <button className="premium-button-secondary justify-center" type="button" onClick={testMetaLeadsConnection} disabled={subscribingMetaLeads || testingMetaLeads || loading}>
                   <CheckCircle2 size={18} /> {testingMetaLeads ? 'Testando...' : 'Testar token e webhook'}
                 </button>
               </div>
 
               {metaLeadsDiagnostic ? (
-                <div className="mt-6 rounded-2xl border border-zinc-100 bg-zinc-950 p-4 text-xs text-white">
-                  <p className="font-black uppercase tracking-wide text-zinc-400">Diagnóstico da Meta</p>
-
-                  {(metaLeadsDiagnostic.checks || []).length ? (
-                    <div className="mt-4 grid gap-3">
-                      {metaLeadsDiagnostic.checks.map((check: any, index: number) => (
-                        <div key={`${check.name}-${index}`} className="rounded-xl bg-white/5 p-3">
-                          <p className={check.ok ? 'font-black text-emerald-300' : 'font-black text-red-300'}>
-                            {check.ok ? 'OK' : 'ERRO'} — {check.name}
-                          </p>
-                          <p className="mt-1 break-words text-zinc-300">{check.message}</p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <pre className="mt-4 max-h-80 overflow-auto whitespace-pre-wrap break-words text-zinc-300">
-                      {JSON.stringify(metaLeadsDiagnostic, null, 2)}
-                    </pre>
-                  )}
-                </div>
+                <pre className="mt-6 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-2xl border border-zinc-100 bg-zinc-950 p-4 text-xs text-zinc-200">
+                  {JSON.stringify(metaLeadsDiagnostic, null, 2)}
+                </pre>
               ) : null}
 
-              <div className="mt-6 rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Callback URL</p>
-                <p className="mt-2 break-all text-xs font-black text-zinc-800">{callbackUrl}</p>
-              </div>
-
-              <div className="mt-4 rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Verify Token</p>
-                <p className="mt-2 break-all text-xs font-black text-zinc-800">{metaLeadsForm.verify_token}</p>
-              </div>
+              <InfoBox className="mt-6" label="Callback URL" value={callbackUrl} />
+              <InfoBox className="mt-4" label="Verify Token" value={metaLeadsForm.verify_token} />
             </aside>
           </section>
 
           <form onSubmit={savePixel} className="mt-7 grid gap-5 xl:grid-cols-[1fr_420px]">
             <section className="premium-card p-6">
-              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <p className="premium-eyebrow">Meta Pixel</p>
-                  <h2 className="mt-2 text-3xl font-black text-zinc-950">Pixel do Facebook / Meta</h2>
-                  <p className="mt-2 text-sm font-bold text-zinc-500">
-                    Cadastre um Pixel principal e quantos Pixels adicionais precisar. Todos receberão os mesmos eventos da landing e do simulador.
-                  </p>
-                </div>
-
-                <span className={`rounded-full px-4 py-2 text-xs font-black uppercase ${pixelForm.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-500'}`}>
-                  {pixelForm.is_active ? 'Ativo' : 'Inativo'}
-                </span>
-              </div>
+              <PanelHeader eyebrow="Meta Pixel" title="Pixel do Facebook / Meta" description="Cadastre um Pixel principal e quantos Pixels adicionais precisar. Todos receberão os mesmos eventos da landing e do simulador." active={pixelForm.is_active} />
 
               <div className="mt-6 grid gap-4">
-                <label className="grid gap-2">
-                  <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Nome da integração</span>
-                  <input
-                    className="premium-input"
-                    value={pixelForm.name}
-                    onChange={(event) => setPixelForm({ ...pixelForm, name: event.target.value })}
-                    placeholder="Pixel do Facebook / Meta"
-                  />
-                </label>
-
-                <label className="grid gap-2">
-                  <span className="text-xs font-black uppercase tracking-wide text-zinc-500">ID do Pixel principal</span>
-                  <input
-                    className="premium-input"
-                    value={pixelForm.pixel_id}
-                    onChange={(event) => setPixelForm({ ...pixelForm, pixel_id: event.target.value.replace(/\D/g, '') })}
-                    placeholder="Ex: 889787523792519"
-                    inputMode="numeric"
-                  />
-                </label>
+                <FormInput label="Nome da integração" value={pixelForm.name} onChange={(value) => setPixelForm({ ...pixelForm, name: value })} placeholder="Pixel do Facebook / Meta" />
+                <FormInput label="ID do Pixel principal" value={pixelForm.pixel_id} onChange={(value) => setPixelForm({ ...pixelForm, pixel_id: value.replace(/\D/g, '') })} placeholder="Ex: 889787523792519" />
 
                 <label className="grid gap-2">
                   <span className="text-xs font-black uppercase tracking-wide text-zinc-500">IDs adicionais de Pixel</span>
-                  <textarea
-                    className="premium-input min-h-32"
-                    value={pixelForm.additional_pixel_ids}
-                    onChange={(event) => setPixelForm({ ...pixelForm, additional_pixel_ids: event.target.value })}
-                    placeholder={`Um por linha ou separados por vírgula\n123456789012345\n987654321098765`}
-                  />
-                  <span className="text-xs font-bold text-zinc-400">
-                    IDs válidos detectados: {allPixelIds.length}
-                  </span>
+                  <textarea className="premium-input min-h-32" value={pixelForm.additional_pixel_ids} onChange={(event) => setPixelForm({ ...pixelForm, additional_pixel_ids: event.target.value })} placeholder={`Um por linha ou separados por vírgula\n123456789012345\n987654321098765`} />
+                  <span className="text-xs font-bold text-zinc-400">IDs válidos detectados: {allPixelIds.length}</span>
                 </label>
 
                 {allPixelIds.length ? (
@@ -911,37 +688,19 @@ export default function MasterIntegrationsPage() {
                     <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Pixels que serão instalados</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {allPixelIds.map((pixelId) => (
-                        <span key={pixelId} className="rounded-full bg-white px-3 py-2 text-xs font-black text-zinc-700">
-                          {pixelId}
-                        </span>
+                        <span key={pixelId} className="rounded-full bg-white px-3 py-2 text-xs font-black text-zinc-700">{pixelId}</span>
                       ))}
                     </div>
                   </div>
                 ) : null}
 
-                <label className="flex items-center justify-between gap-4 rounded-[24px] border border-zinc-100 bg-zinc-50 p-4">
-                  <div>
-                    <p className="text-sm font-black text-zinc-950">Ativar Pixels na landing</p>
-                    <p className="mt-1 text-xs font-bold text-zinc-500">
-                      Quando ativo, todos os IDs cadastrados serão carregados no site público e no simulador.
-                    </p>
-                  </div>
-
-                  <input
-                    className="h-5 w-5"
-                    type="checkbox"
-                    checked={pixelForm.is_active}
-                    onChange={(event) => setPixelForm({ ...pixelForm, is_active: event.target.checked })}
-                  />
-                </label>
+                <ToggleCard title="Ativar Pixels na landing" description="Quando ativo, todos os IDs cadastrados serão carregados no site público e no simulador." checked={pixelForm.is_active} onChange={(checked) => setPixelForm({ ...pixelForm, is_active: checked })} />
               </div>
             </section>
 
             <section className="premium-card p-6">
               <h2 className="text-2xl font-black text-zinc-950">Eventos rastreados</h2>
-              <p className="mt-2 text-sm font-bold text-zinc-500">
-                O principal evento para campanhas será Lead. Todos os Pixels ativos recebem os mesmos eventos.
-              </p>
+              <p className="mt-2 text-sm font-bold text-zinc-500">O principal evento para campanhas será Lead. Todos os Pixels ativos recebem os mesmos eventos.</p>
 
               <div className="mt-5 grid gap-3">
                 {eventOptions.map((event) => (
@@ -950,13 +709,7 @@ export default function MasterIntegrationsPage() {
                       <p className="text-sm font-black text-zinc-950">{event.label}</p>
                       <p className="mt-1 text-xs font-bold text-zinc-500">{event.description}</p>
                     </div>
-
-                    <input
-                      className="mt-1 h-5 w-5"
-                      type="checkbox"
-                      checked={Boolean(pixelForm.events[event.key])}
-                      onChange={(changeEvent) => updatePixelEvent(event.key, changeEvent.target.checked)}
-                    />
+                    <input className="mt-1 h-5 w-5" type="checkbox" checked={Boolean(pixelForm.events[event.key])} onChange={(changeEvent) => updatePixelEvent(event.key, changeEvent.target.checked)} />
                   </label>
                 ))}
               </div>
@@ -966,11 +719,7 @@ export default function MasterIntegrationsPage() {
                   <Save size={18} /> {savingPixel ? 'Salvando...' : 'Salvar Pixels'}
                 </button>
 
-                <a
-                  className="premium-button-secondary justify-center"
-                  href="/campanha/festival-seu-carro-agora"
-                  target="_blank"
-                >
+                <a className="premium-button-secondary justify-center" href="/campanha/festival-seu-carro-agora" target="_blank">
                   <CheckCircle2 size={18} /> Abrir landing para testar
                 </a>
               </div>
@@ -979,5 +728,65 @@ export default function MasterIntegrationsPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function IntegrationCard({ title, status, icon, active = false }: { title: string; status: string; icon: React.ReactNode; active?: boolean }) {
+  return (
+    <div className={`premium-card p-5 ${active ? 'border-emerald-200 bg-emerald-50/40' : ''}`}>
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-600">{icon}</div>
+      <h2 className="mt-5 text-xl font-black text-zinc-950">{title}</h2>
+      <p className="mt-2 text-sm font-bold text-zinc-500">{status}</p>
+    </div>
+  );
+}
+
+function PanelHeader({ eyebrow, title, description, active }: { eyebrow: string; title: string; description: string; active: boolean }) {
+  return (
+    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <div>
+        <p className="premium-eyebrow text-red-700">{eyebrow}</p>
+        <h2 className="mt-2 text-3xl font-black text-zinc-950">{title}</h2>
+        <p className="mt-2 text-sm font-bold text-zinc-500">{description}</p>
+      </div>
+      <span className={`rounded-full px-4 py-2 text-xs font-black uppercase ${active ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-500'}`}>
+        {active ? 'Ativo' : 'Inativo'}
+      </span>
+    </div>
+  );
+}
+
+function FormInput({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
+  return (
+    <label className="grid gap-2">
+      <span className="text-xs font-black uppercase tracking-wide text-zinc-500">{label}</span>
+      <input className="premium-input" value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+    </label>
+  );
+}
+
+function ToggleCard({ title, description, checked, onChange }: { title: string; description: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="flex items-center justify-between gap-4 rounded-[24px] border border-zinc-100 bg-zinc-50 p-4">
+      <div>
+        <p className="text-sm font-black text-zinc-950">{title}</p>
+        <p className="mt-1 text-xs font-bold text-zinc-500">{description}</p>
+      </div>
+      <input className="h-5 w-5" type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+    </label>
+  );
+}
+
+function InfoBox({ label, value, onCopy, className = '' }: { label: string; value: string; onCopy?: () => void; className?: string }) {
+  return (
+    <div className={`rounded-2xl border border-zinc-100 bg-zinc-50 p-4 ${className}`}>
+      <p className="text-xs font-black uppercase tracking-wide text-zinc-400">{label}</p>
+      <p className="mt-2 break-all text-xs font-black text-zinc-800">{value}</p>
+      {onCopy ? (
+        <button className="mt-3 inline-flex items-center gap-2 text-xs font-black text-zinc-700" type="button" onClick={onCopy}>
+          <Copy size={14} /> Copiar
+        </button>
+      ) : null}
+    </div>
   );
 }
