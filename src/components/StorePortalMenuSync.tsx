@@ -38,6 +38,30 @@ function buildClass(isActive: boolean) {
     : 'flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white';
 }
 
+function buildMenuHtml(slug: string, currentSegment: string) {
+  const menuHtml = menuItems
+    .map((item) => {
+      const href = buildHref(slug, item.segment);
+      const isActive = currentSegment === item.segment;
+
+      return `
+        <a href="${escapeHtml(href)}" class="${buildClass(isActive)}" data-store-menu-sync="true">
+          <span class="flex h-[18px] w-[18px] items-center justify-center text-[13px] font-black">${escapeHtml(item.icon)}</span>
+          <span>${escapeHtml(item.label)}</span>
+        </a>
+      `;
+    })
+    .join('');
+
+  return `
+    ${menuHtml}
+    <a href="/logout" class="${buildClass(false)}" data-store-menu-sync="true">
+      <span class="flex h-[18px] w-[18px] items-center justify-center text-[13px] font-black">↩</span>
+      <span>Sair</span>
+    </a>
+  `;
+}
+
 export function StorePortalMenuSync() {
   const pathname = usePathname() || '';
 
@@ -45,36 +69,66 @@ export function StorePortalMenuSync() {
     const match = pathname.match(/^\/loja\/([^/]+)/);
     const slug = match?.[1];
 
-    if (!slug) return;
+    if (!slug) return undefined;
 
-    const aside = document.querySelector('aside');
-    const nav = aside?.querySelector('nav');
-
-    if (!nav) return;
+    let attempts = 0;
+    let isSyncing = false;
+    let intervalId: number | undefined;
+    let observer: MutationObserver | undefined;
 
     const currentSegment = getCurrentSegment(pathname, slug);
+    const expectedMenuHtml = buildMenuHtml(slug, currentSegment);
 
-    const menuHtml = menuItems
-      .map((item) => {
-        const href = buildHref(slug, item.segment);
-        const isActive = currentSegment === item.segment;
+    function syncMenu() {
+      if (isSyncing) return false;
 
-        return `
-          <a href="${escapeHtml(href)}" class="${buildClass(isActive)}" data-store-menu-sync="true">
-            <span class="flex h-[18px] w-[18px] items-center justify-center text-[13px] font-black">${escapeHtml(item.icon)}</span>
-            <span>${escapeHtml(item.label)}</span>
-          </a>
-        `;
-      })
-      .join('');
+      const aside = document.querySelector('aside');
+      const nav = aside?.querySelector('nav');
 
-    nav.innerHTML = `
-      ${menuHtml}
-      <a href="/logout" class="${buildClass(false)}" data-store-menu-sync="true">
-        <span class="flex h-[18px] w-[18px] items-center justify-center text-[13px] font-black">↩</span>
-        <span>Sair</span>
-      </a>
-    `;
+      if (!nav) return false;
+
+      const alreadySynced = nav.getAttribute('data-store-menu-current') === `${slug}:${currentSegment}`;
+
+      if (!alreadySynced) {
+        isSyncing = true;
+        nav.innerHTML = expectedMenuHtml;
+        nav.setAttribute('data-store-menu-current', `${slug}:${currentSegment}`);
+        isSyncing = false;
+      }
+
+      return true;
+    }
+
+    syncMenu();
+
+    intervalId = window.setInterval(() => {
+      attempts += 1;
+      const synced = syncMenu();
+
+      if (synced && attempts > 3 && intervalId) {
+        window.clearInterval(intervalId);
+        intervalId = undefined;
+      }
+
+      if (attempts >= 30 && intervalId) {
+        window.clearInterval(intervalId);
+        intervalId = undefined;
+      }
+    }, 250);
+
+    observer = new MutationObserver(() => {
+      window.requestAnimationFrame(syncMenu);
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+
+    return () => {
+      if (intervalId) window.clearInterval(intervalId);
+      if (observer) observer.disconnect();
+    };
   }, [pathname]);
 
   return null;
