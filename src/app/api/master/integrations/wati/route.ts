@@ -7,12 +7,23 @@ const defaultSettings = {
   verify_token: 'auto-controle-wati-leads-2026',
   source_name: 'WATI / Click-to-WhatsApp',
   routing_mode: 'round_robin',
+  api_endpoint: '',
+  api_token: '',
   last_webhook_at: '',
-  last_error: ''
+  last_error: '',
+  last_import_at: '',
+  last_import_summary: ''
 };
 
 function cleanText(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeApiEndpoint(value: unknown) {
+  return cleanText(value)
+    .replace(/\/+$/g, '')
+    .replace(/\/api\/v\d+\/?$/i, '')
+    .trim();
 }
 
 function getAdminClient() {
@@ -62,11 +73,17 @@ async function getMasterProfile(supabase: any, token: string) {
 }
 
 function normalizeIntegration(integration: any) {
+  const settings = {
+    ...defaultSettings,
+    ...(integration?.settings || {})
+  };
+
   return {
     ...integration,
     settings: {
-      ...defaultSettings,
-      ...(integration?.settings || {})
+      ...settings,
+      api_token: '',
+      has_api_token: Boolean(settings.api_token)
     }
   };
 }
@@ -144,13 +161,42 @@ export async function POST(request: Request) {
     }
 
     const current = await getOrCreateIntegration(supabase);
+    const currentSettings = {
+      ...defaultSettings,
+      ...(current?.settings || {})
+    };
     const body = await request.json();
     const action = cleanText(body.action);
 
     if (action === 'clear_error') {
       const payload = {
-        ...(current?.settings || defaultSettings),
+        ...currentSettings,
         last_error: ''
+      };
+
+      const { data, error } = await supabase
+        .from('marketing_integrations')
+        .update({
+          settings: payload,
+          updated_by: masterProfile.id,
+          updated_at: new Date().toISOString()
+        })
+        .eq('integration_type', 'wati_leads')
+        .select('*')
+        .single();
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+      return NextResponse.json({
+        success: true,
+        integration: normalizeIntegration(data)
+      });
+    }
+
+    if (action === 'clear_api_token') {
+      const payload = {
+        ...currentSettings,
+        api_token: ''
       };
 
       const { data, error } = await supabase
@@ -176,6 +222,9 @@ export async function POST(request: Request) {
     const verifyToken = cleanText(body.verify_token) || defaultSettings.verify_token;
     const sourceName = cleanText(body.source_name) || defaultSettings.source_name;
     const routingMode = cleanText(body.routing_mode) || defaultSettings.routing_mode;
+    const apiEndpoint = normalizeApiEndpoint(body.api_endpoint) || currentSettings.api_endpoint || '';
+    const receivedApiToken = cleanText(body.api_token);
+    const apiToken = receivedApiToken || currentSettings.api_token || '';
 
     if (isActive && verifyToken.length < 10) {
       return NextResponse.json(
@@ -190,12 +239,16 @@ export async function POST(request: Request) {
       pixel_id: '',
       is_active: isActive,
       settings: {
-        ...(current?.settings || {}),
+        ...currentSettings,
         verify_token: verifyToken,
         source_name: sourceName,
         routing_mode: routingMode,
-        last_webhook_at: current?.settings?.last_webhook_at || '',
-        last_error: current?.settings?.last_error || ''
+        api_endpoint: apiEndpoint,
+        api_token: apiToken,
+        last_webhook_at: currentSettings.last_webhook_at || '',
+        last_error: currentSettings.last_error || '',
+        last_import_at: currentSettings.last_import_at || '',
+        last_import_summary: currentSettings.last_import_summary || ''
       },
       updated_by: masterProfile.id,
       updated_at: new Date().toISOString()
