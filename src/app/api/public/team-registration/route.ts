@@ -62,7 +62,7 @@ export async function GET(request: Request) {
       store_name: context.store.store_name,
       store_slug: context.store.slug,
       role: context.link.role,
-      role_label: storeTeamRoleLabels[context.link.role],
+      role_label: storeTeamRoleLabels[context.link.role as keyof typeof storeTeamRoleLabels],
       expires_at: context.link.expires_at
     });
   } catch (error: any) {
@@ -166,7 +166,11 @@ export async function POST(request: Request) {
       .single();
 
     if (profileError) {
-      await supabase.auth.admin.deleteUser(createdAuth.user.id).catch(() => undefined);
+      try {
+        await supabase.auth.admin.deleteUser(createdAuth.user.id);
+      } catch {
+        // A conta órfã pode ser removida posteriormente pelo administrador.
+      }
       throw profileError;
     }
 
@@ -192,7 +196,7 @@ export async function POST(request: Request) {
         id: profile.id,
         full_name: profile.full_name,
         role: profile.role,
-        role_label: storeTeamRoleLabels[link.role],
+        role_label: storeTeamRoleLabels[link.role as keyof typeof storeTeamRoleLabels],
         status: profile.status,
         store_name: store.store_name
       }
