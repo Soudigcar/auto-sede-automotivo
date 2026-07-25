@@ -10,7 +10,8 @@ const menuItems = [
   { label: 'WhatsApp CRM', segment: 'whatsapp', icon: '●' },
   { label: 'Calendário', segment: 'calendario', icon: '◷' },
   { label: 'Estoque', segment: 'estoque', icon: '▦' },
-  { label: 'Operação', segment: 'operacao', icon: '▧' }
+  { label: 'Operação', segment: 'operacao', icon: '▧' },
+  { label: 'Equipe', segment: 'equipe', icon: '◎' }
 ];
 
 function escapeHtml(value: string) {
