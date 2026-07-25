@@ -9,6 +9,8 @@ import {
   Eye,
   EyeOff,
   MessageCircle,
+  PhoneCall,
+  PhoneOff,
   Radio,
   RefreshCw,
   Search,
@@ -53,7 +55,6 @@ function elapsed(value: unknown) {
 
   const difference = Math.max(0, Date.now() - startedAt);
   const minutes = Math.floor(difference / 60000);
-
   if (minutes < 1) return 'Agora';
   if (minutes < 60) return `${minutes} min`;
 
@@ -72,19 +73,19 @@ function ageMinutes(value: unknown) {
 }
 
 function needsAttention(lead: any) {
-  if (!lead.first_viewed_at && ageMinutes(lead.created_at) >= 10) return true;
-  if (lead.status === 'new_lead' && lead.first_viewed_at && ageMinutes(lead.first_viewed_at) >= 15) return true;
+  if (!lead.first_phone_viewed_at && ageMinutes(lead.created_at) >= 10) return true;
+  if (lead.status === 'new_lead' && lead.first_phone_viewed_at && ageMinutes(lead.first_phone_viewed_at) >= 15) return true;
   if (lead.status === 'in_service' && ageMinutes(lead.stage_entered_at) >= 30) return true;
   return false;
 }
 
 function attentionMessage(lead: any) {
-  if (!lead.first_viewed_at && ageMinutes(lead.created_at) >= 10) {
-    return `Enviado há ${elapsed(lead.created_at)} e ainda não visualizado`;
+  if (!lead.first_phone_viewed_at && ageMinutes(lead.created_at) >= 10) {
+    return `Enviado há ${elapsed(lead.created_at)} e o telefone ainda não foi visualizado`;
   }
 
-  if (lead.status === 'new_lead' && lead.first_viewed_at && ageMinutes(lead.first_viewed_at) >= 15) {
-    return `Visualizado há ${elapsed(lead.first_viewed_at)}, mas o atendimento não começou`;
+  if (lead.status === 'new_lead' && lead.first_phone_viewed_at && ageMinutes(lead.first_phone_viewed_at) >= 15) {
+    return `Telefone visualizado há ${elapsed(lead.first_phone_viewed_at)}, mas o atendimento não começou`;
   }
 
   if (lead.status === 'in_service' && ageMinutes(lead.stage_entered_at) >= 30) {
@@ -132,7 +133,6 @@ export default function LeadMonitoringPage() {
         cache: 'no-store'
       });
       const result = await response.json();
-
       if (!response.ok) throw new Error(result.error || 'Erro ao carregar monitoramento.');
 
       setLeads(result.leads || []);
@@ -151,7 +151,6 @@ export default function LeadMonitoringPage() {
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
-
     const scheduleReload = () => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => void loadData(), 250);
@@ -171,14 +170,12 @@ export default function LeadMonitoringPage() {
 
   const activitiesByLead = useMemo(() => {
     const map = new Map<string, any[]>();
-
     for (const item of activities) {
       if (!item.lead_id) continue;
       const current = map.get(item.lead_id) || [];
       current.push(item);
       map.set(item.lead_id, current);
     }
-
     return map;
   }, [activities]);
 
@@ -189,11 +186,12 @@ export default function LeadMonitoringPage() {
       if (storeFilter !== 'all' && lead.assigned_store_id !== storeFilter) return false;
       if (statusFilter !== 'all' && lead.status !== statusFilter) return false;
       if (attentionFilter === 'attention' && !needsAttention(lead)) return false;
-      if (attentionFilter === 'unseen' && lead.first_viewed_at) return false;
+      if (attentionFilter === 'unopened' && lead.first_viewed_at) return false;
+      if (attentionFilter === 'phone_unseen' && lead.first_phone_viewed_at) return false;
+      if (attentionFilter === 'phone_seen' && !lead.first_phone_viewed_at) return false;
       if (attentionFilter === 'whatsapp' && !lead.first_whatsapp_clicked_at) return false;
 
       if (!term) return true;
-
       return [
         lead.customer_name,
         lead.customer_phone,
@@ -201,6 +199,7 @@ export default function LeadMonitoringPage() {
         lead.origin,
         lead.assigned_store_name,
         lead.first_viewed_by_name,
+        lead.first_phone_viewed_by_name,
         lead.last_activity_by_name
       ].some((value) => String(value || '').toLowerCase().includes(term));
     });
@@ -208,7 +207,8 @@ export default function LeadMonitoringPage() {
 
   const summary = useMemo(() => ({
     total: leads.length,
-    unseen: leads.filter((lead) => !lead.first_viewed_at).length,
+    unopened: leads.filter((lead) => !lead.first_viewed_at).length,
+    phoneUnseen: leads.filter((lead) => !lead.first_phone_viewed_at).length,
     attention: leads.filter(needsAttention).length,
     service: leads.filter((lead) => lead.status === 'in_service').length,
     scheduled: leads.filter((lead) => lead.status === 'scheduled').length,
@@ -230,7 +230,7 @@ export default function LeadMonitoringPage() {
               <p className="premium-eyebrow">Central de acompanhamento</p>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Monitoramento de Leads</h1>
               <p className="premium-muted mt-3 max-w-3xl text-sm">
-                Acompanhe entrega, visualização, clique no WhatsApp, mudança de etapa e tempo de resposta de cada loja.
+                Diferencie abertura do lead, visualização do telefone, WhatsApp, mudança de etapa e tempo de resposta.
               </p>
             </div>
 
@@ -245,13 +245,12 @@ export default function LeadMonitoringPage() {
             </div>
           </header>
 
-          {message ? (
-            <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">{message}</div>
-          ) : null}
+          {message ? <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">{message}</div> : null}
 
-          <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+          <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
             <Kpi label="Leads monitorados" value={summary.total} icon={<Activity size={18} />} />
-            <Kpi label="Não visualizados" value={summary.unseen} icon={<EyeOff size={18} />} />
+            <Kpi label="Não abertos" value={summary.unopened} icon={<EyeOff size={18} />} />
+            <Kpi label="Telefone não visto" value={summary.phoneUnseen} icon={<PhoneOff size={18} />} />
             <Kpi label="Precisam atenção" value={summary.attention} icon={<AlertTriangle size={18} />} />
             <Kpi label="Em atendimento" value={summary.service} icon={<UserCheck size={18} />} />
             <Kpi label="Agendados" value={summary.scheduled} icon={<Clock3 size={18} />} />
@@ -259,15 +258,10 @@ export default function LeadMonitoringPage() {
           </section>
 
           <section className="premium-card mt-6 p-5">
-            <div className="grid gap-3 xl:grid-cols-[1.4fr_0.8fr_0.8fr_0.8fr]">
+            <div className="grid gap-3 xl:grid-cols-[1.4fr_0.8fr_0.8fr_0.9fr]">
               <label className="relative min-w-0">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
-                <input
-                  className="premium-input pl-11"
-                  placeholder="Buscar cliente, telefone, veículo, loja ou responsável"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                />
+                <input className="premium-input pl-11" placeholder="Buscar cliente, telefone, veículo, loja ou responsável" value={query} onChange={(event) => setQuery(event.target.value)} />
               </label>
 
               <select className="premium-input" value={storeFilter} onChange={(event) => setStoreFilter(event.target.value)}>
@@ -283,7 +277,9 @@ export default function LeadMonitoringPage() {
               <select className="premium-input" value={attentionFilter} onChange={(event) => setAttentionFilter(event.target.value)}>
                 <option value="all">Todos os acompanhamentos</option>
                 <option value="attention">Precisam de atenção</option>
-                <option value="unseen">Ainda não visualizados</option>
+                <option value="unopened">Lead ainda não aberto</option>
+                <option value="phone_unseen">Telefone não visualizado</option>
+                <option value="phone_seen">Telefone visualizado</option>
                 <option value="whatsapp">WhatsApp acessado</option>
               </select>
             </div>
@@ -300,14 +296,13 @@ export default function LeadMonitoringPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="break-words text-lg font-black text-zinc-950">{lead.customer_name || 'Cliente sem nome'}</h2>
-                        <span className={`rounded-full px-3 py-1 text-xs font-black ${statusClass(lead.status)}`}>
-                          {statusLabels[lead.status] || lead.status}
+                        <span className={`rounded-full px-3 py-1 text-xs font-black ${statusClass(lead.status)}`}>{statusLabels[lead.status] || lead.status}</span>
+                        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-black ${lead.first_viewed_at ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`}>
+                          {lead.first_viewed_at ? <Eye size={13} /> : <EyeOff size={13} />} {lead.first_viewed_at ? 'Lead aberto' : 'Não aberto'}
                         </span>
-                        {lead.first_viewed_at ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700"><Eye size={13} /> Visualizado</span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1 text-xs font-black text-red-700"><EyeOff size={13} /> Não visualizado</span>
-                        )}
+                        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-black ${lead.first_phone_viewed_at ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'}`}>
+                          {lead.first_phone_viewed_at ? <PhoneCall size={13} /> : <PhoneOff size={13} />} {lead.first_phone_viewed_at ? 'Telefone visto' : 'Telefone não visto'}
+                        </span>
                       </div>
 
                       <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-zinc-600">
@@ -317,29 +312,18 @@ export default function LeadMonitoringPage() {
                         <span className="rounded-xl bg-zinc-50 px-3 py-2">Origem: {lead.origin || 'Não informada'}</span>
                       </div>
 
-                      {warning ? (
-                        <div className="mt-4 flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">
-                          <AlertTriangle className="mt-0.5 shrink-0" size={17} /> {warning}
-                        </div>
-                      ) : null}
+                      {warning ? <div className="mt-4 flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800"><AlertTriangle className="mt-0.5 shrink-0" size={17} /> {warning}</div> : null}
 
-                      <div className="mt-4 grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+                      <div className="mt-4 grid gap-3 md:grid-cols-2 2xl:grid-cols-5">
                         <Info label="Distribuído / criado" value={formatDateTime(lead.created_at)} />
-                        <Info
-                          label="Primeira visualização"
-                          value={lead.first_viewed_at ? `${formatDateTime(lead.first_viewed_at)} por ${lead.first_viewed_by_name || 'usuário da loja'}` : 'Ainda não visualizado'}
-                        />
-                        <Info
-                          label="Clique no WhatsApp"
-                          value={lead.first_whatsapp_clicked_at ? formatDateTime(lead.first_whatsapp_clicked_at) : 'Ainda não clicou'}
-                        />
+                        <Info label="Primeira abertura" value={lead.first_viewed_at ? `${formatDateTime(lead.first_viewed_at)} por ${lead.first_viewed_by_name || 'usuário da loja'}` : 'Ainda não abriu'} />
+                        <Info label="Telefone visualizado" value={lead.first_phone_viewed_at ? `${formatDateTime(lead.first_phone_viewed_at)} por ${lead.first_phone_viewed_by_name || 'usuário da loja'}` : 'Ainda não visualizou'} />
+                        <Info label="Clique no WhatsApp" value={lead.first_whatsapp_clicked_at ? formatDateTime(lead.first_whatsapp_clicked_at) : 'Ainda não clicou'} />
                         <Info label="Tempo na etapa" value={elapsed(lead.stage_entered_at || lead.updated_at || lead.created_at)} />
                       </div>
 
                       <p className="mt-4 text-xs font-bold text-zinc-400">
-                        Última atividade: {lead.last_activity_label || 'Lead criado'}
-                        {lead.last_activity_by_name ? ` por ${lead.last_activity_by_name}` : ''}
-                        {lead.last_activity_at ? ` em ${formatDateTime(lead.last_activity_at)}` : ''}.
+                        Última atividade: {lead.last_activity_label || 'Lead criado'}{lead.last_activity_by_name ? ` por ${lead.last_activity_by_name}` : ''}{lead.last_activity_at ? ` em ${formatDateTime(lead.last_activity_at)}` : ''}.
                       </p>
                     </div>
 
@@ -347,27 +331,17 @@ export default function LeadMonitoringPage() {
                       <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Histórico</p>
                       <strong className="mt-1 block text-3xl font-black text-zinc-950">{history.length}</strong>
                       <p className="mt-1 text-xs font-bold text-zinc-500">ações registradas</p>
-                      <button
-                        className="mt-4 w-full rounded-2xl bg-zinc-950 px-4 py-3 text-sm font-black text-white"
-                        type="button"
-                        onClick={() => setSelectedLeadId(lead.id)}
-                      >
-                        Ver linha do tempo
-                      </button>
+                      <button className="mt-4 w-full rounded-2xl bg-zinc-950 px-4 py-3 text-sm font-black text-white" type="button" onClick={() => setSelectedLeadId(lead.id)}>Ver linha do tempo</button>
                     </div>
                   </div>
                 </article>
               );
             })}
 
-            {!filtered.length && !message ? (
-              <div className="premium-card p-10 text-center text-sm font-bold text-zinc-500">Nenhum lead encontrado com estes filtros.</div>
-            ) : null}
+            {!filtered.length && !message ? <div className="premium-card p-10 text-center text-sm font-bold text-zinc-500">Nenhum lead encontrado com estes filtros.</div> : null}
           </section>
 
-          <p className="mt-5 text-right text-xs font-bold text-zinc-400">
-            Última sincronização: {lastUpdatedAt ? formatDateTime(lastUpdatedAt) : 'carregando'}
-          </p>
+          <p className="mt-5 text-right text-xs font-bold text-zinc-400">Última sincronização: {lastUpdatedAt ? formatDateTime(lastUpdatedAt) : 'carregando'}</p>
         </div>
       </section>
 
@@ -380,35 +354,21 @@ export default function LeadMonitoringPage() {
                 <h2 className="mt-2 text-2xl font-black text-zinc-950">{selectedLead.customer_name || 'Cliente sem nome'}</h2>
                 <p className="mt-1 text-sm font-bold text-zinc-500">{selectedLead.assigned_store_name}</p>
               </div>
-              <button className="rounded-2xl bg-zinc-100 p-3 text-zinc-600" type="button" onClick={() => setSelectedLeadId('')}>
-                <X size={18} />
-              </button>
+              <button className="rounded-2xl bg-zinc-100 p-3 text-zinc-600" type="button" onClick={() => setSelectedLeadId('')}><X size={18} /></button>
             </div>
 
             <div className="mt-6 space-y-3">
               {selectedActivities.map((item) => (
                 <div key={item.id} className="relative rounded-2xl border border-zinc-100 bg-zinc-50 p-4 pl-12">
-                  <span className="absolute left-4 top-5 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-white">
-                    <Activity size={11} />
-                  </span>
+                  <span className="absolute left-4 top-5 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-white"><Activity size={11} /></span>
                   <p className="font-black text-zinc-950">{item.activity_label}</p>
-                  <p className="mt-1 text-xs font-bold text-zinc-500">
-                    {formatDateTime(item.created_at)} · {item.user_name || 'Sistema'}
-                  </p>
-                  {item.from_status && item.to_status && item.from_status !== item.to_status ? (
-                    <p className="mt-2 text-sm font-bold text-zinc-700">
-                      {statusLabels[item.from_status] || item.from_status} → {statusLabels[item.to_status] || item.to_status}
-                    </p>
-                  ) : null}
+                  <p className="mt-1 text-xs font-bold text-zinc-500">{formatDateTime(item.created_at)} · {item.user_name || 'Sistema'}</p>
+                  {item.from_status && item.to_status && item.from_status !== item.to_status ? <p className="mt-2 text-sm font-bold text-zinc-700">{statusLabels[item.from_status] || item.from_status} → {statusLabels[item.to_status] || item.to_status}</p> : null}
                   {item.notes ? <p className="mt-2 text-sm leading-relaxed text-zinc-600">{item.notes}</p> : null}
                 </div>
               ))}
 
-              {!selectedActivities.length ? (
-                <div className="rounded-2xl border border-dashed border-zinc-200 p-8 text-center text-sm font-bold text-zinc-500">
-                  Ainda não existem ações registradas para este lead.
-                </div>
-              ) : null}
+              {!selectedActivities.length ? <div className="rounded-2xl border border-dashed border-zinc-200 p-8 text-center text-sm font-bold text-zinc-500">Ainda não existem ações registradas para este lead.</div> : null}
             </div>
           </div>
         </div>
