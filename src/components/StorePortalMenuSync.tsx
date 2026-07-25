@@ -2,15 +2,17 @@
 
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
+import { getStorePortalContext } from '@/lib/storePortalClient';
 
 const menuItems = [
-  { label: 'Dashboard', segment: '', icon: '▣' },
-  { label: 'Minha Loja', segment: 'minha-loja', icon: '▤' },
-  { label: 'Pipeline', segment: 'pipeline', icon: '▥' },
-  { label: 'WhatsApp CRM', segment: 'whatsapp', icon: '●' },
-  { label: 'Calendário', segment: 'calendario', icon: '◷' },
-  { label: 'Estoque', segment: 'estoque', icon: '▦' },
-  { label: 'Operação', segment: 'operacao', icon: '▧' }
+  { label: 'Dashboard', segment: '', icon: '▣', roles: ['master', 'store', 'pre_sales', 'prospector'] },
+  { label: 'Minha Loja', segment: 'minha-loja', icon: '▤', roles: ['master', 'store'] },
+  { label: 'Pipeline', segment: 'pipeline', icon: '▥', roles: ['master', 'store', 'pre_sales', 'seller', 'prospector'] },
+  { label: 'WhatsApp CRM', segment: 'whatsapp', icon: '●', roles: ['master', 'store', 'pre_sales', 'seller'] },
+  { label: 'Calendário', segment: 'calendario', icon: '◷', roles: ['master', 'store', 'pre_sales', 'seller'] },
+  { label: 'Estoque', segment: 'estoque', icon: '▦', roles: ['master', 'store'] },
+  { label: 'Operação', segment: 'operacao', icon: '▧', roles: ['master', 'store'] },
+  { label: 'Equipe', segment: 'equipe', icon: '◎', roles: ['master', 'store'] }
 ];
 
 function escapeHtml(value: string) {
@@ -38,8 +40,9 @@ function buildClass(isActive: boolean) {
     : 'flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white';
 }
 
-function buildMenuHtml(slug: string, currentSegment: string) {
-  const menuHtml = menuItems
+function buildMenuHtml(slug: string, currentSegment: string, role: string) {
+  const visibleItems = menuItems.filter((item) => item.roles.includes(role));
+  const menuHtml = visibleItems
     .map((item) => {
       const href = buildHref(slug, item.segment);
       const isActive = currentSegment === item.segment;
@@ -71,61 +74,73 @@ export function StorePortalMenuSync() {
 
     if (!slug) return undefined;
 
+    let cancelled = false;
     let attempts = 0;
     let isSyncing = false;
     let intervalId: number | undefined;
     let observer: MutationObserver | undefined;
 
-    const currentSegment = getCurrentSegment(pathname, slug);
-    const expectedMenuHtml = buildMenuHtml(slug, currentSegment);
+    async function initialize() {
+      const context = await getStorePortalContext(slug);
+      const role = context.profile?.role || '';
 
-    function syncMenu() {
-      if (isSyncing) return false;
+      if (cancelled || context.status !== 'ok' || !role) return;
 
-      const aside = document.querySelector('aside');
-      const nav = aside?.querySelector('nav');
+      const currentSegment = getCurrentSegment(pathname, slug);
+      const expectedMenuHtml = buildMenuHtml(slug, currentSegment, role);
+      const syncKey = `${slug}:${currentSegment}:${role}`;
 
-      if (!nav) return false;
+      function syncMenu() {
+        if (isSyncing) return false;
 
-      const alreadySynced = nav.getAttribute('data-store-menu-current') === `${slug}:${currentSegment}`;
+        const aside = document.querySelector('aside');
+        const nav = aside?.querySelector('nav');
 
-      if (!alreadySynced) {
-        isSyncing = true;
-        nav.innerHTML = expectedMenuHtml;
-        nav.setAttribute('data-store-menu-current', `${slug}:${currentSegment}`);
-        isSyncing = false;
+        if (!nav) return false;
+
+        const alreadySynced = nav.getAttribute('data-store-menu-current') === syncKey;
+
+        if (!alreadySynced) {
+          isSyncing = true;
+          nav.innerHTML = expectedMenuHtml;
+          nav.setAttribute('data-store-menu-current', syncKey);
+          isSyncing = false;
+        }
+
+        return true;
       }
 
-      return true;
+      syncMenu();
+
+      intervalId = window.setInterval(() => {
+        attempts += 1;
+        const synced = syncMenu();
+
+        if (synced && attempts > 3 && intervalId) {
+          window.clearInterval(intervalId);
+          intervalId = undefined;
+        }
+
+        if (attempts >= 30 && intervalId) {
+          window.clearInterval(intervalId);
+          intervalId = undefined;
+        }
+      }, 250);
+
+      observer = new MutationObserver(() => {
+        window.requestAnimationFrame(syncMenu);
+      });
+
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
     }
 
-    syncMenu();
-
-    intervalId = window.setInterval(() => {
-      attempts += 1;
-      const synced = syncMenu();
-
-      if (synced && attempts > 3 && intervalId) {
-        window.clearInterval(intervalId);
-        intervalId = undefined;
-      }
-
-      if (attempts >= 30 && intervalId) {
-        window.clearInterval(intervalId);
-        intervalId = undefined;
-      }
-    }, 250);
-
-    observer = new MutationObserver(() => {
-      window.requestAnimationFrame(syncMenu);
-    });
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true
-    });
+    initialize().catch(() => undefined);
 
     return () => {
+      cancelled = true;
       if (intervalId) window.clearInterval(intervalId);
       if (observer) observer.disconnect();
     };
