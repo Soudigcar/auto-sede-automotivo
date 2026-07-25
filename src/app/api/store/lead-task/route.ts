@@ -22,6 +22,22 @@ function canAccessLead(profile: any, lead: any) {
   return false;
 }
 
+function overlaps(startA: Date, endA: Date, startB: Date, endB: Date) {
+  return startA.getTime() < endB.getTime() && endA.getTime() > startB.getTime();
+}
+
+function formatConflictDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'horário já ocupado';
+  return date.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'America/Sao_Paulo'
+  });
+}
+
 export async function POST(request: Request) {
   try {
     const supabase: any = createAdminClient();
@@ -83,9 +99,56 @@ export async function POST(request: Request) {
     if (storeError) throw storeError;
     if (!store) return NextResponse.json({ error: 'Loja do lead não encontrada.' }, { status: 404 });
 
+    const endsAt = new Date(startsAt.getTime() + 30 * 60 * 1000);
+    const searchStart = new Date(startsAt.getTime() - 60 * 60 * 1000);
+
+    const [leadAppointmentsResult, tasksResult] = await Promise.all([
+      supabase
+        .from('leads')
+        .select('id, customer_name, scheduled_at')
+        .eq('assigned_store_id', store.id)
+        .not('scheduled_at', 'is', null)
+        .gte('scheduled_at', searchStart.toISOString())
+        .lt('scheduled_at', endsAt.toISOString()),
+      supabase
+        .from('store_calendar_tasks')
+        .select('id, title, starts_at, ends_at, status')
+        .eq('store_id', store.id)
+        .gte('starts_at', searchStart.toISOString())
+        .lt('starts_at', endsAt.toISOString())
+    ]);
+
+    if (leadAppointmentsResult.error) throw leadAppointmentsResult.error;
+    if (tasksResult.error) throw tasksResult.error;
+
+    const leadConflict = (leadAppointmentsResult.data || []).find((item: any) => {
+      const existingStart = new Date(item.scheduled_at);
+      const existingEnd = new Date(existingStart.getTime() + 60 * 60 * 1000);
+      return overlaps(startsAt, endsAt, existingStart, existingEnd);
+    });
+
+    const taskConflict = (tasksResult.data || []).find((item: any) => {
+      if (['completed', 'cancelled', 'done'].includes(String(item.status || '').toLowerCase())) return false;
+      const existingStart = new Date(item.starts_at);
+      const existingEnd = item.ends_at
+        ? new Date(item.ends_at)
+        : new Date(existingStart.getTime() + 30 * 60 * 1000);
+      return overlaps(startsAt, endsAt, existingStart, existingEnd);
+    });
+
+    if (leadConflict || taskConflict) {
+      const conflictTitle = leadConflict?.customer_name || taskConflict?.title || 'Outro compromisso';
+      const conflictTime = leadConflict?.scheduled_at || taskConflict?.starts_at;
+      return NextResponse.json(
+        {
+          error: `Horário ocupado por “${conflictTitle}” em ${formatConflictDate(conflictTime)}. Escolha outro horário.`
+        },
+        { status: 409 }
+      );
+    }
+
     const label = taskLabels[taskType];
     const title = `${label} — ${lead.customer_name || 'Cliente'}`;
-    const endsAt = new Date(startsAt.getTime() + 30 * 60 * 1000);
     const taskDescription = description || [
       lead.customer_phone ? `Telefone: ${lead.customer_phone}` : null,
       lead.interested_vehicle ? `Interesse: ${lead.interested_vehicle}` : null
