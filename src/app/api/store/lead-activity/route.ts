@@ -66,7 +66,6 @@ async function getProfile(supabase: any, token: string) {
     .maybeSingle();
 
   if (byAuth) return byAuth;
-
   if (!authData.user.email) return null;
 
   const { data: byEmail } = await supabase
@@ -104,7 +103,20 @@ export async function POST(request: Request) {
 
     const { data: lead, error: leadError } = await supabase
       .from('leads')
-      .select('id, assigned_store_id, customer_name, customer_phone, interested_vehicle, status, origin, notes')
+      .select([
+        'id',
+        'assigned_store_id',
+        'customer_name',
+        'customer_phone',
+        'interested_vehicle',
+        'status',
+        'origin',
+        'notes',
+        'first_viewed_at',
+        'first_viewed_by_user_id',
+        'first_viewed_by_name',
+        'first_whatsapp_clicked_at'
+      ].join(','))
       .eq('id', leadId)
       .maybeSingle();
 
@@ -119,6 +131,32 @@ export async function POST(request: Request) {
 
     if (!isMaster && !canAccessStore) {
       return NextResponse.json({ error: 'Lead não pertence à loja deste usuário.' }, { status: 403 });
+    }
+
+    const actorName = profile.full_name || profile.email || 'Usuário da loja';
+    const now = new Date();
+    const dedupeWindowSeconds = activityType === 'lead_viewed' ? 60 : activityType === 'whatsapp_clicked' ? 10 : 0;
+
+    if (dedupeWindowSeconds > 0) {
+      const since = new Date(now.getTime() - dedupeWindowSeconds * 1000).toISOString();
+      const { data: recent } = await supabase
+        .from('lead_activity_logs')
+        .select('id, created_at')
+        .eq('lead_id', lead.id)
+        .eq('user_id', profile.id)
+        .eq('activity_type', activityType)
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (recent) {
+        return NextResponse.json({
+          success: true,
+          deduplicated: true,
+          activity: recent
+        });
+      }
     }
 
     const { data: store } = lead.assigned_store_id
@@ -136,7 +174,7 @@ export async function POST(request: Request) {
         store_id: lead.assigned_store_id || null,
         store_name: store?.store_name || null,
         user_id: profile.id,
-        user_name: profile.name || profile.email || null,
+        user_name: actorName,
         activity_type: activityType,
         activity_label: labels[activityType],
         from_status: cleanText(body.from_status) || null,
@@ -156,6 +194,35 @@ export async function POST(request: Request) {
       .single();
 
     if (error) throw error;
+
+    const timestamp = inserted.created_at || now.toISOString();
+    const trackingUpdate: Record<string, any> = {
+      last_activity_at: timestamp,
+      last_activity_type: activityType,
+      last_activity_label: labels[activityType],
+      last_activity_by_name: actorName
+    };
+
+    if (activityType === 'lead_viewed') {
+      trackingUpdate.first_viewed_at = lead.first_viewed_at || timestamp;
+      trackingUpdate.first_viewed_by_user_id = lead.first_viewed_by_user_id || profile.id;
+      trackingUpdate.first_viewed_by_name = lead.first_viewed_by_name || actorName;
+      trackingUpdate.last_viewed_at = timestamp;
+      trackingUpdate.last_viewed_by_user_id = profile.id;
+      trackingUpdate.last_viewed_by_name = actorName;
+    }
+
+    if (activityType === 'whatsapp_clicked') {
+      trackingUpdate.first_whatsapp_clicked_at = lead.first_whatsapp_clicked_at || timestamp;
+      trackingUpdate.last_whatsapp_clicked_at = timestamp;
+    }
+
+    const { error: trackingError } = await supabase
+      .from('leads')
+      .update(trackingUpdate)
+      .eq('id', lead.id);
+
+    if (trackingError) throw trackingError;
 
     return NextResponse.json({
       success: true,
