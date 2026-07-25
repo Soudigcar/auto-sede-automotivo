@@ -1,0 +1,110 @@
+import { createHash } from 'crypto';
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+export const runtime = 'nodejs';
+
+function adminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!url || !key) throw new Error('Supabase Service Role não configurada.');
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+function hashToken(token: string) {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+async function getValidLink(supabase: any, token: string) {
+  const { data: link } = await supabase
+    .from('store_team_registration_links')
+    .select('*,stores(id,store_name,slug,status,portal_enabled)')
+    .eq('token_hash', hashToken(token))
+    .eq('status', 'active')
+    .maybeSingle();
+
+  if (!link) return null;
+  if (link.expires_at && new Date(link.expires_at).getTime() < Date.now()) return null;
+  if (link.use_count >= link.max_uses) return null;
+  if (!link.stores || link.stores.status !== 'active' || !link.stores.portal_enabled) return null;
+  return link;
+}
+
+export async function GET(request: Request) {
+  try {
+    const token = new URL(request.url).searchParams.get('token') || '';
+    if (!token) return NextResponse.json({ error: 'Link inválido.' }, { status: 400 });
+    const supabase: any = adminClient();
+    const link = await getValidLink(supabase, token);
+    if (!link) return NextResponse.json({ error: 'Link inválido, vencido ou desativado.' }, { status: 404 });
+    return NextResponse.json({
+      store: { id: link.stores.id, name: link.stores.store_name, slug: link.stores.slug },
+      role: link.role,
+      expires_at: link.expires_at
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || 'Erro ao validar link.' }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const token = String(body.token || '');
+    const fullName = String(body.full_name || '').replace(/\s+/g, ' ').trim();
+    const email = String(body.email || '').trim().toLowerCase();
+    const phone = String(body.phone || '').trim();
+    const password = String(body.password || '');
+
+    if (!token || fullName.length < 3 || !email.includes('@') || password.length < 8) {
+      return NextResponse.json({ error: 'Preencha nome, e-mail e senha com pelo menos 8 caracteres.' }, { status: 400 });
+    }
+
+    const supabase: any = adminClient();
+    const link = await getValidLink(supabase, token);
+    if (!link) return NextResponse.json({ error: 'Link inválido, vencido ou desativado.' }, { status: 404 });
+
+    const { data: existing } = await supabase.from('users').select('id').ilike('email', email).maybeSingle();
+    if (existing) return NextResponse.json({ error: 'Este e-mail já está cadastrado.' }, { status: 409 });
+
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName, store_id: link.store_id, role: link.role }
+    });
+    if (authError || !authData.user) throw authError || new Error('Não foi possível criar o acesso.');
+
+    const { error: profileError } = await supabase.from('users').insert({
+      auth_user_id: authData.user.id,
+      full_name: fullName,
+      email,
+      phone: phone || null,
+      role: link.role,
+      status: 'active',
+      store_id: link.store_id,
+      receives_leads: false,
+      routing_order: 0,
+      must_change_password: false
+    });
+
+    if (profileError) {
+      await supabase.auth.admin.deleteUser(authData.user.id);
+      throw profileError;
+    }
+
+    await supabase
+      .from('store_team_registration_links')
+      .update({ use_count: link.use_count + 1, last_used_at: new Date().toISOString() })
+      .eq('id', link.id);
+
+    return NextResponse.json({
+      success: true,
+      login_path: '/login',
+      store_slug: link.stores.slug,
+      message: 'Cadastro concluído. Seu acesso foi criado, mas a participação no rodízio depende da ativação do gestor.'
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || 'Erro ao concluir cadastro.' }, { status: 500 });
+  }
+}
