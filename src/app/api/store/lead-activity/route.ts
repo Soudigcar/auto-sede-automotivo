@@ -54,7 +54,7 @@ function getAdminClient() {
   });
 }
 
-async function getProfile(supabase: any, token: string) {
+async function getProfile(supabase: any, token: string): Promise<any | null> {
   const { data: authData, error: authError } = await supabase.auth.getUser(token);
 
   if (authError || !authData.user) return null;
@@ -79,7 +79,7 @@ async function getProfile(supabase: any, token: string) {
 
 export async function POST(request: Request) {
   try {
-    const supabase = getAdminClient();
+    const supabase: any = getAdminClient();
     const authorization = request.headers.get('authorization') || '';
     const token = authorization.replace(/^Bearer\s+/i, '').trim();
 
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Sessão não encontrada.' }, { status: 401 });
     }
 
-    const profile = await getProfile(supabase, token);
+    const profile: any = await getProfile(supabase, token);
 
     if (!profile || profile.status !== 'active') {
       return NextResponse.json({ error: 'Usuário sem permissão para registrar atividade.' }, { status: 403 });
@@ -101,26 +101,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Informe lead_id e activity_type válidos.' }, { status: 400 });
     }
 
-    const { data: lead, error: leadError } = await supabase
+    const { data: leadData, error: leadError } = await supabase
       .from('leads')
-      .select([
-        'id',
-        'assigned_store_id',
-        'customer_name',
-        'customer_phone',
-        'interested_vehicle',
-        'status',
-        'origin',
-        'notes',
-        'first_viewed_at',
-        'first_viewed_by_user_id',
-        'first_viewed_by_name',
-        'first_whatsapp_clicked_at'
-      ].join(','))
+      .select('id, assigned_store_id, customer_name, customer_phone, interested_vehicle, status, origin, notes, first_viewed_at, first_viewed_by_user_id, first_viewed_by_name, first_whatsapp_clicked_at')
       .eq('id', leadId)
       .maybeSingle();
 
     if (leadError) throw leadError;
+
+    const lead: any = leadData;
 
     if (!lead) {
       return NextResponse.json({ error: 'Lead não encontrado.' }, { status: 404 });
@@ -139,7 +128,7 @@ export async function POST(request: Request) {
 
     if (dedupeWindowSeconds > 0) {
       const since = new Date(now.getTime() - dedupeWindowSeconds * 1000).toISOString();
-      const { data: recent } = await supabase
+      const { data: recentData } = await supabase
         .from('lead_activity_logs')
         .select('id, created_at')
         .eq('lead_id', lead.id)
@@ -150,6 +139,8 @@ export async function POST(request: Request) {
         .limit(1)
         .maybeSingle();
 
+      const recent: any = recentData;
+
       if (recent) {
         return NextResponse.json({
           success: true,
@@ -159,15 +150,19 @@ export async function POST(request: Request) {
       }
     }
 
-    const { data: store } = lead.assigned_store_id
-      ? await supabase
-          .from('stores')
-          .select('id, store_name')
-          .eq('id', lead.assigned_store_id)
-          .maybeSingle()
-      : { data: null };
+    let store: any = null;
 
-    const { data: inserted, error } = await supabase
+    if (lead.assigned_store_id) {
+      const { data: storeData } = await supabase
+        .from('stores')
+        .select('id, store_name')
+        .eq('id', lead.assigned_store_id)
+        .maybeSingle();
+
+      store = storeData;
+    }
+
+    const { data: insertedData, error } = await supabase
       .from('lead_activity_logs')
       .insert({
         lead_id: lead.id,
@@ -195,7 +190,8 @@ export async function POST(request: Request) {
 
     if (error) throw error;
 
-    const timestamp = inserted.created_at || now.toISOString();
+    const inserted: any = insertedData;
+    const timestamp = inserted?.created_at || now.toISOString();
     const trackingUpdate: Record<string, any> = {
       last_activity_at: timestamp,
       last_activity_type: activityType,
