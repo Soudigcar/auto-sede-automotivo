@@ -19,19 +19,19 @@ type ActivityType =
   | 'lead_deleted';
 
 const labels: Record<ActivityType, string> = {
-  lead_viewed: 'Loja abriu o lead',
-  whatsapp_clicked: 'Loja clicou no WhatsApp',
-  status_changed: 'Loja alterou etapa do lead',
-  schedule_created: 'Loja agendou atendimento',
-  schedule_cancelled: 'Loja cancelou agendamento',
-  no_show_marked: 'Loja marcou não compareceu',
-  showed_up_marked: 'Loja marcou compareceu',
-  sale_confirmed: 'Loja confirmou venda',
-  sale_cancelled: 'Loja cancelou/reabriu venda',
-  lost_registered: 'Loja registrou perda',
-  lead_reopened: 'Loja reabriu lead',
-  lead_edited: 'Loja editou informações do lead',
-  lead_deleted: 'Loja excluiu o lead'
+  lead_viewed: 'Usuário abriu o lead',
+  whatsapp_clicked: 'Usuário clicou no WhatsApp',
+  status_changed: 'Usuário alterou etapa do lead',
+  schedule_created: 'Usuário agendou atendimento',
+  schedule_cancelled: 'Usuário cancelou agendamento',
+  no_show_marked: 'Usuário marcou não compareceu',
+  showed_up_marked: 'Usuário marcou compareceu',
+  sale_confirmed: 'Usuário confirmou venda',
+  sale_cancelled: 'Usuário cancelou/reabriu venda',
+  lost_registered: 'Usuário registrou perda',
+  lead_reopened: 'Usuário reabriu lead',
+  lead_edited: 'Usuário editou informações do lead',
+  lead_deleted: 'Usuário excluiu o lead'
 };
 
 function cleanText(value: unknown) {
@@ -77,6 +77,26 @@ async function getProfile(supabase: any, token: string): Promise<any | null> {
   return byEmail || null;
 }
 
+function canAccessLead(profile: any, lead: any) {
+  if (profile.role === 'master') return true;
+  if (!profile.store_id || profile.store_id !== lead.assigned_store_id) return false;
+  if (profile.role === 'store') return true;
+
+  if (profile.role === 'pre_sales') {
+    return lead.pre_sales_user_id === profile.id || lead.assigned_user_id === profile.id;
+  }
+
+  if (profile.role === 'seller') {
+    return lead.seller_user_id === profile.id || lead.assigned_user_id === profile.id;
+  }
+
+  if (profile.role === 'prospector') {
+    return lead.captured_by_user_id === profile.id || lead.assigned_user_id === profile.id;
+  }
+
+  return false;
+}
+
 export async function POST(request: Request) {
   try {
     const supabase: any = getAdminClient();
@@ -103,7 +123,7 @@ export async function POST(request: Request) {
 
     const { data: leadData, error: leadError } = await supabase
       .from('leads')
-      .select('id, assigned_store_id, customer_name, customer_phone, interested_vehicle, status, origin, notes, first_viewed_at, first_viewed_by_user_id, first_viewed_by_name, first_whatsapp_clicked_at')
+      .select('id, assigned_store_id, captured_by_user_id, pre_sales_user_id, seller_user_id, assigned_user_id, customer_name, customer_phone, interested_vehicle, status, origin, notes, first_viewed_at, first_viewed_by_user_id, first_viewed_by_name, first_whatsapp_clicked_at')
       .eq('id', leadId)
       .maybeSingle();
 
@@ -115,11 +135,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Lead não encontrado.' }, { status: 404 });
     }
 
-    const isMaster = profile.role === 'master';
-    const canAccessStore = profile.store_id && profile.store_id === lead.assigned_store_id;
-
-    if (!isMaster && !canAccessStore) {
-      return NextResponse.json({ error: 'Lead não pertence à loja deste usuário.' }, { status: 403 });
+    if (!canAccessLead(profile, lead)) {
+      return NextResponse.json({ error: 'Este lead não pertence à carteira deste usuário.' }, { status: 403 });
     }
 
     const actorName = profile.full_name || profile.email || 'Usuário da loja';
@@ -182,6 +199,7 @@ export async function POST(request: Request) {
           ...(body.metadata || {}),
           origin: lead.origin || null,
           lead_status: lead.status || null,
+          actor_role: profile.role || null,
           registered_from: 'store_lead_activity_api'
         }
       })
