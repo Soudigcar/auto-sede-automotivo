@@ -1,5 +1,7 @@
 import { createClient } from '@/lib/supabase';
 
+const storePortalRoles = ['store', 'pre_sales', 'seller', 'prospector'];
+
 export async function getStorePortalContext(slug: string) {
   const supabase = createClient();
 
@@ -46,11 +48,11 @@ export async function getStorePortalContext(slug: string) {
     return { status: 'store_not_found' as const, profile, store: null };
   }
 
-  if (profile.role !== 'master' && profile.role !== 'store') {
+  if (profile.role !== 'master' && !storePortalRoles.includes(profile.role)) {
     return { status: 'forbidden' as const, profile, store };
   }
 
-  if (profile.role === 'store' && profile.store_id !== store.id) {
+  if (profile.role !== 'master' && profile.store_id !== store.id) {
     return { status: 'wrong_store' as const, profile, store };
   }
 
