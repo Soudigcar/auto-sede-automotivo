@@ -19,6 +19,10 @@ function normalizePhone(value: unknown) {
   return cleanText(value, 40).replace(/[^\d+]/g, '');
 }
 
+function normalizeComparable(value: unknown) {
+  return cleanText(value, 500).toLocaleLowerCase('pt-BR');
+}
+
 function canAccessLead(profile: any, lead: any) {
   if (profile.role === 'master') return true;
   if (!profile.store_id || profile.store_id !== lead.assigned_store_id) return false;
@@ -150,9 +154,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Status do lead inválido.' }, { status: 400 });
     }
 
-    const selectedVehicleId = cleanText(body.interested_vehicle_id, 80) || null;
+    let selectedVehicleId = cleanText(body.interested_vehicle_id, 80) || null;
     let selectedVehiclePrice: number | null = null;
-    let selectedVehicleLabel = cleanText(body.interested_vehicle, 300) || null;
+    const typedVehicleLabel = cleanText(body.interested_vehicle, 300) || null;
+    let selectedVehicleLabel = typedVehicleLabel;
 
     if (selectedVehicleId) {
       const { data: link } = await context.supabase
@@ -174,8 +179,16 @@ export async function POST(request: Request) {
       if (vehicleError) throw vehicleError;
       if (!vehicle) return NextResponse.json({ error: 'Veículo não encontrado.' }, { status: 404 });
 
-      selectedVehiclePrice = vehicle.price === null ? null : Number(vehicle.price);
-      selectedVehicleLabel = [vehicle.brand, vehicle.model, vehicle.version, vehicle.year].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+      const canonicalLabel = [vehicle.brand, vehicle.model, vehicle.version, vehicle.year].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+
+      if (typedVehicleLabel && normalizeComparable(typedVehicleLabel) !== normalizeComparable(canonicalLabel)) {
+        selectedVehicleId = null;
+        selectedVehiclePrice = null;
+        selectedVehicleLabel = typedVehicleLabel;
+      } else {
+        selectedVehiclePrice = vehicle.price === null ? null : Number(vehicle.price);
+        selectedVehicleLabel = canonicalLabel;
+      }
     }
 
     const scheduleDate = cleanText(body.schedule_date, 20);
