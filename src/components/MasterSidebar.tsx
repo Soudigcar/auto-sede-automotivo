@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { BarChart3, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, Globe2, Inbox, Landmark, LogOut, MessageCircle, Plug, Store, UserCog } from 'lucide-react';
+import { Activity, BarChart3, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, Globe2, Inbox, Landmark, LogOut, MessageCircle, Plug, Store, UserCog } from 'lucide-react';
 
 const masterMenu = [
   { label: 'Dashboard', href: '/master/dashboard/live', icon: BarChart3 },
+  { label: 'Monitoramento', href: '/master/lead-monitoring', icon: Activity },
   { label: 'Eventos', href: '/master/events', icon: CalendarDays },
   { label: 'Lojas & Estoque', href: '/master/stores/events', icon: Store },
   { label: 'Equipe', href: '/master/users', icon: UserCog },
