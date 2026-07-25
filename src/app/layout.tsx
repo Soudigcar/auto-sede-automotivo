@@ -6,6 +6,7 @@ import { LeadInteractionTracker } from '@/components/LeadInteractionTracker';
 import { PipelineProfessionalLayout } from '@/components/PipelineProfessionalLayout';
 import { PipelineLeadEditorEnhancer } from '@/components/PipelineLeadEditorEnhancer';
 import { PipelineLeadCardEnhancer } from '@/components/PipelineLeadCardEnhancer';
+import { StoreCalendarRealtimeSync } from '@/components/StoreCalendarRealtimeSync';
 import { StorePortalMenuSync } from '@/components/StorePortalMenuSync';
 
 export const metadata: Metadata = {
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PipelineProfessionalLayout />
         <PipelineLeadEditorEnhancer />
         <PipelineLeadCardEnhancer />
+        <StoreCalendarRealtimeSync />
         <StorePortalMenuSync />
       </body>
     </html>
