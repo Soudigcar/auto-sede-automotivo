@@ -27,24 +27,9 @@ import { createClient } from '@/lib/supabase';
 import { getStorePortalContext } from '@/lib/storePortalClient';
 
 const roleConfigs = [
-  {
-    role: 'pre_sales',
-    title: 'Pré-vendas',
-    description: 'Recebe o lead da loja, realiza o primeiro contato e encaminha para o vendedor.',
-    icon: UserCheck
-  },
-  {
-    role: 'seller',
-    title: 'Vendedores',
-    description: 'Recebem os leads qualificados e acompanham negociação, comparecimento e venda.',
-    icon: UsersRound
-  },
-  {
-    role: 'prospector',
-    title: 'Prospectadores',
-    description: 'Cadastram captações e acompanham somente os próprios clientes e resultados.',
-    icon: UserRoundCog
-  }
+  { role: 'pre_sales', title: 'Pré-vendas', description: 'Recebe o lead da loja, faz o primeiro contato e encaminha para o vendedor.', icon: UserCheck },
+  { role: 'seller', title: 'Vendedores', description: 'Recebem leads qualificados e acompanham negociação, comparecimento e venda.', icon: UsersRound },
+  { role: 'prospector', title: 'Prospectadores', description: 'Cadastram captações e acompanham os próprios clientes e resultados.', icon: UserRoundCog }
 ] as const;
 
 const roleLabels: Record<string, string> = {
@@ -181,7 +166,6 @@ export default function StoreTeamPage() {
       body: JSON.stringify({ slug, ...payload })
     });
     const data = await response.json();
-
     if (!response.ok) throw new Error(data.error || 'Não foi possível concluir a ação.');
     return data;
   }
@@ -189,7 +173,6 @@ export default function StoreTeamPage() {
   async function generateLink(role: string) {
     setBusyKey(`link:${role}`);
     setMessage('Gerando novo link...');
-
     try {
       await postAction({ action: 'generate_link', role, expires_days: 30 });
       setMessage('Novo link gerado. O link anterior deste cargo foi desativado.');
@@ -204,7 +187,6 @@ export default function StoreTeamPage() {
   async function revokeLink(linkId: string, role: string) {
     setBusyKey(`revoke:${role}`);
     setMessage('Desativando link...');
-
     try {
       await postAction({ action: 'revoke_link', link_id: linkId });
       setMessage('Link desativado.');
@@ -224,35 +206,28 @@ export default function StoreTeamPage() {
 
   async function shareLink(link: RegistrationLink) {
     const title = `Cadastro de ${link.role_label} - ${store?.store_name || 'Loja'}`;
-
     if (navigator.share) {
       await navigator.share({ title, text: `Preencha seus dados para entrar na equipe da ${store?.store_name}.`, url: link.registration_url });
       return;
     }
-
     await copyLink(link.registration_url, `share:${link.role}`);
     setMessage('Link copiado. Cole no WhatsApp para compartilhar.');
   }
 
-  function updateMemberDraft(memberId: string, patch: Partial<TeamMember>) {
-    setMembers((current) => current.map((member) => member.id === memberId ? { ...member, ...patch } : member));
-  }
-
-  async function saveMember(member: TeamMember) {
-    setBusyKey(`member:${member.id}`);
-    setMessage(`Salvando ${member.full_name}...`);
-
+  async function saveMember(draft: TeamMember) {
+    setBusyKey(`member:${draft.id}`);
+    setMessage(`Salvando ${draft.full_name}...`);
     try {
       await postAction({
         action: 'update_member',
-        member_id: member.id,
-        status: member.status,
-        receives_leads: member.receives_leads,
-        routing_order: member.routing_order,
-        max_open_leads: member.max_open_leads
+        member_id: draft.id,
+        status: draft.status,
+        receives_leads: draft.receives_leads,
+        routing_order: draft.routing_order,
+        max_open_leads: draft.max_open_leads
       });
-      setMessage('Colaborador atualizado com sucesso.');
       await loadTeam();
+      setMessage('Colaborador atualizado com sucesso.');
     } catch (error: any) {
       setMessage(error?.message || 'Erro ao atualizar colaborador.');
     } finally {
@@ -290,9 +265,7 @@ export default function StoreTeamPage() {
             <div>
               <p className="premium-eyebrow">Portal da loja</p>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Equipe</h1>
-              <p className="premium-muted mt-3 max-w-3xl text-sm">
-                Compartilhe os links por cargo, aprove os cadastros e controle quem participa do rodízio interno de leads.
-              </p>
+              <p className="premium-muted mt-3 max-w-3xl text-sm">Compartilhe os links por cargo, aprove os cadastros e controle quem participa do rodízio interno de leads.</p>
             </div>
             <button type="button" onClick={() => loadTeam()} disabled={loading} className="premium-button-secondary">
               <RefreshCcw size={18} className={loading ? 'animate-spin' : ''} /> Atualizar
@@ -319,7 +292,6 @@ export default function StoreTeamPage() {
                 const Icon = config.icon;
                 const link = activeLinkForRole(links, config.role);
                 const busy = busyKey === `link:${config.role}` || busyKey === `revoke:${config.role}`;
-
                 return (
                   <article key={config.role} className="premium-card p-5">
                     <div className="flex items-start justify-between gap-3">
@@ -336,23 +308,16 @@ export default function StoreTeamPage() {
                           <p className="mt-2 text-[11px] text-zinc-400">Expira: {formatDateTime(link.expires_at)} · {link.usage_count} cadastro(s)</p>
                         </div>
                         <div className="mt-4 grid grid-cols-2 gap-2">
-                          <button type="button" onClick={() => copyLink(link.registration_url, config.role)} className="premium-button-secondary justify-center text-sm">
-                            {copiedKey === config.role ? <Check size={16} /> : <Copy size={16} />}{copiedKey === config.role ? 'Copiado' : 'Copiar'}
-                          </button>
+                          <button type="button" onClick={() => copyLink(link.registration_url, config.role)} className="premium-button-secondary justify-center text-sm">{copiedKey === config.role ? <Check size={16} /> : <Copy size={16} />}{copiedKey === config.role ? 'Copiado' : 'Copiar'}</button>
                           <button type="button" onClick={() => shareLink(link)} className="premium-button-secondary justify-center text-sm"><Share2 size={16} /> Compartilhar</button>
                           <a href={link.registration_url} target="_blank" rel="noreferrer" className="premium-button-secondary justify-center text-sm"><ExternalLink size={16} /> Abrir</a>
                           <button type="button" onClick={() => revokeLink(link.id, config.role)} disabled={busy} className="premium-button-secondary justify-center text-sm text-red-600 disabled:opacity-50"><UserX size={16} /> Desativar</button>
                         </div>
+                        <button type="button" onClick={() => generateLink(config.role)} disabled={busy} className="mt-3 flex w-full items-center justify-center gap-2 text-xs font-black text-zinc-500 hover:text-red-600 disabled:opacity-50"><RefreshCcw size={14} /> Gerar novo link</button>
                       </>
                     ) : (
-                      <button type="button" onClick={() => generateLink(config.role)} disabled={busy} className="premium-button-primary mt-5 w-full justify-center disabled:opacity-50">
-                        {busy ? <Loader2 size={17} className="animate-spin" /> : <Link2 size={17} />} Gerar link
-                      </button>
+                      <button type="button" onClick={() => generateLink(config.role)} disabled={busy} className="premium-button-primary mt-5 w-full justify-center disabled:opacity-50">{busy ? <Loader2 size={17} className="animate-spin" /> : <Link2 size={17} />} Gerar link</button>
                     )}
-
-                    {link ? (
-                      <button type="button" onClick={() => generateLink(config.role)} disabled={busy} className="mt-3 flex w-full items-center justify-center gap-2 text-xs font-black text-zinc-500 hover:text-red-600 disabled:opacity-50"><RefreshCcw size={14} /> Gerar novo link</button>
-                    ) : null}
                   </article>
                 );
               })}
@@ -362,7 +327,7 @@ export default function StoreTeamPage() {
           <section className="mt-8">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700"><UsersRound size={22} /></div>
-              <div><h2 className="text-2xl font-black text-zinc-950">Colaboradores cadastrados</h2><p className="premium-muted text-sm">Ative o usuário e habilite o rodízio somente quando estiver pronto para receber leads.</p></div>
+              <div><h2 className="text-2xl font-black text-zinc-950">Colaboradores cadastrados</h2><p className="premium-muted text-sm">Marque o rodízio para ativar automaticamente o colaborador.</p></div>
             </div>
 
             {loading ? (
@@ -375,60 +340,86 @@ export default function StoreTeamPage() {
               </div>
             ) : (
               <div className="mt-5 grid gap-4 xl:grid-cols-2">
-                {members.map((member) => {
-                  const saving = busyKey === `member:${member.id}`;
-                  return (
-                    <article key={member.id} className="premium-card p-5">
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="text-xl font-black text-zinc-950">{member.full_name}</h3>
-                            <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-black text-zinc-600">{roleLabels[member.role] || member.role}</span>
-                            <span className={member.status === 'active' ? 'rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700' : member.status === 'pending' ? 'rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-700' : 'rounded-full bg-zinc-100 px-3 py-1 text-xs font-black text-zinc-500'}>{statusLabels[member.status] || member.status}</span>
-                          </div>
-                          <p className="mt-2 text-sm font-semibold text-zinc-600">{member.email}</p>
-                          <p className="mt-1 text-xs text-zinc-400">{member.phone || 'Telefone não informado'}</p>
-                        </div>
-                        {member.status === 'active' ? <ShieldCheck className="text-emerald-500" size={22} /> : <UserRoundCog className="text-zinc-300" size={22} />}
-                      </div>
-
-                      <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                        <label className="text-xs font-black uppercase tracking-wide text-zinc-500">
-                          Status
-                          <select value={member.status} onChange={(event) => updateMemberDraft(member.id, { status: event.target.value, receives_leads: event.target.value === 'active' ? member.receives_leads : false })} className="premium-input mt-2 text-sm normal-case">
-                            <option value="pending">Pendente</option>
-                            <option value="active">Ativo</option>
-                            <option value="paused">Pausado</option>
-                            <option value="inactive">Inativo</option>
-                          </select>
-                        </label>
-                        <label className="text-xs font-black uppercase tracking-wide text-zinc-500">
-                          Ordem
-                          <input type="number" min={0} max={9999} value={member.routing_order || 0} onChange={(event) => updateMemberDraft(member.id, { routing_order: Number(event.target.value || 0) })} className="premium-input mt-2 text-sm normal-case" />
-                        </label>
-                        <label className="text-xs font-black uppercase tracking-wide text-zinc-500">
-                          Limite aberto
-                          <input type="number" min={1} value={member.max_open_leads ?? ''} onChange={(event) => updateMemberDraft(member.id, { max_open_leads: event.target.value ? Number(event.target.value) : null })} className="premium-input mt-2 text-sm normal-case" placeholder="Sem limite" />
-                        </label>
-                      </div>
-
-                      <label className="mt-4 flex cursor-pointer items-center justify-between rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                        <div><p className="text-sm font-black text-zinc-800">Receber leads automaticamente</p><p className="mt-1 text-xs text-zinc-500">Participa do rodízio interno deste cargo.</p></div>
-                        <input type="checkbox" checked={Boolean(member.receives_leads)} disabled={member.status !== 'active'} onChange={(event) => updateMemberDraft(member.id, { receives_leads: event.target.checked })} className="h-5 w-5 accent-red-600" />
-                      </label>
-
-                      <button type="button" onClick={() => saveMember(member)} disabled={saving} className="premium-button-primary mt-4 w-full justify-center disabled:opacity-50">
-                        {saving ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />} Salvar colaborador
-                      </button>
-                    </article>
-                  );
-                })}
+                {members.map((member) => (
+                  <MemberCard
+                    key={`${member.id}:${member.status}:${member.receives_leads}:${member.routing_order}:${member.max_open_leads ?? 'none'}`}
+                    member={member}
+                    saving={busyKey === `member:${member.id}`}
+                    onSave={saveMember}
+                  />
+                ))}
               </div>
             )}
           </section>
         </div>
       </section>
     </main>
+  );
+}
+
+function MemberCard({ member, saving, onSave }: { member: TeamMember; saving: boolean; onSave: (draft: TeamMember) => Promise<void> }) {
+  const [draft, setDraft] = useState<TeamMember>(member);
+
+  function changeStatus(status: string) {
+    setDraft((current) => ({
+      ...current,
+      status,
+      receives_leads: status === 'active' ? current.receives_leads : false
+    }));
+  }
+
+  function changeRouting(enabled: boolean) {
+    setDraft((current) => ({
+      ...current,
+      status: enabled ? 'active' : current.status,
+      receives_leads: enabled
+    }));
+  }
+
+  return (
+    <article className="premium-card p-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-xl font-black text-zinc-950">{draft.full_name}</h3>
+            <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-black text-zinc-600">{roleLabels[draft.role] || draft.role}</span>
+            <span className={draft.status === 'active' ? 'rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700' : draft.status === 'pending' ? 'rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-700' : 'rounded-full bg-zinc-100 px-3 py-1 text-xs font-black text-zinc-500'}>{statusLabels[draft.status] || draft.status}</span>
+          </div>
+          <p className="mt-2 text-sm font-semibold text-zinc-600">{draft.email}</p>
+          <p className="mt-1 text-xs text-zinc-400">{draft.phone || 'Telefone não informado'}</p>
+        </div>
+        {draft.status === 'active' ? <ShieldCheck className="text-emerald-500" size={22} /> : <UserRoundCog className="text-zinc-300" size={22} />}
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <label className="text-xs font-black uppercase tracking-wide text-zinc-500">
+          Status
+          <select value={draft.status} onChange={(event) => changeStatus(event.target.value)} className="premium-input mt-2 text-sm normal-case">
+            <option value="pending">Pendente</option>
+            <option value="active">Ativo</option>
+            <option value="paused">Pausado</option>
+            <option value="inactive">Inativo</option>
+          </select>
+        </label>
+        <label className="text-xs font-black uppercase tracking-wide text-zinc-500">
+          Ordem
+          <input type="number" min={0} max={9999} value={draft.routing_order || 0} onChange={(event) => setDraft((current) => ({ ...current, routing_order: Number(event.target.value || 0) }))} className="premium-input mt-2 text-sm normal-case" />
+        </label>
+        <label className="text-xs font-black uppercase tracking-wide text-zinc-500">
+          Limite aberto
+          <input type="number" min={1} value={draft.max_open_leads ?? ''} onChange={(event) => setDraft((current) => ({ ...current, max_open_leads: event.target.value ? Number(event.target.value) : null }))} className="premium-input mt-2 text-sm normal-case" placeholder="Sem limite" />
+        </label>
+      </div>
+
+      <label className="mt-4 flex cursor-pointer items-center justify-between rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+        <div><p className="text-sm font-black text-zinc-800">Receber leads automaticamente</p><p className="mt-1 text-xs text-zinc-500">Ao marcar, o colaborador também será ativado.</p></div>
+        <input type="checkbox" checked={Boolean(draft.receives_leads)} onChange={(event) => changeRouting(event.target.checked)} className="h-5 w-5 accent-red-600" />
+      </label>
+
+      <button type="button" onClick={() => onSave(draft)} disabled={saving} className="premium-button-primary mt-4 w-full justify-center disabled:opacity-50">
+        {saving ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />} Salvar colaborador
+      </button>
+    </article>
   );
 }
 
