@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { appName } from '@/lib/constants';
 import { AuthGate } from '@/components/AuthGate';
 import { LeadInteractionTracker } from '@/components/LeadInteractionTracker';
+import { PipelineProfessionalLayout } from '@/components/PipelineProfessionalLayout';
 import { StorePortalMenuSync } from '@/components/StorePortalMenuSync';
 
 export const metadata: Metadata = {
@@ -16,6 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body suppressHydrationWarning>
         <AuthGate>{children}</AuthGate>
         <LeadInteractionTracker />
+        <PipelineProfessionalLayout />
         <StorePortalMenuSync />
       </body>
     </html>
