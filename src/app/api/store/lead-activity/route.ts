@@ -5,6 +5,7 @@ export const runtime = 'nodejs';
 
 type ActivityType =
   | 'lead_viewed'
+  | 'phone_viewed'
   | 'whatsapp_clicked'
   | 'status_changed'
   | 'schedule_created'
@@ -15,27 +16,30 @@ type ActivityType =
   | 'sale_cancelled'
   | 'lost_registered'
   | 'lead_reopened'
+  | 'task_created'
   | 'lead_edited'
   | 'lead_deleted';
 
 const labels: Record<ActivityType, string> = {
-  lead_viewed: 'Loja abriu o lead',
-  whatsapp_clicked: 'Loja clicou no WhatsApp',
-  status_changed: 'Loja alterou etapa do lead',
-  schedule_created: 'Loja agendou atendimento',
-  schedule_cancelled: 'Loja cancelou agendamento',
-  no_show_marked: 'Loja marcou não compareceu',
-  showed_up_marked: 'Loja marcou compareceu',
-  sale_confirmed: 'Loja confirmou venda',
-  sale_cancelled: 'Loja cancelou/reabriu venda',
-  lost_registered: 'Loja registrou perda',
-  lead_reopened: 'Loja reabriu lead',
-  lead_edited: 'Loja editou informações do lead',
-  lead_deleted: 'Loja excluiu o lead'
+  lead_viewed: 'Usuário abriu o lead',
+  phone_viewed: 'Usuário visualizou o telefone',
+  whatsapp_clicked: 'Usuário clicou no WhatsApp',
+  status_changed: 'Usuário alterou etapa do lead',
+  schedule_created: 'Usuário agendou atendimento',
+  schedule_cancelled: 'Usuário cancelou agendamento',
+  no_show_marked: 'Usuário marcou não compareceu',
+  showed_up_marked: 'Usuário marcou compareceu',
+  sale_confirmed: 'Usuário confirmou venda',
+  sale_cancelled: 'Usuário cancelou ou reabriu venda',
+  lost_registered: 'Usuário registrou perda',
+  lead_reopened: 'Usuário reabriu lead',
+  task_created: 'Usuário agendou uma tarefa',
+  lead_edited: 'Usuário editou informações do lead',
+  lead_deleted: 'Usuário excluiu o lead'
 };
 
-function cleanText(value: unknown) {
-  return String(value || '').replace(/\s+/g, ' ').trim();
+function cleanText(value: unknown, maxLength = 500) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
 }
 
 function getAdminClient() {
@@ -77,6 +81,26 @@ async function getProfile(supabase: any, token: string): Promise<any | null> {
   return byEmail || null;
 }
 
+function canAccessLead(profile: any, lead: any) {
+  if (profile.role === 'master') return true;
+  if (!profile.store_id || profile.store_id !== lead.assigned_store_id) return false;
+  if (profile.role === 'store') return true;
+
+  if (profile.role === 'pre_sales') {
+    return lead.pre_sales_user_id === profile.id || lead.assigned_user_id === profile.id;
+  }
+
+  if (profile.role === 'seller') {
+    return lead.seller_user_id === profile.id || lead.assigned_user_id === profile.id;
+  }
+
+  if (profile.role === 'prospector') {
+    return lead.captured_by_user_id === profile.id || lead.assigned_user_id === profile.id;
+  }
+
+  return false;
+}
+
 export async function POST(request: Request) {
   try {
     const supabase: any = getAdminClient();
@@ -94,8 +118,8 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const leadId = cleanText(body.lead_id);
-    const activityType = cleanText(body.activity_type) as ActivityType;
+    const leadId = cleanText(body.lead_id, 80);
+    const activityType = cleanText(body.activity_type, 80) as ActivityType;
 
     if (!leadId || !activityType || !labels[activityType]) {
       return NextResponse.json({ error: 'Informe lead_id e activity_type válidos.' }, { status: 400 });
@@ -103,7 +127,7 @@ export async function POST(request: Request) {
 
     const { data: leadData, error: leadError } = await supabase
       .from('leads')
-      .select('id, assigned_store_id, customer_name, customer_phone, interested_vehicle, status, origin, notes, first_viewed_at, first_viewed_by_user_id, first_viewed_by_name, first_whatsapp_clicked_at')
+      .select('id, assigned_store_id, captured_by_user_id, pre_sales_user_id, seller_user_id, assigned_user_id, customer_name, customer_phone, interested_vehicle, status, origin, notes, first_viewed_at, first_viewed_by_user_id, first_viewed_by_name, first_whatsapp_clicked_at, first_phone_viewed_at, first_phone_viewed_by_user_id, first_phone_viewed_by_name')
       .eq('id', leadId)
       .maybeSingle();
 
@@ -115,16 +139,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Lead não encontrado.' }, { status: 404 });
     }
 
-    const isMaster = profile.role === 'master';
-    const canAccessStore = profile.store_id && profile.store_id === lead.assigned_store_id;
-
-    if (!isMaster && !canAccessStore) {
-      return NextResponse.json({ error: 'Lead não pertence à loja deste usuário.' }, { status: 403 });
+    if (!canAccessLead(profile, lead)) {
+      return NextResponse.json({ error: 'Este lead não pertence à carteira deste usuário.' }, { status: 403 });
     }
 
     const actorName = profile.full_name || profile.email || 'Usuário da loja';
     const now = new Date();
-    const dedupeWindowSeconds = activityType === 'lead_viewed' ? 60 : activityType === 'whatsapp_clicked' ? 10 : 0;
+    const dedupeWindowSeconds = activityType === 'whatsapp_clicked' ? 10 : ['lead_viewed', 'phone_viewed'].includes(activityType) ? 60 : 0;
 
     if (dedupeWindowSeconds > 0) {
       const since = new Date(now.getTime() - dedupeWindowSeconds * 1000).toISOString();
@@ -139,14 +160,8 @@ export async function POST(request: Request) {
         .limit(1)
         .maybeSingle();
 
-      const recent: any = recentData;
-
-      if (recent) {
-        return NextResponse.json({
-          success: true,
-          deduplicated: true,
-          activity: recent
-        });
+      if (recentData) {
+        return NextResponse.json({ success: true, deduplicated: true, activity: recentData });
       }
     }
 
@@ -162,6 +177,15 @@ export async function POST(request: Request) {
       store = storeData;
     }
 
+    const safeMetadata = {
+      pathname: cleanText(body.metadata?.pathname, 300) || null,
+      interaction_source: cleanText(body.metadata?.interaction_source, 120) || null,
+      origin: lead.origin || null,
+      lead_status: lead.status || null,
+      actor_role: profile.role || null,
+      registered_from: 'store_lead_activity_api'
+    };
+
     const { data: insertedData, error } = await supabase
       .from('lead_activity_logs')
       .insert({
@@ -172,26 +196,20 @@ export async function POST(request: Request) {
         user_name: actorName,
         activity_type: activityType,
         activity_label: labels[activityType],
-        from_status: cleanText(body.from_status) || null,
-        to_status: cleanText(body.to_status) || lead.status || null,
+        from_status: cleanText(body.from_status, 80) || null,
+        to_status: cleanText(body.to_status, 80) || lead.status || null,
         customer_name: lead.customer_name || null,
         customer_phone: lead.customer_phone || null,
         vehicle_name: lead.interested_vehicle || null,
-        notes: cleanText(body.notes) || null,
-        metadata: {
-          ...(body.metadata || {}),
-          origin: lead.origin || null,
-          lead_status: lead.status || null,
-          registered_from: 'store_lead_activity_api'
-        }
+        notes: cleanText(body.notes, 1000) || null,
+        metadata: safeMetadata
       })
       .select('id, created_at')
       .single();
 
     if (error) throw error;
 
-    const inserted: any = insertedData;
-    const timestamp = inserted?.created_at || now.toISOString();
+    const timestamp = insertedData?.created_at || now.toISOString();
     const trackingUpdate: Record<string, any> = {
       last_activity_at: timestamp,
       last_activity_type: activityType,
@@ -199,13 +217,22 @@ export async function POST(request: Request) {
       last_activity_by_name: actorName
     };
 
-    if (activityType === 'lead_viewed') {
+    if (activityType === 'lead_viewed' || activityType === 'phone_viewed') {
       trackingUpdate.first_viewed_at = lead.first_viewed_at || timestamp;
       trackingUpdate.first_viewed_by_user_id = lead.first_viewed_by_user_id || profile.id;
       trackingUpdate.first_viewed_by_name = lead.first_viewed_by_name || actorName;
       trackingUpdate.last_viewed_at = timestamp;
       trackingUpdate.last_viewed_by_user_id = profile.id;
       trackingUpdate.last_viewed_by_name = actorName;
+    }
+
+    if (activityType === 'phone_viewed') {
+      trackingUpdate.first_phone_viewed_at = lead.first_phone_viewed_at || timestamp;
+      trackingUpdate.first_phone_viewed_by_user_id = lead.first_phone_viewed_by_user_id || profile.id;
+      trackingUpdate.first_phone_viewed_by_name = lead.first_phone_viewed_by_name || actorName;
+      trackingUpdate.last_phone_viewed_at = timestamp;
+      trackingUpdate.last_phone_viewed_by_user_id = profile.id;
+      trackingUpdate.last_phone_viewed_by_name = actorName;
     }
 
     if (activityType === 'whatsapp_clicked') {
@@ -220,14 +247,8 @@ export async function POST(request: Request) {
 
     if (trackingError) throw trackingError;
 
-    return NextResponse.json({
-      success: true,
-      activity: inserted
-    });
+    return NextResponse.json({ success: true, activity: insertedData });
   } catch (error: any) {
-    return NextResponse.json(
-      { error: error?.message || 'Erro ao registrar atividade do lead.' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error?.message || 'Erro ao registrar atividade do lead.' }, { status: 500 });
   }
 }
