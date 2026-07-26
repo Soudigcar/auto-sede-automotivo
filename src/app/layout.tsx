@@ -6,6 +6,7 @@ import { PipelineOptimizedRuntime } from '@/components/PipelineOptimizedRuntime'
 import { PipelineLeadEditorLazyLoader } from '@/components/PipelineLeadEditorLazyLoader';
 import { PipelineAddLeadWithStock } from '@/components/PipelineAddLeadWithStock';
 import { PipelineSaleConfirmation } from '@/components/PipelineSaleConfirmation';
+import { PipelineInstallmentQuickSelector } from '@/components/PipelineInstallmentQuickSelector';
 import { StoreCalendarRealtimeSync } from '@/components/StoreCalendarRealtimeSync';
 import { StorePortalMenuSync } from '@/components/StorePortalMenuSync';
 import { StorePortalUserIdentity } from '@/components/StorePortalUserIdentity';
@@ -25,6 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PipelineLeadEditorLazyLoader />
         <PipelineAddLeadWithStock />
         <PipelineSaleConfirmation />
+        <PipelineInstallmentQuickSelector />
         <StoreCalendarRealtimeSync />
         <StorePortalMenuSync />
         <StorePortalUserIdentity />
