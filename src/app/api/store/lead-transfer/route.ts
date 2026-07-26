@@ -8,10 +8,10 @@ import {
 
 export const runtime = 'nodejs';
 
-const assignableRoles = ['store', 'pre_sales', 'seller', 'prospector'] as const;
+const actorRoles = ['store', 'pre_sales', 'seller', 'prospector'] as const;
+const targetRoles = ['pre_sales', 'seller', 'prospector'] as const;
 
 const roleLabels: Record<string, string> = {
-  store: 'Gestor',
   pre_sales: 'SDR / Pré-vendas',
   seller: 'Vendedor',
   prospector: 'Prospectador'
@@ -27,7 +27,7 @@ async function getContext(request: Request) {
 
   const profile = await getProfileFromToken(supabase, token);
 
-  if (!profile || profile.status !== 'active' || !['master', ...assignableRoles].includes(profile.role)) {
+  if (!profile || profile.status !== 'active' || !['master', ...actorRoles].includes(profile.role)) {
     return { error: NextResponse.json({ error: 'Usuário sem permissão para transferir leads.' }, { status: 403 }) } as const;
   }
 
@@ -37,7 +37,7 @@ async function getContext(request: Request) {
 async function loadLead(supabase: any, leadId: string) {
   const { data, error } = await supabase
     .from('leads')
-    .select('id, event_id, assigned_store_id, assigned_user_id, pre_sales_user_id, seller_user_id, captured_by_user_id, prospector_id, customer_name, customer_phone, interested_vehicle, status')
+    .select('id, event_id, assigned_store_id, assigned_user_id, assigned_user_role, pre_sales_user_id, seller_user_id, captured_by_user_id, prospector_id, customer_name, customer_phone, interested_vehicle, status')
     .eq('id', leadId)
     .maybeSingle();
 
@@ -71,7 +71,7 @@ async function loadTeam(supabase: any, storeId: string) {
     .select('id, full_name, email, role, status, store_id')
     .eq('store_id', storeId)
     .eq('status', 'active')
-    .in('role', [...assignableRoles])
+    .in('role', [...targetRoles])
     .order('role', { ascending: true })
     .order('full_name', { ascending: true });
 
@@ -88,6 +88,19 @@ async function loadTeam(supabase: any, storeId: string) {
 
 function currentResponsibleId(lead: any) {
   return lead.assigned_user_id || lead.seller_user_id || lead.pre_sales_user_id || null;
+}
+
+async function resolveProspectorId(supabase: any, storeId: string, userId: string) {
+  const { data, error } = await supabase
+    .from('prospectors')
+    .select('id')
+    .eq('store_id', storeId)
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  if (error) throw error;
+  return data?.id || null;
 }
 
 export async function GET(request: Request) {
@@ -119,6 +132,7 @@ export async function GET(request: Request) {
       },
       current_responsible: currentResponsible,
       current_responsible_id: responsibleId,
+      current_responsible_role: lead.assigned_user_role || currentResponsible?.role || null,
       team
     });
   } catch (error: any) {
@@ -150,11 +164,19 @@ export async function POST(request: Request) {
     const target = targetUserId ? team.find((member: any) => member.id === targetUserId) || null : null;
 
     if (targetUserId && !target) {
-      return NextResponse.json({ error: 'O colaborador selecionado não está ativo nesta loja.' }, { status: 400 });
+      return NextResponse.json({ error: 'O colaborador selecionado não está ativo ou não possui um cargo responsável permitido nesta loja.' }, { status: 400 });
     }
 
     if (previousResponsibleId === targetUserId) {
       return NextResponse.json({ error: 'Este colaborador já é o responsável atual pelo lead.' }, { status: 409 });
+    }
+
+    let targetProspectorId: string | null = null;
+    if (target?.role === 'prospector') {
+      targetProspectorId = await resolveProspectorId(supabase, lead.assigned_store_id, target.id);
+      if (!targetProspectorId) {
+        return NextResponse.json({ error: 'O Prospectador selecionado não possui vínculo ativo nesta loja.' }, { status: 400 });
+      }
     }
 
     const actorName = profile.full_name || profile.email || 'Usuário';
@@ -167,6 +189,7 @@ export async function POST(request: Request) {
 
     const updatePayload: Record<string, any> = {
       assigned_user_id: target?.id || null,
+      assigned_user_role: target?.role || null,
       pre_sales_user_id: target?.role === 'pre_sales' ? target.id : null,
       seller_user_id: target?.role === 'seller' ? target.id : null,
       updated_at: now,
@@ -176,12 +199,17 @@ export async function POST(request: Request) {
       last_activity_by_name: actorName
     };
 
+    if (target?.role === 'prospector') {
+      updatePayload.captured_by_user_id = target.id;
+      updatePayload.prospector_id = targetProspectorId;
+    }
+
     const { data: updatedLead, error: updateError } = await supabase
       .from('leads')
       .update(updatePayload)
       .eq('id', lead.id)
       .eq('assigned_store_id', lead.assigned_store_id)
-      .select('id, assigned_store_id, assigned_user_id, pre_sales_user_id, seller_user_id, captured_by_user_id, status, updated_at')
+      .select('id, assigned_store_id, assigned_user_id, assigned_user_role, pre_sales_user_id, seller_user_id, captured_by_user_id, prospector_id, status, updated_at')
       .single();
 
     if (updateError) throw updateError;
@@ -196,11 +224,12 @@ export async function POST(request: Request) {
       actor_role: profile.role,
       previous_responsible_id: previousResponsibleId,
       previous_responsible_name: previousName,
-      previous_responsible_role: previousResponsible?.role || null,
+      previous_responsible_role: lead.assigned_user_role || previousResponsible?.role || null,
       target_responsible_id: target?.id || null,
       target_responsible_name: targetName,
       target_responsible_role: target?.role || null,
-      captured_by_user_id_preserved: lead.captured_by_user_id || null,
+      previous_captured_by_user_id: lead.captured_by_user_id || null,
+      current_captured_by_user_id: updatedLead.captured_by_user_id || null,
       registered_from: 'pipeline_lead_transfer'
     };
 
@@ -234,12 +263,15 @@ export async function POST(request: Request) {
         entity_id: lead.id,
         old_value: {
           assigned_user_id: previousResponsibleId,
-          responsible_name: previousName
+          assigned_user_role: lead.assigned_user_role || previousResponsible?.role || null,
+          responsible_name: previousName,
+          captured_by_user_id: lead.captured_by_user_id || null
         },
         new_value: {
           assigned_user_id: target?.id || null,
+          assigned_user_role: target?.role || null,
           responsible_name: targetName,
-          responsible_role: target?.role || null
+          captured_by_user_id: updatedLead.captured_by_user_id || null
         }
       })
     ]);
