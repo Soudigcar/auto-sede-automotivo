@@ -49,9 +49,10 @@ function normalized(value: unknown) {
 }
 
 function findLegacySaleModal() {
-  const headings = Array.from(document.querySelectorAll<HTMLHeadingElement>('h2'));
-  const heading = headings.find((item) => normalized(item.textContent) === 'confirmar venda');
-  return heading?.closest<HTMLElement>('div.fixed.inset-0') || null;
+  const candidates = Array.from(document.querySelectorAll<HTMLElement>('div.fixed.inset-0.z-50'));
+  return candidates.find((candidate) =>
+    normalized(candidate.querySelector('h2')?.textContent) === 'confirmar venda'
+  ) || null;
 }
 
 function cardLeadId(target: EventTarget | null) {
