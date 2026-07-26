@@ -12,8 +12,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Sessão não encontrada.' }, { status: 401 });
     }
 
-    const profile = await getProfileFromToken(supabase, token);
-    if (!profile || profile.status !== 'active' || !profile.auth_user_id) {
+    const [{ data: authData, error: authLookupError }, profile] = await Promise.all([
+      supabase.auth.getUser(token),
+      getProfileFromToken(supabase, token)
+    ]);
+
+    if (authLookupError || !authData.user || !profile || profile.status !== 'active') {
       return NextResponse.json({ error: 'Usuário ativo não encontrado.' }, { status: 403 });
     }
 
@@ -33,7 +37,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Use pelo menos uma letra e um número na nova senha.' }, { status: 400 });
     }
 
-    const { error: authError } = await supabase.auth.admin.updateUserById(profile.auth_user_id, {
+    const { error: authError } = await supabase.auth.admin.updateUserById(authData.user.id, {
       password
     });
 
@@ -54,7 +58,8 @@ export async function POST(request: Request) {
         entity_id: profile.id,
         new_value: {
           changed_by_user_id: profile.id,
-          temporary_password_replaced: true
+          temporary_password_replaced: true,
+          legacy_profile_without_auth_user_id: !profile.auth_user_id
         }
       })
     ]);
