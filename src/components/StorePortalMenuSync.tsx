@@ -55,10 +55,15 @@ function initials(value: string) {
   return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase();
 }
 
-function buildIdentityHtml(profile: any, store: any) {
+function identityValues(profile: any, store: any) {
   const userName = String(profile?.full_name || profile?.email || 'Usuário').trim();
   const roleLabel = roleLabels[String(profile?.role || '')] || String(profile?.role || 'Usuário');
   const storeName = String(store?.store_name || 'Loja vinculada').trim();
+  return { userName, roleLabel, storeName };
+}
+
+function buildIdentityHtml(profile: any, store: any) {
+  const { userName, roleLabel, storeName } = identityValues(profile, store);
 
   return `
     <div class="mb-5 rounded-2xl border border-white/10 bg-white/[0.05] p-4" data-store-user-identity="true">
@@ -105,14 +110,12 @@ function buildMenuHtml(slug: string, currentSegment: string, profile: any, store
 }
 
 function ensureMobileIdentity(profile: any, store: any) {
-  const userName = String(profile?.full_name || profile?.email || 'Usuário').trim();
-  const roleLabel = roleLabels[String(profile?.role || '')] || String(profile?.role || 'Usuário');
-  const storeName = String(store?.store_name || 'Loja vinculada').trim();
-
+  const { userName, roleLabel, storeName } = identityValues(profile, store);
   let element = document.querySelector<HTMLElement>('[data-store-mobile-identity="true"]');
+
   if (!element) {
     element = document.createElement('div');
-    element.dataset.storeMobileIdentity = 'true';
+    element.setAttribute('data-store-mobile-identity', 'true');
     element.className = 'fixed bottom-3 left-3 right-3 z-[44] rounded-2xl border border-white/15 bg-[#071020]/95 p-3 text-white shadow-2xl backdrop-blur-lg lg:hidden';
     document.body.appendChild(element);
   }
@@ -145,43 +148,49 @@ export function StorePortalMenuSync() {
     let mobileIdentity: HTMLElement | null = null;
 
     async function startSync() {
-      const context = await getStorePortalContext(slug);
-      if (cancelled || context.status !== 'ok' || !context.profile || !context.store) return;
+      try {
+        const context = await getStorePortalContext(slug);
+        if (cancelled || context.status !== 'ok' || !context.profile || !context.store) return;
 
-      const currentSegment = getCurrentSegment(pathname, slug);
-      const expectedMenuHtml = buildMenuHtml(slug, currentSegment, context.profile, context.store);
-      mobileIdentity = ensureMobileIdentity(context.profile, context.store);
+        const profile: any = context.profile;
+        const store: any = context.store;
+        const currentSegment = getCurrentSegment(pathname, slug);
+        const expectedMenuHtml = buildMenuHtml(slug, currentSegment, profile, store);
+        mobileIdentity = ensureMobileIdentity(profile, store);
 
-      function syncMenu() {
-        attempts += 1;
-        const nav = document.querySelector('aside nav');
-        if (!nav) return false;
+        function syncMenu() {
+          attempts += 1;
+          const nav = document.querySelector<HTMLElement>('aside nav');
+          if (!nav) return false;
 
-        const syncKey = `${slug}:${currentSegment}:${context.profile.id || context.profile.email || 'user'}`;
-        if (nav.getAttribute('data-store-menu-current') !== syncKey) {
-          nav.innerHTML = expectedMenuHtml;
-          nav.setAttribute('data-store-menu-current', syncKey);
+          const syncKey = `${slug}:${currentSegment}:${profile.id || profile.email || 'user'}`;
+          if (nav.getAttribute('data-store-menu-current') !== syncKey) {
+            nav.innerHTML = expectedMenuHtml;
+            nav.setAttribute('data-store-menu-current', syncKey);
+          }
+          return true;
         }
-        return true;
+
+        if (syncMenu()) return;
+
+        intervalId = window.setInterval(() => {
+          const synced = syncMenu();
+          if ((synced || attempts >= 20) && intervalId !== undefined) {
+            window.clearInterval(intervalId);
+            intervalId = undefined;
+          }
+        }, 150);
+      } catch {
+        // A identificação é complementar e não deve bloquear o portal.
       }
-
-      if (syncMenu()) return;
-
-      intervalId = window.setInterval(() => {
-        const synced = syncMenu();
-        if ((synced || attempts >= 20) && intervalId) {
-          window.clearInterval(intervalId);
-          intervalId = undefined;
-        }
-      }, 150);
     }
 
     void startSync();
 
     return () => {
       cancelled = true;
-      if (intervalId) window.clearInterval(intervalId);
-      mobileIdentity?.remove();
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+      if (mobileIdentity) mobileIdentity.remove();
     };
   }, [pathname]);
 
