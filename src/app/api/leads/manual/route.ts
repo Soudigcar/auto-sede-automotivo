@@ -9,9 +9,22 @@ import {
 export const runtime = 'nodejs';
 
 const allowedRoles = ['master', 'store', 'pre_sales', 'seller', 'prospector'] as const;
+const unavailableVehicleStatuses = ['vendido', 'sold', 'inactive', 'inativo', 'deleted', 'excluido', 'rejected', 'duplicate'];
 
 function cleanPhone(value: unknown) {
   return cleanText(value, 40);
+}
+
+function vehicleLabel(vehicle: any) {
+  return [vehicle?.brand, vehicle?.model, vehicle?.version, vehicle?.year]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isVehicleAvailable(vehicle: any) {
+  return !unavailableVehicleStatuses.includes(String(vehicle?.status || '').toLowerCase());
 }
 
 async function getContext(request: Request) {
@@ -49,12 +62,82 @@ async function loadStore(supabase: any, profile: any, requestedStoreId?: string)
   return store;
 }
 
+async function loadStock(supabase: any, storeId: string) {
+  const { data: links, error: linksError } = await supabase
+    .from('store_vehicle_link_submissions')
+    .select('imported_vehicle_id, status, metadata')
+    .eq('store_id', storeId)
+    .not('imported_vehicle_id', 'is', null);
+
+  if (linksError) throw linksError;
+
+  const vehicleIds = Array.from(new Set((links || [])
+    .filter((link: any) => link?.metadata?.store_removed !== true)
+    .filter((link: any) => !['rejected', 'duplicate', 'deleted', 'excluido'].includes(String(link?.status || '').toLowerCase()))
+    .map((link: any) => link.imported_vehicle_id)
+    .filter(Boolean)));
+
+  if (!vehicleIds.length) return [];
+
+  const { data: vehicles, error: vehiclesError } = await supabase
+    .from('site_vehicles')
+    .select('id, brand, model, version, year, price, status, show_on_landing')
+    .in('id', vehicleIds)
+    .order('brand', { ascending: true })
+    .order('model', { ascending: true });
+
+  if (vehiclesError) throw vehiclesError;
+
+  return (vehicles || [])
+    .filter(isVehicleAvailable)
+    .map((vehicle: any) => ({
+      ...vehicle,
+      label: vehicleLabel(vehicle),
+      price: vehicle.price === null || vehicle.price === undefined ? null : Number(vehicle.price)
+    }));
+}
+
+async function validateSelectedVehicle(supabase: any, storeId: string, selectedVehicleId: string) {
+  const { data: link, error: linkError } = await supabase
+    .from('store_vehicle_link_submissions')
+    .select('id, status, metadata')
+    .eq('store_id', storeId)
+    .eq('imported_vehicle_id', selectedVehicleId)
+    .maybeSingle();
+
+  if (linkError) throw linkError;
+
+  if (
+    !link ||
+    link?.metadata?.store_removed === true ||
+    ['rejected', 'duplicate', 'deleted', 'excluido'].includes(String(link?.status || '').toLowerCase())
+  ) {
+    return null;
+  }
+
+  const { data: vehicle, error: vehicleError } = await supabase
+    .from('site_vehicles')
+    .select('id, brand, model, version, year, price, status')
+    .eq('id', selectedVehicleId)
+    .maybeSingle();
+
+  if (vehicleError) throw vehicleError;
+  if (!vehicle || !isVehicleAvailable(vehicle)) return null;
+
+  return {
+    id: vehicle.id,
+    label: vehicleLabel(vehicle),
+    price: vehicle.price === null || vehicle.price === undefined ? null : Number(vehicle.price)
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const context = await getContext(request);
     if ('error' in context) return context.error;
 
     const { supabase, profile } = context;
+    const requestedStoreId = cleanText(new URL(request.url).searchParams.get('store_id'), 80);
 
     if (profile.role === 'master') {
       const { data: stores, error } = await supabase
@@ -66,10 +149,23 @@ export async function GET(request: Request) {
 
       if (error) throw error;
 
+      let selectedStore: any = null;
+      let stock: any[] = [];
+
+      if (requestedStoreId) {
+        selectedStore = await loadStore(supabase, profile, requestedStoreId);
+        if (!selectedStore) {
+          return NextResponse.json({ error: 'Loja selecionada não encontrada ou indisponível.' }, { status: 404 });
+        }
+        stock = await loadStock(supabase, selectedStore.id);
+      }
+
       return NextResponse.json({
         role: profile.role,
         profile_name: profile.full_name || profile.email || 'Master',
-        stores: stores || []
+        store: selectedStore,
+        stores: stores || [],
+        stock
       });
     }
 
@@ -79,11 +175,14 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Loja vinculada não encontrada ou indisponível.' }, { status: 403 });
     }
 
+    const stock = await loadStock(supabase, store.id);
+
     return NextResponse.json({
       role: profile.role,
       profile_name: profile.full_name || profile.email || 'Usuário',
       store,
-      stores: [store]
+      stores: [store],
+      stock
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Erro ao preparar cadastro de lead.' }, { status: 500 });
@@ -100,7 +199,8 @@ export async function POST(request: Request) {
 
     const customerName = cleanText(body.customer_name, 180);
     const customerPhone = cleanPhone(body.customer_phone);
-    const interestedVehicle = cleanText(body.interested_vehicle, 220);
+    const typedInterestedVehicle = cleanText(body.interested_vehicle, 300);
+    const selectedVehicleId = cleanText(body.interested_vehicle_id, 80) || null;
     const customerBank = cleanText(body.customer_bank, 120);
     const vehicleCategory = cleanText(body.vehicle_category_interest, 100);
     const origin = cleanText(body.origin, 160) || 'manual_pipeline';
@@ -120,12 +220,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Selecione uma loja ativa e autorizada.' }, { status: 403 });
     }
 
+    let interestedVehicle = typedInterestedVehicle || null;
+    let interestedVehiclePrice: number | null = null;
+
+    if (selectedVehicleId) {
+      const selectedVehicle = await validateSelectedVehicle(supabase, store.id, selectedVehicleId);
+      if (!selectedVehicle) {
+        return NextResponse.json({ error: 'O veículo selecionado não está disponível no estoque desta loja.' }, { status: 400 });
+      }
+      interestedVehicle = selectedVehicle.label;
+      interestedVehiclePrice = selectedVehicle.price;
+    }
+
     const insertPayload: Record<string, any> = {
       event_id: store.event_id || null,
       customer_name: customerName,
       customer_phone: customerPhone,
       customer_bank: customerBank || null,
-      interested_vehicle: interestedVehicle || null,
+      interested_vehicle: interestedVehicle,
+      interested_vehicle_id: selectedVehicleId,
+      interested_vehicle_price: interestedVehiclePrice,
       vehicle_category_interest: vehicleCategory || null,
       origin,
       assigned_store_id: store.id,
@@ -159,7 +273,7 @@ export async function POST(request: Request) {
     const { data: lead, error: leadError } = await supabase
       .from('leads')
       .insert(insertPayload)
-      .select('id, event_id, assigned_store_id, customer_name, customer_phone, interested_vehicle, status, created_at')
+      .select('id, event_id, assigned_store_id, customer_name, customer_phone, interested_vehicle, interested_vehicle_id, interested_vehicle_price, status, created_at')
       .single();
 
     if (leadError) throw leadError;
@@ -169,7 +283,8 @@ export async function POST(request: Request) {
       actor_role: profile.role,
       registered_from: 'manual_pipeline',
       origin,
-      store_slug: store.slug
+      store_slug: store.slug,
+      interested_vehicle_id: selectedVehicleId
     };
 
     await Promise.allSettled([
@@ -185,7 +300,7 @@ export async function POST(request: Request) {
         to_status: 'new_lead',
         customer_name: customerName,
         customer_phone: customerPhone,
-        vehicle_name: interestedVehicle || null,
+        vehicle_name: interestedVehicle,
         notes: notes || null,
         metadata: activityMetadata
       }),
@@ -203,6 +318,7 @@ export async function POST(request: Request) {
         new_value: {
           origin,
           assigned_store_id: store.id,
+          interested_vehicle_id: selectedVehicleId,
           created_by_user_id: profile.id,
           created_by_role: profile.role,
           source: 'manual_pipeline'
