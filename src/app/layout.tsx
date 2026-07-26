@@ -2,10 +2,8 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { appName } from '@/lib/constants';
 import { AuthGate } from '@/components/AuthGate';
-import { LeadInteractionTracker } from '@/components/LeadInteractionTracker';
-import { PipelineProfessionalLayout } from '@/components/PipelineProfessionalLayout';
-import { PipelineLeadEditorEnhancer } from '@/components/PipelineLeadEditorEnhancer';
-import { PipelineLeadCardEnhancer } from '@/components/PipelineLeadCardEnhancer';
+import { PipelineOptimizedRuntime } from '@/components/PipelineOptimizedRuntime';
+import { PipelineLeadEditorLazyLoader } from '@/components/PipelineLeadEditorLazyLoader';
 import { StoreCalendarRealtimeSync } from '@/components/StoreCalendarRealtimeSync';
 import { StorePortalMenuSync } from '@/components/StorePortalMenuSync';
 
@@ -19,10 +17,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="pt-BR" suppressHydrationWarning>
       <body suppressHydrationWarning>
         <AuthGate>{children}</AuthGate>
-        <LeadInteractionTracker />
-        <PipelineProfessionalLayout />
-        <PipelineLeadEditorEnhancer />
-        <PipelineLeadCardEnhancer />
+        <PipelineOptimizedRuntime />
+        <PipelineLeadEditorLazyLoader />
         <StoreCalendarRealtimeSync />
         <StorePortalMenuSync />
       </body>
