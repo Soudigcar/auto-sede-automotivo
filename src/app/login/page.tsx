@@ -42,7 +42,7 @@ function LoginContent() {
       if (authData.user?.id) {
         const { data } = await supabase
           .from('users')
-          .select('id,role,status,store_id,email')
+          .select('id,role,status,store_id,email,must_change_password')
           .eq('auth_user_id', authData.user.id)
           .maybeSingle();
         profile = data;
@@ -51,7 +51,7 @@ function LoginContent() {
       if (!profile) {
         const { data } = await supabase
           .from('users')
-          .select('id,role,status,store_id,email')
+          .select('id,role,status,store_id,email,must_change_password')
           .ilike('email', normalizedEmail)
           .maybeSingle();
         profile = data;
@@ -65,7 +65,8 @@ function LoginContent() {
       }
 
       if (profile.role === 'master') {
-        router.replace(redirectedFrom?.startsWith('/master') ? redirectedFrom : '/master/dashboard/live');
+        const target = redirectedFrom?.startsWith('/master') ? redirectedFrom : '/master/dashboard/live';
+        router.replace(profile.must_change_password ? `/trocar-senha?next=${encodeURIComponent(target)}` : target);
         return;
       }
 
@@ -92,7 +93,7 @@ function LoginContent() {
       const storePrefix = `/loja/${store.slug}`;
       const defaultPath = profile.role === 'prospector' ? `${storePrefix}` : `${storePrefix}/pipeline`;
       const target = redirectedFrom?.startsWith(storePrefix) ? redirectedFrom : defaultPath;
-      router.replace(target);
+      router.replace(profile.must_change_password ? `/trocar-senha?next=${encodeURIComponent(target)}` : target);
     } catch {
       setMessage('Não foi possível concluir o login. Tente novamente.');
       setIsSubmitting(false);
