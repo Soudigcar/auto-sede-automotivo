@@ -7,6 +7,7 @@ import { PipelineLeadEditorLazyLoader } from '@/components/PipelineLeadEditorLaz
 import { PipelineAddLeadWithStock } from '@/components/PipelineAddLeadWithStock';
 import { StoreCalendarRealtimeSync } from '@/components/StoreCalendarRealtimeSync';
 import { StorePortalMenuSync } from '@/components/StorePortalMenuSync';
+import { StorePortalUserIdentity } from '@/components/StorePortalUserIdentity';
 import { StoreTeamManualMember } from '@/components/StoreTeamManualMember';
 
 export const metadata: Metadata = {
@@ -24,6 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PipelineAddLeadWithStock />
         <StoreCalendarRealtimeSync />
         <StorePortalMenuSync />
+        <StorePortalUserIdentity />
         <StoreTeamManualMember />
       </body>
     </html>
