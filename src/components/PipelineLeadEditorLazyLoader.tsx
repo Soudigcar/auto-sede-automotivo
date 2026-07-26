@@ -9,8 +9,8 @@ const LazyEditorEnhancer = dynamic(
   { ssr: false }
 );
 
-const LazyLeadTransfer = dynamic(
-  () => import('@/components/PipelineLeadTransfer').then((module) => module.PipelineLeadTransfer),
+const LazyLeadResponsibility = dynamic(
+  () => import('@/components/PipelineLeadResponsibility').then((module) => module.PipelineLeadResponsibility),
   { ssr: false }
 );
 
@@ -51,7 +51,7 @@ export function PipelineLeadEditorLazyLoader() {
   return (
     <>
       <LazyEditorEnhancer />
-      <LazyLeadTransfer leadId={leadId} />
+      <LazyLeadResponsibility leadId={leadId} />
     </>
   );
 }
