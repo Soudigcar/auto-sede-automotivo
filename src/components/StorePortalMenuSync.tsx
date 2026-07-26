@@ -44,7 +44,6 @@ function buildMenuHtml(slug: string, currentSegment: string) {
     .map((item) => {
       const href = buildHref(slug, item.segment);
       const isActive = currentSegment === item.segment;
-
       return `
         <a href="${escapeHtml(href)}" class="${buildClass(isActive)}" data-store-menu-sync="true">
           <span class="flex h-[18px] w-[18px] items-center justify-center text-[13px] font-black">${escapeHtml(item.icon)}</span>
@@ -69,66 +68,38 @@ export function StorePortalMenuSync() {
   useEffect(() => {
     const match = pathname.match(/^\/loja\/([^/]+)/);
     const slug = match?.[1];
-
-    if (!slug) return undefined;
-
-    let attempts = 0;
-    let isSyncing = false;
-    let intervalId: number | undefined;
-    let observer: MutationObserver | undefined;
+    if (!slug) return;
 
     const currentSegment = getCurrentSegment(pathname, slug);
     const expectedMenuHtml = buildMenuHtml(slug, currentSegment);
+    let attempts = 0;
+    let intervalId: number | undefined;
 
     function syncMenu() {
-      if (isSyncing) return false;
-
-      const aside = document.querySelector('aside');
-      const nav = aside?.querySelector('nav');
-
+      attempts += 1;
+      const nav = document.querySelector('aside nav');
       if (!nav) return false;
 
-      const alreadySynced = nav.getAttribute('data-store-menu-current') === `${slug}:${currentSegment}`;
-
-      if (!alreadySynced) {
-        isSyncing = true;
+      const syncKey = `${slug}:${currentSegment}`;
+      if (nav.getAttribute('data-store-menu-current') !== syncKey) {
         nav.innerHTML = expectedMenuHtml;
-        nav.setAttribute('data-store-menu-current', `${slug}:${currentSegment}`);
-        isSyncing = false;
+        nav.setAttribute('data-store-menu-current', syncKey);
       }
-
       return true;
     }
 
-    syncMenu();
+    if (syncMenu()) return;
 
     intervalId = window.setInterval(() => {
-      attempts += 1;
       const synced = syncMenu();
-
-      if (synced && attempts > 3 && intervalId) {
+      if ((synced || attempts >= 20) && intervalId) {
         window.clearInterval(intervalId);
         intervalId = undefined;
       }
-
-      if (attempts >= 30 && intervalId) {
-        window.clearInterval(intervalId);
-        intervalId = undefined;
-      }
-    }, 250);
-
-    observer = new MutationObserver(() => {
-      window.requestAnimationFrame(syncMenu);
-    });
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true
-    });
+    }, 150);
 
     return () => {
       if (intervalId) window.clearInterval(intervalId);
-      if (observer) observer.disconnect();
     };
   }, [pathname]);
 
