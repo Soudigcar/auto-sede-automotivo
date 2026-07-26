@@ -3,7 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePathname } from 'next/navigation';
-import { BadgeDollarSign, Banknote, CarFront, CheckCircle2, Landmark, Loader2, UserRoundCheck, X } from 'lucide-react';
+import {
+  BadgeDollarSign,
+  Banknote,
+  Calculator,
+  CarFront,
+  CheckCircle2,
+  Landmark,
+  Loader2,
+  UserRoundCheck,
+  X
+} from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
 type Seller = {
@@ -44,6 +54,8 @@ const bankOptions = [
   'Banco Inter'
 ];
 
+const installmentOptions = ['12', '24', '36', '48', '60'];
+
 function normalized(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('pt-BR');
 }
@@ -67,6 +79,12 @@ function moneyInput(value: unknown) {
   return number.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function parseMoney(value: unknown) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(String(value).replace(/\s/g, '').replace(/\./g, '').replace(',', '.'));
+  return Number.isFinite(number) ? number : null;
+}
+
 export function PipelineSaleConfirmation() {
   const pathname = usePathname() || '';
   const active = /^\/loja\/[^/]+\/pipeline\/?$/.test(pathname);
@@ -85,8 +103,18 @@ export function PipelineSaleConfirmation() {
   const [paymentType, setPaymentType] = useState('');
   const [bank, setBank] = useState('');
   const [otherBank, setOtherBank] = useState('');
+  const [installmentPreset, setInstallmentPreset] = useState('');
+  const [customInstallments, setCustomInstallments] = useState('');
+  const [hasDownPayment, setHasDownPayment] = useState<'' | 'yes' | 'no'>('');
+  const [downPaymentValue, setDownPaymentValue] = useState('');
+  const [financedAmount, setFinancedAmount] = useState('');
+  const [installmentValue, setInstallmentValue] = useState('');
   const [tradeIn, setTradeIn] = useState<'' | 'yes' | 'no'>('');
   const [saleValue, setSaleValue] = useState('');
+
+  const finalInstallmentCount = installmentPreset === 'custom' ? customInstallments : installmentPreset;
+  const installmentRequired = paymentType === 'financed' || paymentType === 'consortium';
+  const bankRequired = paymentType === 'financed';
 
   async function token() {
     const { data } = await supabase.auth.getSession();
@@ -103,6 +131,12 @@ export function PipelineSaleConfirmation() {
     setPaymentType('');
     setBank('');
     setOtherBank('');
+    setInstallmentPreset('');
+    setCustomInstallments('');
+    setHasDownPayment('');
+    setDownPaymentValue('');
+    setFinancedAmount('');
+    setInstallmentValue('');
     setTradeIn('');
     setSaleValue('');
   }
@@ -131,6 +165,31 @@ export function PipelineSaleConfirmation() {
     closeLegacyModal();
   }
 
+  function changePaymentType(next: string) {
+    setPaymentType(next);
+    if (next === 'cash') {
+      setBank('');
+      setOtherBank('');
+      setInstallmentPreset('');
+      setCustomInstallments('');
+      setHasDownPayment('no');
+      setDownPaymentValue('');
+      setFinancedAmount('');
+      setInstallmentValue('');
+    }
+  }
+
+  function calculateFinancing() {
+    if (!['financed', 'consortium'].includes(paymentType)) return;
+    const total = parseMoney(saleValue);
+    const entry = hasDownPayment === 'yes' ? parseMoney(downPaymentValue) : 0;
+    const installments = Number(finalInstallmentCount || 0);
+    if (total === null || entry === null) return;
+    const financed = Math.max(total - entry, 0);
+    setFinancedAmount(moneyInput(financed));
+    if (installments > 0) setInstallmentValue(moneyInput(financed / installments));
+  }
+
   async function loadSale(currentLeadId: string) {
     setLoading(true);
     setMessage('Carregando vendedores e informações da venda...');
@@ -146,15 +205,24 @@ export function PipelineSaleConfirmation() {
       if (!response.ok) throw new Error(payload.error || 'Não foi possível preparar a venda.');
 
       const loaded = payload as SaleContext;
-      const existingPayment = ['cash', 'financed'].includes(loaded.sale?.payment_type) ? loaded.sale.payment_type : '';
+      const existingPayment = ['cash', 'financed', 'consortium', 'other'].includes(loaded.sale?.payment_type) ? loaded.sale.payment_type : '';
       const existingBank = String(loaded.sale?.financing_bank || '').trim();
       const knownBank = bankOptions.includes(existingBank);
+      const count = loaded.sale?.installment_count ? String(loaded.sale.installment_count) : '';
 
       setContext(loaded);
       setSellerUserId(loaded.suggested_seller_id || '');
       setPaymentType(existingPayment);
-      setBank(existingPayment === 'financed' ? (knownBank ? existingBank : existingBank && existingBank !== 'Não informado' ? 'other' : '') : '');
-      setOtherBank(existingPayment === 'financed' && existingBank && !knownBank && existingBank !== 'Não informado' ? existingBank : '');
+      setBank(existingPayment !== 'cash' && existingBank && !['Não informado', 'Não se aplica', 'Consórcio', 'Outro'].includes(existingBank)
+        ? (knownBank ? existingBank : 'other')
+        : '');
+      setOtherBank(existingPayment !== 'cash' && existingBank && !knownBank && !['Não informado', 'Não se aplica', 'Consórcio', 'Outro'].includes(existingBank) ? existingBank : '');
+      setInstallmentPreset(installmentOptions.includes(count) ? count : count ? 'custom' : '');
+      setCustomInstallments(installmentOptions.includes(count) ? '' : count);
+      setHasDownPayment(typeof loaded.sale?.has_down_payment === 'boolean' ? (loaded.sale.has_down_payment ? 'yes' : 'no') : '');
+      setDownPaymentValue(moneyInput(loaded.sale?.down_payment_value));
+      setFinancedAmount(moneyInput(loaded.sale?.financed_amount));
+      setInstallmentValue(moneyInput(loaded.sale?.installment_value));
       setTradeIn(typeof loaded.sale?.has_trade_in === 'boolean' ? (loaded.sale.has_trade_in ? 'yes' : 'no') : '');
       setSaleValue(moneyInput(loaded.sale?.sale_value ?? loaded.lead.interested_vehicle_price));
       setMessage('');
@@ -228,23 +296,25 @@ export function PipelineSaleConfirmation() {
     event.preventDefault();
     if (!leadId || saving) return;
 
-    if (!sellerUserId) {
-      setMessage('Selecione o vendedor responsável pelo fechamento.');
-      return;
+    if (!sellerUserId) return setMessage('Selecione o vendedor responsável pelo fechamento.');
+    if (!paymentType) return setMessage('Selecione a forma de pagamento.');
+
+    const selectedBank = paymentType === 'cash'
+      ? 'Não se aplica'
+      : bank === 'other'
+        ? otherBank.trim()
+        : bank;
+    if (paymentType === 'financed' && !selectedBank) return setMessage('Selecione ou informe o banco do financiamento.');
+    if (installmentRequired) {
+      const count = Number(finalInstallmentCount);
+      if (!Number.isInteger(count) || count < 1 || count > 120) return setMessage('Informe uma quantidade de parcelas entre 1 e 120.');
     }
-    if (!paymentType) {
-      setMessage('Selecione se a venda foi à vista ou financiada.');
-      return;
+    if (paymentType !== 'cash' && !hasDownPayment) return setMessage('Informe se houve entrada.');
+    if (hasDownPayment === 'yes') {
+      const entry = parseMoney(downPaymentValue);
+      if (entry === null || entry <= 0) return setMessage('Informe um valor de entrada maior que zero.');
     }
-    const selectedBank = paymentType === 'cash' ? 'Não se aplica' : bank === 'other' ? otherBank.trim() : bank;
-    if (paymentType === 'financed' && !selectedBank) {
-      setMessage('Selecione ou informe o banco do financiamento.');
-      return;
-    }
-    if (!tradeIn) {
-      setMessage('Informe se houve veículo na troca.');
-      return;
-    }
+    if (!tradeIn) return setMessage('Informe se houve veículo na troca.');
 
     setSaving(true);
     setSuccess(false);
@@ -264,7 +334,12 @@ export function PipelineSaleConfirmation() {
           payment_type: paymentType,
           financing_bank: selectedBank,
           has_trade_in: tradeIn === 'yes',
-          sale_value: saleValue
+          sale_value: saleValue,
+          installment_count: finalInstallmentCount || null,
+          has_down_payment: paymentType === 'cash' ? false : hasDownPayment === 'yes',
+          down_payment_value: hasDownPayment === 'yes' ? downPaymentValue : null,
+          financed_amount: financedAmount,
+          installment_value: installmentValue
         })
       });
       const payload = await response.json();
@@ -294,14 +369,14 @@ export function PipelineSaleConfirmation() {
 
   return createPortal(
     <div className="fixed inset-0 z-[170] flex items-center justify-center bg-black/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Confirmar venda completa" onMouseDown={close}>
-      <section className="max-h-[94dvh] w-full max-w-3xl overflow-y-auto rounded-[30px] bg-white text-slate-950 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+      <section className="max-h-[94dvh] w-full max-w-4xl overflow-y-auto rounded-[30px] bg-white text-slate-950 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
         <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white/95 px-5 py-5 backdrop-blur md:px-7">
           <div className="flex items-start gap-3">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600"><BadgeDollarSign size={24} /></div>
             <div>
               <p className="text-[11px] font-black uppercase tracking-[0.22em] text-emerald-600">Fechamento da negociação</p>
               <h2 className="mt-1 text-2xl font-black">Confirmar venda</h2>
-              <p className="mt-1 text-sm text-slate-500">Registre o vendedor e os dados que alimentarão o dashboard Master.</p>
+              <p className="mt-1 text-sm text-slate-500">Registre vendedor, pagamento, entrada, parcelas e troca.</p>
             </div>
           </div>
           <button type="button" onClick={close} disabled={saving} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 disabled:opacity-50"><X size={20} /></button>
@@ -334,10 +409,12 @@ export function PipelineSaleConfirmation() {
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="text-sm font-black text-slate-700">
                   Forma de pagamento
-                  <select value={paymentType} onChange={(event) => { setPaymentType(event.target.value); if (event.target.value === 'cash') { setBank(''); setOtherBank(''); } }} className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-emerald-500" required>
+                  <select value={paymentType} onChange={(event) => changePaymentType(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-emerald-500" required>
                     <option value="">Selecione</option>
                     <option value="cash">À vista</option>
                     <option value="financed">Financiado</option>
+                    <option value="consortium">Consórcio</option>
+                    <option value="other">Outro</option>
                   </select>
                 </label>
 
@@ -345,30 +422,85 @@ export function PipelineSaleConfirmation() {
                   Valor da venda
                   <div className="relative mt-2">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-black text-slate-500">R$</span>
-                    <input value={saleValue} onChange={(event) => setSaleValue(event.target.value)} inputMode="decimal" placeholder="0,00" className="w-full rounded-2xl border border-slate-300 bg-white py-3 pl-12 pr-4 text-sm font-bold outline-none focus:border-emerald-500" />
+                    <input value={saleValue} onChange={(event) => setSaleValue(event.target.value)} onBlur={calculateFinancing} inputMode="decimal" placeholder="0,00" className="w-full rounded-2xl border border-slate-300 bg-white py-3 pl-12 pr-4 text-sm font-bold outline-none focus:border-emerald-500" />
                   </div>
                 </label>
               </div>
 
-              {paymentType === 'financed' ? (
-                <div className="grid gap-4 rounded-3xl border border-blue-100 bg-blue-50/60 p-4 md:grid-cols-2">
+              {paymentType && paymentType !== 'cash' ? (
+                <div className="grid gap-4 rounded-3xl border border-blue-100 bg-blue-50/60 p-4 md:grid-cols-2 lg:grid-cols-3">
                   <label className="text-sm font-black text-slate-700">
-                    Banco do financiamento
-                    <select value={bank} onChange={(event) => setBank(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-500" required>
-                      <option value="">Selecione o banco</option>
+                    {paymentType === 'consortium' ? 'Banco / administradora' : paymentType === 'financed' ? 'Banco financiador' : 'Instituição / observação'}
+                    <select value={bank} onChange={(event) => setBank(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-500">
+                      <option value="">{bankRequired ? 'Selecione o banco' : 'Não informado'}</option>
                       {bankOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-                      <option value="other">Outro banco</option>
+                      <option value="other">Outro</option>
                     </select>
                   </label>
+
                   {bank === 'other' ? (
                     <label className="text-sm font-black text-slate-700">
-                      Nome do banco
-                      <input value={otherBank} onChange={(event) => setOtherBank(event.target.value)} placeholder="Digite o banco" className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-500" required />
+                      Nome da instituição
+                      <input value={otherBank} onChange={(event) => setOtherBank(event.target.value)} placeholder="Digite o nome" className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-500" />
                     </label>
                   ) : (
-                    <div className="flex items-center gap-3 rounded-2xl border border-blue-100 bg-white p-4 text-blue-700"><Landmark size={22} /><p className="text-sm font-bold">O banco será registrado no relatório financeiro da venda.</p></div>
+                    <div className="flex min-h-[84px] items-center gap-3 rounded-2xl border border-blue-100 bg-white p-4 text-blue-700"><Landmark size={22} /><p className="text-xs font-bold">A instituição será registrada no relatório comercial.</p></div>
                   )}
+
+                  <label className="text-sm font-black text-slate-700">
+                    Quantidade de parcelas
+                    <select value={installmentPreset} onChange={(event) => setInstallmentPreset(event.target.value)} onBlur={calculateFinancing} className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-500">
+                      <option value="">{installmentRequired ? 'Selecione' : 'Sem parcelas'}</option>
+                      {installmentOptions.map((item) => <option key={item} value={item}>{item} parcelas</option>)}
+                      <option value="custom">Outra quantidade</option>
+                    </select>
+                  </label>
+
+                  {installmentPreset === 'custom' ? (
+                    <label className="text-sm font-black text-slate-700">
+                      Número personalizado
+                      <input type="number" min="1" max="120" value={customInstallments} onChange={(event) => setCustomInstallments(event.target.value)} onBlur={calculateFinancing} placeholder="Ex.: 72" className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-500" />
+                    </label>
+                  ) : null}
+
+                  <fieldset>
+                    <legend className="text-sm font-black text-slate-700">Teve entrada?</legend>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => setHasDownPayment('yes')} className={`rounded-2xl border px-3 py-3 text-sm font-black ${hasDownPayment === 'yes' ? 'border-blue-500 bg-white text-blue-700 ring-2 ring-blue-100' : 'border-slate-300 bg-white text-slate-600'}`}>Sim</button>
+                      <button type="button" onClick={() => { setHasDownPayment('no'); setDownPaymentValue(''); }} className={`rounded-2xl border px-3 py-3 text-sm font-black ${hasDownPayment === 'no' ? 'border-blue-500 bg-white text-blue-700 ring-2 ring-blue-100' : 'border-slate-300 bg-white text-slate-600'}`}>Não</button>
+                    </div>
+                  </fieldset>
+
+                  {hasDownPayment === 'yes' ? (
+                    <label className="text-sm font-black text-slate-700">
+                      Valor da entrada
+                      <div className="relative mt-2">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-black text-slate-500">R$</span>
+                        <input value={downPaymentValue} onChange={(event) => setDownPaymentValue(event.target.value)} onBlur={calculateFinancing} inputMode="decimal" placeholder="0,00" className="w-full rounded-2xl border border-slate-300 bg-white py-3 pl-12 pr-4 text-sm font-bold outline-none focus:border-blue-500" />
+                      </div>
+                    </label>
+                  ) : null}
+
+                  <label className="text-sm font-black text-slate-700">
+                    Valor financiado
+                    <div className="relative mt-2">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-black text-slate-500">R$</span>
+                      <input value={financedAmount} onChange={(event) => setFinancedAmount(event.target.value)} inputMode="decimal" placeholder="0,00" className="w-full rounded-2xl border border-slate-300 bg-white py-3 pl-12 pr-4 text-sm font-bold outline-none focus:border-blue-500" />
+                    </div>
+                  </label>
+
+                  <label className="text-sm font-black text-slate-700">
+                    Valor da parcela
+                    <div className="relative mt-2">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-black text-slate-500">R$</span>
+                      <input value={installmentValue} onChange={(event) => setInstallmentValue(event.target.value)} inputMode="decimal" placeholder="Opcional" className="w-full rounded-2xl border border-slate-300 bg-white py-3 pl-12 pr-4 text-sm font-bold outline-none focus:border-blue-500" />
+                    </div>
+                  </label>
+
+                  <button type="button" onClick={calculateFinancing} className="inline-flex min-h-12 items-center justify-center gap-2 self-end rounded-2xl border border-blue-200 bg-white px-4 py-3 text-sm font-black text-blue-700 hover:bg-blue-50"><Calculator size={18} /> Calcular valores</button>
                 </div>
+              ) : paymentType === 'cash' ? (
+                <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-700"><Banknote size={21} /><p className="text-sm font-bold">Venda à vista: banco, parcelas e entrada não se aplicam.</p></div>
               ) : null}
 
               <fieldset>
