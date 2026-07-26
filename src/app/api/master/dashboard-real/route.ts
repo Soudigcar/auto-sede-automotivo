@@ -3,9 +3,9 @@ import { createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/s
 
 export const runtime = 'nodejs';
 
-type Row = Record<string, any>;
+type AnyRow = Record<string, any>;
 
-function normalize(value: unknown) {
+function normalized(value: unknown) {
   return String(value || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -14,119 +14,89 @@ function normalize(value: unknown) {
     .toLowerCase();
 }
 
-function isInsidePeriod(item: Row, dateFrom: string, dateTo: string, fields: string[]) {
-  if (!dateFrom && !dateTo) return true;
-  const rawDate = fields.map((field) => item?.[field]).find(Boolean);
-  if (!rawDate) return true;
-  const dateValue = String(rawDate).slice(0, 10);
-  if (dateFrom && dateValue < dateFrom) return false;
-  if (dateTo && dateValue > dateTo) return false;
-  return true;
+function insidePeriod(row: AnyRow, from: string, to: string, fields: string[]) {
+  if (!from && !to) return true;
+  const raw = fields.map((field) => row?.[field]).find(Boolean);
+  if (!raw) return true;
+  const date = String(raw).slice(0, 10);
+  return (!from || date >= from) && (!to || date <= to);
 }
 
-function isActiveStore(store: Row) {
-  return !['deleted', 'excluido', 'inactive', 'inativo'].includes(normalize(store?.status));
+function activeStore(row: AnyRow) {
+  return !['deleted', 'excluido', 'inactive', 'inativo'].includes(normalized(row.status));
 }
 
-function isActiveSiteVehicle(vehicle: Row) {
-  const status = normalize(vehicle?.status);
-  if (vehicle?.show_on_landing === false) return false;
-  return !['oculto', 'deleted', 'excluido', 'rejected', 'duplicate', 'vendido', 'sold', 'reservado', 'reserved', 'inactive', 'inativo'].includes(status);
+function activeVehicle(row: AnyRow) {
+  if (row.show_on_landing === false) return false;
+  return !['oculto', 'deleted', 'excluido', 'rejected', 'duplicate', 'vendido', 'sold', 'reservado', 'reserved', 'inactive', 'inativo'].includes(normalized(row.status));
 }
 
-function isPublishedStockLink(link: Row) {
-  const status = normalize(link?.status);
-  const metadata = link?.metadata || {};
-  if (metadata.store_removed === true) return false;
+function publishedLink(row: AnyRow) {
+  if (row?.metadata?.store_removed === true) return false;
+  const status = normalized(row.status);
   if (['rejected', 'duplicate', 'deleted', 'excluido'].includes(status)) return false;
-  return status === 'published' || Boolean(link?.imported_vehicle_id);
+  return status === 'published' || Boolean(row.imported_vehicle_id);
 }
 
-function buildAvailableStockRows({
-  stores,
-  siteVehicles,
-  submissions,
-  selectedEventId,
-  selectedStoreId
-}: {
-  stores: Row[];
-  siteVehicles: Row[];
-  submissions: Row[];
-  selectedEventId: string;
-  selectedStoreId: string;
-}) {
-  const visibleStores = stores.filter(isActiveStore).filter((store) => {
-    if (selectedEventId !== 'all' && store.event_id !== selectedEventId) return false;
-    if (selectedStoreId !== 'all' && store.id !== selectedStoreId) return false;
+function currency(value: number) {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+}
+
+function buildStock(stores: AnyRow[], vehicles: AnyRow[], links: AnyRow[], eventId: string, storeId: string) {
+  const visibleStores = stores.filter(activeStore).filter((store) => {
+    if (eventId !== 'all' && store.event_id !== eventId) return false;
+    if (storeId !== 'all' && store.id !== storeId) return false;
     return true;
   });
 
-  const storeById = new Map(visibleStores.map((store) => [store.id, store]));
-  const storeByName = new Map(visibleStores.map((store) => [normalize(store.store_name), store]));
-  const vehicleById = new Map(siteVehicles.map((vehicle) => [vehicle.id, vehicle]));
+  const storeById = new Map<string, AnyRow>();
+  const storeByName = new Map<string, AnyRow>();
+  const vehicleById = new Map<string, AnyRow>();
+  visibleStores.forEach((store) => {
+    storeById.set(String(store.id), store);
+    storeByName.set(normalized(store.store_name), store);
+  });
+  vehicles.forEach((vehicle) => vehicleById.set(String(vehicle.id), vehicle));
 
-  const linkedRows = submissions
-    .filter(isPublishedStockLink)
-    .map((link) => {
-      const store = storeById.get(link.store_id);
-      if (!store) return null;
-
-      if (link.imported_vehicle_id) {
-        const vehicle = vehicleById.get(link.imported_vehicle_id);
-        if (!vehicle || !isActiveSiteVehicle(vehicle)) return null;
-      }
-
-      return {
-        id: link.imported_vehicle_id || link.id,
-        store_id: store.id,
-        event_id: store.event_id
-      };
-    })
-    .filter(Boolean) as Row[];
-
-  const linkedVehicleIds = new Set(linkedRows.map((item) => item.id).filter(Boolean));
-
-  const manualRows = siteVehicles
-    .filter(isActiveSiteVehicle)
-    .filter((vehicle) => !linkedVehicleIds.has(vehicle.id))
-    .map((vehicle) => {
-      const store = storeByName.get(normalize(vehicle.store_name));
-      if (!store) return null;
-      return { id: vehicle.id, store_id: store.id, event_id: store.event_id };
-    })
-    .filter(Boolean) as Row[];
-
-  const unique = new Map<string, Row>();
-  [...linkedRows, ...manualRows].forEach((item) => {
-    const key = `${item.store_id}:${item.id}`;
-    if (!unique.has(key)) unique.set(key, item);
+  const rows: AnyRow[] = [];
+  links.filter(publishedLink).forEach((link) => {
+    const store = storeById.get(String(link.store_id));
+    if (!store) return;
+    if (link.imported_vehicle_id) {
+      const vehicle = vehicleById.get(String(link.imported_vehicle_id));
+      if (!vehicle || !activeVehicle(vehicle)) return;
+    }
+    rows.push({ id: link.imported_vehicle_id || link.id, store_id: store.id });
   });
 
+  const linkedIds = new Set(rows.map((row) => String(row.id)));
+  vehicles.filter(activeVehicle).forEach((vehicle) => {
+    if (linkedIds.has(String(vehicle.id))) return;
+    const store = storeByName.get(normalized(vehicle.store_name));
+    if (!store) return;
+    rows.push({ id: vehicle.id, store_id: store.id });
+  });
+
+  const unique = new Map<string, AnyRow>();
+  rows.forEach((row) => unique.set(`${row.store_id}:${row.id}`, row));
   return Array.from(unique.values());
 }
 
-function memberName(userMap: Map<string, Row>, id: unknown, fallback?: unknown) {
-  const user = id ? userMap.get(String(id)) : null;
-  return String(user?.full_name || user?.email || fallback || '').trim();
-}
-
-function buildRanking(rows: Row[], resolveName: (row: Row) => string) {
-  const grouped = new Map<string, { name: string; sales: number; revenue: number }>();
-
-  rows.forEach((row) => {
-    const name = resolveName(row);
+function buildRanking(sales: AnyRow[], nameResolver: (sale: AnyRow) => string) {
+  const groups = new Map<string, { name: string; sales: number; revenue: number }>();
+  sales.forEach((sale) => {
+    const name = nameResolver(sale).trim();
     if (!name) return;
-    const key = normalize(name);
-    const current = grouped.get(key) || { name, sales: 0, revenue: 0 };
-    current.sales += 1;
-    current.revenue += Number(row.sale_value || 0);
-    grouped.set(key, current);
+    const key = normalized(name);
+    const item = groups.get(key) || { name, sales: 0, revenue: 0 };
+    item.sales += 1;
+    item.revenue += Number(sale.sale_value || 0);
+    groups.set(key, item);
   });
-
-  return Array.from(grouped.values())
+  return Array.from(groups.values())
     .sort((a, b) => b.sales - a.sales || b.revenue - a.revenue || a.name.localeCompare(b.name, 'pt-BR'))
     .slice(0, 5)
-    .map((item) => `${item.name} — ${item.sales} venda${item.sales === 1 ? '' : 's'} · ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.revenue)}`);
+    .map((item) => `${item.name} — ${item.sales} venda${item.sales === 1 ? '' : 's'} · ${currency(item.revenue)}`);
 }
 
 export async function GET(request: Request) {
@@ -141,24 +111,12 @@ export async function GET(request: Request) {
     }
 
     const url = new URL(request.url);
-    const selectedEventId = url.searchParams.get('event_id') || 'all';
-    const selectedStoreId = url.searchParams.get('store_id') || 'all';
-    const dateFrom = url.searchParams.get('date_from') || '';
-    const dateTo = url.searchParams.get('date_to') || '';
+    const eventId = url.searchParams.get('event_id') || 'all';
+    const storeId = url.searchParams.get('store_id') || 'all';
+    const from = url.searchParams.get('date_from') || '';
+    const to = url.searchParams.get('date_to') || '';
 
-    const [
-      eventsResult,
-      storesResult,
-      leadsResult,
-      salesResult,
-      siteVehiclesResult,
-      submissionsResult,
-      financeResult,
-      surveysResult,
-      activityResult,
-      usersResult,
-      prospectorsResult
-    ] = await Promise.all([
+    const results: any[] = await Promise.all([
       supabase.from('events').select('id,event_name,status,created_at').neq('status', 'deleted').order('created_at', { ascending: false }),
       supabase.from('stores').select('id,event_id,store_name,status,portal_enabled').neq('status', 'deleted').order('store_name'),
       supabase.from('leads').select('id,event_id,assigned_store_id,customer_phone,status,scheduled_at,vehicle_category_interest,created_at'),
@@ -172,170 +130,153 @@ export async function GET(request: Request) {
       supabase.from('prospectors').select('id,user_id,full_name')
     ]);
 
-    const requiredResults = [eventsResult, storesResult, leadsResult, salesResult, siteVehiclesResult, submissionsResult, financeResult, surveysResult, activityResult, usersResult, prospectorsResult];
-    const firstError = requiredResults.find((result) => result.error)?.error;
-    if (firstError) throw firstError;
+    const errorResult = results.find((result) => result.error);
+    if (errorResult?.error) throw errorResult.error;
 
-    const eventRows = eventsResult.data || [];
-    const allStores = storesResult.data || [];
-    const allLeads = leadsResult.data || [];
-    const allSales = salesResult.data || [];
-    const allSurveys = surveysResult.data || [];
-    const allActivities = activityResult.data || [];
-    const userMap = new Map((usersResult.data || []).map((user: Row) => [String(user.id), user]));
-    const prospectorMap = new Map((prospectorsResult.data || []).map((prospector: Row) => [String(prospector.id), prospector]));
+    const [eventsResult, storesResult, leadsResult, salesResult, vehiclesResult, linksResult, financeResult, surveysResult, activitiesResult, usersResult, prospectorsResult] = results;
+    const events: AnyRow[] = eventsResult.data || [];
+    const stores: AnyRow[] = storesResult.data || [];
+    const leads: AnyRow[] = leadsResult.data || [];
+    const sales: AnyRow[] = salesResult.data || [];
+    const activities: AnyRow[] = activitiesResult.data || [];
 
-    const visibleStores = allStores.filter(isActiveStore).filter((store: Row) => selectedEventId === 'all' || store.event_id === selectedEventId);
-    const rankingStores = visibleStores.filter((store: Row) => selectedStoreId === 'all' || store.id === selectedStoreId);
+    const users = new Map<string, AnyRow>();
+    (usersResult.data || []).forEach((user: AnyRow) => users.set(String(user.id), user));
+    const prospectors = new Map<string, AnyRow>();
+    (prospectorsResult.data || []).forEach((prospector: AnyRow) => prospectors.set(String(prospector.id), prospector));
+    const userName = (id: unknown, fallback: unknown = '') => {
+      const user = id ? users.get(String(id)) : null;
+      return String(user?.full_name || user?.email || fallback || '');
+    };
 
-    const leadRows = allLeads
-      .filter((lead: Row) => selectedEventId === 'all' || lead.event_id === selectedEventId)
-      .filter((lead: Row) => selectedStoreId === 'all' || lead.assigned_store_id === selectedStoreId)
-      .filter((lead: Row) => isInsidePeriod(lead, dateFrom, dateTo, ['created_at']));
+    const visibleStores = stores.filter(activeStore).filter((store) => eventId === 'all' || store.event_id === eventId);
+    const rankingStores = visibleStores.filter((store) => storeId === 'all' || store.id === storeId);
 
-    const saleRows = allSales
-      .filter((sale: Row) => selectedEventId === 'all' || sale.event_id === selectedEventId)
-      .filter((sale: Row) => selectedStoreId === 'all' || sale.store_id === selectedStoreId)
-      .filter((sale: Row) => isInsidePeriod(sale, dateFrom, dateTo, ['confirmed_at', 'created_at']));
+    const filteredLeads = leads
+      .filter((lead) => eventId === 'all' || lead.event_id === eventId)
+      .filter((lead) => storeId === 'all' || lead.assigned_store_id === storeId)
+      .filter((lead) => insidePeriod(lead, from, to, ['created_at']));
+    const filteredSales = sales
+      .filter((sale) => eventId === 'all' || sale.event_id === eventId)
+      .filter((sale) => storeId === 'all' || sale.store_id === storeId)
+      .filter((sale) => insidePeriod(sale, from, to, ['confirmed_at', 'created_at']));
+    const filteredSurveys: AnyRow[] = (surveysResult.data || [])
+      .filter((survey: AnyRow) => eventId === 'all' || survey.event_id === eventId)
+      .filter((survey: AnyRow) => storeId === 'all' || survey.assigned_store_id === storeId)
+      .filter((survey: AnyRow) => insidePeriod(survey, from, to, ['created_at']));
+    const filteredFinance: AnyRow[] = (financeResult.data || [])
+      .filter((entry: AnyRow) => eventId === 'all' || entry.event_id === eventId)
+      .filter((entry: AnyRow) => insidePeriod(entry, from, to, ['payment_date', 'created_at']));
 
-    const surveyRows = allSurveys
-      .filter((survey: Row) => selectedEventId === 'all' || survey.event_id === selectedEventId)
-      .filter((survey: Row) => selectedStoreId === 'all' || survey.assigned_store_id === selectedStoreId)
-      .filter((survey: Row) => isInsidePeriod(survey, dateFrom, dateTo, ['created_at']));
+    const stock = buildStock(stores, vehiclesResult.data || [], linksResult.data || [], eventId, storeId);
+    const leadIds = new Set(filteredLeads.map((lead) => String(lead.id)));
+    const lifecycleActivities = activities.filter((activity) => leadIds.has(String(activity.lead_id)));
+    const periodActivities = lifecycleActivities.filter((activity) => insidePeriod(activity, from, to, ['created_at']));
 
-    const financeRows = (financeResult.data || [])
-      .filter((item: Row) => selectedEventId === 'all' || item.event_id === selectedEventId)
-      .filter((item: Row) => isInsidePeriod(item, dateFrom, dateTo, ['payment_date', 'created_at']));
+    const totalLeads = filteredLeads.length;
+    const surveysCount = filteredSurveys.length;
+    const leadsWithPhone = filteredLeads.filter((lead) => String(lead.customer_phone || '').trim()).length;
+    const directedToStore = filteredLeads.filter((lead) => lead.assigned_store_id).length;
+    const salesCount = filteredSales.length;
+    const conversionRate = leadsWithPhone ? (salesCount / leadsWithPhone) * 100 : 0;
+    const totalRevenue = filteredSales.reduce((sum, sale) => sum + Number(sale.sale_value || 0), 0);
+    const financedSales = filteredSales.filter((sale) => normalized(sale.payment_type) === 'financed');
+    const financedBanks = financedSales
+      .map((sale) => String(sale.financing_bank || '').trim())
+      .filter((bank) => bank && !['nao informado', 'nao se aplica'].includes(normalized(bank)));
 
-    const stockRows = buildAvailableStockRows({
-      stores: allStores,
-      siteVehicles: siteVehiclesResult.data || [],
-      submissions: submissionsResult.data || [],
-      selectedEventId,
-      selectedStoreId
-    });
-
-    const filteredLeadIds = new Set(leadRows.map((lead: Row) => String(lead.id)));
-    const lifecycleActivities = allActivities.filter((activity: Row) => filteredLeadIds.has(String(activity.lead_id)));
-    const periodActivities = lifecycleActivities.filter((activity: Row) => isInsidePeriod(activity, dateFrom, dateTo, ['created_at']));
-
-    const totalLeads = leadRows.length;
-    const surveysCount = surveyRows.length;
-    const leadsWithPhone = leadRows.filter((lead: Row) => Boolean(String(lead.customer_phone || '').trim())).length;
-    const directedToStore = leadRows.filter((lead: Row) => Boolean(lead.assigned_store_id)).length;
-    const salesCount = saleRows.length;
-    const conversionRate = leadsWithPhone > 0 ? (salesCount / leadsWithPhone) * 100 : 0;
-    const totalRevenue = saleRows.reduce((sum: number, sale: Row) => sum + Number(sale.sale_value || 0), 0);
-
-    const financedSales = saleRows.filter((sale: Row) => normalize(sale.payment_type) === 'financed');
-    const validFinancedBanks = financedSales
-      .map((sale: Row) => String(sale.financing_bank || '').trim())
-      .filter((bank: string) => bank && !['nao informado', 'nao se aplica'].includes(normalize(bank)));
-    const financedBanksCount = new Set(validFinancedBanks.map(normalize)).size;
-
+    const started = new Set<string>();
+    const scheduled = new Set<string>();
+    const showed = new Set<string>();
     const startedTypes = new Set(['status_changed', 'whatsapp_clicked', 'phone_viewed', 'schedule_created', 'showed_up_marked', 'sale_confirmed', 'lead_transferred', 'lead_edited']);
-    const startedLeadIds = new Set<string>();
-    leadRows.forEach((lead: Row) => {
-      if (normalize(lead.status) !== 'new_lead') startedLeadIds.add(String(lead.id));
+    filteredLeads.forEach((lead) => {
+      const status = normalized(lead.status);
+      if (status !== 'new_lead') started.add(String(lead.id));
+      if (lead.scheduled_at || ['scheduled', 'showed_up', 'no_show', 'appointment_cancelled', 'sale_confirmed'].includes(status)) scheduled.add(String(lead.id));
+      if (['showed_up', 'sale_confirmed'].includes(status)) showed.add(String(lead.id));
     });
-    lifecycleActivities.forEach((activity: Row) => {
-      if (startedTypes.has(String(activity.activity_type))) startedLeadIds.add(String(activity.lead_id));
-    });
-
-    const scheduledLeadIds = new Set<string>();
-    leadRows.forEach((lead: Row) => {
-      if (lead.scheduled_at || ['scheduled', 'showed_up', 'no_show', 'appointment_cancelled', 'sale_confirmed'].includes(normalize(lead.status))) {
-        scheduledLeadIds.add(String(lead.id));
-      }
-    });
-    lifecycleActivities.forEach((activity: Row) => {
-      if (['schedule_created', 'showed_up_marked', 'sale_confirmed'].includes(String(activity.activity_type))) scheduledLeadIds.add(String(activity.lead_id));
+    lifecycleActivities.forEach((activity) => {
+      const type = String(activity.activity_type || '');
+      const id = String(activity.lead_id);
+      if (startedTypes.has(type)) started.add(id);
+      if (['schedule_created', 'showed_up_marked', 'sale_confirmed'].includes(type)) scheduled.add(id);
+      if (['showed_up_marked', 'sale_confirmed'].includes(type)) showed.add(id);
     });
 
-    const showedLeadIds = new Set<string>();
-    leadRows.forEach((lead: Row) => {
-      if (['showed_up', 'sale_confirmed'].includes(normalize(lead.status))) showedLeadIds.add(String(lead.id));
-    });
-    lifecycleActivities.forEach((activity: Row) => {
-      if (['showed_up_marked', 'sale_confirmed'].includes(String(activity.activity_type))) showedLeadIds.add(String(activity.lead_id));
-    });
-
-    const soldLeadIds = new Set(saleRows.map((sale: Row) => String(sale.lead_id)).filter(Boolean));
-    const percent = (count: number) => totalLeads > 0 ? (count / totalLeads) * 100 : 0;
+    const sold = new Set(filteredSales.map((sale) => String(sale.lead_id)).filter(Boolean));
+    const percent = (count: number) => totalLeads ? (count / totalLeads) * 100 : 0;
     const funnel = [
       { label: 'Leads captados', count: totalLeads, percent: percent(totalLeads), color: '#0B84F3' },
       { label: 'Com telefone', count: leadsWithPhone, percent: percent(leadsWithPhone), color: '#FF941A' },
       { label: 'Direcionados', count: directedToStore, percent: percent(directedToStore), color: '#EE2737' },
-      { label: 'Atendimento iniciado', count: startedLeadIds.size, percent: percent(startedLeadIds.size), color: '#168AE5' },
-      { label: 'Agendamento', count: scheduledLeadIds.size, percent: percent(scheduledLeadIds.size), color: '#15A85A' },
-      { label: 'Comparecimento', count: showedLeadIds.size, percent: percent(showedLeadIds.size), color: '#00A86B' },
-      { label: 'Venda', count: soldLeadIds.size, percent: percent(soldLeadIds.size), color: '#E30613' }
+      { label: 'Atendimento iniciado', count: started.size, percent: percent(started.size), color: '#168AE5' },
+      { label: 'Agendamento', count: scheduled.size, percent: percent(scheduled.size), color: '#15A85A' },
+      { label: 'Comparecimento', count: showed.size, percent: percent(showed.size), color: '#00A86B' },
+      { label: 'Venda', count: sold.size, percent: percent(sold.size), color: '#E30613' }
     ];
 
-    const leadById = new Map(leadRows.map((lead: Row) => [String(lead.id), lead]));
-    const categoryGroups = new Map<string, { label: string; leads: number; sales: number }>();
-    leadRows.forEach((lead: Row) => {
-      const raw = String(lead.vehicle_category_interest || '').trim();
-      if (!raw || ['nao informado', 'outro', 'outros'].includes(normalize(raw))) return;
-      const key = normalize(raw);
-      const current = categoryGroups.get(key) || { label: raw, leads: 0, sales: 0 };
-      current.leads += 1;
-      categoryGroups.set(key, current);
+    const leadById = new Map<string, AnyRow>();
+    filteredLeads.forEach((lead) => leadById.set(String(lead.id), lead));
+    const categoryMap = new Map<string, { label: string; leads: number; sales: number }>();
+    filteredLeads.forEach((lead) => {
+      const label = String(lead.vehicle_category_interest || '').trim();
+      if (!label || ['nao informado', 'outro', 'outros'].includes(normalized(label))) return;
+      const key = normalized(label);
+      const item = categoryMap.get(key) || { label, leads: 0, sales: 0 };
+      item.leads += 1;
+      categoryMap.set(key, item);
     });
-    saleRows.forEach((sale: Row) => {
+    filteredSales.forEach((sale) => {
       const lead = leadById.get(String(sale.lead_id));
-      const raw = String(sale.vehicle_category || lead?.vehicle_category_interest || '').trim();
-      if (!raw || ['nao informado', 'outro', 'outros'].includes(normalize(raw))) return;
-      const key = normalize(raw);
-      const current = categoryGroups.get(key) || { label: raw, leads: 0, sales: 0 };
-      current.sales += 1;
-      categoryGroups.set(key, current);
+      const label = String(sale.vehicle_category || lead?.vehicle_category_interest || '').trim();
+      if (!label || ['nao informado', 'outro', 'outros'].includes(normalized(label))) return;
+      const key = normalized(label);
+      const item = categoryMap.get(key) || { label, leads: 0, sales: 0 };
+      item.sales += 1;
+      categoryMap.set(key, item);
     });
-    const categories = Array.from(categoryGroups.values())
-      .map((item) => ({ ...item, conversion: item.leads > 0 ? (item.sales / item.leads) * 100 : 0 }))
+    const categories = Array.from(categoryMap.values())
+      .map((item) => ({ ...item, conversion: item.leads ? (item.sales / item.leads) * 100 : 0 }))
       .sort((a, b) => b.leads - a.leads || b.sales - a.sales)
       .slice(0, 8);
 
-    const hourCounts = Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 }));
-    const heatSource = periodActivities.length ? periodActivities : leadRows;
-    heatSource.forEach((row: Row) => {
-      const raw = row.created_at;
-      if (!raw) return;
-      const hour = new Date(raw).getHours();
-      if (Number.isInteger(hour) && hour >= 0 && hour < 24) hourCounts[hour].count += 1;
+    const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 }));
+    const heatSource = periodActivities.length ? periodActivities : filteredLeads;
+    heatSource.forEach((row) => {
+      if (!row.created_at) return;
+      const hour = new Date(row.created_at).getHours();
+      if (hour >= 0 && hour < 24) hours[hour].count += 1;
     });
 
     const storeRanking = rankingStores
-      .map((store: Row) => {
-        const rows = saleRows.filter((sale: Row) => sale.store_id === store.id);
-        const revenue = rows.reduce((sum: number, sale: Row) => sum + Number(sale.sale_value || 0), 0);
-        return { name: store.store_name, sales: rows.length, revenue };
+      .map((store) => {
+        const rows = filteredSales.filter((sale) => sale.store_id === store.id);
+        return { name: store.store_name, sales: rows.length, revenue: rows.reduce((sum, sale) => sum + Number(sale.sale_value || 0), 0) };
       })
-      .sort((a: Row, b: Row) => b.sales - a.sales || b.revenue - a.revenue || String(a.name).localeCompare(String(b.name), 'pt-BR'))
+      .sort((a, b) => b.sales - a.sales || b.revenue - a.revenue || String(a.name).localeCompare(String(b.name), 'pt-BR'))
       .slice(0, 5)
-      .map((item: Row) => `${item.name} — ${item.sales} venda${item.sales === 1 ? '' : 's'} · ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.revenue)}`);
+      .map((item) => `${item.name} — ${item.sales} venda${item.sales === 1 ? '' : 's'} · ${currency(item.revenue)}`);
 
-    const sellerRanking = buildRanking(saleRows, (sale) => memberName(userMap, sale.seller_user_id, sale.seller_name));
-    const preSalesRanking = buildRanking(saleRows, (sale) => memberName(userMap, sale.pre_sales_user_id));
-    const prospectorRanking = buildRanking(saleRows, (sale) => {
-      const byUser = memberName(userMap, sale.captured_by_user_id);
+    const sellers = buildRanking(filteredSales, (sale) => userName(sale.seller_user_id, sale.seller_name));
+    const preSales = buildRanking(filteredSales, (sale) => userName(sale.pre_sales_user_id));
+    const prospectorRanking = buildRanking(filteredSales, (sale) => {
+      const byUser = userName(sale.captured_by_user_id);
       if (byUser) return byUser;
-      const prospector = sale.prospector_id ? prospectorMap.get(String(sale.prospector_id)) : null;
-      return String(prospector?.full_name || '').trim();
+      const prospector = sale.prospector_id ? prospectors.get(String(sale.prospector_id)) : null;
+      return String(prospector?.full_name || '');
     });
 
-    const selectedEvent = eventRows.find((event: Row) => event.id === selectedEventId);
-    const sponsorship = financeRows
-      .filter((item: Row) => normalize(item.movement_type) !== 'expense' && normalize(item.sponsor_bank) === 'bradesco')
-      .reduce((sum: number, item: Row) => sum + Number(item.amount || 0), 0);
+    const selectedEvent = events.find((event) => event.id === eventId);
+    const sponsorship = filteredFinance
+      .filter((entry) => normalized(entry.movement_type) !== 'expense' && normalized(entry.sponsor_bank) === 'bradesco')
+      .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
     const goalValue = Math.floor(sponsorship / 10000) * 1000000;
     const done = financedSales
-      .filter((sale: Row) => normalize(sale.financing_bank) === 'bradesco')
-      .reduce((sum: number, sale: Row) => sum + Number(sale.sale_value || 0), 0);
-    const goalProgress = goalValue > 0 ? Math.min(100, (done / goalValue) * 100) : 0;
+      .filter((sale) => normalized(sale.financing_bank) === 'bradesco')
+      .reduce((sum, sale) => sum + Number(sale.sale_value || 0), 0);
 
     return NextResponse.json({
-      events: eventRows,
+      events,
       stores: visibleStores,
       summary: {
         totalLeads,
@@ -344,29 +285,24 @@ export async function GET(request: Request) {
         salesCount,
         conversionRate,
         totalRevenue,
-        financedBanksCount,
+        financedBanksCount: new Set(financedBanks.map(normalized)).size,
         financedSalesCount: financedSales.length,
         directedToStore,
-        startedCount: startedLeadIds.size,
-        totalCarsInEvent: stockRows.length
+        startedCount: started.size,
+        totalCarsInEvent: stock.length
       },
       goal: {
         sponsorship,
         goal: goalValue,
         done,
-        progress: goalProgress,
-        label: selectedEventId === 'all' ? 'Todos os eventos' : selectedEvent?.event_name || 'Evento selecionado'
+        progress: goalValue ? Math.min(100, (done / goalValue) * 100) : 0,
+        label: eventId === 'all' ? 'Todos os eventos' : selectedEvent?.event_name || 'Evento selecionado'
       },
       funnel,
       categories,
-      heatmap: hourCounts,
+      heatmap: hours,
       heatmapSource: periodActivities.length ? 'Atividades registradas' : 'Criação dos leads',
-      rankings: {
-        stores: storeRanking,
-        sellers: sellerRanking,
-        preSales: preSalesRanking,
-        prospectors: prospectorRanking
-      },
+      rankings: { stores: storeRanking, sellers, preSales, prospectors: prospectorRanking },
       updatedAt: new Date().toISOString()
     });
   } catch (error: any) {
