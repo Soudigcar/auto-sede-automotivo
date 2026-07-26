@@ -3,7 +3,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePathname } from 'next/navigation';
-import { Car, CheckCircle2, Clock3, Loader2, MessageSquarePlus, Save, Tag } from 'lucide-react';
+import {
+  BadgeDollarSign,
+  Banknote,
+  Calculator,
+  Car,
+  CarFront,
+  CheckCircle2,
+  Clock3,
+  Landmark,
+  Loader2,
+  MessageSquarePlus,
+  Save,
+  Tag
+} from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { getStorePortalContext } from '@/lib/storePortalClient';
 
@@ -36,17 +49,59 @@ type LeadSummary = {
   appointment_notes?: string | null;
 };
 
+type SaleDetails = {
+  id: string;
+  payment_type: string | null;
+  financing_bank: string | null;
+  sale_value: number | string | null;
+  has_trade_in: boolean | null;
+  installment_count: number | null;
+  has_down_payment: boolean | null;
+  down_payment_value: number | string | null;
+  financed_amount: number | string | null;
+  installment_value: number | string | null;
+};
+
+const bankOptions = [
+  'Bradesco',
+  'Itaú',
+  'Santander',
+  'Banco do Brasil',
+  'Caixa Econômica Federal',
+  'Banco BV',
+  'Banco PAN',
+  'Banco Safra',
+  'Daycoval',
+  'C6 Bank',
+  'Banco Inter'
+];
+
+const installmentOptions = ['12', '24', '36', '48', '60'];
+
 function digits(value: unknown) {
   return String(value || '').replace(/\D/g, '');
 }
 
 function normalized(value: unknown) {
-  return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  return String(value || '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('pt-BR');
 }
 
 function money(value: unknown) {
   if (value === null || value === undefined || value === '') return 'Valor não informado';
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
+}
+
+function moneyInput(value: unknown) {
+  if (value === null || value === undefined || value === '') return '';
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return '';
+  return number.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function parseMoney(value: unknown) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(String(value).replace(/\s/g, '').replace(/\./g, '').replace(',', '.'));
+  return Number.isFinite(number) ? number : null;
 }
 
 function vehicleLabel(vehicle: StockVehicle) {
@@ -76,11 +131,19 @@ function noteLabel(type: LeadNote['note_type']) {
   return 'Atendimento';
 }
 
+function paymentTypeLabel(value: string) {
+  if (value === 'cash') return 'À vista';
+  if (value === 'financed') return 'Financiado';
+  if (value === 'consortium') return 'Consórcio';
+  if (value === 'other') return 'Outro';
+  return 'Não informado';
+}
+
 export function PipelineLeadEditorEnhancer() {
   const pathname = usePathname();
   const active = /^\/loja\/[^/]+\/pipeline\/?$/.test(pathname || '');
   const slug = active ? String(pathname || '').split('/')[2] || '' : '';
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const leadsRef = useRef<LeadSummary[]>([]);
   const clickedLeadIdRef = useRef('');
@@ -90,6 +153,7 @@ export function PipelineLeadEditorEnhancer() {
 
   const [modal, setModal] = useState<HTMLElement | null>(null);
   const [vehicleHost, setVehicleHost] = useState<HTMLElement | null>(null);
+  const [commercialHost, setCommercialHost] = useState<HTMLElement | null>(null);
   const [notesHost, setNotesHost] = useState<HTMLElement | null>(null);
   const [footerHost, setFooterHost] = useState<HTMLElement | null>(null);
   const [currentLead, setCurrentLead] = useState<any>(null);
@@ -100,10 +164,28 @@ export function PipelineLeadEditorEnhancer() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
 
+  const [sale, setSale] = useState<SaleDetails | null>(null);
+  const [paymentType, setPaymentType] = useState('');
+  const [bank, setBank] = useState('');
+  const [otherBank, setOtherBank] = useState('');
+  const [installmentPreset, setInstallmentPreset] = useState('');
+  const [customInstallments, setCustomInstallments] = useState('');
+  const [hasDownPayment, setHasDownPayment] = useState<'' | 'yes' | 'no'>('');
+  const [downPaymentValue, setDownPaymentValue] = useState('');
+  const [financedAmount, setFinancedAmount] = useState('');
+  const [installmentValue, setInstallmentValue] = useState('');
+  const [tradeIn, setTradeIn] = useState<'' | 'yes' | 'no'>('');
+  const [saleValue, setSaleValue] = useState('');
+
   const selectedVehicle = useMemo(
     () => stock.find((vehicle) => vehicle.id === selectedVehicleId) || null,
     [stock, selectedVehicleId]
   );
+
+  const finalInstallmentCount = installmentPreset === 'custom' ? customInstallments : installmentPreset;
+  const installmentRequired = paymentType === 'financed' || paymentType === 'consortium';
+  const bankVisible = paymentType !== '' && paymentType !== 'cash';
+  const bankRequired = paymentType === 'financed';
 
   async function getToken() {
     const { data } = await supabase.auth.getSession();
@@ -126,6 +208,48 @@ export function PipelineLeadEditorEnhancer() {
     return payload;
   }
 
+  function resetCommercial() {
+    setSale(null);
+    setPaymentType('');
+    setBank('');
+    setOtherBank('');
+    setInstallmentPreset('');
+    setCustomInstallments('');
+    setHasDownPayment('');
+    setDownPaymentValue('');
+    setFinancedAmount('');
+    setInstallmentValue('');
+    setTradeIn('');
+    setSaleValue('');
+  }
+
+  function loadCommercial(details: SaleDetails | null) {
+    setSale(details);
+    if (!details) {
+      resetCommercial();
+      return;
+    }
+
+    const existingPayment = ['cash', 'financed', 'consortium', 'other'].includes(details.payment_type || '') ? String(details.payment_type) : '';
+    const existingBank = String(details.financing_bank || '').trim();
+    const knownBank = bankOptions.includes(existingBank);
+    const count = details.installment_count ? String(details.installment_count) : '';
+
+    setPaymentType(existingPayment);
+    setBank(existingPayment !== 'cash' && existingBank && !['Não informado', 'Não se aplica', 'Consórcio', 'Outro'].includes(existingBank)
+      ? (knownBank ? existingBank : 'other')
+      : '');
+    setOtherBank(existingPayment !== 'cash' && existingBank && !knownBank && !['Não informado', 'Não se aplica', 'Consórcio', 'Outro'].includes(existingBank) ? existingBank : '');
+    setInstallmentPreset(installmentOptions.includes(count) ? count : count ? 'custom' : '');
+    setCustomInstallments(installmentOptions.includes(count) ? '' : count);
+    setHasDownPayment(typeof details.has_down_payment === 'boolean' ? (details.has_down_payment ? 'yes' : 'no') : '');
+    setDownPaymentValue(moneyInput(details.down_payment_value));
+    setFinancedAmount(moneyInput(details.financed_amount));
+    setInstallmentValue(moneyInput(details.installment_value));
+    setTradeIn(typeof details.has_trade_in === 'boolean' ? (details.has_trade_in ? 'yes' : 'no') : '');
+    setSaleValue(moneyInput(details.sale_value));
+  }
+
   function cleanupModal() {
     document.body.classList.remove('pipeline-editor-open');
     if (originalSaveRef.current) originalSaveRef.current.style.display = '';
@@ -139,6 +263,7 @@ export function PipelineLeadEditorEnhancer() {
       actionRowRef.current.style.borderTop = '';
     }
     vehicleHost?.remove();
+    commercialHost?.remove();
     notesHost?.remove();
     footerHost?.remove();
     originalSaveRef.current = null;
@@ -146,23 +271,29 @@ export function PipelineLeadEditorEnhancer() {
     activeModalRef.current = null;
     setModal(null);
     setVehicleHost(null);
+    setCommercialHost(null);
     setNotesHost(null);
     setFooterHost(null);
     setCurrentLead(null);
     setSelectedVehicleId('');
     setNewObservation('');
     setNotes([]);
+    resetCommercial();
     setMessage('');
   }
 
   async function loadLeadDetails(leadId: string) {
     try {
-      setMessage('Carregando estoque e histórico...');
-      const payload = await apiRequest(`/api/store/pipeline-details?slug=${encodeURIComponent(slug)}&lead_id=${encodeURIComponent(leadId)}`);
+      setMessage('Carregando estoque, histórico e venda...');
+      const [payload, salePayload] = await Promise.all([
+        apiRequest(`/api/store/pipeline-details?slug=${encodeURIComponent(slug)}&lead_id=${encodeURIComponent(leadId)}`),
+        apiRequest(`/api/store/sale-confirmation?lead_id=${encodeURIComponent(leadId)}`)
+      ]);
       setStock(payload.stock || []);
       setCurrentLead(payload.lead || null);
       setNotes(payload.notes || []);
       setSelectedVehicleId(payload.lead?.interested_vehicle_id || '');
+      loadCommercial(salePayload.sale || null);
       setMessage('');
     } catch (error: any) {
       setMessage(error?.message || 'Não foi possível carregar os detalhes do lead.');
@@ -206,6 +337,10 @@ export function PipelineLeadEditorEnhancer() {
     vehiclePortalHost.dataset.pipelineVehicleSelector = 'true';
     vehicleLabelElement.insertAdjacentElement('afterend', vehiclePortalHost);
 
+    const commercialPortalHost = document.createElement('div');
+    commercialPortalHost.dataset.pipelineSaleCommercial = 'true';
+    vehiclePortalHost.insertAdjacentElement('afterend', commercialPortalHost);
+
     const notesPortalHost = document.createElement('div');
     notesPortalHost.dataset.pipelineNotesHistory = 'true';
     actionRow.insertAdjacentElement('beforebegin', notesPortalHost);
@@ -230,11 +365,12 @@ export function PipelineLeadEditorEnhancer() {
     document.body.classList.add('pipeline-editor-open');
     setModal(modalElement);
     setVehicleHost(vehiclePortalHost);
+    setCommercialHost(commercialPortalHost);
     setNotesHost(notesPortalHost);
     setFooterHost(footerPortalHost);
     setCurrentLead(lead);
     setSelectedVehicleId(lead.interested_vehicle_id || '');
-    loadLeadDetails(lead.id);
+    void loadLeadDetails(lead.id);
 
     const manualVehicleInput = vehicleControl as HTMLInputElement;
     const clearSelectionOnManualEdit = () => {
@@ -289,7 +425,7 @@ export function PipelineLeadEditorEnhancer() {
       else if (activeModalRef.current && !document.body.contains(activeModalRef.current)) cleanupModal();
     }
 
-    initialize();
+    void initialize();
     document.addEventListener('click', trackCardClick, true);
     const observer = new MutationObserver(detect);
     observer.observe(document.body, { childList: true, subtree: true });
@@ -311,12 +447,59 @@ export function PipelineLeadEditorEnhancer() {
     if (vehicle) setNativeInputValue(input, vehicleLabel(vehicle));
   }
 
+  function changePaymentType(next: string) {
+    setPaymentType(next);
+    if (next === 'cash') {
+      setBank('');
+      setOtherBank('');
+      setInstallmentPreset('');
+      setCustomInstallments('');
+      setHasDownPayment('no');
+      setDownPaymentValue('');
+      setFinancedAmount('');
+      setInstallmentValue('');
+    }
+  }
+
+  function calculateFinancing() {
+    if (!['financed', 'consortium'].includes(paymentType)) return;
+    const total = parseMoney(saleValue);
+    const entry = hasDownPayment === 'yes' ? parseMoney(downPaymentValue) : 0;
+    const installments = Number(finalInstallmentCount || 0);
+    if (total === null || entry === null) return;
+    const financed = Math.max(total - entry, 0);
+    setFinancedAmount(moneyInput(financed));
+    if (installments > 0) setInstallmentValue(moneyInput(financed / installments));
+  }
+
+  function validateCommercial() {
+    if (!sale || !paymentType) return '';
+    const selectedBank = bank === 'other' ? otherBank.trim() : bank;
+    if (paymentType === 'financed' && !selectedBank) return 'Informe o banco do financiamento.';
+    if (installmentRequired) {
+      const count = Number(finalInstallmentCount);
+      if (!Number.isInteger(count) || count < 1 || count > 120) return 'Informe uma quantidade de parcelas entre 1 e 120.';
+    }
+    if (paymentType !== 'cash' && !hasDownPayment) return 'Informe se houve entrada.';
+    if (hasDownPayment === 'yes') {
+      const entry = parseMoney(downPaymentValue);
+      if (entry === null || entry <= 0) return 'Informe um valor de entrada maior que zero.';
+    }
+    if (!tradeIn) return 'Informe se houve veículo na troca.';
+    return '';
+  }
+
   async function saveAll() {
     if (!modal || !currentLead?.id) return;
     const value = (label: string) => String(findControl(modal, label)?.value || '');
+    const validationMessage = validateCommercial();
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
 
     setSaving(true);
-    setMessage('Salvando informações e observações...');
+    setMessage('Salvando informações, venda e observações...');
 
     try {
       const payload = await apiRequest('/api/store/pipeline-details', {
@@ -338,10 +521,34 @@ export function PipelineLeadEditorEnhancer() {
         })
       });
 
+      if (sale) {
+        const selectedBank = paymentType === 'cash'
+          ? 'Não se aplica'
+          : bank === 'other'
+            ? otherBank.trim()
+            : bank;
+        const salePayload = await apiRequest('/api/store/sale-details', {
+          method: 'POST',
+          body: JSON.stringify({
+            lead_id: currentLead.id,
+            payment_type: paymentType,
+            financing_bank: selectedBank,
+            sale_value: saleValue,
+            installment_count: finalInstallmentCount || null,
+            has_down_payment: paymentType === 'cash' ? false : hasDownPayment === 'yes',
+            down_payment_value: hasDownPayment === 'yes' ? downPaymentValue : null,
+            financed_amount: financedAmount,
+            installment_value: installmentValue,
+            has_trade_in: tradeIn === 'yes'
+          })
+        });
+        if (salePayload.sale) loadCommercial(salePayload.sale);
+      }
+
       setCurrentLead(payload.lead);
       setNotes(payload.notes || []);
       setNewObservation('');
-      setMessage('Informações salvas com sucesso.');
+      setMessage('Informações e dados comerciais salvos com sucesso.');
 
       window.setTimeout(() => {
         const closeButton = modal.querySelector('h2')?.parentElement?.querySelector<HTMLButtonElement>('button');
@@ -350,7 +557,7 @@ export function PipelineLeadEditorEnhancer() {
           normalized(button.textContent).includes('atualizar pipeline')
         );
         refreshButton?.click();
-      }, 550);
+      }, 650);
     } catch (error: any) {
       setMessage(error?.message || 'Não foi possível salvar o lead.');
     } finally {
@@ -379,6 +586,130 @@ export function PipelineLeadEditorEnhancer() {
           ) : <p className="mt-2 text-xs text-slate-500">Você também pode escrever livremente no campo “Carro de interesse” acima.</p>}
         </div>,
         vehicleHost
+      ) : null}
+
+      {commercialHost && sale ? createPortal(
+        <section className="mt-4 rounded-3xl border border-emerald-200 bg-emerald-50/40 p-4 text-slate-950 shadow-sm md:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white"><BadgeDollarSign size={20} /></div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Venda confirmada</p>
+                <h3 className="mt-1 text-lg font-black">Dados comerciais da venda</h3>
+                <p className="mt-1 text-xs text-slate-500">Preencha pagamento, entrada, parcelas e troca. Os dados alimentarão relatórios e indicadores.</p>
+              </div>
+            </div>
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-emerald-700">{paymentTypeLabel(paymentType)}</span>
+          </div>
+
+          <div className="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <label className="text-sm font-black text-slate-700">
+              Forma de pagamento
+              <select value={paymentType} onChange={(event) => changePaymentType(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-emerald-500">
+                <option value="">Não informado</option>
+                <option value="cash">À vista</option>
+                <option value="financed">Financiado</option>
+                <option value="consortium">Consórcio</option>
+                <option value="other">Outro</option>
+              </select>
+            </label>
+
+            <label className="text-sm font-black text-slate-700">
+              Valor da venda
+              <div className="relative mt-2">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-black text-slate-500">R$</span>
+                <input value={saleValue} onChange={(event) => setSaleValue(event.target.value)} onBlur={calculateFinancing} inputMode="decimal" placeholder="0,00" className="w-full rounded-2xl border border-slate-300 bg-white py-3 pl-12 pr-4 text-sm font-bold outline-none focus:border-emerald-500" />
+              </div>
+            </label>
+
+            <fieldset>
+              <legend className="text-sm font-black text-slate-700">Veículo na troca?</legend>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setTradeIn('yes')} className={`rounded-2xl border px-3 py-3 text-sm font-black ${tradeIn === 'yes' ? 'border-emerald-500 bg-white text-emerald-700 ring-2 ring-emerald-100' : 'border-slate-300 bg-white text-slate-600'}`}>Sim</button>
+                <button type="button" onClick={() => setTradeIn('no')} className={`rounded-2xl border px-3 py-3 text-sm font-black ${tradeIn === 'no' ? 'border-emerald-500 bg-white text-emerald-700 ring-2 ring-emerald-100' : 'border-slate-300 bg-white text-slate-600'}`}>Não</button>
+              </div>
+            </fieldset>
+          </div>
+
+          {paymentType && paymentType !== 'cash' ? (
+            <div className="mt-4 grid gap-4 rounded-3xl border border-blue-100 bg-blue-50/70 p-4 md:grid-cols-2 lg:grid-cols-3">
+              <label className="text-sm font-black text-slate-700">
+                {paymentType === 'consortium' ? 'Banco / administradora' : paymentType === 'financed' ? 'Banco financiador' : 'Instituição / observação'}
+                <select value={bank} onChange={(event) => setBank(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-500">
+                  <option value="">{bankRequired ? 'Selecione o banco' : 'Não informado'}</option>
+                  {bankOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+                  <option value="other">Outro</option>
+                </select>
+              </label>
+
+              {bank === 'other' ? (
+                <label className="text-sm font-black text-slate-700">
+                  Nome da instituição
+                  <input value={otherBank} onChange={(event) => setOtherBank(event.target.value)} placeholder="Digite o nome" className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-500" />
+                </label>
+              ) : (
+                <div className="flex min-h-[84px] items-center gap-3 rounded-2xl border border-blue-100 bg-white p-4 text-blue-700"><Landmark size={22} /><p className="text-xs font-bold">A instituição ficará registrada no relatório comercial.</p></div>
+              )}
+
+              <label className="text-sm font-black text-slate-700">
+                Quantidade de parcelas
+                <select value={installmentPreset} onChange={(event) => setInstallmentPreset(event.target.value)} onBlur={calculateFinancing} className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-500">
+                  <option value="">{installmentRequired ? 'Selecione' : 'Sem parcelas'}</option>
+                  {installmentOptions.map((item) => <option key={item} value={item}>{item} parcelas</option>)}
+                  <option value="custom">Outra quantidade</option>
+                </select>
+              </label>
+
+              {installmentPreset === 'custom' ? (
+                <label className="text-sm font-black text-slate-700">
+                  Número personalizado
+                  <input type="number" min="1" max="120" value={customInstallments} onChange={(event) => setCustomInstallments(event.target.value)} onBlur={calculateFinancing} placeholder="Ex.: 72" className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-500" />
+                </label>
+              ) : null}
+
+              <fieldset className="md:col-span-2 lg:col-span-1">
+                <legend className="text-sm font-black text-slate-700">Teve entrada?</legend>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setHasDownPayment('yes')} className={`rounded-2xl border px-3 py-3 text-sm font-black ${hasDownPayment === 'yes' ? 'border-blue-500 bg-white text-blue-700 ring-2 ring-blue-100' : 'border-slate-300 bg-white text-slate-600'}`}>Sim</button>
+                  <button type="button" onClick={() => { setHasDownPayment('no'); setDownPaymentValue(''); }} className={`rounded-2xl border px-3 py-3 text-sm font-black ${hasDownPayment === 'no' ? 'border-blue-500 bg-white text-blue-700 ring-2 ring-blue-100' : 'border-slate-300 bg-white text-slate-600'}`}>Não</button>
+                </div>
+              </fieldset>
+
+              {hasDownPayment === 'yes' ? (
+                <label className="text-sm font-black text-slate-700">
+                  Valor da entrada
+                  <div className="relative mt-2">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-black text-slate-500">R$</span>
+                    <input value={downPaymentValue} onChange={(event) => setDownPaymentValue(event.target.value)} onBlur={calculateFinancing} inputMode="decimal" placeholder="0,00" className="w-full rounded-2xl border border-slate-300 bg-white py-3 pl-12 pr-4 text-sm font-bold outline-none focus:border-blue-500" />
+                  </div>
+                </label>
+              ) : null}
+
+              <label className="text-sm font-black text-slate-700">
+                Valor financiado
+                <div className="relative mt-2">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-black text-slate-500">R$</span>
+                  <input value={financedAmount} onChange={(event) => setFinancedAmount(event.target.value)} inputMode="decimal" placeholder="0,00" className="w-full rounded-2xl border border-slate-300 bg-white py-3 pl-12 pr-4 text-sm font-bold outline-none focus:border-blue-500" />
+                </div>
+              </label>
+
+              <label className="text-sm font-black text-slate-700">
+                Valor da parcela
+                <div className="relative mt-2">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-black text-slate-500">R$</span>
+                  <input value={installmentValue} onChange={(event) => setInstallmentValue(event.target.value)} inputMode="decimal" placeholder="Opcional" className="w-full rounded-2xl border border-slate-300 bg-white py-3 pl-12 pr-4 text-sm font-bold outline-none focus:border-blue-500" />
+                </div>
+              </label>
+
+              <button type="button" onClick={calculateFinancing} className="inline-flex min-h-12 items-center justify-center gap-2 self-end rounded-2xl border border-blue-200 bg-white px-4 py-3 text-sm font-black text-blue-700 hover:bg-blue-50">
+                <Calculator size={18} /> Calcular valores
+              </button>
+            </div>
+          ) : paymentType === 'cash' ? (
+            <div className="mt-4 flex items-center gap-3 rounded-2xl border border-emerald-200 bg-white p-4 text-emerald-700"><Banknote size={21} /><p className="text-sm font-bold">Venda à vista: banco, parcelas e entrada não se aplicam.</p></div>
+          ) : null}
+        </section>,
+        commercialHost
       ) : null}
 
       {notesHost ? createPortal(
@@ -439,9 +770,15 @@ const editorStyles = `
   }
 
   [data-pipeline-vehicle-selector="true"],
+  [data-pipeline-sale-commercial="true"],
   [data-pipeline-notes-history="true"],
   [data-pipeline-custom-save="true"] {
     color-scheme: light;
+  }
+
+  [data-pipeline-sale-commercial="true"] {
+    grid-column: 1 / -1;
+    min-width: 0;
   }
 
   @media (max-width: 767px) {
