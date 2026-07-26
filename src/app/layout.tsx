@@ -4,6 +4,7 @@ import { appName } from '@/lib/constants';
 import { AuthGate } from '@/components/AuthGate';
 import { PipelineOptimizedRuntime } from '@/components/PipelineOptimizedRuntime';
 import { PipelineLeadEditorLazyLoader } from '@/components/PipelineLeadEditorLazyLoader';
+import { PipelineAddLead } from '@/components/PipelineAddLead';
 import { StoreCalendarRealtimeSync } from '@/components/StoreCalendarRealtimeSync';
 import { StorePortalMenuSync } from '@/components/StorePortalMenuSync';
 
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AuthGate>{children}</AuthGate>
         <PipelineOptimizedRuntime />
         <PipelineLeadEditorLazyLoader />
+        <PipelineAddLead />
         <StoreCalendarRealtimeSync />
         <StorePortalMenuSync />
       </body>
