@@ -10,6 +10,18 @@ export const runtime = 'nodejs';
 
 const allowedRoles = ['master', 'store', 'pre_sales', 'seller', 'prospector'] as const;
 const unavailableVehicleStatuses = ['vendido', 'sold', 'inactive', 'inativo', 'deleted', 'excluido', 'rejected', 'duplicate'];
+const canonicalOrigins = new Set([
+  'street_survey',
+  'quick_registration',
+  'manual',
+  'Facebook Lead Ads',
+  'facebook_lead_ads',
+  'WhatsApp Oficial',
+  'whatsapp_official',
+  'WATI / Click-to-WhatsApp',
+  'wati_leads',
+  'WATI'
+]);
 
 function cleanPhone(value: unknown) {
   return cleanText(value, 40);
@@ -25,6 +37,25 @@ function vehicleLabel(vehicle: any) {
 
 function isVehicleAvailable(vehicle: any) {
   return !unavailableVehicleStatuses.includes(String(vehicle?.status || '').toLowerCase());
+}
+
+function normalizeOrigin(value: unknown) {
+  const requested = cleanText(value, 160) || 'manual_pipeline';
+  if (canonicalOrigins.has(requested)) return { requested, stored: requested };
+
+  const mapped: Record<string, string> = {
+    manual_pipeline: 'manual',
+    walk_in: 'manual',
+    event: 'street_survey',
+    whatsapp: 'WhatsApp Oficial',
+    instagram: 'manual',
+    facebook: 'Facebook Lead Ads',
+    indication: 'manual',
+    phone: 'manual',
+    other: 'manual'
+  };
+
+  return { requested, stored: mapped[requested] || 'manual' };
 }
 
 async function getContext(request: Request) {
@@ -203,7 +234,7 @@ export async function POST(request: Request) {
     const selectedVehicleId = cleanText(body.interested_vehicle_id, 80) || null;
     const customerBank = cleanText(body.customer_bank, 120);
     const vehicleCategory = cleanText(body.vehicle_category_interest, 100);
-    const origin = cleanText(body.origin, 160) || 'manual_pipeline';
+    const originInfo = normalizeOrigin(body.origin);
     const notes = cleanText(body.notes, 1800);
 
     if (customerName.length < 3) {
@@ -241,7 +272,7 @@ export async function POST(request: Request) {
       interested_vehicle_id: selectedVehicleId,
       interested_vehicle_price: interestedVehiclePrice,
       vehicle_category_interest: vehicleCategory || null,
-      origin,
+      origin: originInfo.stored,
       assigned_store_id: store.id,
       status: 'new_lead',
       notes: notes || null
@@ -250,16 +281,19 @@ export async function POST(request: Request) {
     if (profile.role === 'pre_sales') {
       insertPayload.pre_sales_user_id = profile.id;
       insertPayload.assigned_user_id = profile.id;
+      insertPayload.assigned_user_role = 'pre_sales';
     }
 
     if (profile.role === 'seller') {
       insertPayload.seller_user_id = profile.id;
       insertPayload.assigned_user_id = profile.id;
+      insertPayload.assigned_user_role = 'seller';
     }
 
     if (profile.role === 'prospector') {
       insertPayload.captured_by_user_id = profile.id;
       insertPayload.assigned_user_id = profile.id;
+      insertPayload.assigned_user_role = 'prospector';
 
       const { data: prospector } = await supabase
         .from('prospectors')
@@ -273,7 +307,7 @@ export async function POST(request: Request) {
     const { data: lead, error: leadError } = await supabase
       .from('leads')
       .insert(insertPayload)
-      .select('id, event_id, assigned_store_id, customer_name, customer_phone, interested_vehicle, interested_vehicle_id, interested_vehicle_price, status, created_at')
+      .select('id, event_id, assigned_store_id, assigned_user_id, assigned_user_role, customer_name, customer_phone, interested_vehicle, interested_vehicle_id, interested_vehicle_price, status, created_at')
       .single();
 
     if (leadError) throw leadError;
@@ -281,8 +315,10 @@ export async function POST(request: Request) {
     const actorName = profile.full_name || profile.email || 'Usuário';
     const activityMetadata = {
       actor_role: profile.role,
+      assigned_user_role: insertPayload.assigned_user_role || null,
       registered_from: 'manual_pipeline',
-      origin,
+      requested_origin: originInfo.requested,
+      stored_origin: originInfo.stored,
       store_slug: store.slug,
       interested_vehicle_id: selectedVehicleId
     };
@@ -316,8 +352,11 @@ export async function POST(request: Request) {
         entity_type: 'leads',
         entity_id: lead.id,
         new_value: {
-          origin,
+          origin: originInfo.stored,
+          requested_origin: originInfo.requested,
           assigned_store_id: store.id,
+          assigned_user_id: insertPayload.assigned_user_id || null,
+          assigned_user_role: insertPayload.assigned_user_role || null,
           interested_vehicle_id: selectedVehicleId,
           created_by_user_id: profile.id,
           created_by_role: profile.role,
