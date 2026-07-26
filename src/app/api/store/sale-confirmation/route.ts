@@ -4,7 +4,7 @@ import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } fr
 export const runtime = 'nodejs';
 
 const allowedRoles = ['master', 'store', 'pre_sales', 'seller', 'prospector'];
-const paymentTypes = ['cash', 'financed'];
+const paymentTypes = ['cash', 'financed', 'consortium', 'other'];
 
 function canAccessLead(profile: any, lead: any) {
   if (profile.role === 'master') return true;
@@ -14,6 +14,25 @@ function canAccessLead(profile: any, lead: any) {
   if (profile.role === 'seller') return lead.seller_user_id === profile.id || lead.assigned_user_id === profile.id;
   if (profile.role === 'prospector') return lead.captured_by_user_id === profile.id || lead.assigned_user_id === profile.id;
   return false;
+}
+
+function moneyValue(value: unknown) {
+  if (value === '' || value === null || value === undefined) return null;
+  const parsed = Number(String(value).replace(/\s/g, '').replace(/\./g, '').replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function integerValue(value: unknown) {
+  if (value === '' || value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : Number.NaN;
+}
+
+function paymentDescription(type: string, bank: string) {
+  if (type === 'cash') return 'À vista';
+  if (type === 'financed') return `Financiado por ${bank}`;
+  if (type === 'consortium') return `Consórcio${bank && bank !== 'Consórcio' ? ` — ${bank}` : ''}`;
+  return `Outra forma${bank && bank !== 'Outro' ? ` — ${bank}` : ''}`;
 }
 
 async function getContext(request: Request) {
@@ -75,7 +94,7 @@ async function loadSellers(supabase: any, storeId: string) {
 async function loadSale(supabase: any, leadId: string) {
   const { data, error } = await supabase
     .from('sales')
-    .select('id,lead_id,store_id,seller_name,seller_user_id,pre_sales_user_id,captured_by_user_id,customer_bank,financing_bank,payment_type,sale_value,vehicle_category,sale_vehicle_name,has_trade_in,confirmed_by,confirmed_at,created_at')
+    .select('id,lead_id,store_id,seller_name,seller_user_id,pre_sales_user_id,captured_by_user_id,customer_bank,financing_bank,payment_type,sale_value,vehicle_category,sale_vehicle_name,has_trade_in,installment_count,has_down_payment,down_payment_value,financed_amount,installment_value,confirmed_by,confirmed_at,created_at')
     .eq('lead_id', leadId)
     .maybeSingle();
 
@@ -138,21 +157,31 @@ export async function POST(request: Request) {
     const leadId = cleanText(body.lead_id, 80);
     const sellerUserId = cleanText(body.seller_user_id, 80);
     const paymentType = cleanText(body.payment_type, 30);
-    const financingBank = cleanText(body.financing_bank, 160);
+    const financingBankInput = cleanText(body.financing_bank, 160);
     const hasTradeIn = body.has_trade_in;
-    const saleValueRaw = body.sale_value;
-    const saleValue = saleValueRaw === '' || saleValueRaw === null || saleValueRaw === undefined
-      ? null
-      : Number(String(saleValueRaw).replace(/\./g, '').replace(',', '.'));
+    const saleValue = moneyValue(body.sale_value);
+    const installmentCount = integerValue(body.installment_count);
+    const hasDownPayment = paymentType === 'cash' ? false : body.has_down_payment;
+    const downPaymentValue = moneyValue(body.down_payment_value);
+    const financedAmount = moneyValue(body.financed_amount);
+    const installmentValue = moneyValue(body.installment_value);
 
     if (!leadId) return NextResponse.json({ error: 'Informe o lead.' }, { status: 400 });
     if (!sellerUserId) return NextResponse.json({ error: 'Selecione o vendedor responsável pelo fechamento.' }, { status: 400 });
     if (!paymentTypes.includes(paymentType)) return NextResponse.json({ error: 'Selecione a forma de pagamento.' }, { status: 400 });
-    if (paymentType === 'financed' && !financingBank) return NextResponse.json({ error: 'Selecione o banco do financiamento.' }, { status: 400 });
-    if (typeof hasTradeIn !== 'boolean') return NextResponse.json({ error: 'Informe se houve veículo na troca.' }, { status: 400 });
-    if (saleValue !== null && (!Number.isFinite(saleValue) || saleValue < 0)) {
-      return NextResponse.json({ error: 'Informe um valor de venda válido.' }, { status: 400 });
+    if (paymentType === 'financed' && !financingBankInput) return NextResponse.json({ error: 'Selecione o banco do financiamento.' }, { status: 400 });
+    if (['financed', 'consortium'].includes(paymentType) && (!Number.isInteger(installmentCount) || Number(installmentCount) < 1 || Number(installmentCount) > 120)) {
+      return NextResponse.json({ error: 'Informe uma quantidade de parcelas entre 1 e 120.' }, { status: 400 });
     }
+    if (paymentType !== 'cash' && typeof hasDownPayment !== 'boolean') return NextResponse.json({ error: 'Informe se houve entrada.' }, { status: 400 });
+    if (hasDownPayment === true && (downPaymentValue === null || !Number.isFinite(downPaymentValue) || downPaymentValue <= 0)) {
+      return NextResponse.json({ error: 'Informe um valor de entrada maior que zero.' }, { status: 400 });
+    }
+    if (typeof hasTradeIn !== 'boolean') return NextResponse.json({ error: 'Informe se houve veículo na troca.' }, { status: 400 });
+    if (saleValue !== null && (!Number.isFinite(saleValue) || saleValue < 0)) return NextResponse.json({ error: 'Informe um valor de venda válido.' }, { status: 400 });
+    if (saleValue !== null && downPaymentValue !== null && downPaymentValue > saleValue) return NextResponse.json({ error: 'O valor da entrada não pode ser maior que o valor da venda.' }, { status: 400 });
+    if (financedAmount !== null && (!Number.isFinite(financedAmount) || financedAmount < 0)) return NextResponse.json({ error: 'Informe um valor financiado válido.' }, { status: 400 });
+    if (installmentValue !== null && (!Number.isFinite(installmentValue) || installmentValue < 0)) return NextResponse.json({ error: 'Informe um valor de parcela válido.' }, { status: 400 });
 
     const lead = await loadLead(supabase, leadId);
     if (!lead || !lead.assigned_store_id) return NextResponse.json({ error: 'Lead não encontrado.' }, { status: 404 });
@@ -171,7 +200,13 @@ export async function POST(request: Request) {
     if (!seller) return NextResponse.json({ error: 'O vendedor selecionado não está ativo nesta loja.' }, { status: 400 });
 
     const actorName = profile.full_name || profile.email || 'Usuário';
-    const normalizedBank = paymentType === 'cash' ? 'Não se aplica' : financingBank;
+    const normalizedBank = paymentType === 'cash'
+      ? 'Não se aplica'
+      : paymentType === 'financed'
+        ? financingBankInput
+        : paymentType === 'consortium'
+          ? financingBankInput || 'Consórcio'
+          : financingBankInput || 'Outro';
 
     const { data: saleId, error: rpcError } = await supabase.rpc('confirm_lead_sale_record', {
       p_lead_id: lead.id,
@@ -181,13 +216,20 @@ export async function POST(request: Request) {
       p_financing_bank: normalizedBank,
       p_has_trade_in: hasTradeIn,
       p_sale_value: saleValue,
+      p_installment_count: paymentType === 'cash' ? null : installmentCount,
+      p_has_down_payment: paymentType === 'cash' ? false : hasDownPayment,
+      p_down_payment_value: hasDownPayment === true ? downPaymentValue : null,
+      p_financed_amount: financedAmount,
+      p_installment_value: installmentValue,
       p_confirmed_by: profile.id,
       p_actor_name: actorName
     });
 
     if (rpcError) throw rpcError;
 
-    const paymentLabel = paymentType === 'cash' ? 'À vista' : `Financiado por ${normalizedBank}`;
+    const paymentLabel = paymentDescription(paymentType, normalizedBank);
+    const installmentsLabel = installmentCount ? `${installmentCount} parcela(s)` : 'Sem parcelamento';
+    const entryLabel = hasDownPayment ? `Entrada de R$ ${Number(downPaymentValue || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'Sem entrada';
     const tradeLabel = hasTradeIn ? 'Com veículo na troca' : 'Sem veículo na troca';
     const sellerName = seller.full_name || seller.email || 'Vendedor';
     const activityLabel = `Venda confirmada por ${sellerName}`;
@@ -207,7 +249,7 @@ export async function POST(request: Request) {
         customer_name: lead.customer_name,
         customer_phone: lead.customer_phone,
         vehicle_name: lead.interested_vehicle,
-        notes: `${paymentLabel}. ${tradeLabel}.`,
+        notes: `${paymentLabel}. ${installmentsLabel}. ${entryLabel}. ${tradeLabel}.`,
         metadata: {
           sale_id: saleId,
           seller_user_id: seller.id,
@@ -216,6 +258,11 @@ export async function POST(request: Request) {
           financing_bank: normalizedBank,
           has_trade_in: hasTradeIn,
           sale_value: saleValue,
+          installment_count: installmentCount,
+          has_down_payment: hasDownPayment,
+          down_payment_value: downPaymentValue,
+          financed_amount: financedAmount,
+          installment_value: installmentValue,
           confirmed_by_role: profile.role,
           confirmed_at: now
         }
@@ -223,11 +270,14 @@ export async function POST(request: Request) {
       supabase.from('lead_activities').insert({
         event_id: lead.event_id || null,
         lead_id: lead.id,
+        user_id: profile.id,
         activity_type: 'sale_confirmed',
-        description: `${actorName} confirmou a venda. Vendedor: ${sellerName}. ${paymentLabel}. ${tradeLabel}.`
+        description: `${actorName} confirmou a venda. Vendedor: ${sellerName}. ${paymentLabel}. ${installmentsLabel}. ${entryLabel}. ${tradeLabel}.`,
+        metadata: { sale_id: saleId, payment_type: paymentType, installment_count: installmentCount, has_down_payment: hasDownPayment }
       }),
       supabase.from('audit_logs').insert({
         event_id: lead.event_id || null,
+        user_id: profile.id,
         action_type: 'sale_confirmed',
         entity_type: 'sales',
         entity_id: saleId,
@@ -239,6 +289,11 @@ export async function POST(request: Request) {
           financing_bank: normalizedBank,
           has_trade_in: hasTradeIn,
           sale_value: saleValue,
+          installment_count: installmentCount,
+          has_down_payment: hasDownPayment,
+          down_payment_value: downPaymentValue,
+          financed_amount: financedAmount,
+          installment_value: installmentValue,
           confirmed_by: profile.id
         }
       })
