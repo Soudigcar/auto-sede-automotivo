@@ -7,6 +7,7 @@ import { PipelineLeadEditorLazyLoader } from '@/components/PipelineLeadEditorLaz
 import { PipelineAddLead } from '@/components/PipelineAddLead';
 import { StoreCalendarRealtimeSync } from '@/components/StoreCalendarRealtimeSync';
 import { StorePortalMenuSync } from '@/components/StorePortalMenuSync';
+import { StoreTeamManualMember } from '@/components/StoreTeamManualMember';
 
 export const metadata: Metadata = {
   title: appName,
@@ -23,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PipelineAddLead />
         <StoreCalendarRealtimeSync />
         <StorePortalMenuSync />
+        <StoreTeamManualMember />
       </body>
     </html>
   );
