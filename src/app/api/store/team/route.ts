@@ -5,6 +5,7 @@ import {
   createAdminClient,
   getProfileFromToken,
   isStoreTeamRole,
+  normalizeEmail,
   publicAppUrl,
   readBearerToken,
   resolveManagedStore,
@@ -28,6 +29,10 @@ function parseRoutingOrder(value: unknown) {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 0) return 0;
   return Math.min(parsed, 9999);
+}
+
+function createTemporaryPassword() {
+  return `Auto#${randomBytes(9).toString('base64url')}`;
 }
 
 async function loadTeam(supabase: any, store: any, request: Request) {
@@ -122,6 +127,129 @@ export async function POST(request: Request) {
     if ('error' in context) return context.error;
 
     const { supabase, profile, store } = context;
+
+    if (action === 'create_member') {
+      const fullName = cleanText(body.full_name, 180);
+      const email = normalizeEmail(body.email);
+      const phone = cleanText(body.phone, 40);
+      const role = cleanText(body.role, 40);
+      const receivesLeads = Boolean(body.receives_leads);
+      const routingOrder = parseRoutingOrder(body.routing_order);
+      const maxOpenLeads = parseNullablePositiveInteger(body.max_open_leads);
+
+      if (fullName.length < 3) {
+        return NextResponse.json({ error: 'Informe o nome completo do colaborador.' }, { status: 400 });
+      }
+
+      if (!email || !email.includes('@')) {
+        return NextResponse.json({ error: 'Informe um e-mail válido.' }, { status: 400 });
+      }
+
+      if (!isStoreTeamRole(role)) {
+        return NextResponse.json({ error: 'Selecione Pré-vendas, Vendedor ou Prospectador.' }, { status: 400 });
+      }
+
+      const { data: existingProfile, error: profileLookupError } = await supabase
+        .from('users')
+        .select('id')
+        .ilike('email', email)
+        .maybeSingle();
+
+      if (profileLookupError) throw profileLookupError;
+      if (existingProfile) {
+        return NextResponse.json({ error: 'Já existe um usuário cadastrado com este e-mail.' }, { status: 409 });
+      }
+
+      const temporaryPassword = createTemporaryPassword();
+      const { data: createdAuth, error: authError } = await supabase.auth.admin.createUser({
+        email,
+        password: temporaryPassword,
+        email_confirm: true,
+        user_metadata: {
+          full_name: fullName,
+          phone,
+          role,
+          store_id: store.id,
+          store_slug: store.slug,
+          created_manually: true
+        }
+      });
+
+      if (authError || !createdAuth.user) {
+        const duplicate = String(authError?.message || '').toLowerCase().includes('already');
+        return NextResponse.json(
+          { error: duplicate ? 'Este e-mail já possui uma conta de acesso.' : authError?.message || 'Não foi possível criar o acesso.' },
+          { status: duplicate ? 409 : 400 }
+        );
+      }
+
+      const { data: member, error: memberError } = await supabase
+        .from('users')
+        .insert({
+          auth_user_id: createdAuth.user.id,
+          full_name: fullName,
+          email,
+          phone: phone || null,
+          role,
+          store_id: store.id,
+          status: 'active',
+          receives_leads: receivesLeads,
+          routing_order: routingOrder,
+          max_open_leads: maxOpenLeads,
+          must_change_password: true
+        })
+        .select('id, auth_user_id, full_name, email, phone, role, status, receives_leads, routing_order, max_open_leads, must_change_password, created_at')
+        .single();
+
+      if (memberError || !member) {
+        await supabase.auth.admin.deleteUser(createdAuth.user.id).catch(() => undefined);
+        throw memberError || new Error('Não foi possível criar o perfil do colaborador.');
+      }
+
+      if (role === 'prospector') {
+        const { error: prospectorError } = await supabase.from('prospectors').insert({
+          user_id: member.id,
+          store_id: store.id,
+          event_id: store.event_id,
+          full_name: fullName,
+          email,
+          phone: phone || null,
+          status: 'active'
+        });
+
+        if (prospectorError) {
+          await supabase.from('users').delete().eq('id', member.id);
+          await supabase.auth.admin.deleteUser(createdAuth.user.id).catch(() => undefined);
+          throw prospectorError;
+        }
+      }
+
+      await Promise.allSettled([
+        supabase.from('audit_logs').insert({
+          event_id: store.event_id || null,
+          action_type: 'team_member_created',
+          entity_type: 'users',
+          entity_id: member.id,
+          new_value: {
+            store_id: store.id,
+            role,
+            status: 'active',
+            receives_leads: receivesLeads,
+            created_by_user_id: profile.id,
+            created_manually: true
+          }
+        })
+      ]);
+
+      return NextResponse.json({
+        success: true,
+        message: `${fullName} foi adicionado à equipe e já pode acessar o sistema.`,
+        member,
+        role_label: storeTeamRoleLabels[role],
+        temporary_password: temporaryPassword,
+        password_notice: 'Copie esta senha agora. Ela não será exibida novamente.'
+      });
+    }
 
     if (action === 'generate_link') {
       const role = cleanText(body.role, 40);
