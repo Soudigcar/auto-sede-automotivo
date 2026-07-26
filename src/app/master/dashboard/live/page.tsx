@@ -1,5 +1,5 @@
-import { MasterRealDashboard } from '@/components/MasterRealDashboard';
+import { MasterRealDashboardPolished } from '@/components/MasterRealDashboardPolished';
 
 export default function MasterLiveDashboardPage() {
-  return <MasterRealDashboard />;
+  return <MasterRealDashboardPolished />;
 }
