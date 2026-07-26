@@ -24,16 +24,32 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
       const { data } = await supabase.auth.getSession();
       if (cancelled) return;
-      if (!data.session?.user?.email) {
+
+      const authUser = data.session?.user;
+      if (!authUser?.email) {
         router.replace(`/login?redirectedFrom=${encodeURIComponent(pathname)}`);
         return;
       }
 
-      const { data: profile } = await supabase
+      let profile: any = null;
+
+      const { data: profileByAuth } = await supabase
         .from('users')
         .select('role,status,must_change_password')
-        .eq('email', data.session.user.email)
-        .single();
+        .eq('auth_user_id', authUser.id)
+        .maybeSingle();
+
+      profile = profileByAuth;
+
+      if (!profile) {
+        const { data: profileByEmail } = await supabase
+          .from('users')
+          .select('role,status,must_change_password')
+          .ilike('email', authUser.email)
+          .maybeSingle();
+
+        profile = profileByEmail;
+      }
 
       if (cancelled) return;
       if (!profile || profile.status !== 'active') {
@@ -41,7 +57,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (profile.must_change_password) {
+      if (profile.role !== 'master' && profile.must_change_password) {
         router.replace(`/trocar-senha?next=${encodeURIComponent(pathname)}`);
         return;
       }
