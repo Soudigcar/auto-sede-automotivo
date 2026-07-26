@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 
-const protectedPrefixes = ['/master', '/prospector', '/store', '/pre-sales', '/routes'];
+const protectedPrefixes = ['/master', '/prospector', '/store', '/pre-sales', '/routes', '/loja'];
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -29,10 +29,20 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const { data: profile } = await supabase.from('users').select('role,status').eq('email', data.session.user.email).single();
+      const { data: profile } = await supabase
+        .from('users')
+        .select('role,status,must_change_password')
+        .eq('email', data.session.user.email)
+        .single();
+
       if (cancelled) return;
       if (!profile || profile.status !== 'active') {
         router.replace('/logout');
+        return;
+      }
+
+      if (profile.must_change_password) {
+        router.replace(`/trocar-senha?next=${encodeURIComponent(pathname)}`);
         return;
       }
 
