@@ -66,7 +66,7 @@ function LoginContent() {
 
       if (profile.role === 'master') {
         const target = redirectedFrom?.startsWith('/master') ? redirectedFrom : '/master/dashboard/live';
-        router.replace(profile.must_change_password ? `/trocar-senha?next=${encodeURIComponent(target)}` : target);
+        router.replace(target);
         return;
       }
 
