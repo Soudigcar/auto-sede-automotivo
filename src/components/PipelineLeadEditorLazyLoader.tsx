@@ -19,6 +19,11 @@ const LazyLeadResponsibility = dynamic(
   { ssr: false }
 );
 
+const LazyResponsibilityRolesFix = dynamic(
+  () => import('@/components/PipelineLeadResponsibilityRolesFix').then((module) => module.PipelineLeadResponsibilityRolesFix),
+  { ssr: false }
+);
+
 export function PipelineLeadEditorLazyLoader() {
   const pathname = usePathname();
   const active = /^\/loja\/[^/]+\/pipeline\/?$/.test(pathname || '');
@@ -58,6 +63,7 @@ export function PipelineLeadEditorLazyLoader() {
       <LazyEditorEnhancer />
       <LazyEditorCompactLayout />
       <LazyLeadResponsibility leadId={leadId} />
+      <LazyResponsibilityRolesFix leadId={leadId} />
     </>
   );
 }
