@@ -9,8 +9,13 @@ const LazyEditorEnhancer = dynamic(
   { ssr: false }
 );
 
+const LazyEditorCompactLayout = dynamic(
+  () => import('@/components/PipelineLeadEditorCompactLayout').then((module) => module.PipelineLeadEditorCompactLayout),
+  { ssr: false }
+);
+
 const LazyLeadResponsibility = dynamic(
-  () => import('@/components/PipelineLeadResponsibility').then((module) => module.PipelineLeadResponsibility),
+  () => import('@/components/PipelineLeadResponsibilityCompact').then((module) => module.PipelineLeadResponsibilityCompact),
   { ssr: false }
 );
 
@@ -51,6 +56,7 @@ export function PipelineLeadEditorLazyLoader() {
   return (
     <>
       <LazyEditorEnhancer />
+      <LazyEditorCompactLayout />
       <LazyLeadResponsibility leadId={leadId} />
     </>
   );
