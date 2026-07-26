@@ -9,29 +9,49 @@ const LazyEditorEnhancer = dynamic(
   { ssr: false }
 );
 
+const LazyLeadTransfer = dynamic(
+  () => import('@/components/PipelineLeadTransfer').then((module) => module.PipelineLeadTransfer),
+  { ssr: false }
+);
+
 export function PipelineLeadEditorLazyLoader() {
   const pathname = usePathname();
   const active = /^\/loja\/[^/]+\/pipeline\/?$/.test(pathname || '');
   const [enabled, setEnabled] = useState(false);
+  const [leadId, setLeadId] = useState('');
 
   useEffect(() => {
-    if (!active || enabled) return;
+    if (!active) {
+      setEnabled(false);
+      setLeadId('');
+      return;
+    }
 
     function enableOnLeadOpen(event: MouseEvent) {
       const target = event.target as HTMLElement | null;
       if (!target) return;
       if (target.closest('[data-phone-reveal], [data-schedule-task]')) return;
-      const card = target.closest('[data-pipeline-card="true"], [role="button"][draggable="true"]');
+
+      const card = target.closest<HTMLElement>('[data-pipeline-card="true"], [role="button"][draggable="true"]');
       if (!card) return;
+
       const button = target.closest('button');
       if (button) return;
+
+      setLeadId(card.dataset.leadId || '');
       setEnabled(true);
     }
 
     document.addEventListener('click', enableOnLeadOpen, true);
     return () => document.removeEventListener('click', enableOnLeadOpen, true);
-  }, [active, enabled]);
+  }, [active]);
 
   if (!active || !enabled) return null;
-  return <LazyEditorEnhancer />;
+
+  return (
+    <>
+      <LazyEditorEnhancer />
+      <LazyLeadTransfer leadId={leadId} />
+    </>
+  );
 }
