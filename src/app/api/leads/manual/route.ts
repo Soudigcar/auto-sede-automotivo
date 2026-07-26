@@ -1,0 +1,223 @@
+import { NextResponse } from 'next/server';
+import {
+  cleanText,
+  createAdminClient,
+  getProfileFromToken,
+  readBearerToken
+} from '@/lib/server/storeTeam';
+
+export const runtime = 'nodejs';
+
+const allowedRoles = ['master', 'store', 'pre_sales', 'seller', 'prospector'] as const;
+
+function cleanPhone(value: unknown) {
+  return cleanText(value, 40);
+}
+
+async function getContext(request: Request) {
+  const supabase: any = createAdminClient();
+  const token = readBearerToken(request);
+
+  if (!token) {
+    return { error: NextResponse.json({ error: 'Sessão não encontrada.' }, { status: 401 }) } as const;
+  }
+
+  const profile = await getProfileFromToken(supabase, token);
+
+  if (!profile || profile.status !== 'active' || !allowedRoles.includes(profile.role)) {
+    return { error: NextResponse.json({ error: 'Usuário sem permissão para adicionar leads.' }, { status: 403 }) } as const;
+  }
+
+  return { supabase, profile } as const;
+}
+
+async function loadStore(supabase: any, profile: any, requestedStoreId?: string) {
+  const storeId = profile.role === 'master' ? cleanText(requestedStoreId, 80) : cleanText(profile.store_id, 80);
+
+  if (!storeId) return null;
+
+  const { data: store, error } = await supabase
+    .from('stores')
+    .select('id, store_name, slug, event_id, status, portal_enabled')
+    .eq('id', storeId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!store || store.status !== 'active' || !store.portal_enabled) return null;
+  if (profile.role !== 'master' && profile.store_id !== store.id) return null;
+
+  return store;
+}
+
+export async function GET(request: Request) {
+  try {
+    const context = await getContext(request);
+    if ('error' in context) return context.error;
+
+    const { supabase, profile } = context;
+
+    if (profile.role === 'master') {
+      const { data: stores, error } = await supabase
+        .from('stores')
+        .select('id, store_name, slug, event_id, status, portal_enabled')
+        .eq('status', 'active')
+        .eq('portal_enabled', true)
+        .order('store_name', { ascending: true });
+
+      if (error) throw error;
+
+      return NextResponse.json({
+        role: profile.role,
+        profile_name: profile.full_name || profile.email || 'Master',
+        stores: stores || []
+      });
+    }
+
+    const store = await loadStore(supabase, profile);
+
+    if (!store) {
+      return NextResponse.json({ error: 'Loja vinculada não encontrada ou indisponível.' }, { status: 403 });
+    }
+
+    return NextResponse.json({
+      role: profile.role,
+      profile_name: profile.full_name || profile.email || 'Usuário',
+      store,
+      stores: [store]
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || 'Erro ao preparar cadastro de lead.' }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const context = await getContext(request);
+    if ('error' in context) return context.error;
+
+    const { supabase, profile } = context;
+    const body = await request.json();
+
+    const customerName = cleanText(body.customer_name, 180);
+    const customerPhone = cleanPhone(body.customer_phone);
+    const interestedVehicle = cleanText(body.interested_vehicle, 220);
+    const customerBank = cleanText(body.customer_bank, 120);
+    const vehicleCategory = cleanText(body.vehicle_category_interest, 100);
+    const origin = cleanText(body.origin, 160) || 'manual_pipeline';
+    const notes = cleanText(body.notes, 1800);
+
+    if (customerName.length < 3) {
+      return NextResponse.json({ error: 'Informe o nome do cliente com pelo menos 3 caracteres.' }, { status: 400 });
+    }
+
+    if (customerPhone.replace(/\D/g, '').length < 10) {
+      return NextResponse.json({ error: 'Informe um telefone válido com DDD.' }, { status: 400 });
+    }
+
+    const store = await loadStore(supabase, profile, body.store_id);
+
+    if (!store) {
+      return NextResponse.json({ error: 'Selecione uma loja ativa e autorizada.' }, { status: 403 });
+    }
+
+    const insertPayload: Record<string, any> = {
+      event_id: store.event_id || null,
+      customer_name: customerName,
+      customer_phone: customerPhone,
+      customer_bank: customerBank || null,
+      interested_vehicle: interestedVehicle || null,
+      vehicle_category_interest: vehicleCategory || null,
+      origin,
+      assigned_store_id: store.id,
+      status: 'new_lead',
+      notes: notes || null
+    };
+
+    if (profile.role === 'pre_sales') {
+      insertPayload.pre_sales_user_id = profile.id;
+      insertPayload.assigned_user_id = profile.id;
+    }
+
+    if (profile.role === 'seller') {
+      insertPayload.seller_user_id = profile.id;
+      insertPayload.assigned_user_id = profile.id;
+    }
+
+    if (profile.role === 'prospector') {
+      insertPayload.captured_by_user_id = profile.id;
+      insertPayload.assigned_user_id = profile.id;
+
+      const { data: prospector } = await supabase
+        .from('prospectors')
+        .select('id')
+        .eq('user_id', profile.id)
+        .maybeSingle();
+
+      if (prospector?.id) insertPayload.prospector_id = prospector.id;
+    }
+
+    const { data: lead, error: leadError } = await supabase
+      .from('leads')
+      .insert(insertPayload)
+      .select('id, event_id, assigned_store_id, customer_name, customer_phone, interested_vehicle, status, created_at')
+      .single();
+
+    if (leadError) throw leadError;
+
+    const actorName = profile.full_name || profile.email || 'Usuário';
+    const activityMetadata = {
+      actor_role: profile.role,
+      registered_from: 'manual_pipeline',
+      origin,
+      store_slug: store.slug
+    };
+
+    await Promise.allSettled([
+      supabase.from('lead_activity_logs').insert({
+        lead_id: lead.id,
+        store_id: store.id,
+        store_name: store.store_name,
+        user_id: profile.id,
+        user_name: actorName,
+        activity_type: 'lead_created',
+        activity_label: 'Usuário adicionou um lead',
+        from_status: null,
+        to_status: 'new_lead',
+        customer_name: customerName,
+        customer_phone: customerPhone,
+        vehicle_name: interestedVehicle || null,
+        notes: notes || null,
+        metadata: activityMetadata
+      }),
+      supabase.from('lead_activities').insert({
+        event_id: store.event_id || null,
+        lead_id: lead.id,
+        activity_type: 'lead_created',
+        description: `Lead adicionado manualmente por ${actorName}`
+      }),
+      supabase.from('audit_logs').insert({
+        event_id: store.event_id || null,
+        action_type: 'lead_created',
+        entity_type: 'leads',
+        entity_id: lead.id,
+        new_value: {
+          origin,
+          assigned_store_id: store.id,
+          created_by_user_id: profile.id,
+          created_by_role: profile.role,
+          source: 'manual_pipeline'
+        }
+      })
+    ]);
+
+    return NextResponse.json({
+      success: true,
+      message: `Lead adicionado à pipeline da ${store.store_name}.`,
+      lead,
+      store: { id: store.id, store_name: store.store_name, slug: store.slug },
+      assignment: profile.role === 'store' || profile.role === 'master' ? 'store' : profile.role
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || 'Erro ao adicionar lead.' }, { status: 500 });
+  }
+}
