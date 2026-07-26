@@ -5,6 +5,7 @@ import { AuthGate } from '@/components/AuthGate';
 import { PipelineOptimizedRuntime } from '@/components/PipelineOptimizedRuntime';
 import { PipelineLeadEditorLazyLoader } from '@/components/PipelineLeadEditorLazyLoader';
 import { PipelineAddLeadWithStock } from '@/components/PipelineAddLeadWithStock';
+import { PipelineSaleConfirmation } from '@/components/PipelineSaleConfirmation';
 import { StoreCalendarRealtimeSync } from '@/components/StoreCalendarRealtimeSync';
 import { StorePortalMenuSync } from '@/components/StorePortalMenuSync';
 import { StorePortalUserIdentity } from '@/components/StorePortalUserIdentity';
@@ -23,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PipelineOptimizedRuntime />
         <PipelineLeadEditorLazyLoader />
         <PipelineAddLeadWithStock />
+        <PipelineSaleConfirmation />
         <StoreCalendarRealtimeSync />
         <StorePortalMenuSync />
         <StorePortalUserIdentity />
