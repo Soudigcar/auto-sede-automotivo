@@ -80,13 +80,19 @@ async function loadUsers(supabase: any, ids: Array<string | null | undefined>) {
     .in('id', uniqueIds);
 
   if (error) throw error;
-  return new Map((data || []).map((user: any) => [user.id, {
-    id: user.id,
-    full_name: user.full_name || user.email || 'Colaborador sem nome',
-    email: user.email || null,
-    role: user.role,
-    role_label: roleLabels[user.role] || user.role
-  }]));
+
+  const entries: Array<[string, any]> = (data || []).map((user: any) => [
+    String(user.id),
+    {
+      id: user.id,
+      full_name: user.full_name || user.email || 'Colaborador sem nome',
+      email: user.email || null,
+      role: user.role,
+      role_label: roleLabels[user.role] || user.role
+    }
+  ]);
+
+  return new Map<string, any>(entries);
 }
 
 async function loadSale(supabase: any, leadId: string) {
