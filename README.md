@@ -1,6 +1,13 @@
 # AUTO CONTROLE AUTOMOTIVO
 
-Sistema de gestão de leads, fluxo de pessoas, lojas participantes, pré-vendas, estoque, vendas, perdas e dashboards para eventos automotivos.
+Sistema de gestão de leads, fluxo de pessoas, lojas participantes, pré-vendas, estoque, vendas, perdas, marketplace permanente e dashboards para operações e eventos automotivos.
+
+## Official Domains
+
+- Public marketplace: `https://autosede.com.br`
+- Internal system: `https://sistemaautomotivo.autosede.com.br`
+
+DNS and production-domain settings are managed outside this repository through Vercel, Hostinger and Supabase Auth configuration.
 
 ## Technical Standard
 
@@ -21,6 +28,7 @@ Sistema de gestão de leads, fluxo de pessoas, lojas participantes, pré-vendas,
 
 ## Main Modules
 
+- Public Automotive Marketplace
 - Master Dashboard
 - Prospector Panel
 - Street Survey
@@ -32,23 +40,19 @@ Sistema de gestão de leads, fluxo de pessoas, lojas participantes, pré-vendas,
 - Sales
 - Losses
 - Audit Logs
+- Event Management
 
 ## Development Flow
 
 1. Create a Supabase project.
-2. Run `supabase/schema.sql` in Supabase SQL Editor.
-3. Copy `.env.example` to `.env.local`.
-4. Add Supabase credentials.
-5. Run the app in GitHub Codespaces.
+2. Run the versioned database migrations.
+3. Copy `.env.example` to `.env.local` when the example file is available.
+4. Add the required Supabase credentials using environment variables.
+5. Run the app in a controlled development environment.
 6. Deploy to Vercel.
 
-## Initial Master Access
+## Master Access
 
-The initial master account should be created in Supabase Auth and linked to the `users` table.
+Create the initial Master account directly in Supabase Auth and link it to the `users` table.
 
-```txt
-email: evento@bradesco.com.br
-password: bradesco
-```
-
-For production, force password change after first login.
+Never store production e-mail addresses, passwords, tokens, service-role keys or recovery codes in this repository. Use a password manager and force password rotation whenever a credential may have been exposed.
