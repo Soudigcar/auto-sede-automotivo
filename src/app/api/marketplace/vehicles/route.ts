@@ -50,13 +50,14 @@ export async function GET() {
       .select('id,brand,model,version,year,mileage,color,transmission,fuel,price,image_url,image_urls,is_featured,created_at')
       .eq('show_on_landing', true)
       .eq('status', 'disponivel')
+      .gt('price', 0)
       .order('is_featured', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(300);
 
     if (vehicleError) throw vehicleError;
 
-    const vehicles = vehicleRows || [];
+    const vehicles = (vehicleRows || []).filter((vehicle: any) => Number(vehicle.price || 0) > 0);
     const vehicleIds = vehicles.map((vehicle: any) => vehicle.id).filter(Boolean);
 
     if (!vehicleIds.length) {
@@ -121,7 +122,7 @@ export async function GET() {
           color: clean(vehicle.color),
           transmission: clean(vehicle.transmission),
           fuel: clean(vehicle.fuel),
-          price: Number(vehicle.price || 0),
+          price: Number(vehicle.price),
           image_url: images[0] || null,
           image_urls: images,
           is_featured: Boolean(vehicle.is_featured),
@@ -135,7 +136,7 @@ export async function GET() {
       })
       .filter(Boolean);
 
-    const prices = safeVehicles.map((vehicle: any) => Number(vehicle.price || 0)).filter((price) => price > 0);
+    const prices = safeVehicles.map((vehicle: any) => Number(vehicle.price)).filter((price) => price > 0);
 
     return NextResponse.json({
       vehicles: safeVehicles,
