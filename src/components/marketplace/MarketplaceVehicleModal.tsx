@@ -41,6 +41,26 @@ function maskCpf(value: string) {
     .replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3-$4');
 }
 
+function isValidCpf(value: string) {
+  const cpf = onlyDigits(value);
+  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
+
+  const calculateDigit = (length: number) => {
+    let sum = 0;
+    for (let index = 0; index < length; index += 1) {
+      sum += Number(cpf[index]) * (length + 1 - index);
+    }
+    const remainder = (sum * 10) % 11;
+    return remainder === 10 ? 0 : remainder;
+  };
+
+  return calculateDigit(9) === Number(cpf[9]) && calculateDigit(10) === Number(cpf[10]);
+}
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(value.trim());
+}
+
 function parseMoney(value: string) {
   const clean = String(value || '').replace(/\s/g, '');
   if (!clean) return 0;
@@ -77,7 +97,8 @@ export function MarketplaceVehicleModal({
   const [imageIndex, setImageIndex] = useState(0);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState<{ storeName: string } | null>(null);
+  const [formStartedAt] = useState(() => Date.now());
+  const [success, setSuccess] = useState<{ storeName: string; duplicate: boolean } | null>(null);
   const [form, setForm] = useState({
     name: '',
     phone: '',
@@ -85,7 +106,8 @@ export function MarketplaceVehicleModal({
     email: '',
     downPayment: '',
     installments: 60,
-    consent: false
+    consent: false,
+    companyWebsite: ''
   });
 
   useEffect(() => {
@@ -119,11 +141,18 @@ export function MarketplaceVehicleModal({
     return { downPayment, financedAmount, installments, estimatedInstallment };
   }, [form.downPayment, form.installments, vehicle.price]);
 
+  const cpfComplete = onlyDigits(form.cpf).length === 11;
+  const cpfValid = isValidCpf(form.cpf);
+  const emailValid = isValidEmail(form.email);
+  const phoneValid = [10, 11].includes(onlyDigits(form.phone).length);
+  const downPaymentValid = simulation.downPayment <= Number(vehicle.price || 0);
+
   const valid = Boolean(
-    form.name.trim() &&
-    onlyDigits(form.phone).length >= 10 &&
-    onlyDigits(form.cpf).length === 11 &&
-    form.email.includes('@') &&
+    form.name.trim().length >= 3 &&
+    phoneValid &&
+    cpfValid &&
+    emailValid &&
+    downPaymentValid &&
     form.consent
   );
 
@@ -151,15 +180,19 @@ export function MarketplaceVehicleModal({
           vehicle_id: vehicle.id,
           down_payment: simulation.downPayment,
           installments: simulation.installments,
-          interest_rate: interestRate,
-          consent: form.consent
+          consent: form.consent,
+          company_website: form.companyWebsite,
+          form_started_at: formStartedAt
         })
       });
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || 'Não foi possível enviar seu interesse.');
 
-      setSuccess({ storeName: payload.assigned_store_name || vehicle.store.name });
+      setSuccess({
+        storeName: payload.assigned_store_name || vehicle.store.name,
+        duplicate: payload.duplicate === true
+      });
     } catch (submitError: any) {
       setError(submitError?.message || 'Não foi possível enviar seu interesse.');
     } finally {
@@ -234,9 +267,12 @@ export function MarketplaceVehicleModal({
             {success ? (
               <div className="flex min-h-[520px] flex-col items-center justify-center text-center">
                 <div className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"><CheckCircle2 size={42} /></div>
-                <p className="mt-6 text-xs font-black uppercase tracking-[0.2em] text-emerald-600">Interesse enviado</p>
-                <h3 className="mt-2 text-3xl font-black tracking-tight text-slate-950">A loja recebeu seu contato</h3>
-                <p className="mt-4 max-w-md text-sm leading-relaxed text-slate-500">Seu atendimento foi direcionado diretamente para <strong className="text-slate-800">{success.storeName}</strong>, proprietária deste veículo.</p>
+                <p className="mt-6 text-xs font-black uppercase tracking-[0.2em] text-emerald-600">{success.duplicate ? 'Solicitação já registrada' : 'Interesse enviado'}</p>
+                <h3 className="mt-2 text-3xl font-black tracking-tight text-slate-950">{success.duplicate ? 'A loja já recebeu seu contato' : 'A loja recebeu seu contato'}</h3>
+                <p className="mt-4 max-w-md text-sm leading-relaxed text-slate-500">
+                  {success.duplicate ? 'Identificamos uma solicitação recente para este mesmo veículo. ' : 'Seu atendimento foi direcionado diretamente para '}
+                  <strong className="text-slate-800">{success.storeName}</strong>{success.duplicate ? ' continuará com o atendimento sem gerar um lead duplicado.' : ', proprietária deste veículo.'}
+                </p>
                 <button type="button" onClick={onClose} className="mt-7 inline-flex min-h-12 items-center justify-center rounded-2xl bg-slate-950 px-6 font-black text-white">Continuar vendo veículos</button>
               </div>
             ) : (
@@ -258,6 +294,7 @@ export function MarketplaceVehicleModal({
                         <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-black text-slate-400">R$</span>
                         <input value={form.downPayment} onChange={(event) => setForm((current) => ({ ...current, downPayment: event.target.value }))} inputMode="decimal" placeholder="0,00" className="w-full rounded-2xl border border-blue-200 bg-white py-3 pl-12 pr-4 text-sm font-bold outline-none focus:border-blue-500" />
                       </div>
+                      {!downPaymentValid ? <span className="mt-1 block text-xs font-bold text-red-600">A entrada não pode superar o valor do veículo.</span> : null}
                     </label>
 
                     <label className="text-sm font-black text-slate-700">
@@ -275,12 +312,17 @@ export function MarketplaceVehicleModal({
                   <p className="mt-3 text-[11px] font-semibold text-blue-700">Taxa referencial utilizada: {interestRate.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% ao mês.</p>
                 </div>
 
-                <form onSubmit={submit} className="mt-5 grid gap-3">
+                <form onSubmit={submit} className="relative mt-5 grid gap-3">
+                  <label className="pointer-events-none absolute -left-[10000px] top-auto h-px w-px overflow-hidden" aria-hidden="true">
+                    Site da empresa
+                    <input tabIndex={-1} autoComplete="off" value={form.companyWebsite} onChange={(event) => setForm((current) => ({ ...current, companyWebsite: event.target.value }))} />
+                  </label>
+
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="text-sm font-black text-slate-700">Nome completo<input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-red-500" placeholder="Seu nome" required /></label>
-                    <label className="text-sm font-black text-slate-700">Telefone / WhatsApp<input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: maskPhone(event.target.value) }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-red-500" placeholder="(61) 99999-9999" inputMode="tel" required /></label>
-                    <label className="text-sm font-black text-slate-700">CPF<input value={form.cpf} onChange={(event) => setForm((current) => ({ ...current, cpf: maskCpf(event.target.value) }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-red-500" placeholder="000.000.000-00" inputMode="numeric" required /></label>
-                    <label className="text-sm font-black text-slate-700">E-mail<input value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-red-500" placeholder="voce@email.com" type="email" required /></label>
+                    <label className="text-sm font-black text-slate-700">Nome completo<input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-red-500" placeholder="Seu nome" autoComplete="name" required /></label>
+                    <label className="text-sm font-black text-slate-700">Telefone / WhatsApp<input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: maskPhone(event.target.value) }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-red-500" placeholder="(61) 99999-9999" inputMode="tel" autoComplete="tel" required /></label>
+                    <label className="text-sm font-black text-slate-700">CPF<input value={form.cpf} onChange={(event) => setForm((current) => ({ ...current, cpf: maskCpf(event.target.value) }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-red-500" placeholder="000.000.000-00" inputMode="numeric" autoComplete="off" required />{cpfComplete && !cpfValid ? <span className="mt-1 block text-xs font-bold text-red-600">CPF inválido.</span> : null}</label>
+                    <label className="text-sm font-black text-slate-700">E-mail<input value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-red-500" placeholder="voce@email.com" type="email" autoComplete="email" required /></label>
                   </div>
 
                   <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs font-semibold leading-relaxed text-slate-600">
