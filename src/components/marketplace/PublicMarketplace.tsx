@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowDown,
@@ -45,7 +44,11 @@ function normalized(value: unknown) {
     .toLocaleLowerCase('pt-BR');
 }
 
-export function PublicMarketplace() {
+export function PublicMarketplace({
+  internalAccessUrl
+}: {
+  internalAccessUrl: string;
+}) {
   const [vehicles, setVehicles] = useState<MarketplaceVehicle[]>([]);
   const [availableFilters, setAvailableFilters] = useState<MarketplaceFilters>(emptyFilters);
   const [selectedVehicle, setSelectedVehicle] = useState<MarketplaceVehicle | null>(null);
@@ -184,9 +187,9 @@ export function PublicMarketplace() {
             <a href="#seguranca" className="transition hover:text-red-600">Segurança</a>
           </nav>
 
-          <Link href="/login" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-800 shadow-sm transition hover:border-red-200 hover:text-red-600 sm:text-sm">
+          <a href={internalAccessUrl} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-800 shadow-sm transition hover:border-red-200 hover:text-red-600 sm:text-sm">
             <LogIn size={17} /> <span className="hidden sm:inline">Acesso da loja</span><span className="sm:hidden">Entrar</span>
-          </Link>
+          </a>
         </div>
       </header>
 
@@ -302,7 +305,7 @@ export function PublicMarketplace() {
       </section>
 
       <footer className="border-t border-slate-200 bg-white px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-[1480px] flex-col gap-4 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-black text-slate-950">AUTO CONTROLE AUTOMOTIVO</p><p className="mt-1 text-xs">Marketplace, CRM e eventos automotivos no mesmo ecossistema.</p></div><Link href="/login" className="inline-flex items-center gap-2 font-black text-slate-700 hover:text-red-600"><LogIn size={16} /> Acesso operacional</Link></div>
+        <div className="mx-auto flex max-w-[1480px] flex-col gap-4 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-black text-slate-950">AUTO CONTROLE AUTOMOTIVO</p><p className="mt-1 text-xs">Marketplace, CRM e eventos automotivos no mesmo ecossistema.</p></div><a href={internalAccessUrl} className="inline-flex items-center gap-2 font-black text-slate-700 hover:text-red-600"><LogIn size={16} /> Acesso operacional</a></div>
       </footer>
 
       {selectedVehicle ? <MarketplaceVehicleModal vehicle={selectedVehicle} onClose={() => setSelectedVehicle(null)} /> : null}
