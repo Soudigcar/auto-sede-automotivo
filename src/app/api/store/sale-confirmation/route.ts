@@ -45,7 +45,7 @@ async function getContext(request: Request) {
 
   const profile = await getProfileFromToken(supabase, token);
   if (!profile || profile.status !== 'active' || !allowedRoles.includes(profile.role)) {
-    return { error: NextResponse.json({ error: 'Usuário sem permissão para confirmar vendas.' }, { status: 403 }) } as const;
+    return { error: NextResponse.json({ error: 'Usuário sem permissão para acessar condições comerciais.' }, { status: 403 }) } as const;
   }
 
   return { supabase, profile } as const;
@@ -102,6 +102,45 @@ async function loadSale(supabase: any, leadId: string) {
   return data || null;
 }
 
+async function loadCommercial(supabase: any, leadId: string) {
+  const { data, error } = await supabase
+    .from('lead_commercial_details')
+    .select('id,lead_id,store_id,payment_type,financing_bank,negotiated_value,installment_count,has_down_payment,down_payment_value,financed_amount,installment_value,has_trade_in,updated_by,created_at,updated_at')
+    .eq('lead_id', leadId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+}
+
+function commercialResponse(sale: any, commercial: any) {
+  if (sale) {
+    return {
+      ...sale,
+      is_confirmed: true,
+      commercial_id: commercial?.id || null
+    };
+  }
+
+  return {
+    id: commercial?.id || 'lead-commercial-draft',
+    lead_id: commercial?.lead_id || null,
+    store_id: commercial?.store_id || null,
+    payment_type: commercial?.payment_type || null,
+    financing_bank: commercial?.financing_bank || null,
+    sale_value: commercial?.negotiated_value ?? null,
+    has_trade_in: commercial?.has_trade_in ?? null,
+    installment_count: commercial?.installment_count ?? null,
+    has_down_payment: commercial?.has_down_payment ?? null,
+    down_payment_value: commercial?.down_payment_value ?? null,
+    financed_amount: commercial?.financed_amount ?? null,
+    installment_value: commercial?.installment_value ?? null,
+    is_confirmed: false,
+    commercial_id: commercial?.id || null,
+    updated_at: commercial?.updated_at || null
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const context = await getContext(request);
@@ -113,14 +152,15 @@ export async function GET(request: Request) {
     const { supabase, profile } = context;
     const lead = await loadLead(supabase, leadId);
     if (!lead || !lead.assigned_store_id) return NextResponse.json({ error: 'Lead não encontrado.' }, { status: 404 });
-    if (!canAccessLead(profile, lead)) return NextResponse.json({ error: 'Você não tem permissão para confirmar esta venda.' }, { status: 403 });
+    if (!canAccessLead(profile, lead)) return NextResponse.json({ error: 'Você não tem permissão para acessar este lead.' }, { status: 403 });
 
     const store = await loadStore(supabase, lead.assigned_store_id);
     if (!store) return NextResponse.json({ error: 'Loja indisponível.' }, { status: 404 });
 
-    const [sellers, sale] = await Promise.all([
+    const [sellers, sale, commercial] = await Promise.all([
       loadSellers(supabase, store.id),
-      loadSale(supabase, lead.id)
+      loadSale(supabase, lead.id),
+      loadCommercial(supabase, lead.id)
     ]);
 
     const suggestedSellerId = sale?.seller_user_id || lead.seller_user_id || (profile.role === 'seller' ? profile.id : null);
@@ -140,10 +180,12 @@ export async function GET(request: Request) {
       store,
       sellers,
       suggested_seller_id: suggestedSellerId,
-      sale
+      sale: commercialResponse(sale, commercial),
+      sale_confirmed: Boolean(sale),
+      commercial
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Não foi possível preparar a confirmação da venda.' }, { status: 500 });
+    return NextResponse.json({ error: error?.message || 'Não foi possível carregar as condições comerciais.' }, { status: 500 });
   }
 }
 
@@ -229,7 +271,9 @@ export async function POST(request: Request) {
 
     const paymentLabel = paymentDescription(paymentType, normalizedBank);
     const installmentsLabel = installmentCount ? `${installmentCount} parcela(s)` : 'Sem parcelamento';
-    const entryLabel = hasDownPayment ? `Entrada de R$ ${Number(downPaymentValue || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'Sem entrada';
+    const entryLabel = hasDownPayment
+      ? `Entrada de R$ ${Number(downPaymentValue || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : 'Sem entrada';
     const tradeLabel = hasTradeIn ? 'Com veículo na troca' : 'Sem veículo na troca';
     const sellerName = seller.full_name || seller.email || 'Vendedor';
     const activityLabel = `Venda confirmada por ${sellerName}`;
@@ -299,12 +343,17 @@ export async function POST(request: Request) {
       })
     ]);
 
-    const sale = await loadSale(supabase, lead.id);
+    const [sale, commercial] = await Promise.all([
+      loadSale(supabase, lead.id),
+      loadCommercial(supabase, lead.id)
+    ]);
 
     return NextResponse.json({
       success: true,
       message: `Venda confirmada com ${sellerName} como vendedor responsável.`,
-      sale
+      sale: commercialResponse(sale, commercial),
+      sale_confirmed: true,
+      commercial
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Não foi possível confirmar a venda.' }, { status: 500 });
