@@ -7,6 +7,7 @@ import { PipelineLeadEditorLazyLoader } from '@/components/PipelineLeadEditorLaz
 import { PipelineAddLeadWithStock } from '@/components/PipelineAddLeadWithStock';
 import { PipelineSaleConfirmation } from '@/components/PipelineSaleConfirmation';
 import { PipelineInstallmentQuickSelector } from '@/components/PipelineInstallmentQuickSelector';
+import { PipelineCommercialStageLabel } from '@/components/PipelineCommercialStageLabel';
 import { StoreCalendarRealtimeSync } from '@/components/StoreCalendarRealtimeSync';
 import { StorePortalMenuSync } from '@/components/StorePortalMenuSync';
 import { StorePortalUserIdentity } from '@/components/StorePortalUserIdentity';
@@ -27,6 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PipelineAddLeadWithStock />
         <PipelineSaleConfirmation />
         <PipelineInstallmentQuickSelector />
+        <PipelineCommercialStageLabel />
         <StoreCalendarRealtimeSync />
         <StorePortalMenuSync />
         <StorePortalUserIdentity />
