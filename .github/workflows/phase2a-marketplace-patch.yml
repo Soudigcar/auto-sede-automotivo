@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  statuses: write
 
 concurrency:
   group: phase2a-marketplace-patch
@@ -49,20 +50,43 @@ jobs:
             echo "Ignoring Vercel status for non-main commit: $event_sha"
           fi
 
-      - name: Setup Node.js
+      - name: Mark patch pending
         if: steps.trigger.outputs.eligible == 'true'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        env:
+          TARGET_SHA: ${{ steps.trigger.outputs.main_sha }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: process.env.TARGET_SHA,
+              state: 'pending',
+              context: 'phase2a-marketplace-patch',
+              description: 'Running controlled Phase 2A patch'
+            });
+
+      - name: Setup Node.js
+        id: setup
+        if: steps.trigger.outputs.eligible == 'true'
+        continue-on-error: true
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
       - name: Apply controlled changes
-        if: steps.trigger.outputs.eligible == 'true'
+        id: patch
+        if: steps.trigger.outputs.eligible == 'true' && steps.setup.outcome == 'success'
+        continue-on-error: true
         run: python3 .github/scripts/phase2a-marketplace-patch.mjs
 
       - name: Detect functional changes
-        if: steps.trigger.outputs.eligible == 'true'
         id: changes
+        if: steps.trigger.outputs.eligible == 'true' && steps.patch.outcome == 'success'
+        continue-on-error: true
         shell: bash
         run: |
           if git diff --quiet -- \
@@ -80,19 +104,27 @@ jobs:
           fi
 
       - name: Install dependencies
+        id: install
         if: steps.changes.outputs.changed == 'true'
+        continue-on-error: true
         run: npm ci
 
       - name: Typecheck
-        if: steps.changes.outputs.changed == 'true'
+        id: typecheck
+        if: steps.changes.outputs.changed == 'true' && steps.install.outcome == 'success'
+        continue-on-error: true
         run: npm run typecheck
 
       - name: Validate diff
-        if: steps.changes.outputs.changed == 'true'
+        id: diff
+        if: steps.changes.outputs.changed == 'true' && steps.typecheck.outcome == 'success'
+        continue-on-error: true
         run: git diff --check
 
       - name: Commit functional changes
-        if: steps.changes.outputs.changed == 'true'
+        id: publish
+        if: steps.changes.outputs.changed == 'true' && steps.diff.outcome == 'success'
+        continue-on-error: true
         shell: bash
         run: |
           git fetch origin main
@@ -114,3 +146,72 @@ jobs:
             'src/app/master/site/page.tsx'
           git commit -m 'feat: secure marketplace ownership and sold vehicle lifecycle'
           git push origin HEAD:main
+
+      - name: Summarize patch result
+        id: result
+        if: always() && steps.trigger.outputs.eligible == 'true'
+        shell: bash
+        env:
+          SETUP_OUTCOME: ${{ steps.setup.outcome }}
+          PATCH_OUTCOME: ${{ steps.patch.outcome }}
+          CHANGES_OUTCOME: ${{ steps.changes.outcome }}
+          CHANGED: ${{ steps.changes.outputs.changed }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          TYPECHECK_OUTCOME: ${{ steps.typecheck.outcome }}
+          DIFF_OUTCOME: ${{ steps.diff.outcome }}
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+        run: |
+          state='success'
+          description='Phase 2A patch completed successfully'
+
+          if [ "$SETUP_OUTCOME" != 'success' ]; then
+            state='failure'
+            description='Phase 2A failed while setting up Node.js'
+          elif [ "$PATCH_OUTCOME" != 'success' ]; then
+            state='failure'
+            description='Phase 2A patch script failed'
+          elif [ "$CHANGES_OUTCOME" != 'success' ]; then
+            state='failure'
+            description='Phase 2A failed while detecting changes'
+          elif [ "$CHANGED" != 'true' ]; then
+            description='Phase 2A already applied or no changes needed'
+          elif [ "$INSTALL_OUTCOME" != 'success' ]; then
+            state='failure'
+            description='Phase 2A failed during npm ci'
+          elif [ "$TYPECHECK_OUTCOME" != 'success' ]; then
+            state='failure'
+            description='Phase 2A failed during TypeScript typecheck'
+          elif [ "$DIFF_OUTCOME" != 'success' ]; then
+            state='failure'
+            description='Phase 2A failed during git diff validation'
+          elif [ "$PUBLISH_OUTCOME" != 'success' ]; then
+            state='failure'
+            description='Phase 2A failed while committing or pushing'
+          fi
+
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+          echo "description=$description" >> "$GITHUB_OUTPUT"
+
+      - name: Publish patch result
+        if: always() && steps.trigger.outputs.eligible == 'true'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        env:
+          TARGET_SHA: ${{ steps.trigger.outputs.main_sha }}
+          RESULT_STATE: ${{ steps.result.outputs.state }}
+          RESULT_DESCRIPTION: ${{ steps.result.outputs.description }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: process.env.TARGET_SHA,
+              state: process.env.RESULT_STATE,
+              context: 'phase2a-marketplace-patch',
+              description: process.env.RESULT_DESCRIPTION
+            });
+
+      - name: Fail workflow after reporting
+        if: always() && steps.trigger.outputs.eligible == 'true' && steps.result.outputs.state == 'failure'
+        run: exit 1
