@@ -77,9 +77,31 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Normalize temporary patch marker
+        id: normalize
+        if: steps.trigger.outputs.eligible == 'true' && steps.setup.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/scripts/phase2a-marketplace-patch.mjs')
+          source = path.read_text(encoding='utf-8')
+          before = "    'src/app/api/store-stock/route.ts': 'store_id: store.id,',"
+          after = "    'src/app/api/store-stock/route.ts': \"campaign_id: campaign?.id || null,\\n        store_id: store.id,\","
+
+          count = source.count(before)
+          if count != 1:
+              raise RuntimeError(f'Expected one legacy store-stock marker and found {count}.')
+
+          path.write_text(source.replace(before, after, 1), encoding='utf-8')
+          print('Temporary Phase 2A marker normalized.')
+          PY
+
       - name: Apply controlled changes
         id: patch
-        if: steps.trigger.outputs.eligible == 'true' && steps.setup.outcome == 'success'
+        if: steps.trigger.outputs.eligible == 'true' && steps.normalize.outcome == 'success'
         continue-on-error: true
         run: python3 .github/scripts/phase2a-marketplace-patch.mjs
 
@@ -153,6 +175,7 @@ jobs:
         shell: bash
         env:
           SETUP_OUTCOME: ${{ steps.setup.outcome }}
+          NORMALIZE_OUTCOME: ${{ steps.normalize.outcome }}
           PATCH_OUTCOME: ${{ steps.patch.outcome }}
           CHANGES_OUTCOME: ${{ steps.changes.outcome }}
           CHANGED: ${{ steps.changes.outputs.changed }}
@@ -167,6 +190,9 @@ jobs:
           if [ "$SETUP_OUTCOME" != 'success' ]; then
             state='failure'
             description='Phase 2A failed while setting up Node.js'
+          elif [ "$NORMALIZE_OUTCOME" != 'success' ]; then
+            state='failure'
+            description='Phase 2A failed while normalizing patch marker'
           elif [ "$PATCH_OUTCOME" != 'success' ]; then
             state='failure'
             description='Phase 2A patch script failed'
