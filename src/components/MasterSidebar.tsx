@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Activity, BarChart3, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, Globe2, Inbox, Landmark, LogOut, MessageCircle, Plug, Store, UserCog } from 'lucide-react';
+import { Activity, BarChart3, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, Globe2, Inbox, Landmark, LogOut, MessageCircle, Plug, ShoppingBag, Store, UserCog } from 'lucide-react';
 
 const masterMenu = [
   { label: 'Dashboard', href: '/master/dashboard/live', icon: BarChart3 },
@@ -13,6 +13,7 @@ const masterMenu = [
   { label: 'Relatórios', href: '/master/reports', icon: FileText },
   { label: 'Financeiro', href: '/master/finance', icon: Landmark },
   { label: 'Site', href: '/master/site', icon: Globe2 },
+  { label: 'Marketplace', href: '/master/marketplace', icon: ShoppingBag },
   { label: 'Base', href: '/master/base', icon: Database },
   { label: 'Integração', href: '/master/integrations', icon: Plug },
   { label: 'Inbox WhatsApp', href: '/master/whatsapp/inbox', icon: Inbox },
