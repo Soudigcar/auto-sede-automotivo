@@ -22,12 +22,21 @@ type Seller = {
   email: string | null;
 };
 
+type VehicleOption = {
+  id: string;
+  name: string;
+  price: number | string | null;
+  status: string;
+  show_on_landing: boolean;
+};
+
 type SaleContext = {
   lead: {
     id: string;
     customer_name: string | null;
     customer_phone: string | null;
     interested_vehicle: string | null;
+    interested_vehicle_id: string | null;
     interested_vehicle_price: number | string | null;
     customer_bank: string | null;
     vehicle_category_interest: string | null;
@@ -36,6 +45,7 @@ type SaleContext = {
   };
   store: { id: string; store_name: string; slug: string };
   sellers: Seller[];
+  vehicles: VehicleOption[];
   suggested_seller_id: string | null;
   sale: any | null;
 };
@@ -111,6 +121,9 @@ export function PipelineSaleConfirmation() {
   const [installmentValue, setInstallmentValue] = useState('');
   const [tradeIn, setTradeIn] = useState<'' | 'yes' | 'no'>('');
   const [saleValue, setSaleValue] = useState('');
+  const [vehicleMode, setVehicleMode] = useState<'portal' | 'outside_portal'>('portal');
+  const [vehicleId, setVehicleId] = useState('');
+  const [outsideVehicleName, setOutsideVehicleName] = useState('');
 
   const finalInstallmentCount = installmentPreset === 'custom' ? customInstallments : installmentPreset;
   const installmentRequired = paymentType === 'financed' || paymentType === 'consortium';
@@ -139,6 +152,9 @@ export function PipelineSaleConfirmation() {
     setInstallmentValue('');
     setTradeIn('');
     setSaleValue('');
+    setVehicleMode('portal');
+    setVehicleId('');
+    setOutsideVehicleName('');
   }
 
   function closeLegacyModal() {
@@ -211,6 +227,10 @@ export function PipelineSaleConfirmation() {
       const count = loaded.sale?.installment_count ? String(loaded.sale.installment_count) : '';
 
       setContext(loaded);
+      const initialVehicleId = loaded.sale?.vehicle_id || loaded.lead.interested_vehicle_id || '';
+      setVehicleMode(initialVehicleId ? 'portal' : 'outside_portal');
+      setVehicleId(initialVehicleId);
+      setOutsideVehicleName(loaded.lead.interested_vehicle || '');
       setSellerUserId(loaded.suggested_seller_id || '');
       setPaymentType(existingPayment);
       setBank(existingPayment !== 'cash' && existingBank && !['Não informado', 'Não se aplica', 'Consórcio', 'Outro'].includes(existingBank)
@@ -297,6 +317,8 @@ export function PipelineSaleConfirmation() {
     if (!leadId || saving) return;
 
     if (!sellerUserId) return setMessage('Selecione o vendedor responsável pelo fechamento.');
+    if (vehicleMode === 'portal' && !vehicleId) return setMessage('Selecione o veículo vendido no estoque da loja.');
+    if (vehicleMode === 'outside_portal' && !outsideVehicleName.trim()) return setMessage('Informe qual veículo foi vendido fora do portal.');
     if (!paymentType) return setMessage('Selecione a forma de pagamento.');
 
     const selectedBank = paymentType === 'cash'
@@ -330,6 +352,9 @@ export function PipelineSaleConfirmation() {
         },
         body: JSON.stringify({
           lead_id: leadId,
+          vehicle_mode: vehicleMode,
+          vehicle_id: vehicleMode === 'portal' ? vehicleId : null,
+          vehicle_name: vehicleMode === 'outside_portal' ? outsideVehicleName.trim() : null,
           seller_user_id: sellerUserId,
           payment_type: paymentType,
           financing_bank: selectedBank,
@@ -395,6 +420,34 @@ export function PipelineSaleConfirmation() {
                 <h3 className="mt-2 text-2xl font-black">{context.lead.customer_name || 'Cliente sem nome'}</h3>
                 <p className="mt-2 text-sm font-bold text-slate-300">{context.lead.interested_vehicle || 'Veículo não informado'}</p>
                 {context.lead.interested_vehicle_price ? <p className="mt-2 text-sm font-black text-emerald-300">Valor de referência: R$ {moneyInput(context.lead.interested_vehicle_price)}</p> : null}
+              </div>
+
+              <div className="grid gap-4 rounded-3xl border border-amber-200 bg-amber-50/70 p-4">
+                <div>
+                  <p className="text-sm font-black text-amber-900">Qual veículo foi vendido?</p>
+                  <p className="mt-1 text-xs font-bold text-amber-800">Ao confirmar um veículo do portal, o anúncio será retirado imediatamente do marketplace.</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button type="button" onClick={() => setVehicleMode('portal')} className={`rounded-2xl border p-4 text-left ${vehicleMode === 'portal' ? 'border-amber-500 bg-white ring-2 ring-amber-100' : 'border-amber-200 bg-white/70'}`}>
+                    <p className="font-black">Veículo do estoque</p><p className="mt-1 text-xs text-slate-500">Retira automaticamente o anúncio.</p>
+                  </button>
+                  <button type="button" onClick={() => setVehicleMode('outside_portal')} className={`rounded-2xl border p-4 text-left ${vehicleMode === 'outside_portal' ? 'border-amber-500 bg-white ring-2 ring-amber-100' : 'border-amber-200 bg-white/70'}`}>
+                    <p className="font-black">Veículo fora do portal</p><p className="mt-1 text-xs text-slate-500">Registra a venda sem retirar outro anúncio.</p>
+                  </button>
+                </div>
+                {vehicleMode === 'portal' ? (
+                  <label className="text-sm font-black text-slate-700">Veículo vendido
+                    <select value={vehicleId} onChange={(event) => { const next = event.target.value; setVehicleId(next); const selected = context.vehicles.find((item) => item.id === next); if (selected?.price) setSaleValue(moneyInput(selected.price)); }} className="mt-2 w-full rounded-2xl border border-amber-300 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-amber-500" required>
+                      <option value="">Selecione o veículo</option>
+                      {context.vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name} — R$ {moneyInput(vehicle.price)}</option>)}
+                    </select>
+                    {context.vehicles.length === 0 ? <span className="mt-2 block text-xs font-bold text-red-600">Nenhum veículo disponível foi encontrado para esta loja.</span> : null}
+                  </label>
+                ) : (
+                  <label className="text-sm font-black text-slate-700">Descrição do veículo vendido
+                    <input value={outsideVehicleName} onChange={(event) => setOutsideVehicleName(event.target.value)} placeholder="Ex.: Chevrolet Classic 2015" className="mt-2 w-full rounded-2xl border border-amber-300 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-amber-500" required />
+                  </label>
+                )}
               </div>
 
               <label className="text-sm font-black text-slate-700">
@@ -522,7 +575,7 @@ export function PipelineSaleConfirmation() {
               <button type="button" onClick={close} disabled={saving} className="rounded-2xl border border-slate-300 px-5 py-3 text-sm font-black text-slate-600 disabled:opacity-50">Cancelar</button>
               <button type="submit" disabled={saving || context.sellers.length === 0} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-black text-white shadow-lg shadow-emerald-600/20 disabled:opacity-50">
                 {saving ? <Loader2 className="animate-spin" size={19} /> : <UserRoundCheck size={19} />}
-                {saving ? 'Confirmando venda...' : 'Confirmar venda e responsável'}
+                {saving ? 'Confirmando venda...' : 'Confirmar venda e retirar anúncio'}
               </button>
             </footer>
           </form>

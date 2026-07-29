@@ -57,6 +57,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      if (pathname.startsWith('/master') && profile.role !== 'master') {
+        router.replace('/');
+        return;
+      }
+
       if (profile.role !== 'master' && profile.must_change_password) {
         router.replace(`/trocar-senha?next=${encodeURIComponent(pathname)}`);
         return;

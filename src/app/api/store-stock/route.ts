@@ -473,12 +473,9 @@ export async function POST(request: Request) {
 
       const campaign = await getActiveCampaign(supabase);
 
-      if (!campaign) {
-        return NextResponse.json({ error: 'Nenhuma campanha ativa encontrada para publicar o veículo.' }, { status: 400 });
-      }
-
       const vehiclePayload: any = {
-        campaign_id: campaign.id,
+        campaign_id: campaign?.id || null,
+        store_id: store.id,
         brand: cleanText(body.brand).toUpperCase(),
         model: cleanText(body.model).toUpperCase(),
         version: cleanText(body.version),

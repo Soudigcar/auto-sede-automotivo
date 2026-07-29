@@ -474,20 +474,31 @@ export default function StoreSlugPipelinePage() {
 
   async function confirmSale() {
     if (!saleLead) return;
-
-    await updateLead(saleLead.id, { status: 'sale_confirmed' }, 'Confirmando venda...');
-    closeSaleModal();
+    setMessage('Use o formulário completo de venda para selecionar veículo, vendedor e condições comerciais.');
   }
 
   async function reopenLead(lead: any, targetStatus = 'in_service') {
-    await updateLead(
-      lead.id,
-      {
-        status: targetStatus,
-        lost_reason: null
-      },
-      'Reabrindo lead...'
-    );
+    if (lead.status === 'sale_confirmed') {
+      const confirmed = window.confirm('Cancelar esta venda? O lead voltará para Compareceu e o anúncio será restaurado quando for seguro.');
+      if (!confirmed) return;
+      const reason = window.prompt('Informe o motivo do cancelamento da venda:')?.trim() || 'Venda cancelada pela equipe da loja';
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) return setMessage('Sessão expirada. Faça login novamente.');
+      setMessage('Cancelando venda e restaurando o veículo...');
+      const response = await fetch('/api/store/sale-confirmation', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ lead_id: lead.id, reason })
+      });
+      const result = await response.json();
+      if (!response.ok) return setMessage(result.error || 'Não foi possível cancelar a venda.');
+      await loadData();
+      setMessage(result.message || 'Venda cancelada e veículo restaurado no marketplace.');
+      return;
+    }
+
+    await updateLead(lead.id, { status: targetStatus, lost_reason: null }, 'Reabrindo lead...');
   }
 
   function openLeadEditor(lead: any) {
@@ -518,6 +529,19 @@ export default function StoreSlugPipelinePage() {
 
   async function saveLeadEditor() {
     if (!editingLead) return;
+
+    if (editStatus === 'sale_confirmed' && editingLead.status !== 'sale_confirmed') {
+      const lead = editingLead;
+      closeLeadEditor();
+      openSaleModal(lead);
+      setMessage('Preencha o formulário completo para confirmar a venda.');
+      return;
+    }
+
+    if (editingLead.status === 'sale_confirmed' && editStatus !== 'sale_confirmed') {
+      setMessage('Use o botão Cancelar venda no card para reabrir o lead e restaurar o anúncio com segurança.');
+      return;
+    }
 
     const payload: Record<string, any> = {
       customer_name: editCustomerName.trim() || null,

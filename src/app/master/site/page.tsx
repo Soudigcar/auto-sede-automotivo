@@ -44,6 +44,7 @@ const emptyVehicle = {
   image_url: '',
   image_urls: [],
   source_url: '',
+  store_id: '',
   store_name: '',
   status: 'disponivel',
   show_on_landing: true,
@@ -217,16 +218,13 @@ export default function MasterSitePage() {
       interest_rate: String(currentCampaign.interest_rate || '1.89')
     });
 
-    if (currentCampaign?.id) {
-      const { data: vehicleRows } = await supabase
-        .from('site_vehicles')
-        .select('*')
-        .eq('campaign_id', currentCampaign.id)
-        .neq('status', 'excluido')
-        .order('created_at', { ascending: false });
+    const { data: vehicleRows } = await supabase
+      .from('site_vehicles')
+      .select('*')
+      .neq('status', 'excluido')
+      .order('created_at', { ascending: false });
 
-      setVehicles(vehicleRows || []);
-    }
+    setVehicles(vehicleRows || []);
 
     await loadStoreQueue();
     await loadVehicleOptions();
@@ -270,15 +268,10 @@ export default function MasterSitePage() {
   async function uploadVehicleImage(file?: File, mode: 'cover' | 'gallery' = 'cover') {
     if (!file) return;
 
-    if (!campaign.id) {
-      setMessage('Salve a campanha antes de subir imagem.');
-      return;
-    }
-
     setUploading(true);
 
     const ext = file.name.split('.').pop() || 'jpg';
-    const fileName = `${campaign.slug}/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
+    const fileName = `${campaign.slug || 'marketplace'}/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
 
     const { error } = await supabase.storage.from('vehicle-images').upload(fileName, file, { upsert: true });
 
@@ -382,13 +375,16 @@ export default function MasterSitePage() {
   }
 
   async function saveVehiclePayload() {
-    if (!campaign.id) {
-      setMessage('Salve a campanha antes de cadastrar veículos.');
+    const ownerStore = vehicleForm.store_id ? storeMap[vehicleForm.store_id] : null;
+    if (!ownerStore?.id) {
+      setMessage('Selecione obrigatoriamente a loja proprietária do veículo.');
       return null;
     }
 
+    const sold = vehicleForm.status === 'vendido';
     const payload = {
-      campaign_id: campaign.id,
+      campaign_id: campaign.id || null,
+      store_id: ownerStore.id,
       brand: vehicleForm.brand,
       model: vehicleForm.model,
       version: vehicleForm.version,
@@ -405,10 +401,10 @@ export default function MasterSitePage() {
           ? [vehicleForm.image_url]
           : [],
       source_url: vehicleForm.source_url,
-      store_name: vehicleForm.store_name,
+      store_name: ownerStore.store_name,
       status: vehicleForm.status,
-      show_on_landing: Boolean(vehicleForm.show_on_landing),
-      is_featured: Boolean(vehicleForm.is_featured),
+      show_on_landing: sold ? false : Boolean(vehicleForm.show_on_landing),
+      is_featured: sold ? false : Boolean(vehicleForm.is_featured),
       updated_at: new Date().toISOString()
     };
 
@@ -443,7 +439,7 @@ export default function MasterSitePage() {
     setSelectedSubmissionId('');
     setInlineEditingVehicleId('');
 
-    setMessage('Veículo publicado na landing.');
+    setMessage(sold ? 'Veículo marcado como vendido e retirado do marketplace.' : 'Veículo publicado no marketplace.');
     await loadData();
 
     return data;
@@ -552,8 +548,10 @@ export default function MasterSitePage() {
 
 
   async function editVehicle(item: any) {
+    const inferredStoreId = item.store_id || Object.values(storeMap).find((store: any) => store.store_name === item.store_name)?.id || '';
     setVehicleForm({
       ...item,
+      store_id: inferredStoreId,
       price: String(item.price || ''),
       source_url: item.source_url || '',
       image_urls: Array.isArray(item.image_urls) && item.image_urls.length
@@ -649,7 +647,7 @@ export default function MasterSitePage() {
     setRefreshingPrices(false);
   }
 
-  async function runPreviewFromUrl(url: string, storeName?: string, submissionId?: string) {
+  async function runPreviewFromUrl(url: string, storeName?: string, submissionId?: string, storeId?: string) {
     if (!url) {
       setMessage('Cole o link do anúncio para buscar as informações.');
       return;
@@ -687,6 +685,7 @@ export default function MasterSitePage() {
       price: result.price ? String(result.price) : current.price,
       image_url: result.images?.[0] || current.image_url,
       source_url: result.vehicle?.source_url || url || current.source_url,
+      store_id: storeId || current.store_id,
       store_name: storeName || current.store_name
     }));
 
@@ -711,7 +710,7 @@ export default function MasterSitePage() {
   async function reviewSubmission(item: any) {
     const store = storeMap[item.store_id];
     setImportUrl(item.vehicle_url);
-    await runPreviewFromUrl(item.vehicle_url, store?.store_name || '', item.id);
+    await runPreviewFromUrl(item.vehicle_url, store?.store_name || '', item.id, item.store_id);
   }
 
   async function rejectSubmission(item: any) {
@@ -1194,7 +1193,10 @@ export default function MasterSitePage() {
                 <input className="premium-input" list="vehicle-transmission-options" placeholder="Câmbio" value={vehicleForm.transmission} onChange={(e) => setVehicleForm({ ...vehicleForm, transmission: e.target.value })} />
                 <input className="premium-input" list="vehicle-fuel-options" placeholder="Combustível" value={vehicleForm.fuel} onChange={(e) => setVehicleForm({ ...vehicleForm, fuel: e.target.value })} />
                 <input className="premium-input" type="number" placeholder="Preço" value={vehicleForm.price} onChange={(e) => setVehicleForm({ ...vehicleForm, price: e.target.value })} required />
-                <input className="premium-input" placeholder="Loja responsável" value={vehicleForm.store_name} onChange={(e) => setVehicleForm({ ...vehicleForm, store_name: e.target.value })} />
+                <select className="premium-input" value={vehicleForm.store_id || ''} onChange={(e) => { const store = storeMap[e.target.value]; setVehicleForm({ ...vehicleForm, store_id: e.target.value, store_name: store?.store_name || '' }); }} required>
+                  <option value="">Selecione a loja proprietária</option>
+                  {Object.values(storeMap).sort((a: any, b: any) => String(a.store_name || '').localeCompare(String(b.store_name || ''), 'pt-BR')).map((store: any) => <option key={store.id} value={store.id}>{store.store_name}</option>)}
+                </select>
 
                 <select className="premium-input" value={vehicleForm.status} onChange={(e) => setVehicleForm({ ...vehicleForm, status: e.target.value })}>
                   <option value="disponivel">Disponível</option>

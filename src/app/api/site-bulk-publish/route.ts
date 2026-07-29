@@ -176,10 +176,6 @@ export async function POST(request: Request) {
     const submissionIds = Array.isArray(body.submission_ids) ? body.submission_ids.slice(0, 5) : [];
     const campaign = await getCampaign(supabase, text(body.campaign_id));
 
-    if (!campaign?.id) {
-      return NextResponse.json({ error: 'Campanha da landing não encontrada.' }, { status: 400 });
-    }
-
     if (!submissionIds.length) {
       return NextResponse.json({ error: 'Nenhum link selecionado.' }, { status: 400 });
     }
@@ -211,9 +207,13 @@ export async function POST(request: Request) {
 
         const { data: store } = await supabase
           .from('stores')
-          .select('id,store_name')
+          .select('id,store_name,status,portal_enabled')
           .eq('id', submission.store_id)
           .maybeSingle();
+
+        if (!store || store.status !== 'active' || !store.portal_enabled) {
+          throw new Error('A loja proprietária está inativa ou sem acesso ao portal.');
+        }
 
         const importedResult = await importVehicleFromSubmission(origin, submission);
         const vehicleData = importedResult.imported?.vehicle || importedResult.preview?.vehicle || {};
@@ -236,24 +236,44 @@ export async function POST(request: Request) {
         );
 
         const payload = {
-          campaign_id: campaign.id,
-          brand: text(vehicleData.brand) || text(importedResult.preview?.vehicle?.brand) || 'Veículo',
-          model: text(vehicleData.model) || text(importedResult.preview?.vehicle?.model) || 'A conferir',
+          campaign_id: campaign?.id || null,
+          store_id: store.id,
+          brand: text(vehicleData.brand) || text(importedResult.preview?.vehicle?.brand),
+          model: text(vehicleData.model) || text(importedResult.preview?.vehicle?.model),
           version: text(vehicleData.version) || text(importedResult.preview?.vehicle?.version),
           year: text(vehicleData.year) || text(importedResult.preview?.vehicle?.year),
-          mileage: text(vehicleData.mileage) || '',
-          color: text(vehicleData.color) || '',
-          transmission: text(vehicleData.transmission) || '',
-          fuel: text(vehicleData.fuel) || '',
+          mileage: text(vehicleData.mileage),
+          color: text(vehicleData.color),
+          transmission: text(vehicleData.transmission),
+          fuel: text(vehicleData.fuel),
           price: Number(importedResult.imported?.price || importedResult.preview?.price || 0),
           image_url: imageUrl,
           image_urls: imageUrls,
-          store_name: store?.store_name || '',
+          source_url: submission.vehicle_url,
+          store_name: store.store_name,
           status: 'disponivel',
           show_on_landing: true,
           is_featured: false,
           updated_at: new Date().toISOString()
         };
+
+        const missing = [
+          !payload.brand && 'marca',
+          !payload.model && 'modelo',
+          !payload.version && 'versão',
+          !payload.year && 'ano',
+          !payload.mileage && 'km',
+          !payload.color && 'cor',
+          !payload.transmission && 'câmbio',
+          !payload.fuel && 'combustível',
+          !(payload.price > 0) && 'valor',
+          !payload.image_url && 'foto',
+          !payload.source_url && 'link original'
+        ].filter(Boolean);
+
+        if (missing.length) {
+          throw new Error(`Dados obrigatórios ausentes: ${missing.join(', ')}.`);
+        }
 
         const { data: vehicle, error: vehicleError } = await supabase
           .from('site_vehicles')
