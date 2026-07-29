@@ -17,8 +17,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (
         github.event.state == 'success' &&
-        startsWith(github.event.context, 'Vercel') &&
-        contains(github.event.branches.*.name, 'main')
+        startsWith(github.event.context, 'Vercel')
       )
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -30,16 +29,39 @@ jobs:
           ref: main
           fetch-depth: 0
 
+      - name: Verify trigger targets current main
+        id: trigger
+        shell: bash
+        run: |
+          main_sha="$(git rev-parse HEAD)"
+          echo "main_sha=$main_sha" >> "$GITHUB_OUTPUT"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "eligible=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          event_sha="${{ github.event.sha }}"
+          if [ -n "$event_sha" ] && [ "$event_sha" = "$main_sha" ]; then
+            echo "eligible=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            echo "Ignoring Vercel status for non-main commit: $event_sha"
+          fi
+
       - name: Setup Node.js
+        if: steps.trigger.outputs.eligible == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
       - name: Apply controlled changes
+        if: steps.trigger.outputs.eligible == 'true'
         run: python3 .github/scripts/phase2a-marketplace-patch.mjs
 
       - name: Detect functional changes
+        if: steps.trigger.outputs.eligible == 'true'
         id: changes
         shell: bash
         run: |
@@ -73,6 +95,12 @@ jobs:
         if: steps.changes.outputs.changed == 'true'
         shell: bash
         run: |
+          git fetch origin main
+          if [ "$(git rev-parse origin/main)" != "${{ steps.trigger.outputs.main_sha }}" ]; then
+            echo 'main changed while the patch was being validated; refusing to push.'
+            exit 1
+          fi
+
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -- \
