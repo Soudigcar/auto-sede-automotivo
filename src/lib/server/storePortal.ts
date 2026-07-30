@@ -79,6 +79,24 @@ export function storePortalScopeLabel(role: StorePortalRole) {
   return 'Leads captados ou atribuídos a você';
 }
 
+export function canAccessStoreLead(profile: any, role: StorePortalRole, lead: any) {
+  if (role === 'master') return true;
+  if (!profile?.store_id || profile.store_id !== lead?.assigned_store_id) return false;
+  if (role === 'store') return true;
+  if (role === 'pre_sales') return lead?.pre_sales_user_id === profile.id || lead?.assigned_user_id === profile.id;
+  if (role === 'seller') return lead?.seller_user_id === profile.id || lead?.assigned_user_id === profile.id;
+  return lead?.captured_by_user_id === profile.id || lead?.assigned_user_id === profile.id;
+}
+
+export function applyStoreLeadScope(query: any, profile: any, role: StorePortalRole) {
+  if (role === 'master' || role === 'store') return query;
+  const userId = cleanText(profile?.id, 80);
+  if (!userId) return query.eq('id', '__unauthorized__');
+  if (role === 'pre_sales') return query.or(`pre_sales_user_id.eq.${userId},assigned_user_id.eq.${userId}`);
+  if (role === 'seller') return query.or(`seller_user_id.eq.${userId},assigned_user_id.eq.${userId}`);
+  return query.or(`captured_by_user_id.eq.${userId},assigned_user_id.eq.${userId}`);
+}
+
 export async function authorizeStorePortal(request: Request, expectedSlug: string) {
   const supabase: any = createAdminClient();
   const token = readBearerToken(request);
