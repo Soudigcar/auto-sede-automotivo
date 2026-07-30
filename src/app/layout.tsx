@@ -9,8 +9,6 @@ import { PipelineSaleConfirmation } from '@/components/PipelineSaleConfirmation'
 import { PipelineInstallmentQuickSelector } from '@/components/PipelineInstallmentQuickSelector';
 import { PipelineCommercialStageLabel } from '@/components/PipelineCommercialStageLabel';
 import { StoreCalendarRealtimeSync } from '@/components/StoreCalendarRealtimeSync';
-import { StorePortalMenuSync } from '@/components/StorePortalMenuSync';
-import { StorePortalUserIdentity } from '@/components/StorePortalUserIdentity';
 import { StoreTeamManualMember } from '@/components/StoreTeamManualMember';
 
 export const metadata: Metadata = {
@@ -30,8 +28,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PipelineInstallmentQuickSelector />
         <PipelineCommercialStageLabel />
         <StoreCalendarRealtimeSync />
-        <StorePortalMenuSync />
-        <StorePortalUserIdentity />
         <StoreTeamManualMember />
       </body>
     </html>

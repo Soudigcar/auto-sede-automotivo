@@ -1,36 +1,76 @@
 import { createClient } from '@/lib/supabase';
 
-const storePortalRoles = ['store', 'pre_sales', 'seller', 'prospector'];
+export type StorePortalContextResult =
+  | {
+      status: 'ok';
+      profile: any;
+      store: any;
+      permissions: string[];
+      menu: any[];
+      scope_label: string;
+    }
+  | {
+      status: 'unauthenticated' | 'forbidden' | 'store_not_found' | 'error';
+      profile: null;
+      store: null;
+      permissions: string[];
+      menu: any[];
+      scope_label: string;
+      error: string;
+    };
 
-export async function getStorePortalContext(slug: string) {
+export async function getStorePortalContext(slug: string): Promise<StorePortalContextResult> {
   const supabase = createClient();
   const { data: sessionData } = await supabase.auth.getSession();
-  const session = sessionData.session;
+  const token = sessionData.session?.access_token;
 
-  if (!session?.user) return { status: 'unauthenticated' as const, profile: null, store: null };
-
-  let profile: any = null;
-  const { data: byAuth } = await supabase.from('users').select('*').eq('auth_user_id', session.user.id).maybeSingle();
-  profile = byAuth;
-
-  if (!profile && session.user.email) {
-    const { data: byEmail } = await supabase.from('users').select('*').ilike('email', session.user.email).maybeSingle();
-    profile = byEmail;
+  if (!token) {
+    return {
+      status: 'unauthenticated',
+      profile: null,
+      store: null,
+      permissions: [],
+      menu: [],
+      scope_label: '',
+      error: 'Sessão não encontrada.'
+    };
   }
 
-  if (!profile || profile.status !== 'active') return { status: 'no_profile' as const, profile: null, store: null };
+  try {
+    const response = await fetch(`/api/store/portal/context?slug=${encodeURIComponent(slug)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store'
+    });
+    const payload = await response.json();
 
-  const { data: store } = await supabase
-    .from('stores')
-    .select('*')
-    .eq('slug', slug)
-    .eq('status', 'active')
-    .eq('portal_enabled', true)
-    .maybeSingle();
+    if (response.ok && payload.status === 'ok') return payload;
 
-  if (!store) return { status: 'store_not_found' as const, profile, store: null };
-  if (profile.role !== 'master' && !storePortalRoles.includes(profile.role)) return { status: 'forbidden' as const, profile, store };
-  if (profile.role !== 'master' && profile.store_id !== store.id) return { status: 'wrong_store' as const, profile, store };
+    const status = response.status === 401
+      ? 'unauthenticated'
+      : response.status === 404
+        ? 'store_not_found'
+        : response.status === 403
+          ? 'forbidden'
+          : 'error';
 
-  return { status: 'ok' as const, profile, store };
+    return {
+      status,
+      profile: null,
+      store: null,
+      permissions: [],
+      menu: [],
+      scope_label: '',
+      error: payload.error || 'Não foi possível validar o Portal da Loja.'
+    };
+  } catch {
+    return {
+      status: 'error',
+      profile: null,
+      store: null,
+      permissions: [],
+      menu: [],
+      scope_label: '',
+      error: 'Falha de comunicação ao validar o Portal da Loja.'
+    };
+  }
 }
