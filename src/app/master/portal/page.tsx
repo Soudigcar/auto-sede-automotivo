@@ -1,23 +1,7 @@
 'use client';
 
-import Link from 'next/link';
-import { useEffect, useMemo, useState, type FormEvent, type HTMLInputTypeAttribute, type ReactNode } from 'react';
-import {
-  AlertTriangle,
-  Building2,
-  CarFront,
-  CheckCircle2,
-  ExternalLink,
-  Globe2,
-  Loader2,
-  Megaphone,
-  RefreshCw,
-  Save,
-  Search,
-  ShieldCheck,
-  ShoppingBag,
-  Sparkles
-} from 'lucide-react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { AlertTriangle, ExternalLink, Globe2, Loader2, RefreshCw, Save } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { createClient } from '@/lib/supabase';
 import { defaultPortalSettings, normalizePortalSettings, type PortalSettings } from '@/lib/portalSettings';
@@ -31,6 +15,10 @@ type PortalSnapshot = {
   marketplaceLeads: number;
 };
 
+type TextField = Exclude<{
+  [K in keyof PortalSettings]: PortalSettings[K] extends string ? K : never
+}[keyof PortalSettings], undefined>;
+
 const emptySnapshot: PortalSnapshot = {
   activeStores: 0,
   enabledStores: 0,
@@ -40,142 +28,89 @@ const emptySnapshot: PortalSnapshot = {
   marketplaceLeads: 0
 };
 
-function MetricCard({ icon, label, value, detail, warning = false }: { icon: ReactNode; label: string; value: number; detail: string; warning?: boolean }) {
-  return (
-    <article className={`rounded-3xl border bg-white p-5 shadow-sm ${warning ? 'border-amber-200' : 'border-zinc-200'}`}>
-      <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${warning ? 'bg-amber-50 text-amber-700' : 'bg-zinc-100 text-zinc-700'}`}>{icon}</div>
-      <p className="mt-5 text-xs font-black uppercase tracking-[0.18em] text-zinc-400">{label}</p>
-      <strong className="mt-2 block text-3xl font-black text-zinc-950">{value.toLocaleString('pt-BR')}</strong>
-      <p className="mt-2 text-xs font-bold text-zinc-500">{detail}</p>
-    </article>
-  );
-}
-
-function Field({ label, value, onChange, placeholder, help, textarea = false, type = 'text' }: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  help?: string;
-  textarea?: boolean;
-  type?: HTMLInputTypeAttribute;
-}) {
-  const className = 'mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-900 outline-none transition focus:border-red-400 focus:ring-4 focus:ring-red-50';
-  return (
-    <label className="block">
-      <span className="text-xs font-black uppercase tracking-[0.14em] text-zinc-500">{label}</span>
-      {textarea
-        ? <textarea value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} rows={4} className={`${className} resize-y`} />
-        : <input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className={className} />}
-      {help ? <span className="mt-2 block text-xs font-medium leading-relaxed text-zinc-400">{help}</span> : null}
-    </label>
-  );
-}
-
-function Section({ eyebrow, title, description, children }: { eyebrow: string; title: string; description: string; children: ReactNode }) {
-  return (
-    <section className="rounded-[30px] border border-zinc-200 bg-white p-6 shadow-sm sm:p-7">
-      <p className="text-xs font-black uppercase tracking-[0.2em] text-red-600">{eyebrow}</p>
-      <h2 className="mt-2 text-2xl font-black tracking-tight text-zinc-950">{title}</h2>
-      <p className="mt-2 max-w-3xl text-sm font-medium leading-relaxed text-zinc-500">{description}</p>
-      <div className="mt-6">{children}</div>
-    </section>
-  );
-}
-
-function formatDate(value?: string | null) {
-  if (!value) return 'Ainda não publicado pelo CMS';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 'Data não disponível' : date.toLocaleString('pt-BR');
-}
+const inputClass = 'mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold outline-none focus:border-red-400 focus:ring-4 focus:ring-red-50';
 
 export default function MasterPortalPage() {
   const supabase = useMemo(() => createClient(), []);
-  const [snapshot, setSnapshot] = useState<PortalSnapshot>(emptySnapshot);
   const [settings, setSettings] = useState<PortalSettings>(defaultPortalSettings);
+  const [snapshot, setSnapshot] = useState<PortalSnapshot>(emptySnapshot);
   const [cmsReady, setCmsReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
-  const [messageTone, setMessageTone] = useState<'success' | 'error' | 'info'>('info');
 
-  async function accessToken() {
+  async function getToken() {
     const { data } = await supabase.auth.getSession();
     return data.session?.access_token || '';
   }
 
-  async function loadPortal(preserveMessage = false) {
+  async function load() {
     setLoading(true);
-    if (!preserveMessage) setMessage('');
+    setMessage('');
     try {
-      const token = await accessToken();
-      if (!token) throw new Error('Sua sessão expirou. Entre novamente para acessar o Portal Oficial.');
-      const response = await fetch('/api/master/portal/settings', { cache: 'no-store', headers: { Authorization: `Bearer ${token}` } });
+      const token = await getToken();
+      if (!token) throw new Error('Sua sessão expirou.');
+      const response = await fetch('/api/master/portal/settings', {
+        cache: 'no-store',
+        headers: { Authorization: `Bearer ${token}` }
+      });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || 'Não foi possível carregar o CMS do portal.');
+      if (!response.ok) throw new Error(payload.error || 'Não foi possível carregar o CMS.');
+      setSettings(normalizePortalSettings(payload.settings));
       setSnapshot(payload.snapshot || emptySnapshot);
-      setSettings(normalizePortalSettings(payload.settings || defaultPortalSettings));
       setCmsReady(payload.cms_ready === true);
     } catch (error: any) {
-      setMessageTone('error');
-      setMessage(error?.message || 'Não foi possível carregar o CMS do portal.');
+      setMessage(error?.message || 'Não foi possível carregar o CMS.');
     } finally {
       setLoading(false);
     }
   }
 
-  async function savePortal(event: FormEvent<HTMLFormElement>) {
+  async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (saving || !cmsReady) return;
+    if (!cmsReady || saving) return;
     setSaving(true);
     setMessage('');
     try {
-      const token = await accessToken();
-      if (!token) throw new Error('Sua sessão expirou. Entre novamente para salvar.');
+      const token = await getToken();
+      if (!token) throw new Error('Sua sessão expirou.');
       const response = await fetch('/api/master/portal/settings', {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ settings })
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || 'Não foi possível salvar o portal.');
-      setSettings(normalizePortalSettings(payload.settings || settings));
-      setMessageTone('success');
-      setMessage(payload.message || 'Configuração salva com sucesso.');
-      await loadPortal(true);
+      if (!response.ok) throw new Error(payload.error || 'Não foi possível salvar.');
+      setSettings(normalizePortalSettings(payload.settings));
+      setMessage(payload.message || 'Configuração salva.');
     } catch (error: any) {
-      setMessageTone('error');
-      setMessage(error?.message || 'Não foi possível salvar o portal.');
+      setMessage(error?.message || 'Não foi possível salvar.');
     } finally {
       setSaving(false);
     }
   }
 
-  function change<K extends keyof PortalSettings>(field: K, value: PortalSettings[K]) {
+  function setText(field: TextField, value: string) {
     setSettings((current) => ({ ...current, [field]: value }));
   }
 
-  function changeBenefit(index: number, field: 'title' | 'description', value: string) {
+  function setBenefit(index: number, field: 'title' | 'description', value: string) {
     setSettings((current) => ({
       ...current,
       benefits: current.benefits.map((benefit, currentIndex) => currentIndex === index ? { ...benefit, [field]: value } : benefit)
     }));
   }
 
-  useEffect(() => { void loadPortal(); }, []);
+  useEffect(() => { void load(); }, []);
 
-  const blockers = [
-    !cmsReady ? 'A migration do CMS ainda não foi aplicada no Supabase' : '',
-    snapshot.orphanVehicles > 0 ? `${snapshot.orphanVehicles} veículo(s) publicável(is) sem loja responsável válida` : '',
-    snapshot.activeCampaigns > 1 ? `${snapshot.activeCampaigns} campanhas temporárias continuam ativas simultaneamente` : '',
-    'Os domínios www, raiz e sistema ainda precisam ser confirmados no painel da Vercel'
-  ].filter(Boolean);
-
-  const alertClass = messageTone === 'success'
-    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-    : messageTone === 'error'
-      ? 'border-red-200 bg-red-50 text-red-700'
-      : 'border-blue-200 bg-blue-50 text-blue-700';
+  const metrics = [
+    ['Lojas ativas', snapshot.activeStores],
+    ['Portal habilitado', snapshot.enabledStores],
+    ['Veículos aptos', snapshot.publicVehicles],
+    ['Veículos órfãos', snapshot.orphanVehicles],
+    ['Campanhas ativas', snapshot.activeCampaigns],
+    ['Leads do portal', snapshot.marketplaceLeads]
+  ] as const;
 
   return (
     <main className="min-h-screen bg-zinc-100 text-zinc-950">
@@ -183,106 +118,71 @@ export default function MasterPortalPage() {
         <MasterSidebar active="/master/portal" />
         <section className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <header className="rounded-[32px] bg-[#071020] p-6 text-white shadow-xl sm:p-8">
-            <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
               <div>
-                <span className="inline-flex items-center gap-2 rounded-full border border-red-400/20 bg-red-500/10 px-4 py-2 text-xs font-black uppercase tracking-[0.18em] text-red-300"><Globe2 size={16} /> CMS do Portal Oficial</span>
-                <h1 className="mt-5 text-3xl font-black tracking-tight sm:text-5xl">{settings.brand_name || 'Auto Sede'}</h1>
-                <p className="mt-3 max-w-3xl text-sm font-medium leading-relaxed text-zinc-300 sm:text-base">Edite identidade, conteúdo público, contatos e SEO de www.autosede.com.br sem misturar o portal permanente com campanhas temporárias.</p>
-                <p className="mt-4 text-xs font-bold text-zinc-500">Última atualização: {formatDate(settings.updated_at)}</p>
+                <span className="inline-flex items-center gap-2 rounded-full bg-red-500/10 px-4 py-2 text-xs font-black uppercase tracking-wider text-red-300"><Globe2 size={16} /> CMS do Portal Oficial</span>
+                <h1 className="mt-5 text-4xl font-black">{settings.brand_name}</h1>
+                <p className="mt-3 max-w-3xl text-sm font-medium text-zinc-300">Gerencie identidade, conteúdo, contatos e SEO de www.autosede.com.br.</p>
               </div>
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <button type="button" onClick={() => void loadPortal()} disabled={loading} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/[0.06] px-5 text-sm font-black text-white disabled:opacity-60"><RefreshCw size={17} className={loading ? 'animate-spin' : ''} /> Atualizar</button>
-                <a href="https://www.autosede.com.br" target="_blank" rel="noreferrer" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-red-600 px-5 text-sm font-black text-white hover:bg-red-500">Abrir portal público <ExternalLink size={17} /></a>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => void load()} className="inline-flex min-h-12 items-center gap-2 rounded-2xl border border-white/15 px-5 text-sm font-black"><RefreshCw size={17} className={loading ? 'animate-spin' : ''} /> Atualizar</button>
+                <a href="https://www.autosede.com.br" target="_blank" rel="noreferrer" className="inline-flex min-h-12 items-center gap-2 rounded-2xl bg-red-600 px-5 text-sm font-black">Abrir portal <ExternalLink size={17} /></a>
               </div>
             </div>
           </header>
 
-          {message ? <div className={`mt-5 rounded-2xl border p-4 text-sm font-bold ${alertClass}`}>{message}</div> : null}
-          {!cmsReady && !loading ? <div className="mt-5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold leading-relaxed text-amber-900"><AlertTriangle size={19} className="mt-0.5 shrink-0" />O editor está em modo de visualização. O salvamento será liberado após a aplicação autorizada da migration do CMS.</div> : null}
+          {message ? <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-800">{message}</div> : null}
+          {!cmsReady && !loading ? <div className="mt-5 flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-900"><AlertTriangle size={18} /> A migration do CMS ainda não foi aplicada. O editor está somente para visualização.</div> : null}
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-            <MetricCard icon={<Building2 size={21} />} label="Lojas ativas" value={snapshot.activeStores} detail="Lojas operacionais cadastradas" />
-            <MetricCard icon={<ShieldCheck size={21} />} label="Portal habilitado" value={snapshot.enabledStores} detail="Lojas liberadas para a vitrine" />
-            <MetricCard icon={<CarFront size={21} />} label="Veículos aptos" value={snapshot.publicVehicles} detail="Com preço, visibilidade e loja" />
-            <MetricCard icon={<AlertTriangle size={21} />} label="Veículos órfãos" value={snapshot.orphanVehicles} detail="Ficam fora do portal até revisão" warning={snapshot.orphanVehicles > 0} />
-            <MetricCard icon={<Megaphone size={21} />} label="Campanhas ativas" value={snapshot.activeCampaigns} detail="Landings temporárias publicadas" warning={snapshot.activeCampaigns > 1} />
-            <MetricCard icon={<Search size={21} />} label="Leads do portal" value={snapshot.marketplaceLeads} detail="Origem marketplace_site" />
+            {metrics.map(([label, value]) => <article key={label} className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm"><p className="text-xs font-black uppercase tracking-wider text-zinc-400">{label}</p><strong className="mt-3 block text-3xl font-black">{value}</strong></article>)}
           </div>
 
-          {loading ? (
-            <div className="mt-6 flex min-h-80 items-center justify-center rounded-[30px] border border-zinc-200 bg-white"><div className="text-center"><Loader2 size={34} className="mx-auto animate-spin text-red-600" /><p className="mt-3 text-sm font-bold text-zinc-500">Carregando CMS seguro...</p></div></div>
-          ) : (
-            <form onSubmit={savePortal} className="mt-6 space-y-6">
-              <Section eyebrow="Identidade" title="Marca pública" description="Campos exibidos no cabeçalho e no rodapé do portal.">
-                <div className="grid gap-5 md:grid-cols-2">
-                  <Field label="Nome da marca" value={settings.brand_name} onChange={(value) => change('brand_name', value)} />
-                  <Field label="Assinatura da marca" value={settings.brand_tagline} onChange={(value) => change('brand_tagline', value)} />
-                  <div className="md:col-span-2"><Field label="URL da logomarca" value={settings.logo_url} onChange={(value) => change('logo_url', value)} placeholder="https://..." help="Deixe vazio para usar o ícone padrão." /></div>
+          {loading ? <div className="mt-6 flex min-h-64 items-center justify-center rounded-3xl bg-white"><Loader2 size={34} className="animate-spin text-red-600" /></div> : (
+            <form onSubmit={save} className="mt-6 space-y-6">
+              <section className="rounded-3xl border border-zinc-200 bg-white p-6">
+                <h2 className="text-2xl font-black">Identidade e abertura</h2>
+                <div className="mt-5 grid gap-5 md:grid-cols-2">
+                  <label className="text-xs font-black uppercase text-zinc-500">Nome da marca<input className={inputClass} value={settings.brand_name} onChange={(event) => setText('brand_name', event.target.value)} /></label>
+                  <label className="text-xs font-black uppercase text-zinc-500">Assinatura<input className={inputClass} value={settings.brand_tagline} onChange={(event) => setText('brand_tagline', event.target.value)} /></label>
+                  <label className="text-xs font-black uppercase text-zinc-500 md:col-span-2">URL da logomarca<input className={inputClass} value={settings.logo_url} onChange={(event) => setText('logo_url', event.target.value)} /></label>
+                  <label className="text-xs font-black uppercase text-zinc-500 md:col-span-2">Selo superior<input className={inputClass} value={settings.hero_eyebrow} onChange={(event) => setText('hero_eyebrow', event.target.value)} /></label>
+                  <label className="text-xs font-black uppercase text-zinc-500 md:col-span-2">Título principal<textarea className={inputClass} rows={3} value={settings.hero_title} onChange={(event) => setText('hero_title', event.target.value)} /></label>
+                  <label className="text-xs font-black uppercase text-zinc-500 md:col-span-2">Descrição<textarea className={inputClass} rows={4} value={settings.hero_description} onChange={(event) => setText('hero_description', event.target.value)} /></label>
+                  <label className="text-xs font-black uppercase text-zinc-500">Botão principal<input className={inputClass} value={settings.primary_cta_label} onChange={(event) => setText('primary_cta_label', event.target.value)} /></label>
+                  <label className="text-xs font-black uppercase text-zinc-500">Botão secundário<input className={inputClass} value={settings.secondary_cta_label} onChange={(event) => setText('secondary_cta_label', event.target.value)} /></label>
                 </div>
-              </Section>
+              </section>
 
-              <Section eyebrow="Página inicial" title="Mensagem principal" description="Conteúdo inicial e botões do hero.">
-                <div className="grid gap-5 md:grid-cols-2">
-                  <div className="md:col-span-2"><Field label="Selo superior" value={settings.hero_eyebrow} onChange={(value) => change('hero_eyebrow', value)} /></div>
-                  <div className="md:col-span-2"><Field label="Título principal" value={settings.hero_title} onChange={(value) => change('hero_title', value)} textarea /></div>
-                  <div className="md:col-span-2"><Field label="Descrição principal" value={settings.hero_description} onChange={(value) => change('hero_description', value)} textarea /></div>
-                  <Field label="Botão principal" value={settings.primary_cta_label} onChange={(value) => change('primary_cta_label', value)} />
-                  <Field label="Botão secundário" value={settings.secondary_cta_label} onChange={(value) => change('secondary_cta_label', value)} />
+              <section className="rounded-3xl border border-zinc-200 bg-white p-6">
+                <h2 className="text-2xl font-black">Benefícios</h2>
+                <div className="mt-5 grid gap-4 lg:grid-cols-3">
+                  {settings.benefits.slice(0, 3).map((benefit, index) => <article key={index} className="rounded-2xl bg-zinc-50 p-4"><input className={inputClass} value={benefit.title} onChange={(event) => setBenefit(index, 'title', event.target.value)} /><textarea className={inputClass} rows={4} value={benefit.description} onChange={(event) => setBenefit(index, 'description', event.target.value)} /></article>)}
                 </div>
-              </Section>
+              </section>
 
-              <Section eyebrow="Benefícios" title="Argumentos institucionais" description="Os três primeiros benefícios formam a seção principal do portal.">
-                <div className="grid gap-4 lg:grid-cols-3">
-                  {settings.benefits.slice(0, 3).map((benefit, index) => (
-                    <article key={`${benefit.title}-${index}`} className="rounded-3xl border border-zinc-200 bg-zinc-50 p-5">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-red-600 text-white"><Sparkles size={18} /></div>
-                      <div className="mt-4 space-y-4"><Field label={`Benefício ${index + 1}`} value={benefit.title} onChange={(value) => changeBenefit(index, 'title', value)} /><Field label="Descrição" value={benefit.description} onChange={(value) => changeBenefit(index, 'description', value)} textarea /></div>
-                    </article>
-                  ))}
+              <section className="rounded-3xl border border-zinc-200 bg-white p-6">
+                <h2 className="text-2xl font-black">Confiança, contato e SEO</h2>
+                <div className="mt-5 grid gap-5 md:grid-cols-2">
+                  <label className="text-xs font-black uppercase text-zinc-500 md:col-span-2">Título de confiança<input className={inputClass} value={settings.trust_title} onChange={(event) => setText('trust_title', event.target.value)} /></label>
+                  <label className="text-xs font-black uppercase text-zinc-500 md:col-span-2">Descrição de confiança<textarea className={inputClass} rows={4} value={settings.trust_description} onChange={(event) => setText('trust_description', event.target.value)} /></label>
+                  <label className="text-xs font-black uppercase text-zinc-500">WhatsApp<input className={inputClass} value={settings.whatsapp_number} onChange={(event) => setText('whatsapp_number', event.target.value)} /></label>
+                  <label className="text-xs font-black uppercase text-zinc-500">Telefone<input className={inputClass} value={settings.phone} onChange={(event) => setText('phone', event.target.value)} /></label>
+                  <label className="text-xs font-black uppercase text-zinc-500">E-mail<input className={inputClass} value={settings.email} onChange={(event) => setText('email', event.target.value)} /></label>
+                  <label className="text-xs font-black uppercase text-zinc-500">Instagram<input className={inputClass} value={settings.instagram_url} onChange={(event) => setText('instagram_url', event.target.value)} /></label>
+                  <label className="text-xs font-black uppercase text-zinc-500 md:col-span-2">Endereço<input className={inputClass} value={settings.address_text} onChange={(event) => setText('address_text', event.target.value)} /></label>
+                  <label className="text-xs font-black uppercase text-zinc-500 md:col-span-2">Título SEO<input className={inputClass} value={settings.seo_title} onChange={(event) => setText('seo_title', event.target.value)} /></label>
+                  <label className="text-xs font-black uppercase text-zinc-500 md:col-span-2">Descrição SEO<textarea className={inputClass} rows={4} value={settings.seo_description} onChange={(event) => setText('seo_description', event.target.value)} /></label>
+                  <label className="text-xs font-black uppercase text-zinc-500 md:col-span-2">Imagem de compartilhamento<input className={inputClass} value={settings.og_image_url} onChange={(event) => setText('og_image_url', event.target.value)} /></label>
                 </div>
-              </Section>
+              </section>
 
-              <Section eyebrow="Confiança" title="Direcionamento e segurança" description="Explique por que o catálogo é confiável e como o interesse chega à loja correta.">
-                <div className="grid gap-5"><Field label="Título do bloco" value={settings.trust_title} onChange={(value) => change('trust_title', value)} /><Field label="Descrição do bloco" value={settings.trust_description} onChange={(value) => change('trust_description', value)} textarea /></div>
-              </Section>
-
-              <Section eyebrow="Contato" title="Canais oficiais" description="Campos preenchidos aparecem no rodapé público.">
-                <div className="grid gap-5 md:grid-cols-2">
-                  <Field label="WhatsApp" value={settings.whatsapp_number} onChange={(value) => change('whatsapp_number', value)} placeholder="5561999999999" />
-                  <Field label="Telefone" value={settings.phone} onChange={(value) => change('phone', value)} placeholder="(61) 0000-0000" />
-                  <Field label="E-mail" value={settings.email} onChange={(value) => change('email', value)} type="email" />
-                  <Field label="Instagram" value={settings.instagram_url} onChange={(value) => change('instagram_url', value)} placeholder="https://instagram.com/..." />
-                  <div className="md:col-span-2"><Field label="Endereço ou região" value={settings.address_text} onChange={(value) => change('address_text', value)} /></div>
-                </div>
-              </Section>
-
-              <Section eyebrow="SEO" title="Busca e compartilhamento" description="Aparência do portal no Google e em redes sociais.">
-                <div className="grid gap-5"><Field label="Título SEO" value={settings.seo_title} onChange={(value) => change('seo_title', value)} help={`${settings.seo_title.length} caracteres`} /><Field label="Descrição SEO" value={settings.seo_description} onChange={(value) => change('seo_description', value)} textarea help={`${settings.seo_description.length} caracteres`} /><Field label="Imagem de compartilhamento" value={settings.og_image_url} onChange={(value) => change('og_image_url', value)} placeholder="https://..." /></div>
-              </Section>
-
-              <section className="rounded-[30px] border border-zinc-200 bg-white p-6 shadow-sm sm:p-7">
-                <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-                  <div><p className="text-xs font-black uppercase tracking-[0.2em] text-zinc-400">Estado</p><h2 className="mt-2 text-2xl font-black">{settings.is_published ? 'Publicar no portal' : 'Salvar como rascunho'}</h2><p className="mt-2 text-sm font-medium text-zinc-500">No modo rascunho, a home usa a identidade padrão segura.</p></div>
-                  <button type="button" onClick={() => change('is_published', !settings.is_published)} className={`inline-flex min-h-12 items-center justify-center rounded-2xl px-5 text-sm font-black ${settings.is_published ? 'bg-emerald-100 text-emerald-800' : 'bg-zinc-200 text-zinc-700'}`}>{settings.is_published ? 'Publicado' : 'Rascunho'}</button>
-                </div>
-                <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
-                  <button type="button" onClick={() => setSettings(normalizePortalSettings(defaultPortalSettings))} className="inline-flex min-h-12 items-center justify-center rounded-2xl border border-zinc-200 px-5 text-sm font-black text-zinc-700">Restaurar padrão</button>
-                  <button type="submit" disabled={!cmsReady || saving} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-red-600 px-6 text-sm font-black text-white shadow-lg shadow-red-600/20 disabled:cursor-not-allowed disabled:opacity-50">{saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}{settings.is_published ? 'Salvar e publicar' : 'Salvar rascunho'}</button>
-                </div>
+              <section className="flex flex-col gap-4 rounded-3xl border border-zinc-200 bg-white p-6 sm:flex-row sm:items-center sm:justify-between">
+                <button type="button" onClick={() => setSettings((current) => ({ ...current, is_published: !current.is_published }))} className="rounded-2xl bg-zinc-100 px-5 py-3 text-sm font-black">{settings.is_published ? 'Publicado' : 'Rascunho'}</button>
+                <button type="submit" disabled={!cmsReady || saving} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-red-600 px-6 text-sm font-black text-white disabled:opacity-50">{saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />} Salvar configuração</button>
               </section>
             </form>
           )}
-
-          <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_0.8fr]">
-            <section className="rounded-[30px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-zinc-400">Módulos separados</p>
-              <div className="mt-5 grid gap-4 md:grid-cols-3"><Link href="/master/portal" className="rounded-3xl border-2 border-red-200 bg-red-50 p-5"><Globe2 size={24} className="text-red-600" /><h3 className="mt-4 font-black">Portal Oficial</h3></Link><Link href="/master/marketplace" className="rounded-3xl border border-zinc-200 bg-zinc-50 p-5"><ShoppingBag size={24} /><h3 className="mt-4 font-black">Marketplace</h3></Link><Link href="/master/campaigns" className="rounded-3xl border border-zinc-200 bg-zinc-50 p-5"><Megaphone size={24} /><h3 className="mt-4 font-black">Campanhas</h3></Link></div>
-            </section>
-            <section className="rounded-[30px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-amber-600">Pendências</p>
-              <div className="mt-5 space-y-3">{blockers.length ? blockers.map((item) => <div key={item} className="flex gap-3 rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-900"><AlertTriangle size={18} className="shrink-0" />{item}</div>) : <div className="flex gap-3 rounded-2xl bg-emerald-50 p-4 text-sm font-bold text-emerald-800"><CheckCircle2 size={18} />Nenhum bloqueador estrutural.</div>}</div>
-            </section>
-          </div>
         </section>
       </div>
     </main>
