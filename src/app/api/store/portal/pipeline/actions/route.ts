@@ -5,17 +5,8 @@ import { authorizeStorePortal, canAccessStoreLead } from '@/lib/server/storePort
 export const runtime = 'nodejs';
 
 const commands = [
-  'reveal_phone',
-  'start_service',
-  'change_stage',
-  'schedule',
-  'cancel_schedule',
-  'mark_no_show',
-  'mark_showed_up',
-  'register_loss',
-  'reopen_lead',
-  'edit_lead',
-  'delete_lead'
+  'reveal_phone', 'start_service', 'change_stage', 'schedule', 'cancel_schedule',
+  'mark_no_show', 'mark_showed_up', 'register_loss', 'reopen_lead', 'edit_lead', 'delete_lead'
 ] as const;
 
 type PipelineCommand = (typeof commands)[number];
@@ -32,15 +23,9 @@ const transitionMap: Record<string, string[]> = {
 };
 
 const labels: Record<string, string> = {
-  new_lead: 'Novo lead',
-  in_service: 'Em atendimento',
-  scheduled: 'Agendado',
-  appointment_cancelled: 'Agendamento cancelado',
-  no_show: 'Não compareceu',
-  showed_up: 'Compareceu',
-  lost: 'Perdido',
-  sale_confirmed: 'Venda confirmada',
-  deleted: 'Excluído'
+  new_lead: 'Novo lead', in_service: 'Em atendimento', scheduled: 'Agendado',
+  appointment_cancelled: 'Agendamento cancelado', no_show: 'Não compareceu',
+  showed_up: 'Compareceu', lost: 'Perdido', sale_confirmed: 'Venda confirmada', deleted: 'Excluído'
 };
 
 function digits(value: unknown) {
@@ -102,6 +87,7 @@ async function loadLead(supabase: any, leadId: string) {
       'interested_vehicle_id', 'interested_vehicle_price', 'vehicle_category_interest',
       'origin', 'status', 'notes', 'scheduled_at', 'appointment_notes',
       'appointment_cancelled_at', 'appointment_cancelled_reason', 'lost_reason',
+      'first_phone_viewed_at', 'first_phone_viewed_by_user_id', 'first_phone_viewed_by_name',
       'created_at', 'updated_at'
     ].join(','))
     .eq('id', leadId)
@@ -130,22 +116,10 @@ function parseSchedule(dateValue: unknown, timeValue: unknown) {
 async function assertScheduleAvailable(supabase: any, storeId: string, leadId: string, startsAt: Date) {
   const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000);
   const [leadConflict, taskConflict] = await Promise.all([
-    supabase
-      .from('leads')
-      .select('id, customer_name, scheduled_at')
-      .eq('assigned_store_id', storeId)
-      .neq('id', leadId)
-      .not('scheduled_at', 'is', null)
-      .gte('scheduled_at', startsAt.toISOString())
-      .lt('scheduled_at', endsAt.toISOString())
-      .limit(1),
-    supabase
-      .from('store_calendar_tasks')
-      .select('id, title, starts_at')
-      .eq('store_id', storeId)
-      .gte('starts_at', startsAt.toISOString())
-      .lt('starts_at', endsAt.toISOString())
-      .limit(1)
+    supabase.from('leads').select('id').eq('assigned_store_id', storeId).neq('id', leadId)
+      .not('scheduled_at', 'is', null).gte('scheduled_at', startsAt.toISOString()).lt('scheduled_at', endsAt.toISOString()).limit(1),
+    supabase.from('store_calendar_tasks').select('id').eq('store_id', storeId)
+      .gte('starts_at', startsAt.toISOString()).lt('starts_at', endsAt.toISOString()).limit(1)
   ]);
   if (leadConflict.error) throw leadConflict.error;
   if (taskConflict.error) throw taskConflict.error;
@@ -167,7 +141,6 @@ async function recordActivity(
   const actorName = context.profile.full_name || context.profile.email || 'Usuário da loja';
   const activityType = actionType(command, toStatus);
   const activityLabel = actionLabel(command, fromStatus, toStatus);
-  const now = new Date().toISOString();
   const commonMetadata = {
     command,
     actor_role: context.role,
@@ -178,44 +151,35 @@ async function recordActivity(
 
   await Promise.allSettled([
     supabase.from('lead_activity_logs').insert({
-      lead_id: lead.id,
-      store_id: context.store.id,
-      store_name: context.store.store_name,
-      user_id: context.profile.id,
-      user_name: actorName,
-      activity_type: activityType,
-      activity_label: activityLabel,
-      from_status: fromStatus,
-      to_status: toStatus,
-      customer_name: lead.customer_name,
-      customer_phone: lead.customer_phone,
-      vehicle_name: lead.interested_vehicle,
-      notes,
-      metadata: commonMetadata
+      lead_id: lead.id, store_id: context.store.id, store_name: context.store.store_name,
+      user_id: context.profile.id, user_name: actorName, activity_type: activityType,
+      activity_label: activityLabel, from_status: fromStatus, to_status: toStatus,
+      customer_name: lead.customer_name, customer_phone: lead.customer_phone,
+      vehicle_name: lead.interested_vehicle, notes, metadata: commonMetadata
     }),
     supabase.from('lead_activities').insert({
-      event_id: lead.event_id || context.store.event_id || null,
-      lead_id: lead.id,
-      user_id: context.profile.id,
-      activity_type: activityType,
+      event_id: lead.event_id || context.store.event_id || null, lead_id: lead.id,
+      user_id: context.profile.id, activity_type: activityType,
       description: notes ? `${activityLabel}. ${notes}` : activityLabel,
       metadata: commonMetadata
     }),
     supabase.from('audit_logs').insert({
-      event_id: lead.event_id || context.store.event_id || null,
-      user_id: context.profile.id,
-      user_role: context.role,
-      action_type: activityType,
-      entity_type: 'leads',
-      entity_id: lead.id,
-      old_value: { status: fromStatus },
-      new_value: { status: toStatus, notes, ...metadata },
-      created_at: now
+      event_id: lead.event_id || context.store.event_id || null, user_id: context.profile.id,
+      user_role: context.role, action_type: activityType, entity_type: 'leads', entity_id: lead.id,
+      old_value: { status: fromStatus }, new_value: { status: toStatus, notes, ...metadata }
     })
   ]);
 }
 
-async function updateLead(supabase: any, context: any, lead: any, command: PipelineCommand, payload: Record<string, any>, notes: string | null, metadata: Record<string, any> = {}) {
+async function updateLead(
+  supabase: any,
+  context: any,
+  lead: any,
+  command: PipelineCommand,
+  payload: Record<string, any>,
+  notes: string | null,
+  metadata: Record<string, any> = {}
+) {
   const fromStatus = String(lead.status || 'new_lead');
   const toStatus = String(payload.status || fromStatus);
   const actorName = context.profile.full_name || context.profile.email || 'Usuário da loja';
@@ -267,17 +231,18 @@ export async function POST(request: Request) {
       const phone = normalizePhone(lead.customer_phone);
       if (!phone) return NextResponse.json({ error: 'Este lead não possui telefone cadastrado.' }, { status: 404 });
       const now = new Date().toISOString();
+      const actorName = context.profile.full_name || context.profile.email || 'Usuário da loja';
       await context.supabase.from('leads').update({
         first_phone_viewed_at: lead.first_phone_viewed_at || now,
         first_phone_viewed_by_user_id: lead.first_phone_viewed_by_user_id || context.profile.id,
-        first_phone_viewed_by_name: lead.first_phone_viewed_by_name || context.profile.full_name || context.profile.email,
+        first_phone_viewed_by_name: lead.first_phone_viewed_by_name || actorName,
         last_phone_viewed_at: now,
         last_phone_viewed_by_user_id: context.profile.id,
-        last_phone_viewed_by_name: context.profile.full_name || context.profile.email,
+        last_phone_viewed_by_name: actorName,
         last_activity_at: now,
         last_activity_type: 'phone_viewed',
         last_activity_label: 'Usuário visualizou o telefone',
-        last_activity_by_name: context.profile.full_name || context.profile.email
+        last_activity_by_name: actorName
       }).eq('id', lead.id).eq('assigned_store_id', context.store.id);
       await recordActivity(context.supabase, context, lead, command, currentStatus, currentStatus, null, { interaction_source: 'secure_pipeline_phone' });
       return NextResponse.json({ success: true, phone });
@@ -291,10 +256,8 @@ export async function POST(request: Request) {
       ensureTransition(currentStatus, 'in_service');
       const url = whatsappUrl(lead.customer_phone, lead.customer_name, lead.interested_vehicle);
       const updated = await updateLead(context.supabase, context, lead, command, {
-        status: 'in_service',
-        lost_reason: null,
-        appointment_cancelled_at: null,
-        appointment_cancelled_reason: null
+        status: 'in_service', lost_reason: null,
+        appointment_cancelled_at: null, appointment_cancelled_reason: null
       }, url ? 'Atendimento iniciado pelo WhatsApp.' : 'Atendimento iniciado sem telefone cadastrado.', { whatsapp_opened: Boolean(url) });
       return NextResponse.json({ success: true, message: 'Atendimento iniciado.', whatsapp_url: url || null, lead: updated });
     }
@@ -305,12 +268,8 @@ export async function POST(request: Request) {
       if (currentStatus !== 'scheduled') ensureTransition(currentStatus, 'scheduled');
       const appointmentNotes = cleanText(body.notes, 3000) || null;
       const updated = await updateLead(context.supabase, context, lead, command, {
-        status: 'scheduled',
-        scheduled_at: startsAt.toISOString(),
-        appointment_notes: appointmentNotes,
-        appointment_cancelled_at: null,
-        appointment_cancelled_reason: null,
-        lost_reason: null
+        status: 'scheduled', scheduled_at: startsAt.toISOString(), appointment_notes: appointmentNotes,
+        appointment_cancelled_at: null, appointment_cancelled_reason: null, lost_reason: null
       }, appointmentNotes, { scheduled_at: startsAt.toISOString() });
       return NextResponse.json({ success: true, message: 'Agendamento salvo.', lead: updated });
     }
@@ -321,9 +280,7 @@ export async function POST(request: Request) {
       if (reason.length < 3) throw new Error('Informe o motivo do cancelamento.');
       ensureTransition(currentStatus, 'appointment_cancelled');
       const updated = await updateLead(context.supabase, context, lead, command, {
-        status: 'appointment_cancelled',
-        appointment_cancelled_at: new Date().toISOString(),
-        appointment_cancelled_reason: reason
+        status: 'appointment_cancelled', appointment_cancelled_at: new Date().toISOString(), appointment_cancelled_reason: reason
       }, reason);
       return NextResponse.json({ success: true, message: 'Cancelamento registrado.', lead: updated });
     }
@@ -337,23 +294,27 @@ export async function POST(request: Request) {
     }
 
     if (command === 'register_loss') {
-      const reason = cleanText(body.reason, 1500);
-      if (reason.length < 3) throw new Error('Informe o motivo da perda.');
+      const description = cleanText(body.reason, 1500);
+      if (description.length < 3) throw new Error('Informe o motivo da perda.');
       ensureTransition(currentStatus, 'lost');
-      const updated = await updateLead(context.supabase, context, lead, command, {
-        status: 'lost',
-        lost_reason: reason
-      }, reason);
-      return NextResponse.json({ success: true, message: 'Perda registrada.', lead: updated });
+      const actorName = context.profile.full_name || context.profile.email || 'Usuário da loja';
+      const { data: lossId, error: rpcError } = await context.supabase.rpc('store_register_loss_transaction', {
+        p_lead_id: lead.id,
+        p_store_id: context.store.id,
+        p_reason: cleanText(body.reason_code, 120) || 'other',
+        p_description: description,
+        p_actor_user_id: context.profile.id,
+        p_actor_name: actorName
+      });
+      if (rpcError) throw rpcError;
+      const updated = await loadLead(context.supabase, lead.id);
+      return NextResponse.json({ success: true, loss_id: lossId, message: 'Perda registrada.', lead: updated });
     }
 
     if (command === 'reopen_lead') {
       if (currentStatus !== 'lost') throw new Error('Somente um lead perdido pode ser reaberto por este comando.');
       ensureTransition(currentStatus, 'in_service');
-      const updated = await updateLead(context.supabase, context, lead, command, {
-        status: 'in_service',
-        lost_reason: null
-      }, cleanText(body.reason, 1000) || 'Lead reaberto para atendimento.');
+      const updated = await updateLead(context.supabase, context, lead, command, { status: 'in_service', lost_reason: null }, cleanText(body.reason, 1000) || 'Lead reaberto para atendimento.');
       return NextResponse.json({ success: true, message: 'Lead reaberto.', lead: updated });
     }
 
@@ -365,11 +326,8 @@ export async function POST(request: Request) {
       }
       ensureTransition(currentStatus, target);
       const clearing = ['new_lead', 'in_service'].includes(target) ? {
-        scheduled_at: null,
-        appointment_notes: null,
-        appointment_cancelled_at: null,
-        appointment_cancelled_reason: null,
-        lost_reason: null
+        scheduled_at: null, appointment_notes: null,
+        appointment_cancelled_at: null, appointment_cancelled_reason: null, lost_reason: null
       } : {};
       const updated = await updateLead(context.supabase, context, lead, command, { status: target, ...clearing }, null);
       return NextResponse.json({ success: true, message: `Lead movido para ${labels[target]}.`, lead: updated });
@@ -385,22 +343,15 @@ export async function POST(request: Request) {
       const appointmentNotes = cleanText(body.appointment_notes, 5000) || lead.appointment_notes || null;
       const newObservation = cleanText(body.new_observation, 5000);
       const updated = await updateLead(context.supabase, context, lead, command, {
-        customer_name: customerName,
-        customer_phone: phone,
-        interested_vehicle: interestedVehicle,
-        origin,
-        notes,
-        appointment_notes: appointmentNotes
+        customer_name: customerName, customer_phone: phone, interested_vehicle: interestedVehicle,
+        origin, notes, appointment_notes: appointmentNotes
       }, newObservation || 'Informações cadastrais atualizadas.');
 
       if (newObservation) {
         await context.supabase.from('lead_notes').insert({
-          lead_id: lead.id,
-          store_id: context.store.id,
-          author_user_id: context.profile.id,
+          lead_id: lead.id, store_id: context.store.id, author_user_id: context.profile.id,
           author_name: context.profile.full_name || context.profile.email || 'Usuário da loja',
-          note_type: 'service',
-          content: newObservation
+          note_type: 'service', content: newObservation
         });
       }
       return NextResponse.json({ success: true, message: 'Informações do lead salvas.', lead: updated });
@@ -413,18 +364,12 @@ export async function POST(request: Request) {
       const confirmation = cleanText(body.confirmation, 100).toLocaleUpperCase('pt-BR');
       if (confirmation !== 'EXCLUIR') throw new Error('Digite EXCLUIR para confirmar a operação.');
       const { data: sale, error: saleError } = await context.supabase
-        .from('sales')
-        .select('id, status')
-        .eq('lead_id', lead.id)
-        .limit(1)
-        .maybeSingle();
+        .from('sales').select('id,status').eq('lead_id', lead.id).limit(1).maybeSingle();
       if (saleError) throw saleError;
       if (sale) return NextResponse.json({ error: 'Leads com registro de venda não podem ser excluídos.' }, { status: 409 });
 
       const updated = await updateLead(context.supabase, context, lead, command, {
-        status: 'deleted',
-        scheduled_at: null,
-        appointment_notes: null
+        status: 'deleted', scheduled_at: null, appointment_notes: null
       }, 'Exclusão lógica confirmada pelo gestor.', { deletion_mode: 'logical' });
       return NextResponse.json({ success: true, message: 'Lead excluído do Pipeline.', lead: updated });
     }
