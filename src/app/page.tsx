@@ -2,25 +2,32 @@ import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { PublicMarketplace } from '@/components/marketplace/PublicMarketplace';
+import { loadPortalSettings } from '@/lib/server/portalSettings';
 
 const INTERNAL_SYSTEM_HOST = 'sistemaautomotivo.autosede.com.br';
 const INTERNAL_LOGIN_URL = `https://${INTERNAL_SYSTEM_HOST}/login`;
+const OFFICIAL_PORTAL_URL = 'https://www.autosede.com.br';
 
-export const metadata: Metadata = {
-  title: 'Auto Sede | Veículos de lojas parceiras em um só lugar',
-  description: 'Encontre veículos disponíveis, compare opções, simule seu financiamento e fale diretamente com a loja responsável pelo anúncio.',
-  alternates: {
-    canonical: 'https://www.autosede.com.br'
-  },
-  openGraph: {
-    title: 'Auto Sede | Marketplace automotivo',
-    description: 'Veículos de lojas parceiras com atendimento direcionado para a proprietária do anúncio.',
-    url: 'https://www.autosede.com.br',
-    siteName: 'Auto Sede',
-    locale: 'pt_BR',
-    type: 'website'
-  }
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const settings = await loadPortalSettings();
+
+  return {
+    title: settings.seo_title,
+    description: settings.seo_description,
+    alternates: {
+      canonical: OFFICIAL_PORTAL_URL
+    },
+    openGraph: {
+      title: settings.seo_title,
+      description: settings.seo_description,
+      url: OFFICIAL_PORTAL_URL,
+      siteName: settings.brand_name,
+      locale: 'pt_BR',
+      type: 'website',
+      images: settings.og_image_url ? [{ url: settings.og_image_url, alt: settings.brand_name }] : undefined
+    }
+  };
+}
 
 export default async function HomePage() {
   const headerStore = await headers();
@@ -33,5 +40,6 @@ export default async function HomePage() {
     redirect('/login');
   }
 
-  return <PublicMarketplace internalAccessUrl={INTERNAL_LOGIN_URL} />;
+  const portalSettings = await loadPortalSettings();
+  return <PublicMarketplace internalAccessUrl={INTERNAL_LOGIN_URL} portalSettings={portalSettings} />;
 }
