@@ -3,7 +3,7 @@ import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } fr
 
 export const runtime = 'nodejs';
 
-const allowedRoles = ['master', 'store', 'pre_sales', 'seller', 'prospector'];
+const editableRoles = ['master', 'store', 'pre_sales', 'seller'];
 const paymentTypes = ['cash', 'financed', 'consortium', 'other'];
 
 function canAccessLead(profile: any, lead: any) {
@@ -12,7 +12,6 @@ function canAccessLead(profile: any, lead: any) {
   if (profile.role === 'store') return true;
   if (profile.role === 'pre_sales') return lead.pre_sales_user_id === profile.id || lead.assigned_user_id === profile.id;
   if (profile.role === 'seller') return lead.seller_user_id === profile.id || lead.assigned_user_id === profile.id;
-  if (profile.role === 'prospector') return lead.captured_by_user_id === profile.id || lead.assigned_user_id === profile.id;
   return false;
 }
 
@@ -28,25 +27,10 @@ function integerValue(value: unknown) {
   return Number.isInteger(parsed) ? parsed : Number.NaN;
 }
 
-function paymentLabel(value: string) {
-  if (value === 'cash') return 'À vista';
-  if (value === 'financed') return 'Financiado';
-  if (value === 'consortium') return 'Consórcio';
-  if (value === 'other') return 'Outra forma';
-  return 'Não informado';
-}
-
 function commercialResponse(commercial: any, sale: any) {
-  if (sale) {
-    return {
-      ...sale,
-      is_confirmed: true,
-      commercial_id: commercial?.id || null
-    };
-  }
-
+  if (sale) return { ...sale, is_confirmed: sale.status === 'confirmed', commercial_id: commercial?.id || null };
   return {
-    id: commercial?.id || `lead-commercial-draft`,
+    id: commercial?.id || 'lead-commercial-draft',
     payment_type: commercial?.payment_type || null,
     financing_bank: commercial?.financing_bank || null,
     sale_value: commercial?.negotiated_value ?? null,
@@ -61,6 +45,28 @@ function commercialResponse(commercial: any, sale: any) {
   };
 }
 
+async function loadCommercial(supabase: any, leadId: string, storeId: string) {
+  const { data, error } = await supabase
+    .from('lead_commercial_details')
+    .select('*')
+    .eq('lead_id', leadId)
+    .eq('store_id', storeId)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+async function loadSale(supabase: any, leadId: string, storeId: string) {
+  const { data, error } = await supabase
+    .from('sales')
+    .select('*')
+    .eq('lead_id', leadId)
+    .eq('store_id', storeId)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
 export async function POST(request: Request) {
   try {
     const supabase: any = createAdminClient();
@@ -68,7 +74,7 @@ export async function POST(request: Request) {
     if (!token) return NextResponse.json({ error: 'Sessão não encontrada.' }, { status: 401 });
 
     const profile = await getProfileFromToken(supabase, token);
-    if (!profile || profile.status !== 'active' || !allowedRoles.includes(profile.role)) {
+    if (!profile || profile.status !== 'active' || !editableRoles.includes(profile.role)) {
       return NextResponse.json({ error: 'Usuário sem permissão para editar condições comerciais.' }, { status: 403 });
     }
 
@@ -85,22 +91,10 @@ export async function POST(request: Request) {
     if (!lead || !lead.assigned_store_id) return NextResponse.json({ error: 'Lead não encontrado.' }, { status: 404 });
     if (!canAccessLead(profile, lead)) return NextResponse.json({ error: 'Você não tem permissão para editar as condições deste lead.' }, { status: 403 });
 
-    const [{ data: currentCommercial, error: commercialError }, { data: currentSale, error: saleError }] = await Promise.all([
-      supabase
-        .from('lead_commercial_details')
-        .select('*')
-        .eq('lead_id', lead.id)
-        .eq('store_id', lead.assigned_store_id)
-        .maybeSingle(),
-      supabase
-        .from('sales')
-        .select('*')
-        .eq('lead_id', lead.id)
-        .eq('store_id', lead.assigned_store_id)
-        .maybeSingle()
+    const [currentCommercial, currentSale] = await Promise.all([
+      loadCommercial(supabase, lead.id, lead.assigned_store_id),
+      loadSale(supabase, lead.id, lead.assigned_store_id)
     ]);
-    if (commercialError) throw commercialError;
-    if (saleError) throw saleError;
 
     const paymentType = cleanText(body.payment_type, 30);
     if (!paymentType) {
@@ -113,161 +107,74 @@ export async function POST(request: Request) {
     }
     if (!paymentTypes.includes(paymentType)) return NextResponse.json({ error: 'Selecione uma forma de pagamento válida.' }, { status: 400 });
 
-    const financingBankInput = cleanText(body.financing_bank, 160);
+    if (currentSale?.status === 'confirmed') {
+      if (profile.role === 'pre_sales') {
+        return NextResponse.json({ error: 'Pré-vendas não pode alterar uma venda já confirmada.' }, { status: 403 });
+      }
+      if (profile.role === 'seller' && currentSale.seller_user_id !== profile.id) {
+        return NextResponse.json({ error: 'O vendedor só pode alterar a própria venda.' }, { status: 403 });
+      }
+    }
+
+    const financingBank = cleanText(body.financing_bank, 160);
     const installmentCount = integerValue(body.installment_count);
     const hasDownPayment = paymentType === 'cash' ? false : body.has_down_payment;
-    const downPaymentValueInput = moneyValue(body.down_payment_value);
+    const downPaymentValue = moneyValue(body.down_payment_value);
     const negotiatedValue = moneyValue(body.sale_value);
-    const financedAmountInput = moneyValue(body.financed_amount);
-    const installmentValueInput = moneyValue(body.installment_value);
+    const financedAmount = moneyValue(body.financed_amount);
+    const installmentValue = moneyValue(body.installment_value);
     const hasTradeIn = typeof body.has_trade_in === 'boolean'
       ? body.has_trade_in
       : currentCommercial?.has_trade_in ?? currentSale?.has_trade_in ?? null;
 
     if (negotiatedValue !== null && (!Number.isFinite(negotiatedValue) || negotiatedValue < 0)) return NextResponse.json({ error: 'Informe um valor negociado válido.' }, { status: 400 });
-    if (paymentType === 'financed' && !financingBankInput) return NextResponse.json({ error: 'Informe o banco do financiamento.' }, { status: 400 });
+    if (paymentType === 'financed' && !financingBank) return NextResponse.json({ error: 'Informe o banco do financiamento.' }, { status: 400 });
     if (['financed', 'consortium'].includes(paymentType) && (!Number.isInteger(installmentCount) || Number(installmentCount) < 1 || Number(installmentCount) > 120)) {
       return NextResponse.json({ error: 'Informe uma quantidade de parcelas entre 1 e 120.' }, { status: 400 });
     }
     if (paymentType !== 'cash' && typeof hasDownPayment !== 'boolean') return NextResponse.json({ error: 'Informe se houve entrada.' }, { status: 400 });
-    if (hasDownPayment === true && (downPaymentValueInput === null || !Number.isFinite(downPaymentValueInput) || downPaymentValueInput <= 0)) {
+    if (hasDownPayment === true && (downPaymentValue === null || !Number.isFinite(downPaymentValue) || downPaymentValue <= 0)) {
       return NextResponse.json({ error: 'Informe um valor de entrada maior que zero.' }, { status: 400 });
     }
-    if (negotiatedValue !== null && downPaymentValueInput !== null && downPaymentValueInput > negotiatedValue) {
+    if (negotiatedValue !== null && downPaymentValue !== null && downPaymentValue > negotiatedValue) {
       return NextResponse.json({ error: 'O valor da entrada não pode ser maior que o valor negociado.' }, { status: 400 });
     }
-    if (financedAmountInput !== null && (!Number.isFinite(financedAmountInput) || financedAmountInput < 0)) return NextResponse.json({ error: 'Informe um valor financiado válido.' }, { status: 400 });
-    if (installmentValueInput !== null && (!Number.isFinite(installmentValueInput) || installmentValueInput < 0)) return NextResponse.json({ error: 'Informe um valor de parcela válido.' }, { status: 400 });
+    if (financedAmount !== null && (!Number.isFinite(financedAmount) || financedAmount < 0)) return NextResponse.json({ error: 'Informe um valor financiado válido.' }, { status: 400 });
+    if (installmentValue !== null && (!Number.isFinite(installmentValue) || installmentValue < 0)) return NextResponse.json({ error: 'Informe um valor de parcela válido.' }, { status: 400 });
     if (typeof hasTradeIn !== 'boolean') return NextResponse.json({ error: 'Informe se haverá veículo na troca.' }, { status: 400 });
 
-    const financingBank = paymentType === 'cash'
-      ? 'Não se aplica'
-      : paymentType === 'financed'
-        ? financingBankInput
-        : paymentType === 'consortium'
-          ? financingBankInput || 'Consórcio'
-          : financingBankInput || 'Outro';
-    const normalizedInstallments = paymentType === 'cash' ? null : installmentCount;
-    const normalizedDownPayment = paymentType === 'cash' ? false : Boolean(hasDownPayment);
-    const downPaymentValue = normalizedDownPayment ? downPaymentValueInput : null;
-    const financedAmount = ['financed', 'consortium'].includes(paymentType)
-      ? (financedAmountInput ?? (negotiatedValue !== null ? Math.max(negotiatedValue - Number(downPaymentValue || 0), 0) : null))
-      : financedAmountInput;
-    const installmentValue = installmentValueInput ?? (
-      financedAmount !== null && normalizedInstallments && normalizedInstallments > 0
-        ? Math.round((financedAmount / normalizedInstallments) * 100) / 100
-        : null
-    );
-
-    const commercialPayload = {
-      lead_id: lead.id,
-      store_id: lead.assigned_store_id,
-      payment_type: paymentType,
-      financing_bank: financingBank,
-      negotiated_value: negotiatedValue,
-      installment_count: normalizedInstallments,
-      has_down_payment: normalizedDownPayment,
-      down_payment_value: downPaymentValue,
-      financed_amount: financedAmount,
-      installment_value: installmentValue,
-      has_trade_in: hasTradeIn,
-      updated_by: profile.id,
-      updated_at: new Date().toISOString()
-    };
-
-    const { data: updatedCommercial, error: commercialUpdateError } = await supabase
-      .from('lead_commercial_details')
-      .upsert(commercialPayload, { onConflict: 'lead_id' })
-      .select('*')
-      .single();
-    if (commercialUpdateError) throw commercialUpdateError;
-
-    let updatedSale = currentSale;
-    if (currentSale) {
-      const salePayload = {
-        payment_type: paymentType,
-        financing_bank: financingBank,
-        sale_value: negotiatedValue,
-        has_trade_in: hasTradeIn,
-        installment_count: normalizedInstallments,
-        has_down_payment: normalizedDownPayment,
-        down_payment_value: downPaymentValue,
-        financed_amount: financedAmount,
-        installment_value: installmentValue
-      };
-
-      const { data, error } = await supabase
-        .from('sales')
-        .update(salePayload)
-        .eq('id', currentSale.id)
-        .eq('lead_id', lead.id)
-        .eq('store_id', lead.assigned_store_id)
-        .select('*')
-        .single();
-      if (error) throw error;
-      updatedSale = data;
-    }
-
     const actorName = profile.full_name || profile.email || 'Usuário da loja';
-    const now = new Date().toISOString();
-    const installmentsText = normalizedInstallments ? `${normalizedInstallments} parcela(s)` : 'sem parcelamento';
-    const entryText = normalizedDownPayment
-      ? `entrada de R$ ${Number(downPaymentValue || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-      : 'sem entrada';
-    const activityType = currentSale ? 'sale_details_updated' : 'lead_commercial_updated';
-    const activityLabel = currentSale ? 'Dados comerciais da venda atualizados' : 'Condições da negociação atualizadas';
+    const { data: commercialId, error: rpcError } = await supabase.rpc('store_update_commercial_transaction', {
+      p_lead_id: lead.id,
+      p_store_id: lead.assigned_store_id,
+      p_payment_type: paymentType,
+      p_financing_bank: financingBank || null,
+      p_sale_value: negotiatedValue,
+      p_installment_count: paymentType === 'cash' ? null : installmentCount,
+      p_has_down_payment: paymentType === 'cash' ? false : hasDownPayment,
+      p_down_payment_value: hasDownPayment === true ? downPaymentValue : null,
+      p_financed_amount: financedAmount,
+      p_installment_value: installmentValue,
+      p_has_trade_in: hasTradeIn,
+      p_actor_user_id: profile.id,
+      p_actor_name: actorName
+    });
+    if (rpcError) throw rpcError;
 
-    await Promise.allSettled([
-      supabase.from('lead_activity_logs').insert({
-        lead_id: lead.id,
-        store_id: lead.assigned_store_id,
-        user_id: profile.id,
-        user_name: actorName,
-        activity_type: activityType,
-        activity_label: activityLabel,
-        customer_name: lead.customer_name,
-        customer_phone: lead.customer_phone,
-        vehicle_name: lead.interested_vehicle,
-        notes: `${paymentLabel(paymentType)}. ${installmentsText}. ${entryText}.`,
-        metadata: {
-          commercial_id: updatedCommercial.id,
-          sale_id: updatedSale?.id || null,
-          ...commercialPayload,
-          updated_at: now
-        }
-      }),
-      supabase.from('lead_activities').insert({
-        event_id: lead.event_id || null,
-        lead_id: lead.id,
-        user_id: profile.id,
-        activity_type: activityType,
-        description: `${actorName} atualizou as condições comerciais: ${paymentLabel(paymentType)}, ${installmentsText}, ${entryText}.`,
-        metadata: { commercial_id: updatedCommercial.id, sale_id: updatedSale?.id || null, ...commercialPayload }
-      }),
-      supabase.from('audit_logs').insert({
-        event_id: lead.event_id || null,
-        user_id: profile.id,
-        action_type: activityType,
-        entity_type: 'lead_commercial_details',
-        entity_id: updatedCommercial.id,
-        old_value: currentCommercial,
-        new_value: updatedCommercial
-      }),
-      supabase.from('leads').update({
-        last_activity_at: now,
-        last_activity_type: activityType,
-        last_activity_label: activityLabel,
-        last_activity_by_name: actorName,
-        updated_at: now
-      }).eq('id', lead.id)
+    const [updatedCommercial, updatedSale] = await Promise.all([
+      loadCommercial(supabase, lead.id, lead.assigned_store_id),
+      loadSale(supabase, lead.id, lead.assigned_store_id)
     ]);
 
     return NextResponse.json({
       success: true,
+      commercial_id: commercialId,
       sale: commercialResponse(updatedCommercial, updatedSale),
       commercial: updatedCommercial,
-      sale_confirmed: Boolean(updatedSale),
-      message: currentSale ? 'Dados comerciais da venda salvos com sucesso.' : 'Condições da negociação salvas com sucesso.'
+      sale_confirmed: updatedSale?.status === 'confirmed',
+      message: updatedSale?.status === 'confirmed'
+        ? 'Dados comerciais da venda salvos com sucesso.'
+        : 'Condições da negociação salvas com sucesso.'
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Não foi possível salvar as condições comerciais.' }, { status: 500 });
