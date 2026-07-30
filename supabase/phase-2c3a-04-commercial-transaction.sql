@@ -233,4 +233,13 @@ grant execute on function public.store_update_commercial_transaction(
   boolean, uuid, text
 ) to service_role;
 
+-- Remove as assinaturas legadas somente depois que todos os novos RPCs existem.
+drop function if exists public.confirm_lead_sale_record(
+  uuid, uuid, uuid, text, text, boolean, numeric, uuid, text
+);
+drop function if exists public.confirm_lead_sale_record(
+  uuid, uuid, uuid, text, text, boolean, numeric, integer, boolean,
+  numeric, numeric, numeric, uuid, text
+);
+
 commit;
