@@ -5,6 +5,11 @@ export type MarketplaceStore = {
   website_url: string | null;
 };
 
+export type PublicStore = MarketplaceStore & {
+  vehicle_count: number;
+  featured_vehicle_image: string | null;
+};
+
 export type MarketplaceVehicle = {
   id: string;
   brand: string;
@@ -19,6 +24,8 @@ export type MarketplaceVehicle = {
   image_url: string | null;
   image_urls: string[];
   is_featured: boolean;
+  created_at?: string;
+  updated_at?: string;
   store: MarketplaceStore;
 };
 
