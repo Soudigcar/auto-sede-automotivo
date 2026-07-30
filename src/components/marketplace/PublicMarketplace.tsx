@@ -176,8 +176,8 @@ export function PublicMarketplace({
           <a href="#inicio" className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-lg"><CarFront size={23} /></div>
             <div>
-              <p className="text-sm font-black tracking-tight text-slate-950 sm:text-base">AUTO CONTROLE</p>
-              <p className="text-[9px] font-black uppercase tracking-[0.3em] text-red-600">Marketplace Automotivo</p>
+              <p className="text-sm font-black tracking-tight text-slate-950 sm:text-base">AUTO SEDE</p>
+              <p className="text-[9px] font-black uppercase tracking-[0.3em] text-red-600">Portal Automotivo</p>
             </div>
           </a>
 
@@ -200,7 +200,7 @@ export function PublicMarketplace({
         <div className="relative mx-auto grid max-w-[1480px] gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-red-400/25 bg-red-500/10 px-4 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-red-300">
-              <Sparkles size={15} /> Veículos de lojas parceiras
+              <Sparkles size={15} /> Auto Sede • veículos de lojas parceiras
             </span>
 
             <h1 className="mt-6 max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-5xl lg:text-7xl">
@@ -305,7 +305,7 @@ export function PublicMarketplace({
       </section>
 
       <footer className="border-t border-slate-200 bg-white px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-[1480px] flex-col gap-4 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-black text-slate-950">AUTO CONTROLE AUTOMOTIVO</p><p className="mt-1 text-xs">Marketplace, CRM e eventos automotivos no mesmo ecossistema.</p></div><a href={internalAccessUrl} className="inline-flex items-center gap-2 font-black text-slate-700 hover:text-red-600"><LogIn size={16} /> Acesso operacional</a></div>
+        <div className="mx-auto flex max-w-[1480px] flex-col gap-4 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-black text-slate-950">AUTO SEDE</p><p className="mt-1 text-xs">Portal automotivo, marketplace e atendimento integrado às lojas parceiras.</p></div><a href={internalAccessUrl} className="inline-flex items-center gap-2 font-black text-slate-700 hover:text-red-600"><LogIn size={16} /> Acesso operacional</a></div>
       </footer>
 
       {selectedVehicle ? <MarketplaceVehicleModal vehicle={selectedVehicle} onClose={() => setSelectedVehicle(null)} /> : null}
