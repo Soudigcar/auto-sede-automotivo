@@ -60,3 +60,10 @@ export const defaultPortalSettings: PortalSettings = {
   updated_at: null,
   updated_by: null
 };
+
+export function normalizePortalSettings(_value: unknown): PortalSettings {
+  return {
+    ...defaultPortalSettings,
+    benefits: defaultPortalSettings.benefits.map((benefit) => ({ ...benefit }))
+  };
+}
