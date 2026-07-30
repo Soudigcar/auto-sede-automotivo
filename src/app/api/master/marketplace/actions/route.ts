@@ -79,8 +79,8 @@ async function ensureResolvableOwner(supabase: any, vehicle: any) {
     .eq('imported_vehicle_id', vehicle.id);
   if (error) throw error;
 
-  const storeIds = Array.from(new Set(
-    (data || [])
+  const storeIds: string[] = Array.from(new Set<string>(
+    ((data || []) as any[])
       .filter((item: any) => item.store_id && item?.metadata?.store_removed !== true && !invalidLegacyStatuses.has(normalized(item.status, 40)))
       .map((item: any) => String(item.store_id))
   ));
