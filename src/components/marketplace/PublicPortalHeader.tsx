@@ -21,10 +21,11 @@ export function PublicPortalHeader({ settings }: { settings: PortalSettings }) {
           </span>
         </Link>
 
-        <nav className="hidden items-center gap-7 text-sm font-black text-slate-600 md:flex" aria-label="Navegação principal">
+        <nav className="hidden items-center gap-6 text-sm font-black text-slate-600 lg:flex" aria-label="Navegação principal">
           <Link href="/veiculos" className="transition hover:text-red-600">Veículos</Link>
           <Link href="/lojas" className="transition hover:text-red-600">Lojas</Link>
-          <Link href="/#como-funciona" className="transition hover:text-red-600">Como funciona</Link>
+          <Link href="/sobre" className="transition hover:text-red-600">Sobre</Link>
+          <Link href="/contato" className="transition hover:text-red-600">Contato</Link>
         </nav>
 
         <a href={INTERNAL_SYSTEM_URL} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-800 shadow-sm transition hover:border-red-200 hover:text-red-600 sm:text-sm">
