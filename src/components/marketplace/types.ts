@@ -24,8 +24,8 @@ export type MarketplaceVehicle = {
   image_url: string | null;
   image_urls: string[];
   is_featured: boolean;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
   store: MarketplaceStore;
 };
 
