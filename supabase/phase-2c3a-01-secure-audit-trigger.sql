@@ -3,14 +3,7 @@
 
 begin;
 
--- Remove as assinaturas legadas expostas pelo Data API.
-drop function if exists public.confirm_lead_sale_record(
-  uuid, uuid, uuid, text, text, boolean, numeric, uuid, text
-);
-drop function if exists public.confirm_lead_sale_record(
-  uuid, uuid, uuid, text, text, boolean, numeric, integer, boolean,
-  numeric, numeric, numeric, uuid, text
-);
+-- As assinaturas legadas serão removidas somente no último passo, após a criação dos novos RPCs.
 
 -- O trigger continua responsável por sincronizar leads_base e por registrar
 -- alterações legadas. Quando o chamador já fornece auditoria explícita, ele não
