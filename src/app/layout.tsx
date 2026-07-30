@@ -8,6 +8,7 @@ import { StoreCalendarRealtimeSync } from '@/components/StoreCalendarRealtimeSyn
 import { StoreTeamManualMember } from '@/components/StoreTeamManualMember';
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://www.autosede.com.br'),
   title: appName,
   description: 'Gestão de leads e vendas para eventos automotivos'
 };
