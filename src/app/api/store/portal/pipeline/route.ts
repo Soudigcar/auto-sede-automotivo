@@ -32,6 +32,7 @@ export async function GET(request: Request) {
         'created_at', 'updated_at', 'last_activity_at', 'last_activity_label', 'last_activity_by_name'
       ].join(','))
       .eq('assigned_store_id', context.store.id)
+      .neq('status', 'deleted')
       .order('created_at', { ascending: false })
       .limit(1000);
 
