@@ -4,7 +4,7 @@ export type PortalBenefit = {
 };
 
 export type PortalSettings = {
-  id?: string | null;
+  id: string | null;
   key: 'official';
   brand_name: string;
   brand_tagline: string;
@@ -26,11 +26,23 @@ export type PortalSettings = {
   seo_description: string;
   og_image_url: string;
   is_published: boolean;
-  updated_at?: string | null;
-  updated_by?: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
 };
 
+const fallbackBenefit: PortalBenefit = {
+  title: 'Estoque validado',
+  description: 'Somente veículos disponíveis e vinculados a lojas habilitadas.'
+};
+
+const defaultBenefits: PortalBenefit[] = [
+  fallbackBenefit,
+  { title: 'Atendimento direto', description: 'Seu interesse segue para a loja responsável pelo anúncio escolhido.' },
+  { title: 'Simulação inicial', description: 'Visualize uma estimativa antes de solicitar o atendimento comercial.' }
+];
+
 export const defaultPortalSettings: PortalSettings = {
+  id: null,
   key: 'official',
   brand_name: 'Auto Sede',
   brand_tagline: 'Portal Automotivo',
@@ -42,11 +54,7 @@ export const defaultPortalSettings: PortalSettings = {
   secondary_cta_label: 'Entenda o atendimento',
   trust_title: 'Cada veículo permanece ligado à sua loja.',
   trust_description: 'A vitrine publica somente anúncios com proprietário único e loja ativa. Veículos sem vínculo confiável ficam fora do catálogo até a revisão.',
-  benefits: [
-    { title: 'Estoque validado', description: 'Somente veículos disponíveis e vinculados a lojas habilitadas.' },
-    { title: 'Atendimento direto', description: 'Seu interesse segue para a loja responsável pelo anúncio escolhido.' },
-    { title: 'Simulação inicial', description: 'Visualize uma estimativa antes de solicitar o atendimento comercial.' }
-  ],
+  benefits: defaultBenefits.map((benefit) => ({ ...benefit })),
   whatsapp_number: '',
   phone: '',
   email: '',
@@ -60,7 +68,12 @@ export const defaultPortalSettings: PortalSettings = {
   updated_by: null
 };
 
-function text(value: unknown, fallback: string, maxLength: number) {
+function toRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function requiredText(value: unknown, fallback: string, maxLength: number) {
   const normalized = String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
   return normalized || fallback;
 }
@@ -70,41 +83,45 @@ function optionalText(value: unknown, maxLength: number) {
 }
 
 function normalizeBenefits(value: unknown): PortalBenefit[] {
-  const source = Array.isArray(value) ? value : defaultPortalSettings.benefits;
-  const normalized = source
-    .slice(0, 6)
-    .map((item: any, index) => ({
-      title: text(item?.title, defaultPortalSettings.benefits[index % defaultPortalSettings.benefits.length].title, 90),
-      description: text(item?.description, defaultPortalSettings.benefits[index % defaultPortalSettings.benefits.length].description, 260)
-    }));
+  const input = Array.isArray(value) ? value.slice(0, 6) : [];
+  const normalized: PortalBenefit[] = [];
 
-  return normalized.length ? normalized : defaultPortalSettings.benefits;
+  input.forEach((rawItem, index) => {
+    const item = toRecord(rawItem);
+    const fallback = defaultBenefits[index] || fallbackBenefit;
+    normalized.push({
+      title: requiredText(item.title, fallback.title, 90),
+      description: requiredText(item.description, fallback.description, 260)
+    });
+  });
+
+  return normalized.length ? normalized : defaultBenefits.map((benefit) => ({ ...benefit }));
 }
 
 export function normalizePortalSettings(value: unknown): PortalSettings {
-  const source = value && typeof value === 'object' ? value as Record<string, any> : {};
+  const source = toRecord(value);
 
   return {
     id: optionalText(source.id, 80) || null,
     key: 'official',
-    brand_name: text(source.brand_name, defaultPortalSettings.brand_name, 100),
-    brand_tagline: text(source.brand_tagline, defaultPortalSettings.brand_tagline, 120),
+    brand_name: requiredText(source.brand_name, defaultPortalSettings.brand_name, 100),
+    brand_tagline: requiredText(source.brand_tagline, defaultPortalSettings.brand_tagline, 120),
     logo_url: optionalText(source.logo_url, 800),
-    hero_eyebrow: text(source.hero_eyebrow, defaultPortalSettings.hero_eyebrow, 180),
-    hero_title: text(source.hero_title, defaultPortalSettings.hero_title, 220),
-    hero_description: text(source.hero_description, defaultPortalSettings.hero_description, 600),
-    primary_cta_label: text(source.primary_cta_label, defaultPortalSettings.primary_cta_label, 80),
-    secondary_cta_label: text(source.secondary_cta_label, defaultPortalSettings.secondary_cta_label, 80),
-    trust_title: text(source.trust_title, defaultPortalSettings.trust_title, 220),
-    trust_description: text(source.trust_description, defaultPortalSettings.trust_description, 600),
+    hero_eyebrow: requiredText(source.hero_eyebrow, defaultPortalSettings.hero_eyebrow, 180),
+    hero_title: requiredText(source.hero_title, defaultPortalSettings.hero_title, 220),
+    hero_description: requiredText(source.hero_description, defaultPortalSettings.hero_description, 600),
+    primary_cta_label: requiredText(source.primary_cta_label, defaultPortalSettings.primary_cta_label, 80),
+    secondary_cta_label: requiredText(source.secondary_cta_label, defaultPortalSettings.secondary_cta_label, 80),
+    trust_title: requiredText(source.trust_title, defaultPortalSettings.trust_title, 220),
+    trust_description: requiredText(source.trust_description, defaultPortalSettings.trust_description, 600),
     benefits: normalizeBenefits(source.benefits),
     whatsapp_number: optionalText(source.whatsapp_number, 40),
     phone: optionalText(source.phone, 40),
     email: optionalText(source.email, 180).toLowerCase(),
     instagram_url: optionalText(source.instagram_url, 800),
     address_text: optionalText(source.address_text, 300),
-    seo_title: text(source.seo_title, defaultPortalSettings.seo_title, 180),
-    seo_description: text(source.seo_description, defaultPortalSettings.seo_description, 320),
+    seo_title: requiredText(source.seo_title, defaultPortalSettings.seo_title, 180),
+    seo_description: requiredText(source.seo_description, defaultPortalSettings.seo_description, 320),
     og_image_url: optionalText(source.og_image_url, 800),
     is_published: source.is_published !== false,
     updated_at: optionalText(source.updated_at, 80) || null,
