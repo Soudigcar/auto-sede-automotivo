@@ -6,6 +6,14 @@ import { createClient } from '@/lib/supabase';
 
 const protectedPrefixes = ['/master', '/prospector', '/store', '/pre-sales', '/routes', '/loja'];
 
+function matchesProtectedRoute(pathname: string, prefix: string) {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+function isProtectedPath(pathname: string) {
+  return protectedPrefixes.some((prefix) => matchesProtectedRoute(pathname, prefix));
+}
+
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -16,7 +24,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     async function checkSession() {
-      const isProtected = protectedPrefixes.some((prefix) => pathname.startsWith(prefix));
+      const isProtected = isProtectedPath(pathname);
       if (!isProtected) {
         if (!cancelled) setIsChecking(false);
         return;
@@ -57,7 +65,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (pathname.startsWith('/master') && profile.role !== 'master') {
+      if (matchesProtectedRoute(pathname, '/master') && profile.role !== 'master') {
         router.replace('/');
         return;
       }
@@ -76,7 +84,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     };
   }, [pathname, router, supabase]);
 
-  if (isChecking && protectedPrefixes.some((prefix) => pathname.startsWith(prefix))) {
+  if (isChecking && isProtectedPath(pathname)) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-brand-black px-6 text-white">
         <div className="card p-8 text-center">
