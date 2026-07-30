@@ -12,21 +12,33 @@ export function PublicPortalFooter({ settings }: { settings: PortalSettings }) {
 
   return (
     <footer className="border-t border-slate-200 bg-white px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-[1480px] flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <p className="font-black text-slate-950">{settings.brand_name}</p>
-          <p className="mt-1 text-xs text-slate-500">{settings.brand_tagline} com atendimento integrado às lojas parceiras.</p>
-          {settings.address_text ? <p className="mt-2 text-xs font-semibold text-slate-500">{settings.address_text}</p> : null}
+      <div className="mx-auto max-w-[1480px]">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="font-black text-slate-950">{settings.brand_name}</p>
+            <p className="mt-1 text-xs text-slate-500">{settings.brand_tagline} com atendimento integrado às lojas parceiras.</p>
+            {settings.address_text ? <p className="mt-2 text-xs font-semibold text-slate-500">{settings.address_text}</p> : null}
+          </div>
+
+          <div className="flex flex-wrap gap-3 text-xs font-black">
+            <Link href="/veiculos" className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">Veículos</Link>
+            <Link href="/lojas" className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">Lojas</Link>
+            <Link href="/sobre" className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">Sobre</Link>
+            <Link href="/contato" className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">Contato</Link>
+            {whatsapp ? <a href={`https://wa.me/${whatsapp}`} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700">WhatsApp</a> : null}
+            {phone ? <a href={`tel:${phone}`} className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">{settings.phone}</a> : null}
+            {settings.email ? <a href={`mailto:${settings.email}`} className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">E-mail</a> : null}
+            {settings.instagram_url ? <a href={settings.instagram_url} target="_blank" rel="noreferrer" className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">Instagram</a> : null}
+            <a href={INTERNAL_SYSTEM_URL} className="rounded-xl bg-slate-950 px-3 py-2 text-white">Acesso operacional</a>
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-3 text-xs font-black">
-          <Link href="/veiculos" className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">Veículos</Link>
-          <Link href="/lojas" className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">Lojas</Link>
-          {whatsapp ? <a href={`https://wa.me/${whatsapp}`} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700">WhatsApp</a> : null}
-          {phone ? <a href={`tel:${phone}`} className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">{settings.phone}</a> : null}
-          {settings.email ? <a href={`mailto:${settings.email}`} className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">E-mail</a> : null}
-          {settings.instagram_url ? <a href={settings.instagram_url} target="_blank" rel="noreferrer" className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">Instagram</a> : null}
-          <a href={INTERNAL_SYSTEM_URL} className="rounded-xl bg-slate-950 px-3 py-2 text-white">Acesso operacional</a>
+        <div className="mt-7 flex flex-col gap-3 border-t border-slate-100 pt-5 text-[11px] font-semibold text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+          <p>© {new Date().getFullYear()} {settings.brand_name}. Conteúdo sujeito à confirmação da loja responsável.</p>
+          <div className="flex flex-wrap gap-4">
+            <Link href="/privacidade" className="transition hover:text-slate-700">Privacidade</Link>
+            <Link href="/termos" className="transition hover:text-slate-700">Termos de uso</Link>
+          </div>
         </div>
       </div>
     </footer>
