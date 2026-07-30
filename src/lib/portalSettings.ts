@@ -61,9 +61,48 @@ export const defaultPortalSettings: PortalSettings = {
   updated_by: null
 };
 
-export function normalizePortalSettings(_value: unknown): PortalSettings {
+function clean(value: unknown, fallback: string, maxLength: number) {
+  const result = String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+  return result || fallback;
+}
+
+export function normalizePortalSettings(value: unknown): PortalSettings {
+  const source = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Partial<PortalSettings>
+    : {};
+  const benefits = Array.isArray(source.benefits) && source.benefits.length
+    ? source.benefits.slice(0, 6).map((benefit, index) => ({
+        title: clean(benefit?.title, defaultPortalSettings.benefits[index]?.title || 'Benefício', 90),
+        description: clean(benefit?.description, defaultPortalSettings.benefits[index]?.description || 'Benefício do portal.', 260)
+      }))
+    : defaultPortalSettings.benefits.map((benefit) => ({ ...benefit }));
+
   return {
     ...defaultPortalSettings,
-    benefits: defaultPortalSettings.benefits.map((benefit) => ({ ...benefit }))
+    ...source,
+    id: typeof source.id === 'string' ? source.id.slice(0, 80) : null,
+    key: 'official',
+    brand_name: clean(source.brand_name, defaultPortalSettings.brand_name, 100),
+    brand_tagline: clean(source.brand_tagline, defaultPortalSettings.brand_tagline, 120),
+    logo_url: clean(source.logo_url, '', 800),
+    hero_eyebrow: clean(source.hero_eyebrow, defaultPortalSettings.hero_eyebrow, 180),
+    hero_title: clean(source.hero_title, defaultPortalSettings.hero_title, 220),
+    hero_description: clean(source.hero_description, defaultPortalSettings.hero_description, 600),
+    primary_cta_label: clean(source.primary_cta_label, defaultPortalSettings.primary_cta_label, 80),
+    secondary_cta_label: clean(source.secondary_cta_label, defaultPortalSettings.secondary_cta_label, 80),
+    trust_title: clean(source.trust_title, defaultPortalSettings.trust_title, 220),
+    trust_description: clean(source.trust_description, defaultPortalSettings.trust_description, 600),
+    benefits,
+    whatsapp_number: clean(source.whatsapp_number, '', 40),
+    phone: clean(source.phone, '', 40),
+    email: clean(source.email, '', 180).toLowerCase(),
+    instagram_url: clean(source.instagram_url, '', 800),
+    address_text: clean(source.address_text, '', 300),
+    seo_title: clean(source.seo_title, defaultPortalSettings.seo_title, 180),
+    seo_description: clean(source.seo_description, defaultPortalSettings.seo_description, 320),
+    og_image_url: clean(source.og_image_url, '', 800),
+    is_published: source.is_published !== false,
+    updated_at: typeof source.updated_at === 'string' ? source.updated_at.slice(0, 80) : null,
+    updated_by: typeof source.updated_by === 'string' ? source.updated_by.slice(0, 80) : null
   };
 }
