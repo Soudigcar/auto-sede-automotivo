@@ -1,7 +1,9 @@
 'use client';
 
+import Link from 'next/link';
 import { ArrowRight, BadgeCheck, CarFront, Fuel, Gauge, Settings2, Store } from 'lucide-react';
 import type { MarketplaceVehicle } from '@/components/marketplace/types';
+import { publicVehiclePath } from '@/lib/publicRoutes';
 
 function money(value: number) {
   return new Intl.NumberFormat('pt-BR', {
@@ -17,17 +19,20 @@ function specification(value: string, fallback = 'Não informado') {
 
 export function PublicVehicleCard({
   vehicle,
-  onOpen
+  onOpen,
+  detailsHref
 }: {
   vehicle: MarketplaceVehicle;
-  onOpen: (vehicle: MarketplaceVehicle) => void;
+  onOpen?: (vehicle: MarketplaceVehicle) => void;
+  detailsHref?: string;
 }) {
   const image = vehicle.image_url || vehicle.image_urls?.[0] || '';
-  const title = [vehicle.brand, vehicle.model].filter(Boolean).join(' ');
+  const title = [vehicle.brand, vehicle.model].filter(Boolean).join(' ') || 'Veículo disponível';
+  const href = detailsHref || publicVehiclePath(vehicle);
 
   return (
     <article className="group overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_14px_40px_rgba(15,23,42,0.08)] transition duration-200 hover:-translate-y-1 hover:border-red-200 hover:shadow-[0_22px_55px_rgba(15,23,42,0.14)]">
-      <button type="button" onClick={() => onOpen(vehicle)} className="block w-full text-left">
+      <Link href={href} className="block" aria-label={`Ver detalhes de ${title}`}>
         <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
           {image ? (
             <img
@@ -53,7 +58,7 @@ export function PublicVehicleCard({
           </span>
         </div>
 
-        <div className="p-5">
+        <div className="p-5 pb-4">
           <p className="text-[11px] font-black uppercase tracking-[0.18em] text-red-600">{vehicle.year || 'Sem ano informado'}</p>
           <h2 className="mt-2 line-clamp-1 text-xl font-black tracking-tight text-slate-950">{title}</h2>
           <p className="mt-1 line-clamp-1 min-h-5 text-sm font-semibold text-slate-500">{vehicle.version || 'Versão não informada'}</p>
@@ -73,18 +78,23 @@ export function PublicVehicleCard({
             </div>
           </div>
 
-          <div className="mt-5 flex items-end justify-between gap-3 border-t border-slate-100 pt-4">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-400">Valor anunciado</p>
-              <p className="mt-1 text-2xl font-black tracking-tight text-slate-950">{money(vehicle.price)}</p>
-            </div>
-
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-600 text-white shadow-lg shadow-red-600/20 transition group-hover:translate-x-0.5">
-              <ArrowRight size={20} />
-            </span>
+          <div className="mt-5 border-t border-slate-100 pt-4">
+            <p className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-400">Valor anunciado</p>
+            <p className="mt-1 text-2xl font-black tracking-tight text-slate-950">{money(vehicle.price)}</p>
           </div>
         </div>
-      </button>
+      </Link>
+
+      <div className="flex items-center gap-2 px-5 pb-5">
+        <Link href={href} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">
+          Ver detalhes <ArrowRight size={17} />
+        </Link>
+        {onOpen ? (
+          <button type="button" onClick={() => onOpen(vehicle)} className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-red-600 px-4 text-sm font-black text-white transition hover:bg-red-500">
+            Simular
+          </button>
+        ) : null}
+      </div>
     </article>
   );
 }
