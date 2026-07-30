@@ -6,8 +6,12 @@ import {
   Building2,
   CarFront,
   CheckCircle2,
+  Instagram,
   Loader2,
   LogIn,
+  Mail,
+  MapPin,
+  Phone,
   Search,
   ShieldCheck,
   SlidersHorizontal,
@@ -18,6 +22,7 @@ import {
 import { MarketplaceVehicleModal } from '@/components/marketplace/MarketplaceVehicleModal';
 import { PublicVehicleCard } from '@/components/marketplace/PublicVehicleCard';
 import type { MarketplaceFilters, MarketplaceVehicle } from '@/components/marketplace/types';
+import type { PortalSettings } from '@/lib/portalSettings';
 
 const emptyFilters: MarketplaceFilters = {
   brands: [],
@@ -44,10 +49,16 @@ function normalized(value: unknown) {
     .toLocaleLowerCase('pt-BR');
 }
 
+function phoneDigits(value: string) {
+  return String(value || '').replace(/\D/g, '');
+}
+
 export function PublicMarketplace({
-  internalAccessUrl
+  internalAccessUrl,
+  portalSettings
 }: {
   internalAccessUrl: string;
+  portalSettings: PortalSettings;
 }) {
   const [vehicles, setVehicles] = useState<MarketplaceVehicle[]>([]);
   const [availableFilters, setAvailableFilters] = useState<MarketplaceFilters>(emptyFilters);
@@ -117,6 +128,8 @@ export function PublicMarketplace({
 
   const storeCount = useMemo(() => new Set(vehicles.map((vehicle) => vehicle.store.id)).size, [vehicles]);
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
+  const whatsapp = phoneDigits(portalSettings.whatsapp_number);
+  const benefitIcons = [ShieldCheck, Building2, Sparkles];
 
   function resetFilters() {
     setFilters({ search: '', brand: '', transmission: '', fuel: '', minPrice: '', maxPrice: '' });
@@ -174,15 +187,20 @@ export function PublicMarketplace({
       <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-[1480px] items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <a href="#inicio" className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-lg"><CarFront size={23} /></div>
+            {portalSettings.logo_url ? (
+              <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><img src={portalSettings.logo_url} alt={`Logomarca ${portalSettings.brand_name}`} className="h-full w-full object-contain" /></div>
+            ) : (
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-lg"><CarFront size={23} /></div>
+            )}
             <div>
-              <p className="text-sm font-black tracking-tight text-slate-950 sm:text-base">AUTO SEDE</p>
-              <p className="text-[9px] font-black uppercase tracking-[0.3em] text-red-600">Portal Automotivo</p>
+              <p className="text-sm font-black tracking-tight text-slate-950 sm:text-base">{portalSettings.brand_name}</p>
+              <p className="text-[9px] font-black uppercase tracking-[0.3em] text-red-600">{portalSettings.brand_tagline}</p>
             </div>
           </a>
 
           <nav className="hidden items-center gap-7 text-sm font-black text-slate-600 lg:flex">
             <a href="#veiculos" className="transition hover:text-red-600">Veículos</a>
+            <a href="#beneficios" className="transition hover:text-red-600">Benefícios</a>
             <a href="#como-funciona" className="transition hover:text-red-600">Como funciona</a>
             <a href="#seguranca" className="transition hover:text-red-600">Segurança</a>
           </nav>
@@ -200,22 +218,22 @@ export function PublicMarketplace({
         <div className="relative mx-auto grid max-w-[1480px] gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-red-400/25 bg-red-500/10 px-4 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-red-300">
-              <Sparkles size={15} /> Auto Sede • veículos de lojas parceiras
+              <Sparkles size={15} /> {portalSettings.hero_eyebrow}
             </span>
 
             <h1 className="mt-6 max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-5xl lg:text-7xl">
-              Encontre seu próximo carro em um só lugar.
+              {portalSettings.hero_title}
             </h1>
             <p className="mt-6 max-w-2xl text-base font-medium leading-relaxed text-slate-300 sm:text-lg">
-              Compare veículos disponíveis, faça uma simulação inicial e fale diretamente com a loja responsável pelo anúncio.
+              {portalSettings.hero_description}
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <a href="#veiculos" className="inline-flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-red-600 px-6 text-sm font-black text-white shadow-xl shadow-red-600/25 transition hover:-translate-y-0.5 hover:bg-red-500">
-                Ver veículos disponíveis <ArrowDown size={18} />
+                {portalSettings.primary_cta_label} <ArrowDown size={18} />
               </a>
               <a href="#como-funciona" className="inline-flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/[0.06] px-6 text-sm font-black text-white backdrop-blur transition hover:bg-white/[0.1]">
-                <ShieldCheck size={18} /> Entenda o atendimento
+                <ShieldCheck size={18} /> {portalSettings.secondary_cta_label}
               </a>
             </div>
 
@@ -253,9 +271,7 @@ export function PublicMarketplace({
         <div className={`mt-7 rounded-[28px] border border-slate-200 bg-white p-4 shadow-[0_12px_35px_rgba(15,23,42,0.06)] sm:p-5 ${mobileFiltersOpen ? 'block' : 'hidden lg:block'}`}>
           <div className="mb-3 flex items-center justify-between lg:hidden"><p className="font-black">Filtrar veículos</p><button type="button" onClick={() => setMobileFiltersOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100"><X size={17} /></button></div>
           {filterPanel}
-          {activeFilterCount ? (
-            <div className="mt-3 flex justify-end"><button type="button" onClick={resetFilters} className="text-xs font-black text-red-600 hover:text-red-700">Limpar todos os filtros</button></div>
-          ) : null}
+          {activeFilterCount ? <div className="mt-3 flex justify-end"><button type="button" onClick={resetFilters} className="text-xs font-black text-red-600 hover:text-red-700">Limpar todos os filtros</button></div> : null}
         </div>
 
         <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
@@ -281,31 +297,50 @@ export function PublicMarketplace({
         )}
       </section>
 
-      <section id="como-funciona" className="border-y border-slate-200 bg-white px-4 py-16 sm:px-6 lg:px-8">
+      <section id="beneficios" className="border-y border-slate-200 bg-white px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-[1480px]">
-          <div className="max-w-3xl"><p className="text-xs font-black uppercase tracking-[0.22em] text-red-600">Como funciona</p><h2 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Um caminho simples até a loja certa</h2></div>
+          <div className="max-w-3xl"><p className="text-xs font-black uppercase tracking-[0.22em] text-red-600">Por que usar o portal</p><h2 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Uma experiência organizada do anúncio ao atendimento</h2></div>
           <div className="mt-8 grid gap-4 md:grid-cols-3">
-            {[
-              { icon: Search, number: '01', title: 'Escolha o veículo', text: 'Use os filtros para encontrar o carro compatível com seu orçamento e preferência.' },
-              { icon: SlidersHorizontal, number: '02', title: 'Faça a simulação', text: 'Informe entrada e prazo para visualizar uma estimativa inicial de financiamento.' },
-              { icon: Building2, number: '03', title: 'Fale com a proprietária', text: 'O lead é entregue diretamente à loja que publicou aquele veículo.' }
-            ].map((item) => {
-              const Icon = item.icon;
-              return <article key={item.number} className="rounded-[28px] border border-slate-200 bg-slate-50 p-6"><div className="flex items-center justify-between"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-600 text-white"><Icon size={22} /></div><span className="text-3xl font-black text-slate-200">{item.number}</span></div><h3 className="mt-5 text-xl font-black text-slate-950">{item.title}</h3><p className="mt-2 text-sm leading-relaxed text-slate-500">{item.text}</p></article>;
+            {portalSettings.benefits.slice(0, 3).map((benefit, index) => {
+              const Icon = benefitIcons[index % benefitIcons.length];
+              return <article key={`${benefit.title}-${index}`} className="rounded-[28px] border border-slate-200 bg-slate-50 p-6"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-600 text-white"><Icon size={22} /></div><h3 className="mt-5 text-xl font-black text-slate-950">{benefit.title}</h3><p className="mt-2 text-sm leading-relaxed text-slate-500">{benefit.description}</p></article>;
             })}
           </div>
         </div>
       </section>
 
-      <section id="seguranca" className="mx-auto max-w-[1480px] px-4 py-16 sm:px-6 lg:px-8">
+      <section id="como-funciona" className="mx-auto max-w-[1480px] px-4 py-16 sm:px-6 lg:px-8">
+        <div className="max-w-3xl"><p className="text-xs font-black uppercase tracking-[0.22em] text-red-600">Como funciona</p><h2 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Um caminho simples até a loja certa</h2></div>
+        <div className="mt-8 grid gap-4 md:grid-cols-3">
+          {[
+            { icon: Search, number: '01', title: 'Escolha o veículo', text: 'Use os filtros para encontrar o carro compatível com seu orçamento e preferência.' },
+            { icon: SlidersHorizontal, number: '02', title: 'Faça a simulação', text: 'Informe entrada e prazo para visualizar uma estimativa inicial de financiamento.' },
+            { icon: Building2, number: '03', title: 'Fale com a proprietária', text: 'O lead é entregue diretamente à loja que publicou aquele veículo.' }
+          ].map((item) => {
+            const Icon = item.icon;
+            return <article key={item.number} className="rounded-[28px] border border-slate-200 bg-white p-6"><div className="flex items-center justify-between"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-600 text-white"><Icon size={22} /></div><span className="text-3xl font-black text-slate-200">{item.number}</span></div><h3 className="mt-5 text-xl font-black text-slate-950">{item.title}</h3><p className="mt-2 text-sm leading-relaxed text-slate-500">{item.text}</p></article>;
+          })}
+        </div>
+      </section>
+
+      <section id="seguranca" className="mx-auto max-w-[1480px] px-4 pb-16 sm:px-6 lg:px-8">
         <div className="grid gap-6 rounded-[34px] bg-slate-950 p-6 text-white sm:p-9 lg:grid-cols-[1fr_auto] lg:items-center">
-          <div className="flex items-start gap-4"><div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-400"><ShieldCheck size={28} /></div><div><p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-400">Direcionamento seguro</p><h2 className="mt-2 text-2xl font-black sm:text-3xl">Cada veículo permanece ligado à sua loja.</h2><p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-400">A vitrine publica somente anúncios com proprietário único e loja ativa. Veículos sem vínculo confiável ficam fora do catálogo até a revisão.</p></div></div>
+          <div className="flex items-start gap-4"><div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-400"><ShieldCheck size={28} /></div><div><p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-400">Direcionamento seguro</p><h2 className="mt-2 text-2xl font-black sm:text-3xl">{portalSettings.trust_title}</h2><p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-400">{portalSettings.trust_description}</p></div></div>
           <div className="grid gap-2 text-sm font-bold text-slate-300 sm:grid-cols-3 lg:grid-cols-1"><span className="flex items-center gap-2"><CheckCircle2 size={17} className="text-emerald-400" /> Estoque validado</span><span className="flex items-center gap-2"><CheckCircle2 size={17} className="text-emerald-400" /> Loja identificada</span><span className="flex items-center gap-2"><CheckCircle2 size={17} className="text-emerald-400" /> Lead sem rodízio</span></div>
         </div>
       </section>
 
       <footer className="border-t border-slate-200 bg-white px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-[1480px] flex-col gap-4 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-black text-slate-950">AUTO SEDE</p><p className="mt-1 text-xs">Portal automotivo, marketplace e atendimento integrado às lojas parceiras.</p></div><a href={internalAccessUrl} className="inline-flex items-center gap-2 font-black text-slate-700 hover:text-red-600"><LogIn size={16} /> Acesso operacional</a></div>
+        <div className="mx-auto flex max-w-[1480px] flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div><p className="font-black text-slate-950">{portalSettings.brand_name}</p><p className="mt-1 text-xs font-medium text-slate-500">{portalSettings.brand_tagline} com atendimento integrado às lojas parceiras.</p>{portalSettings.address_text ? <p className="mt-2 flex items-center gap-2 text-xs font-semibold text-slate-500"><MapPin size={14} /> {portalSettings.address_text}</p> : null}</div>
+          <div className="flex flex-wrap gap-3 text-xs font-black text-slate-600">
+            {whatsapp ? <a href={`https://wa.me/${whatsapp}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700"><Phone size={15} /> WhatsApp</a> : null}
+            {portalSettings.phone ? <a href={`tel:${phoneDigits(portalSettings.phone)}`} className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2"><Phone size={15} /> {portalSettings.phone}</a> : null}
+            {portalSettings.email ? <a href={`mailto:${portalSettings.email}`} className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2"><Mail size={15} /> E-mail</a> : null}
+            {portalSettings.instagram_url ? <a href={portalSettings.instagram_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2"><Instagram size={15} /> Instagram</a> : null}
+            <a href={internalAccessUrl} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-white"><LogIn size={15} /> Acesso operacional</a>
+          </div>
+        </div>
       </footer>
 
       {selectedVehicle ? <MarketplaceVehicleModal vehicle={selectedVehicle} onClose={() => setSelectedVehicle(null)} /> : null}
