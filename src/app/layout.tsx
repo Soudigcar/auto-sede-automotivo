@@ -2,12 +2,8 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { appName } from '@/lib/constants';
 import { AuthGate } from '@/components/AuthGate';
-import { PipelineOptimizedRuntime } from '@/components/PipelineOptimizedRuntime';
-import { PipelineLeadEditorLazyLoader } from '@/components/PipelineLeadEditorLazyLoader';
 import { PipelineAddLeadWithStock } from '@/components/PipelineAddLeadWithStock';
 import { PipelineSaleConfirmation } from '@/components/PipelineSaleConfirmation';
-import { PipelineInstallmentQuickSelector } from '@/components/PipelineInstallmentQuickSelector';
-import { PipelineCommercialStageLabel } from '@/components/PipelineCommercialStageLabel';
 import { StoreCalendarRealtimeSync } from '@/components/StoreCalendarRealtimeSync';
 import { StoreTeamManualMember } from '@/components/StoreTeamManualMember';
 
@@ -21,12 +17,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="pt-BR" suppressHydrationWarning>
       <body suppressHydrationWarning>
         <AuthGate>{children}</AuthGate>
-        <PipelineOptimizedRuntime />
-        <PipelineLeadEditorLazyLoader />
         <PipelineAddLeadWithStock />
         <PipelineSaleConfirmation />
-        <PipelineInstallmentQuickSelector />
-        <PipelineCommercialStageLabel />
         <StoreCalendarRealtimeSync />
         <StoreTeamManualMember />
       </body>
