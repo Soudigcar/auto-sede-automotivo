@@ -11,10 +11,15 @@ function validDate(value: string | undefined) {
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const now = new Date();
   const staticPages: MetadataRoute.Sitemap = [
-    { url: OFFICIAL_PORTAL_URL, lastModified: new Date(), changeFrequency: 'daily', priority: 1 },
-    { url: `${OFFICIAL_PORTAL_URL}/veiculos`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.9 },
-    { url: `${OFFICIAL_PORTAL_URL}/lojas`, lastModified: new Date(), changeFrequency: 'weekly', priority: 0.8 }
+    { url: OFFICIAL_PORTAL_URL, lastModified: now, changeFrequency: 'daily', priority: 1 },
+    { url: `${OFFICIAL_PORTAL_URL}/veiculos`, lastModified: now, changeFrequency: 'daily', priority: 0.9 },
+    { url: `${OFFICIAL_PORTAL_URL}/lojas`, lastModified: now, changeFrequency: 'weekly', priority: 0.8 },
+    { url: `${OFFICIAL_PORTAL_URL}/sobre`, lastModified: now, changeFrequency: 'monthly', priority: 0.6 },
+    { url: `${OFFICIAL_PORTAL_URL}/contato`, lastModified: now, changeFrequency: 'monthly', priority: 0.6 },
+    { url: `${OFFICIAL_PORTAL_URL}/privacidade`, lastModified: now, changeFrequency: 'yearly', priority: 0.3 },
+    { url: `${OFFICIAL_PORTAL_URL}/termos`, lastModified: now, changeFrequency: 'yearly', priority: 0.3 }
   ];
 
   try {
@@ -32,7 +37,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
     const storeEntries: MetadataRoute.Sitemap = stores.map((store) => ({
       url: absolutePortalUrl(publicStorePath(store.slug)),
-      lastModified: new Date(),
+      lastModified: now,
       changeFrequency: 'daily',
       priority: store.vehicle_count > 0 ? 0.8 : 0.5
     }));
