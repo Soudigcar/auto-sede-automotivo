@@ -1,11 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, PlayCircle, Power, RotateCcw, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
 function dateText(value?: string) {
   return value ? value.split('-').reverse().join('/') : '-';
+}
+
+function statusLabel(status?: string) {
+  if (status === 'active') return 'Ativo';
+  if (status === 'inactive') return 'Inativo';
+  return 'Não ativado';
 }
 
 export function EventListManager({ refreshKey = 0 }: { refreshKey?: number }) {
@@ -13,6 +19,7 @@ export function EventListManager({ refreshKey = 0 }: { refreshKey?: number }) {
   const [events, setEvents] = useState<any[]>([]);
   const [message, setMessage] = useState('');
   const [editingId, setEditingId] = useState('');
+  const [actionId, setActionId] = useState('');
   const [form, setForm] = useState({
     eventName: '',
     startDate: '',
@@ -25,17 +32,22 @@ export function EventListManager({ refreshKey = 0 }: { refreshKey?: number }) {
   });
 
   async function loadData() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('events')
       .select('*')
       .neq('status', 'deleted')
       .order('created_at', { ascending: false });
 
+    if (error) {
+      setMessage(`Erro ao carregar eventos: ${error.message}`);
+      return;
+    }
+
     setEvents(data || []);
   }
 
   useEffect(() => {
-    loadData().catch(() => null);
+    loadData().catch(() => setMessage('Não foi possível carregar os eventos.'));
   }, [refreshKey]);
 
   function startEdit(item: any) {
@@ -69,12 +81,69 @@ export function EventListManager({ refreshKey = 0 }: { refreshKey?: number }) {
       .eq('id', editingId);
 
     if (error) {
-      setMessage('Erro ao editar evento.');
+      setMessage(`Erro ao editar evento: ${error.message}`);
       return;
     }
 
     setEditingId('');
     setMessage('Evento editado com sucesso.');
+    await loadData();
+  }
+
+  async function changeEventStatus(item: any) {
+    const isActive = item.status === 'active';
+    const nextStatus = isActive ? 'inactive' : 'active';
+    const action = isActive ? 'desativar' : item.status === 'inactive' ? 'reativar' : 'ativar';
+
+    if (!window.confirm(`Confirma ${action} o evento “${item.event_name}”?`)) return;
+
+    setActionId(item.id);
+    setMessage(`${action.charAt(0).toUpperCase()}${action.slice(1)}ndo evento...`);
+
+    const { error: eventError } = await supabase
+      .from('events')
+      .update({
+        status: nextStatus,
+        store_registration_enabled: nextStatus === 'active',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', item.id);
+
+    if (eventError) {
+      setActionId('');
+      setMessage(`Erro ao ${action} evento: ${eventError.message}`);
+      return;
+    }
+
+    if (nextStatus === 'inactive') {
+      const { error: campaignError } = await supabase
+        .from('site_campaigns')
+        .update({
+          is_active: false,
+          published_at: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('event_id', item.id);
+
+      if (campaignError) {
+        await supabase
+          .from('events')
+          .update({ status: 'active', store_registration_enabled: true, updated_at: new Date().toISOString() })
+          .eq('id', item.id);
+
+        setActionId('');
+        setMessage(`A landing não pôde ser desativada; o evento permaneceu ativo. ${campaignError.message}`);
+        await loadData();
+        return;
+      }
+    }
+
+    setActionId('');
+    setMessage(
+      nextStatus === 'active'
+        ? 'Evento ativo novamente. A landing permanece sob controle separado e deve ser publicada em Campanhas e Landings.'
+        : 'Evento desativado. A landing foi retirada do ar, sem apagar lojas, estoques, leads ou histórico.'
+    );
     await loadData();
   }
 
@@ -105,7 +174,7 @@ export function EventListManager({ refreshKey = 0 }: { refreshKey?: number }) {
   return (
     <section className="premium-card p-6">
       <h2 className="text-2xl font-black text-zinc-950">Eventos cadastrados</h2>
-      <p className="mt-1 text-sm text-zinc-500">Listagem operacional com edição e exclusão definitiva.</p>
+      <p className="mt-1 text-sm text-zinc-500">Edite, ative, desative ou reative sem excluir o histórico.</p>
 
       <div className="mt-5 space-y-3">
         {events.map((item) => (
@@ -143,9 +212,14 @@ export function EventListManager({ refreshKey = 0 }: { refreshKey?: number }) {
               </div>
             ) : (
               <>
-                <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
+                <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
                   <div>
-                    <h3 className="font-black text-zinc-950">{item.event_name}</h3>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-black text-zinc-950">{item.event_name}</h3>
+                      <span className={`rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-wide ${item.status === 'active' ? 'bg-emerald-100 text-emerald-700' : item.status === 'inactive' ? 'bg-amber-100 text-amber-700' : 'bg-zinc-200 text-zinc-600'}`}>
+                        {statusLabel(item.status)}
+                      </span>
+                    </div>
                     <p className="mt-1 text-sm text-zinc-500">
                       {item.state || '-'} | {item.city || '-'} | {dateText(item.start_date)} até {dateText(item.end_date)}
                     </p>
@@ -158,6 +232,16 @@ export function EventListManager({ refreshKey = 0 }: { refreshKey?: number }) {
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button className="premium-button-secondary text-xs" type="button" onClick={() => startEdit(item)}>
                     <Pencil size={14} /> Editar
+                  </button>
+
+                  <button
+                    className={item.status === 'active' ? 'premium-button-secondary text-xs' : 'premium-button-primary text-xs'}
+                    type="button"
+                    disabled={actionId === item.id}
+                    onClick={() => void changeEventStatus(item)}
+                  >
+                    {item.status === 'active' ? <Power size={14} /> : item.status === 'inactive' ? <RotateCcw size={14} /> : <PlayCircle size={14} />}
+                    {actionId === item.id ? 'Processando...' : item.status === 'active' ? 'Desativar' : item.status === 'inactive' ? 'Reativar' : 'Ativar'}
                   </button>
 
                   <button className="premium-button-secondary text-xs" type="button" onClick={() => removeEvent(item)}>
