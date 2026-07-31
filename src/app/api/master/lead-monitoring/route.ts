@@ -1,81 +1,112 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getAdminClient, requireMaster } from '@/lib/server/masterApi';
 
 export const runtime = 'nodejs';
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-
-  if (!supabaseUrl || !serviceKey) {
-    throw new Error('Supabase Service Role não configurada no servidor.');
-  }
-
-  return createClient(supabaseUrl, serviceKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false
-    }
-  });
-}
-
-async function getProfile(supabase: any, token: string) {
-  const { data: authData, error: authError } = await supabase.auth.getUser(token);
-
-  if (authError || !authData.user) return null;
-
-  const { data: byAuth } = await supabase
-    .from('users')
-    .select('id, auth_user_id, full_name, email, role, status, store_id')
-    .eq('auth_user_id', authData.user.id)
-    .maybeSingle();
-
-  if (byAuth) return byAuth;
-  if (!authData.user.email) return null;
-
-  const { data: byEmail } = await supabase
-    .from('users')
-    .select('id, auth_user_id, full_name, email, role, status, store_id')
-    .ilike('email', authData.user.email)
-    .maybeSingle();
-
-  return byEmail || null;
-}
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function GET(request: Request) {
   try {
     const supabase = getAdminClient();
-    const authorization = request.headers.get('authorization') || '';
-    const token = authorization.replace(/^Bearer\s+/i, '').trim();
+    const master = await requireMaster(request, supabase);
 
-    if (!token) {
-      return NextResponse.json({ error: 'Sessão não encontrada.' }, { status: 401 });
-    }
-
-    const profile = await getProfile(supabase, token);
-
-    if (!profile || profile.status !== 'active' || profile.role !== 'master') {
+    if (!master) {
       return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
     }
 
-    const [leadResult, storeResult] = await Promise.all([
+    const url = new URL(request.url);
+    const requestedScope = String(url.searchParams.get('event_scope') || 'auto').trim();
+
+    const { data: eventRows, error: eventError } = await supabase
+      .from('events')
+      .select('id,event_name,status,start_date,end_date,state,city,location,created_at')
+      .neq('status', 'deleted')
+      .order('start_date', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false });
+
+    if (eventError) throw eventError;
+
+    const events = eventRows || [];
+    const eventMap = new Map(events.map((event: any) => [event.id, event]));
+    const activeEventIds = events.filter((event: any) => event.status === 'active').map((event: any) => event.id);
+
+    let resolvedScope = requestedScope;
+
+    if (resolvedScope === 'auto') {
+      resolvedScope = activeEventIds.length === 1 ? activeEventIds[0] : 'active';
+    }
+
+    const isNamedScope = ['all', 'active', 'unassigned'].includes(resolvedScope);
+    if (!isNamedScope && (!UUID_PATTERN.test(resolvedScope) || !eventMap.has(resolvedScope))) {
+      resolvedScope = activeEventIds.length === 1 ? activeEventIds[0] : 'active';
+    }
+
+    const [storeResult, participationResult] = await Promise.all([
       supabase
+        .from('stores')
+        .select('id,store_name,status,portal_enabled,slug')
+        .order('store_name', { ascending: true }),
+      supabase
+        .from('store_event_participations')
+        .select('event_id,store_id,status')
+    ]);
+
+    if (storeResult.error) throw storeResult.error;
+    if (participationResult.error) throw participationResult.error;
+
+    let leads: any[] = [];
+
+    if (!(resolvedScope === 'active' && activeEventIds.length === 0)) {
+      let leadQuery = supabase
         .from('leads')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(250),
-      supabase
-        .from('stores')
-        .select('id, store_name, status, portal_enabled, slug')
-        .order('store_name', { ascending: true })
-    ]);
+        .limit(1000);
 
-    if (leadResult.error) throw leadResult.error;
-    if (storeResult.error) throw storeResult.error;
+      if (resolvedScope === 'active') {
+        leadQuery = leadQuery.in('event_id', activeEventIds);
+      } else if (resolvedScope === 'unassigned') {
+        leadQuery = leadQuery.is('event_id', null);
+      } else if (UUID_PATTERN.test(resolvedScope)) {
+        leadQuery = leadQuery.eq('event_id', resolvedScope);
+      }
 
-    const leads = leadResult.data || [];
-    const stores = storeResult.data || [];
-    const storeNames = new Map(stores.map((store: any) => [store.id, store.store_name]));
+      const leadResult = await leadQuery;
+      if (leadResult.error) throw leadResult.error;
+      leads = leadResult.data || [];
+    }
+
+    const allStores = (storeResult.data || []).filter((store: any) => {
+      const status = String(store.status || '').toLowerCase();
+      return status !== 'deleted' && status !== 'excluido';
+    });
+
+    const participations = participationResult.data || [];
+    const allowedStoreIds = new Set<string>();
+
+    if (resolvedScope === 'active') {
+      for (const participation of participations) {
+        if (activeEventIds.includes(participation.event_id) && participation.status === 'active') {
+          allowedStoreIds.add(participation.store_id);
+        }
+      }
+    } else if (UUID_PATTERN.test(resolvedScope)) {
+      for (const participation of participations) {
+        if (participation.event_id === resolvedScope && ['active', 'inactive'].includes(participation.status)) {
+          allowedStoreIds.add(participation.store_id);
+        }
+      }
+    }
+
+    for (const lead of leads) {
+      if (lead.assigned_store_id) allowedStoreIds.add(lead.assigned_store_id);
+    }
+
+    const stores = ['all', 'unassigned'].includes(resolvedScope)
+      ? allStores
+      : allStores.filter((store: any) => allowedStoreIds.has(store.id));
+
+    const storeNames = new Map(allStores.map((store: any) => [store.id, store.store_name]));
     const leadIds = leads.map((lead: any) => lead.id).filter(Boolean);
 
     let activities: any[] = [];
@@ -86,17 +117,27 @@ export async function GET(request: Request) {
         .select('*')
         .in('lead_id', leadIds)
         .order('created_at', { ascending: false })
-        .limit(2000);
+        .limit(5000);
 
       if (error) throw error;
       activities = data || [];
     }
 
+    const selectedEvent = UUID_PATTERN.test(resolvedScope) ? eventMap.get(resolvedScope) || null : null;
+    const historicalScope = Boolean(selectedEvent && selectedEvent.status !== 'active');
+
     return NextResponse.json({
       success: true,
       generated_at: new Date().toISOString(),
+      requested_event_scope: requestedScope,
+      resolved_event_scope: resolvedScope,
+      historical_scope: historicalScope,
+      active_event_ids: activeEventIds,
+      events,
       leads: leads.map((lead: any) => ({
         ...lead,
+        event_name: lead.event_id ? eventMap.get(lead.event_id)?.event_name || 'Evento não identificado' : 'Sem evento / campanha geral',
+        event_status: lead.event_id ? eventMap.get(lead.event_id)?.status || null : null,
         assigned_store_name: storeNames.get(lead.assigned_store_id) || 'Loja não identificada'
       })),
       activities,

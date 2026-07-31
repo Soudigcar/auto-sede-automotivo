@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getAdminClient, requireMaster } from '@/lib/server/masterApi';
 
 export const runtime = 'nodejs';
 
@@ -7,63 +7,14 @@ function cleanText(value: unknown) {
   return String(value || '').trim();
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-
-  if (!supabaseUrl || !serviceKey) {
-    throw new Error('Supabase Service Role não configurada.');
-  }
-
-  return createClient(supabaseUrl, serviceKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false
-    }
-  });
-}
-
-async function assertMaster(request: Request, supabase: any) {
-  const authorization = request.headers.get('authorization') || '';
-  const token = authorization.replace(/^Bearer\s+/i, '').trim();
-
-  if (!token) throw new Error('Sessão não encontrada.');
-
-  const { data: authData, error: authError } = await supabase.auth.getUser(token);
-
-  if (authError || !authData.user) throw new Error('Sessão inválida.');
-
-  let profile: any = null;
-
-  const { data: byAuth } = await supabase
-    .from('users')
-    .select('id,email,role,status')
-    .eq('auth_user_id', authData.user.id)
-    .maybeSingle();
-
-  profile = byAuth;
-
-  if (!profile && authData.user.email) {
-    const { data: byEmail } = await supabase
-      .from('users')
-      .select('id,email,role,status')
-      .ilike('email', authData.user.email)
-      .maybeSingle();
-
-    profile = byEmail;
-  }
-
-  if (!profile || profile.role !== 'master' || profile.status !== 'active') {
-    throw new Error('Acesso restrito ao Master.');
-  }
-
-  return profile;
-}
-
 export async function POST(request: Request) {
   try {
     const supabase = getAdminClient();
-    await assertMaster(request, supabase);
+    const master = await requireMaster(request, supabase);
+
+    if (!master) {
+      return NextResponse.json({ error: 'Acesso restrito ao Master.' }, { status: 403 });
+    }
 
     const body = await request.json();
     const leadId = cleanText(body.lead_id);
@@ -85,7 +36,7 @@ export async function POST(request: Request) {
 
     const { data: store } = await supabase
       .from('stores')
-      .select('id,store_name,event_id,status,portal_enabled')
+      .select('id,store_name,status,portal_enabled')
       .eq('id', storeId)
       .maybeSingle();
 
@@ -95,20 +46,62 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Loja válida não encontrada.' }, { status: 404 });
     }
 
+    if (leadBase.event_id) {
+      const [{ data: event }, { data: participation }] = await Promise.all([
+        supabase
+          .from('events')
+          .select('id,event_name,status')
+          .eq('id', leadBase.event_id)
+          .neq('status', 'deleted')
+          .maybeSingle(),
+        supabase
+          .from('store_event_participations')
+          .select('id,status')
+          .eq('event_id', leadBase.event_id)
+          .eq('store_id', store.id)
+          .in('status', ['active', 'inactive'])
+          .maybeSingle()
+      ]);
+
+      if (!event) {
+        return NextResponse.json({ error: 'O evento deste lead não foi encontrado.' }, { status: 409 });
+      }
+
+      if (!participation) {
+        return NextResponse.json(
+          { error: `A loja ${store.store_name} não participa do evento ${event.event_name}.` },
+          { status: 409 }
+        );
+      }
+    }
+
     let routedLeadId = leadBase.routed_lead_id || null;
 
     if (routedLeadId) {
-      const { data: updatedLead } = await supabase
+      const { data: currentRoutedLead } = await supabase
         .from('leads')
-        .update({
-          assigned_store_id: store.id,
-          updated_at: new Date().toISOString()
-        })
+        .select('id,event_id')
         .eq('id', routedLeadId)
-        .select('id')
         .maybeSingle();
 
-      if (!updatedLead?.id) {
+      if (currentRoutedLead?.id) {
+        if (leadBase.event_id && currentRoutedLead.event_id && currentRoutedLead.event_id !== leadBase.event_id) {
+          return NextResponse.json({ error: 'O lead operacional está vinculado a outro evento. Redirecionamento bloqueado.' }, { status: 409 });
+        }
+
+        const { error: routedUpdateError } = await supabase
+          .from('leads')
+          .update({
+            event_id: leadBase.event_id || currentRoutedLead.event_id || null,
+            assigned_store_id: store.id,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', routedLeadId);
+
+        if (routedUpdateError) {
+          return NextResponse.json({ error: routedUpdateError.message }, { status: 500 });
+        }
+      } else {
         routedLeadId = null;
       }
     }
@@ -117,7 +110,7 @@ export async function POST(request: Request) {
       const { data: createdLead, error: createdLeadError } = await supabase
         .from('leads')
         .insert({
-          event_id: store.event_id || null,
+          event_id: leadBase.event_id || null,
           customer_name: leadBase.name,
           customer_phone: leadBase.phone,
           customer_bank: '',
@@ -141,8 +134,10 @@ export async function POST(request: Request) {
       routedLeadId = createdLead.id;
     }
 
+    const assignedAt = new Date().toISOString();
     const metadata = {
       ...(leadBase.metadata || {}),
+      event_id: leadBase.event_id || null,
       routing: {
         ...(leadBase.metadata?.routing || {}),
         strategy: 'manual_override',
@@ -150,7 +145,7 @@ export async function POST(request: Request) {
         previous_store_name: leadBase.assigned_store_name || null,
         assigned_store_id: store.id,
         assigned_store_name: store.store_name,
-        assigned_at: new Date().toISOString(),
+        assigned_at: assignedAt,
         routed_lead_id: routedLeadId
       }
     };
@@ -158,13 +153,14 @@ export async function POST(request: Request) {
     const { error: updateError } = await supabase
       .from('leads_base')
       .update({
+        event_id: leadBase.event_id || null,
         assigned_store_id: store.id,
         assigned_store_name: store.store_name,
-        assigned_at: new Date().toISOString(),
+        assigned_at: assignedAt,
         routed_lead_id: routedLeadId,
         routing_strategy: 'manual_override',
         metadata,
-        updated_at: new Date().toISOString()
+        updated_at: assignedAt
       })
       .eq('id', leadBase.id);
 
@@ -174,6 +170,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
+      event_id: leadBase.event_id || null,
       assigned_store_id: store.id,
       assigned_store_name: store.store_name,
       routed_lead_id: routedLeadId
