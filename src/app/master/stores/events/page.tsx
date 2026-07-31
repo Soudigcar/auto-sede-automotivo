@@ -4,9 +4,9 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { BarChart3, Link2, UserPlus } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
+import { PermanentStoresByEventList } from '@/components/PermanentStoresByEventList';
 import { StoreEventCreateForm } from '@/components/StoreEventCreateForm';
 import { StorePortalApplicationsManager } from '@/components/StorePortalApplicationsManager';
-import { StoresByEventList } from '@/components/StoresByEventList';
 
 type StoreActionPanel = 'link' | 'manual';
 
@@ -54,14 +54,10 @@ export default function EventStoresPage() {
             <div>
               <p className="premium-eyebrow">Gestão Master</p>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Lojas & Estoque</h1>
-              <p className="premium-muted mt-3 max-w-3xl text-sm">
-                A loja é permanente no Portal Auto Sede. Cada evento cria somente uma nova participação no histórico da mesma revenda.
-              </p>
+              <p className="premium-muted mt-3 max-w-3xl text-sm">A loja é permanente no Portal Auto Sede. Cada evento cria somente uma nova participação no histórico da mesma revenda.</p>
             </div>
 
-            <Link href="/master/dashboard/live" className="premium-button-secondary">
-              <BarChart3 size={18} /> Voltar ao Dashboard
-            </Link>
+            <Link href="/master/dashboard/live" className="premium-button-secondary"><BarChart3 size={18} /> Voltar ao Dashboard</Link>
           </header>
 
           <section className="premium-card mt-7 p-5 md:p-6">
@@ -69,34 +65,19 @@ export default function EventStoresPage() {
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.16em] text-red-600">Participação no evento</p>
                 <h2 className="mt-1 text-2xl font-black text-zinc-950">Como a loja será vinculada?</h2>
-                <p className="mt-1 text-sm text-zinc-500">
-                  Uma loja já existente será reutilizada. Uma loja nova será criada uma única vez e vinculada ao evento selecionado.
-                </p>
+                <p className="mt-1 text-sm text-zinc-500">Uma loja já existente será reutilizada. Uma loja nova será criada uma única vez e vinculada ao evento selecionado.</p>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <button className={panel === 'link' ? 'premium-button-primary justify-center' : 'premium-button-secondary justify-center'} type="button" onClick={() => selectPanel('link')}>
-                  <Link2 size={17} /> Link para novas lojas
-                </button>
-
-                <button className={panel === 'manual' ? 'premium-button-primary justify-center' : 'premium-button-secondary justify-center'} type="button" onClick={() => selectPanel('manual')}>
-                  <UserPlus size={17} /> Vincular ou cadastrar manualmente
-                </button>
+                <button className={panel === 'link' ? 'premium-button-primary justify-center' : 'premium-button-secondary justify-center'} type="button" onClick={() => selectPanel('link')}><Link2 size={17} /> Link para novas lojas</button>
+                <button className={panel === 'manual' ? 'premium-button-primary justify-center' : 'premium-button-secondary justify-center'} type="button" onClick={() => selectPanel('manual')}><UserPlus size={17} /> Vincular ou cadastrar manualmente</button>
               </div>
             </div>
           </section>
 
-          <div className="mt-5">
-            <StoreEventCreateForm mode={panel} eventId={eventId} onEventChange={selectEvent} onSaved={() => setRefresh((current) => current + 1)} />
-          </div>
-
-          <div className="mt-5">
-            <StoresByEventList refreshKey={refresh} eventId={eventId} onEventChange={selectEvent} />
-          </div>
-
-          <div className="mt-5">
-            <StorePortalApplicationsManager />
-          </div>
+          <div className="mt-5"><StoreEventCreateForm mode={panel} eventId={eventId} onEventChange={selectEvent} onSaved={() => setRefresh((current) => current + 1)} /></div>
+          <div className="mt-5"><PermanentStoresByEventList refreshKey={refresh} eventId={eventId} onEventChange={selectEvent} /></div>
+          <div className="mt-5"><StorePortalApplicationsManager /></div>
         </div>
       </section>
     </main>
