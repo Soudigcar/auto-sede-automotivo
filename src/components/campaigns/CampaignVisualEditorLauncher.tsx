@@ -1,3 +1,3 @@
 'use client';
 
-export { CampaignVisualEditorLauncher } from './CampaignVisualEditorNative';
+export { CampaignVisualEditorLauncher } from './CampaignVisualEditorNativeV2';
