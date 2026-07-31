@@ -35,24 +35,54 @@ function generatePublicToken() {
   return `${Date.now()}${Math.random()}`.replace(/\D/g, '');
 }
 
-export function StoreEventCreateForm({ onSaved }: { onSaved?: () => void }) {
+type StoreEventCreateFormProps = {
+  onSaved?: () => void;
+  mode?: 'link' | 'manual';
+  eventId?: string;
+  onEventChange?: (eventId: string) => void;
+};
+
+export function StoreEventCreateForm({
+  onSaved,
+  mode = 'link',
+  eventId: controlledEventId = '',
+  onEventChange
+}: StoreEventCreateFormProps) {
   const supabase = createClient();
   const [events, setEvents] = useState<any[]>([]);
-  const [eventId, setEventId] = useState('');
+  const [internalEventId, setInternalEventId] = useState('');
   const [registrationLink, setRegistrationLink] = useState<any>(null);
   const [message, setMessage] = useState('');
   const [lastStore, setLastStore] = useState<any>(null);
   const [form, setForm] = useState({ storeName: '', responsibleName: '', phone: '', email: '' });
 
+  const eventId = controlledEventId || internalEventId;
+
+  function selectEvent(nextEventId: string) {
+    setInternalEventId(nextEventId);
+    onEventChange?.(nextEventId);
+  }
+
   async function loadEvents() {
-    const { data } = await supabase.from('events').select('*').neq('status', 'deleted').order('created_at', { ascending: false });
+    const { data } = await supabase
+      .from('events')
+      .select('*')
+      .neq('status', 'deleted')
+      .order('created_at', { ascending: false });
+
     const rows = data || [];
     setEvents(rows);
-    if (!eventId && rows[0]?.id) setEventId(rows[0].id);
+
+    if (!eventId && rows[0]?.id) selectEvent(rows[0].id);
   }
 
   async function loadRegistrationLink(currentEventId: string) {
-    if (!currentEventId) return;
+    if (!currentEventId) {
+      setRegistrationLink(null);
+      return;
+    }
+
+    setRegistrationLink(null);
 
     const { data } = await supabase
       .from('store_registration_links')
@@ -77,7 +107,9 @@ export function StoreEventCreateForm({ onSaved }: { onSaved?: () => void }) {
     setRegistrationLink(created || null);
   }
 
-  useEffect(() => { loadEvents().catch(() => null); }, []);
+  useEffect(() => {
+    loadEvents().catch(() => null);
+  }, []);
 
   useEffect(() => {
     loadRegistrationLink(eventId).catch(() => setRegistrationLink(null));
@@ -108,6 +140,7 @@ export function StoreEventCreateForm({ onSaved }: { onSaved?: () => void }) {
 
   async function copyRegistrationLink() {
     const link = registrationPublicLink(registrationLink?.public_token);
+
     if (!link) {
       setMessage('Este evento ainda não possui link de cadastro.');
       return;
@@ -190,7 +223,9 @@ export function StoreEventCreateForm({ onSaved }: { onSaved?: () => void }) {
     }
 
     setLastStore(data);
-    setMessage(existingStore?.id ? 'Loja já existia neste evento. Dados atualizados sem duplicar.' : 'Loja cadastrada e vinculada ao evento. Link de login da loja gerado abaixo.');
+    setMessage(existingStore?.id
+      ? 'Loja já existia neste evento. Dados atualizados sem duplicar.'
+      : 'Loja cadastrada e vinculada ao evento. Link de login da loja gerado abaixo.');
     setForm({ storeName: '', responsibleName: '', phone: '', email: '' });
     onSaved?.();
   }
@@ -198,22 +233,22 @@ export function StoreEventCreateForm({ onSaved }: { onSaved?: () => void }) {
   const lastLink = portalLink(lastStore?.slug);
   const publicRegistrationLink = registrationPublicLink(registrationLink?.public_token);
 
-  return (
-    <section className="space-y-4">
-      <div className="premium-card p-6">
+  if (mode === 'link') {
+    return (
+      <section className="premium-card p-6">
         <h2 className="text-2xl font-black text-zinc-950">Link de cadastro para novas lojas</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Envie esse link para a loja preencher os dados, criar senha, enviar estoque e mandar até 6 links de veículos.
+          Envie este link para a loja preencher os dados, criar senha, enviar estoque e mandar até 6 links de veículos.
         </p>
 
         <div className="mt-5">
-          <EventSelectField events={events} value={eventId} onChange={setEventId} label="Evento do cadastro" />
+          <EventSelectField events={events} value={eventId} onChange={selectEvent} label="Evento do cadastro" />
         </div>
 
         <div className="mt-4 rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
           <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Link público de cadastro da loja</p>
           <p className="mt-2 break-all text-sm font-black text-zinc-800">
-            {publicRegistrationLink || 'Link ainda não encontrado para este evento'}
+            {publicRegistrationLink || 'Gerando ou localizando o link deste evento...'}
           </p>
 
           <div className="mt-3 flex flex-wrap gap-2">
@@ -222,77 +257,86 @@ export function StoreEventCreateForm({ onSaved }: { onSaved?: () => void }) {
             </button>
 
             {publicRegistrationLink ? (
-              <a className="premium-button-secondary text-xs" href={publicRegistrationLink} target="_blank">
+              <a className="premium-button-secondary text-xs" href={publicRegistrationLink} target="_blank" rel="noreferrer">
                 <ExternalLink size={14} /> Abrir cadastro
               </a>
             ) : null}
           </div>
         </div>
-      </div>
-
-      <form onSubmit={save} className="premium-card p-6">
-        <h2 className="text-2xl font-black text-zinc-950">Cadastrar loja manualmente</h2>
-
-        <div className="mt-5 grid gap-3">
-          <EventSelectField events={events} value={eventId} onChange={setEventId} label="Evento da loja" />
-
-          <input
-            className="premium-input"
-            placeholder="Nome da loja"
-            value={form.storeName}
-            onChange={(e) => setForm({ ...form, storeName: e.target.value })}
-            required
-          />
-
-          <input
-            className="premium-input"
-            placeholder="Nome do responsável"
-            value={form.responsibleName}
-            onChange={(e) => setForm({ ...form, responsibleName: e.target.value })}
-            required
-          />
-
-          <input
-            className="premium-input"
-            placeholder="Telefone"
-            value={form.phone}
-            onChange={(e) => setForm({ ...form, phone: e.target.value })}
-          />
-
-          <input
-            className="premium-input"
-            placeholder="E-mail"
-            value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-            required
-          />
-        </div>
-
-        <button className="premium-button-primary mt-5 w-full" type="submit">
-          Vincular loja ao evento
-        </button>
-
-        {lastStore?.slug ? (
-          <div className="mt-4 rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
-            <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Link de login da loja</p>
-            <p className="mt-2 break-all text-sm font-black text-zinc-800">{lastLink}</p>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button className="premium-button-secondary text-xs" type="button" onClick={copyLastLink}>
-                <Copy size={14} /> Copiar link
-              </button>
-
-              <a className="premium-button-secondary text-xs" href={lastLink} target="_blank">
-                <ExternalLink size={14} /> Abrir login da loja
-              </a>
-            </div>
-          </div>
-        ) : null}
 
         {message ? (
           <p className="mt-3 rounded-2xl bg-zinc-50 p-3 text-sm font-bold text-zinc-600">{message}</p>
         ) : null}
-      </form>
-    </section>
+      </section>
+    );
+  }
+
+  return (
+    <form onSubmit={save} className="premium-card p-6">
+      <h2 className="text-2xl font-black text-zinc-950">Cadastrar loja manualmente</h2>
+      <p className="mt-1 text-sm text-zinc-500">
+        Vincule a loja ao evento selecionado sem alterar o histórico de participações anteriores.
+      </p>
+
+      <div className="mt-5 grid gap-3">
+        <EventSelectField events={events} value={eventId} onChange={selectEvent} label="Evento da loja" />
+
+        <input
+          className="premium-input"
+          placeholder="Nome da loja"
+          value={form.storeName}
+          onChange={(e) => setForm({ ...form, storeName: e.target.value })}
+          required
+        />
+
+        <input
+          className="premium-input"
+          placeholder="Nome do responsável"
+          value={form.responsibleName}
+          onChange={(e) => setForm({ ...form, responsibleName: e.target.value })}
+          required
+        />
+
+        <input
+          className="premium-input"
+          placeholder="Telefone"
+          value={form.phone}
+          onChange={(e) => setForm({ ...form, phone: e.target.value })}
+        />
+
+        <input
+          className="premium-input"
+          placeholder="E-mail"
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          required
+        />
+      </div>
+
+      <button className="premium-button-primary mt-5 w-full" type="submit">
+        Vincular loja ao evento
+      </button>
+
+      {lastStore?.slug ? (
+        <div className="mt-4 rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Link de login da loja</p>
+          <p className="mt-2 break-all text-sm font-black text-zinc-800">{lastLink}</p>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button className="premium-button-secondary text-xs" type="button" onClick={copyLastLink}>
+              <Copy size={14} /> Copiar link
+            </button>
+
+            <a className="premium-button-secondary text-xs" href={lastLink} target="_blank" rel="noreferrer">
+              <ExternalLink size={14} /> Abrir login da loja
+            </a>
+          </div>
+        </div>
+      ) : null}
+
+      {message ? (
+        <p className="mt-3 rounded-2xl bg-zinc-50 p-3 text-sm font-bold text-zinc-600">{message}</p>
+      ) : null}
+    </form>
   );
 }
