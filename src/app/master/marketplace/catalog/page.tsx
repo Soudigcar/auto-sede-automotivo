@@ -372,7 +372,7 @@ export default function MarketplaceCatalogPage() {
                     <strong className="mt-3 block text-2xl font-black text-zinc-950">{money(vehicle.price)}</strong>
                     <p className="mt-2 text-xs font-bold text-zinc-400">{vehicle.show_on_landing ? 'Visível no Portal Oficial' : 'Oculto do Portal Oficial'} · Atualizado {dateTime(vehicle.updated_at)}</p>
                     <div className="mt-4 flex flex-wrap gap-2">
-                      <button className="premium-button-secondary text-xs" type="button" onClick={() => startEdit(vehicle)}><Pencil size={14} /> Editar</button>
+                      {vehicle.status !== 'vendido' ? <button className="premium-button-secondary text-xs" type="button" onClick={() => startEdit(vehicle)}><Pencil size={14} /> Editar</button> : <span className="rounded-2xl bg-zinc-100 px-3 py-2 text-xs font-black text-zinc-500">Edição bloqueada pela venda</span>}
                       {vehicle.status === 'disponivel' && vehicle.show_on_landing ? <a className="premium-button-secondary text-xs" href={publicUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Ver no portal</a> : null}
                       {vehicle.status !== 'vendido' ? <button className="premium-button-secondary text-xs text-red-600" type="button" disabled={busyId === vehicle.id} onClick={() => void removeVehicle(vehicle)}><Trash2 size={14} /> Excluir</button> : null}
                     </div>

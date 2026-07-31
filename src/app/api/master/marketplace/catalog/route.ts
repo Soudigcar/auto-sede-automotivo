@@ -158,6 +158,9 @@ export async function POST(request: Request) {
         .maybeSingle();
       existing = result.data;
       if (!existing) return NextResponse.json({ error: 'Veículo não encontrado.' }, { status: 404 });
+      if (existing.status === 'vendido') {
+        return NextResponse.json({ error: 'Veículo vendido está bloqueado. Use o fluxo comercial da venda.' }, { status: 409 });
+      }
     }
 
     const requestedStatus = cleanText(body.status, 30);
