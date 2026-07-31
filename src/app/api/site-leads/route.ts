@@ -128,6 +128,7 @@ export async function POST(request: Request) {
     };
 
     const payload = {
+      event_id: eventId,
       name,
       phone,
       cpf: text(body.cpf),
@@ -160,6 +161,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
+      event_id: eventId,
       assigned_store_id: assignedStoreId,
       assigned_store_name: assignedStoreName,
       routed_lead_id: routedLeadId,
