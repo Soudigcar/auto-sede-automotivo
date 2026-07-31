@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Plus } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
@@ -16,6 +17,7 @@ function slugify(value: string) {
 
 export function EventCreateForm({ onSaved }: { onSaved?: () => void }) {
   const supabase = createClient();
+  const router = useRouter();
   const [message, setMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState({
@@ -69,28 +71,32 @@ export function EventCreateForm({ onSaved }: { onSaved?: () => void }) {
 
     const slug = await buildUniqueSlug(eventName);
 
-    const { error } = await supabase.from('events').insert({
-      event_name: eventName,
-      slug,
-      start_date: form.startDate || null,
-      end_date: form.endDate || form.startDate || null,
-      state: form.state.trim() || null,
-      city: form.city.trim() || null,
-      location: form.location.trim() || null,
-      sponsor_bank: form.sponsorBank || null,
-      live_url: form.liveUrl.trim() || null,
-      status: 'active',
-      store_registration_enabled: true
-    });
+    const { data: createdEvent, error } = await supabase
+      .from('events')
+      .insert({
+        event_name: eventName,
+        slug,
+        start_date: form.startDate || null,
+        end_date: form.endDate || form.startDate || null,
+        state: form.state.trim() || null,
+        city: form.city.trim() || null,
+        location: form.location.trim() || null,
+        sponsor_bank: form.sponsorBank || null,
+        live_url: form.liveUrl.trim() || null,
+        status: 'active',
+        store_registration_enabled: true
+      })
+      .select('id')
+      .single();
 
     setIsSaving(false);
 
-    if (error) {
-      setMessage(`Erro ao cadastrar evento: ${error.message}`);
+    if (error || !createdEvent?.id) {
+      setMessage(`Erro ao cadastrar evento: ${error?.message || 'evento não retornado pelo banco'}`);
       return;
     }
 
-    setMessage('Evento cadastrado com sucesso.');
+    setMessage('Evento cadastrado. Abrindo Lojas & Estoque...');
     setForm({
       eventName: '',
       startDate: '',
@@ -102,8 +108,8 @@ export function EventCreateForm({ onSaved }: { onSaved?: () => void }) {
       liveUrl: ''
     });
 
-    if (onSaved) onSaved();
-    else window.location.reload();
+    onSaved?.();
+    router.push(`/master/stores/events?event=${encodeURIComponent(createdEvent.id)}&panel=link`);
   }
 
   return (
