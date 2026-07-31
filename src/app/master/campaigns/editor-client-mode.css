@@ -1,0 +1,14 @@
+.z-\[120\] .cursor-move,
+.z-\[120\] .cursor-default {
+  pointer-events: none !important;
+  cursor: default !important;
+}
+
+.z-\[120\] .outline-indigo-400 {
+  outline: none !important;
+}
+
+.z-\[120\] [aria-label^='Redimensionar'],
+.z-\[120\] .\-top-9 {
+  display: none !important;
+}
