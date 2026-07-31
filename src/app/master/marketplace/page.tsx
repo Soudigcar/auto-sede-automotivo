@@ -436,8 +436,8 @@ export default function MasterMarketplacePage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Link className="premium-button-secondary" href="/master/site">
-                <ExternalLink size={18} /> Edição completa
+              <Link className="premium-button-secondary" href="/master/marketplace/catalog">
+                <ExternalLink size={18} /> Gerenciar catálogo
               </Link>
               <button className="premium-button-primary" type="button" onClick={() => setRefreshKey((current) => current + 1)} disabled={loading || Boolean(actionKey)}>
                 {loading ? <Loader2 className="animate-spin" size={18} /> : <RefreshCw size={18} />}
