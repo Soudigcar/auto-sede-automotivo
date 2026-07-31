@@ -23,6 +23,7 @@ export function PublicPortalFooter({ settings }: { settings: PortalSettings }) {
           <div className="flex flex-wrap gap-3 text-xs font-black">
             <Link href="/veiculos" className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">Veículos</Link>
             <Link href="/lojas" className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">Lojas</Link>
+            <Link href="/cadastre-sua-loja" className="rounded-xl bg-red-50 px-3 py-2 text-red-700">Cadastre sua loja</Link>
             <Link href="/sobre" className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">Sobre</Link>
             <Link href="/contato" className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">Contato</Link>
             {whatsapp ? <a href={`https://wa.me/${whatsapp}`} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700">WhatsApp</a> : null}

@@ -19,6 +19,7 @@ const INTERNAL_PREFIXES = [
 const PUBLIC_PREFIXES = [
   '/veiculos',
   '/lojas',
+  '/cadastre-sua-loja',
   '/campanha',
   '/sobre',
   '/contato',

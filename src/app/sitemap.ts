@@ -16,6 +16,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: OFFICIAL_PORTAL_URL, lastModified: now, changeFrequency: 'daily', priority: 1 },
     { url: `${OFFICIAL_PORTAL_URL}/veiculos`, lastModified: now, changeFrequency: 'daily', priority: 0.9 },
     { url: `${OFFICIAL_PORTAL_URL}/lojas`, lastModified: now, changeFrequency: 'weekly', priority: 0.8 },
+    { url: `${OFFICIAL_PORTAL_URL}/cadastre-sua-loja`, lastModified: now, changeFrequency: 'monthly', priority: 0.75 },
     { url: `${OFFICIAL_PORTAL_URL}/sobre`, lastModified: now, changeFrequency: 'monthly', priority: 0.6 },
     { url: `${OFFICIAL_PORTAL_URL}/contato`, lastModified: now, changeFrequency: 'monthly', priority: 0.6 },
     { url: `${OFFICIAL_PORTAL_URL}/privacidade`, lastModified: now, changeFrequency: 'yearly', priority: 0.3 },
