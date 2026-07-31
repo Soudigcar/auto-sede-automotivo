@@ -3,6 +3,7 @@
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { EventLandingManager } from '@/components/campaigns/EventLandingManager';
 import { CampaignVisualEditorLauncher } from '@/components/campaigns/CampaignVisualEditorLauncher';
+import { CampaignVisualEditorHeaderPatch } from '@/components/campaigns/CampaignVisualEditorHeaderPatch';
 
 export default function MasterCampaignsPage() {
   return (
@@ -11,6 +12,7 @@ export default function MasterCampaignsPage() {
         <MasterSidebar active="/master/campaigns" />
         <section className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <CampaignVisualEditorLauncher />
+          <CampaignVisualEditorHeaderPatch />
           <EventLandingManager />
         </section>
       </div>
