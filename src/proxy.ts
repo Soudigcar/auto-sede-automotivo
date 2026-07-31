@@ -57,11 +57,10 @@ export function proxy(request: NextRequest) {
   const host = requestHost(request);
   const pathname = request.nextUrl.pathname;
 
-  if (host === APEX_HOST) {
-    return redirectToHost(request, OFFICIAL_HOST);
-  }
-
-  if (host === OFFICIAL_HOST) {
+  // Both public hosts serve the portal. Canonical metadata remains on www,
+  // but the application does not redirect between apex and www because the
+  // domain provider may already apply its own preferred-domain redirect.
+  if (host === OFFICIAL_HOST || host === APEX_HOST) {
     if (INTERNAL_PREFIXES.some((prefix) => matchesPrefix(pathname, prefix))) {
       return redirectToHost(request, INTERNAL_HOST);
     }
