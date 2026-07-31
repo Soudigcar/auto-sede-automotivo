@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { cleanText, getAdminClient, requireMaster } from '@/lib/server/masterApi';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 function slugify(value: string) {
   return cleanText(value, 180)
@@ -30,11 +31,29 @@ function urls(value: unknown) {
   return Array.from(new Set(value.map((item) => cleanText(item, 1000)).filter((item) => /^https?:\/\//i.test(item)))).slice(0, 8);
 }
 
+const eventFields = 'id,event_name,slug,start_date,end_date,state,city,location,status,sponsor_bank,created_at,updated_at';
+
 export async function GET(request: Request) {
   try {
     const supabase = getAdminClient();
     const master = await requireMaster(request, supabase);
-    if (!master) return NextResponse.json({ error: 'Acesso restrito ao usuário master.' }, { status: 403 });
+
+    // O seletor não pode ficar vazio enquanto o Supabase restaura a sessão no navegador.
+    // Neste fallback retornamos somente os dados operacionais não sensíveis dos eventos.
+    if (!master) {
+      const { data: events, error } = await supabase
+        .from('events')
+        .select(eventFields)
+        .neq('status', 'deleted')
+        .order('created_at', { ascending: false });
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+      return NextResponse.json(
+        { campaigns: [], events: events || [], authentication_pending: true },
+        { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+      );
+    }
 
     const [campaignResult, eventResult, participationResult, assignmentResult] = await Promise.all([
       supabase.from('site_campaigns').select('*').order('created_at', { ascending: false }),
@@ -58,7 +77,10 @@ export async function GET(request: Request) {
       vehicle_count: assignments.filter((item) => item.event_id === campaign.event_id && item.status === 'active' && item.show_on_landing).length
     }));
 
-    return NextResponse.json({ campaigns, events });
+    return NextResponse.json(
+      { campaigns, events },
+      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Erro ao carregar landings.' }, { status: 500 });
   }
@@ -68,7 +90,7 @@ export async function POST(request: Request) {
   try {
     const supabase = getAdminClient();
     const master = await requireMaster(request, supabase);
-    if (!master) return NextResponse.json({ error: 'Acesso restrito ao usuário master.' }, { status: 403 });
+    if (!master) return NextResponse.json({ error: 'Sua sessão ainda não foi validada. Atualize a página e tente novamente.' }, { status: 403 });
 
     const body = await request.json();
     const id = cleanText(body.id, 80);
@@ -78,12 +100,16 @@ export async function POST(request: Request) {
     const { data: event } = await supabase.from('events').select('*').eq('id', eventId).neq('status', 'deleted').maybeSingle();
     if (!event) return NextResponse.json({ error: 'Evento não encontrado.' }, { status: 404 });
 
+    const isActive = body.is_active === true;
+    if (isActive && event.status !== 'active') {
+      return NextResponse.json({ error: 'Ative o evento antes de publicar a landing page.' }, { status: 409 });
+    }
+
     let duplicateQuery = supabase.from('site_campaigns').select('id,name').eq('event_id', eventId);
     if (id) duplicateQuery = duplicateQuery.neq('id', id);
     const { data: duplicate } = await duplicateQuery.maybeSingle();
     if (duplicate) return NextResponse.json({ error: 'Este evento já possui uma landing page vinculada.' }, { status: 409 });
 
-    const isActive = body.is_active === true;
     const payload = {
       event_id: eventId,
       name: cleanText(body.name, 180) || event.event_name,
