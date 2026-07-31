@@ -1,7 +1,19 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Copy, ExternalLink, KeyRound, Pencil, Trash2, X } from 'lucide-react';
+import {
+  Building2,
+  CalendarCheck2,
+  CalendarX2,
+  Copy,
+  ExternalLink,
+  KeyRound,
+  Pencil,
+  RotateCcw,
+  Search,
+  Trash2,
+  X
+} from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { EventSelectField } from '@/components/EventSelectField';
 import { StoreParticipationHistory } from '@/components/StoreParticipationHistory';
@@ -28,27 +40,54 @@ function storeIdentity(store: any) {
   return `${eventId}|${email || name || store.id}`;
 }
 
+function normalizeText(value: any) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function normalizeEventKey(value: any) {
+  return normalizeText(value);
+}
+
+function normalizeStoreName(value: any) {
+  return normalizeText(value);
+}
+
 function isValidStore(store: any) {
   const status = String(store.status || '').toLowerCase();
   return status !== 'deleted' && status !== 'excluido';
 }
 
-function normalizeEventKey(value: any) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
+function isStoreActive(store: any) {
+  const status = normalizeText(store?.status);
+  return !['inactive', 'inativo', 'disabled', 'desativado'].includes(status);
 }
 
-function normalizeStoreName(value: any) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
+function isEventActive(event: any) {
+  const status = normalizeText(event?.status);
+
+  if (['inactive', 'inativo', 'closed', 'encerrado', 'finished', 'finalizado'].includes(status)) {
+    return false;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (event?.end_date && String(event.end_date) < today) return false;
+
+  return true;
+}
+
+function eventMatchesPeriod(event: any, startDate: string, endDate: string) {
+  const eventStart = String(event?.start_date || event?.end_date || '');
+  const eventEnd = String(event?.end_date || event?.start_date || '');
+
+  if (startDate && eventEnd && eventEnd < startDate) return false;
+  if (endDate && eventStart && eventStart > endDate) return false;
+
+  return true;
 }
 
 function isValidPublishedLink(item: any) {
@@ -70,15 +109,29 @@ function isValidPublishedVehicle(item: any) {
   return true;
 }
 
-export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
+type StoresByEventListProps = {
+  refreshKey?: number;
+  eventId?: string;
+  onEventChange?: (eventId: string) => void;
+};
+
+export function StoresByEventList({
+  refreshKey = 0,
+  eventId: controlledEventId = '',
+  onEventChange
+}: StoresByEventListProps) {
   const supabase = createClient();
   const [events, setEvents] = useState<any[]>([]);
   const [stores, setStores] = useState<any[]>([]);
   const [sales, setSales] = useState<any[]>([]);
-  const [inventory, setInventory] = useState<any[]>([]);
   const [siteVehicles, setSiteVehicles] = useState<any[]>([]);
   const [vehicleSubmissions, setVehicleSubmissions] = useState<any[]>([]);
-  const [eventId, setEventId] = useState('');
+  const [internalEventId, setInternalEventId] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [eventStatusFilter, setEventStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [storeStatusFilter, setStoreStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [startDateFilter, setStartDateFilter] = useState('');
+  const [endDateFilter, setEndDateFilter] = useState('');
   const [message, setMessage] = useState('');
   const [passwordLoadingId, setPasswordLoadingId] = useState('');
   const [passwordResult, setPasswordResult] = useState<any>(null);
@@ -91,19 +144,24 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
     eventId: ''
   });
 
+  const eventId = controlledEventId || internalEventId;
+
+  function selectEvent(nextEventId: string) {
+    setInternalEventId(nextEventId);
+    onEventChange?.(nextEventId);
+  }
+
   async function loadData() {
     const [
       { data: eventRows },
       { data: storeRows },
       { data: saleRows },
-      { data: inventoryRows },
       { data: siteVehicleRows },
       { data: vehicleSubmissionRows }
     ] = await Promise.all([
       supabase.from('events').select('*').neq('status', 'deleted').order('created_at', { ascending: false }),
       supabase.from('stores').select('*').order('store_name'),
       supabase.from('sales').select('*'),
-      supabase.from('inventory').select('*'),
       supabase.from('site_vehicles').select('*'),
       supabase.from('store_vehicle_link_submissions').select('*')
     ]);
@@ -112,46 +170,190 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
     const storeList = (storeRows || []).filter(isValidStore);
 
     setEvents(eventList);
-
-    if (!eventId && eventList[0]?.id) setEventId(eventList[0].id);
-
     setStores(storeList);
     setSales(saleRows || []);
-    setInventory(inventoryRows || []);
     setSiteVehicles(siteVehicleRows || []);
     setVehicleSubmissions(vehicleSubmissionRows || []);
+
+    const currentEventExists = eventList.some((item) => item.id === eventId);
+    if ((!eventId || !currentEventExists) && eventList[0]?.id) selectEvent(eventList[0].id);
   }
 
-  useEffect(() => { loadData().catch(() => null); }, [refreshKey]);
+  useEffect(() => {
+    loadData().catch(() => setMessage('Não foi possível carregar os eventos e lojas.'));
+  }, [refreshKey]);
 
-  const eventNameById = useMemo(() => Object.fromEntries(events.map((item) => [item.id, item.event_name])), [events]);
+  useEffect(() => {
+    if (controlledEventId) setInternalEventId(controlledEventId);
+  }, [controlledEventId]);
+
+  const eventNameById = useMemo(
+    () => Object.fromEntries(events.map((item) => [item.id, item.event_name])),
+    [events]
+  );
+
+  const eventById = useMemo(
+    () => new Map(events.map((item) => [item.id, item])),
+    [events]
+  );
 
   const dedupedStores = useMemo(() => {
     const map = new Map<string, any>();
 
     stores.filter(isValidStore).forEach((store) => {
       const key = storeIdentity(store);
-
-      if (!map.has(key)) {
-        map.set(key, store);
-      }
+      if (!map.has(key)) map.set(key, store);
     });
 
     return Array.from(map.values());
   }, [stores]);
 
-  const selectedEvent = events.find((event) => event.id === eventId);
-  const selectedEventKey = normalizeEventKey(selectedEvent?.event_name);
+  const activeEventCount = useMemo(
+    () => events.filter(isEventActive).length,
+    [events]
+  );
 
-  const selectedStores = dedupedStores.filter((store) => {
-    if (store.event_id === eventId) return true;
+  const inactiveEventCount = events.length - activeEventCount;
+  const normalizedSearch = normalizeText(searchTerm);
+
+  function eventMatchesStatus(event: any) {
+    if (eventStatusFilter === 'all') return true;
+    return eventStatusFilter === 'active' ? isEventActive(event) : !isEventActive(event);
+  }
+
+  function storeMatchesStatus(store: any) {
+    if (storeStatusFilter === 'all') return true;
+    return storeStatusFilter === 'active' ? isStoreActive(store) : !isStoreActive(store);
+  }
+
+  function storeSearchText(store: any) {
+    return normalizeText([
+      store.store_name,
+      store.responsible_name,
+      store.responsible_phone,
+      store.responsible_email,
+      eventLabel(store, eventNameById),
+      store.event_state_snapshot,
+      store.event_city_snapshot
+    ].join(' '));
+  }
+
+  function eventSearchText(event: any) {
+    return normalizeText([
+      event.event_name,
+      event.state,
+      event.city,
+      event.location,
+      event.sponsor_bank
+    ].join(' '));
+  }
+
+  function storeBelongsToEvent(store: any, event: any) {
+    if (!event) return false;
+    if (store.event_id === event.id) return true;
 
     const storeEventKey = normalizeEventKey(store.event_name_snapshot);
-    return Boolean(selectedEventKey && storeEventKey && storeEventKey === selectedEventKey);
-  });
+    const eventKey = normalizeEventKey(event.event_name);
+    return Boolean(storeEventKey && eventKey && storeEventKey === eventKey);
+  }
 
-  const selectedStoreIds = new Set(selectedStores.map((store) => store.id));
-  const generalStores = dedupedStores.filter((store) => !selectedStoreIds.has(store.id));
+  function eventHasSearchMatch(event: any) {
+    if (!normalizedSearch) return true;
+    if (eventSearchText(event).includes(normalizedSearch)) return true;
+
+    return dedupedStores.some((store) => (
+      storeBelongsToEvent(store, event) && storeSearchText(store).includes(normalizedSearch)
+    ));
+  }
+
+  const filteredEvents = useMemo(() => events.filter((event) => (
+    eventMatchesStatus(event)
+    && eventMatchesPeriod(event, startDateFilter, endDateFilter)
+    && eventHasSearchMatch(event)
+  )), [
+    events,
+    dedupedStores,
+    eventStatusFilter,
+    startDateFilter,
+    endDateFilter,
+    normalizedSearch,
+    eventNameById
+  ]);
+
+  const selectedEvent = events.find((event) => event.id === eventId);
+
+  const selectableEvents = useMemo(() => {
+    if (!selectedEvent || filteredEvents.some((event) => event.id === selectedEvent.id)) {
+      return filteredEvents;
+    }
+
+    return [selectedEvent, ...filteredEvents];
+  }, [filteredEvents, selectedEvent]);
+
+  const selectedStoresBase = useMemo(() => (
+    selectedEvent
+      ? dedupedStores.filter((store) => storeBelongsToEvent(store, selectedEvent))
+      : []
+  ), [dedupedStores, selectedEvent]);
+
+  const selectedStoreIds = useMemo(
+    () => new Set(selectedStoresBase.map((store) => store.id)),
+    [selectedStoresBase]
+  );
+
+  function eventPassesVisibleFilters(event: any) {
+    if (!event) return false;
+    return eventMatchesStatus(event) && eventMatchesPeriod(event, startDateFilter, endDateFilter);
+  }
+
+  function storePassesSearch(store: any, event: any) {
+    if (!normalizedSearch) return true;
+    return storeSearchText(store).includes(normalizedSearch) || eventSearchText(event).includes(normalizedSearch);
+  }
+
+  const selectedStores = useMemo(() => {
+    if (!selectedEvent || !eventPassesVisibleFilters(selectedEvent)) return [];
+
+    return selectedStoresBase.filter((store) => (
+      storeMatchesStatus(store) && storePassesSearch(store, selectedEvent)
+    ));
+  }, [
+    selectedEvent,
+    selectedStoresBase,
+    storeStatusFilter,
+    eventStatusFilter,
+    startDateFilter,
+    endDateFilter,
+    normalizedSearch,
+    eventNameById
+  ]);
+
+  const generalStores = useMemo(() => dedupedStores.filter((store) => {
+    if (selectedStoreIds.has(store.id)) return false;
+    if (!storeMatchesStatus(store)) return false;
+
+    const event = eventById.get(store.event_id) || {
+      event_name: store.event_name_snapshot,
+      start_date: store.event_start_date_snapshot,
+      end_date: store.event_end_date_snapshot,
+      state: store.event_state_snapshot,
+      city: store.event_city_snapshot,
+      status: store.status
+    };
+
+    if (!eventPassesVisibleFilters(event)) return false;
+    return storePassesSearch(store, event);
+  }), [
+    dedupedStores,
+    selectedStoreIds,
+    eventById,
+    storeStatusFilter,
+    eventStatusFilter,
+    startDateFilter,
+    endDateFilter,
+    normalizedSearch,
+    eventNameById
+  ]);
 
   const realStockRows = useMemo(() => {
     const storeById = new Map(dedupedStores.map((store) => [store.id, store]));
@@ -198,6 +400,14 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
 
     return Array.from(unique.values());
   }, [dedupedStores, siteVehicles, vehicleSubmissions]);
+
+  function clearFilters() {
+    setSearchTerm('');
+    setEventStatusFilter('all');
+    setStoreStatusFilter('all');
+    setStartDateFilter('');
+    setEndDateFilter('');
+  }
 
   function startEdit(store: any) {
     setEditingId(store.id);
@@ -279,7 +489,6 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
     }
 
     const confirmation = window.confirm(`Gerar nova senha para ${store.store_name}? O login será ${store.responsible_email}.`);
-
     if (!confirmation) return;
 
     setPasswordLoadingId(store.id);
@@ -301,9 +510,7 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({
-          store_id: store.id
-        })
+        body: JSON.stringify({ store_id: store.id })
       });
 
       const result = await response.json();
@@ -333,24 +540,26 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
   async function copyGeneratedPassword() {
     if (!passwordResult?.password) return;
 
-    await navigator.clipboard.writeText(`Login: ${passwordResult.email}\nSenha: ${passwordResult.password}\nPortal: ${window.location.origin}${passwordResult.portal_path}`);
+    await navigator.clipboard.writeText(
+      `Login: ${passwordResult.email}\nSenha: ${passwordResult.password}\nPortal: ${window.location.origin}${passwordResult.portal_path}`
+    );
     setMessage('Login, senha e portal copiados.');
   }
 
   function renderStoreCard(store: any, showHistory = true) {
     const stock = realStockRows.filter((item: any) => item.store_id === store.id && item.event_id === store.event_id).length;
     const sold = sales.filter((sale) => sale.store_id === store.id && sale.event_id === store.event_id).length;
+    const linkedEvent = eventById.get(store.event_id);
+    const eventActive = linkedEvent ? isEventActive(linkedEvent) : true;
+    const storeActive = isStoreActive(store);
 
     return (
       <div key={store.id} className="rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
         {editingId === store.id ? (
           <div className="grid gap-3 md:grid-cols-2">
             <input className="premium-input md:col-span-2" value={form.storeName} onChange={(e) => setForm({ ...form, storeName: e.target.value })} />
-
             <input className="premium-input" placeholder="Responsável" value={form.responsibleName} onChange={(e) => setForm({ ...form, responsibleName: e.target.value })} />
-
             <input className="premium-input" placeholder="Telefone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-
             <input className="premium-input md:col-span-2" placeholder="E-mail" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
 
             <select className="premium-input md:col-span-2" value={form.eventId} onChange={(e) => setForm({ ...form, eventId: e.target.value })}>
@@ -365,19 +574,23 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
           </div>
         ) : (
           <>
-            <h3 className="font-black text-zinc-950">{store.store_name}</h3>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="font-black text-zinc-950">{store.store_name}</h3>
+                <p className="mt-1 text-sm text-zinc-500">Evento: {eventLabel(store, eventNameById)}</p>
+              </div>
 
-            <p className="mt-1 text-sm text-zinc-500">
-              Evento: {eventLabel(store, eventNameById)}
-            </p>
+              <div className="flex flex-wrap gap-2">
+                <StatusBadge active={eventActive} activeLabel="Evento ativo" inactiveLabel="Evento inativo" />
+                <StatusBadge active={storeActive} activeLabel="Loja ativa" inactiveLabel="Loja inativa" />
+              </div>
+            </div>
 
-            <p className="mt-1 text-sm text-zinc-500">
+            <p className="mt-2 text-sm text-zinc-500">
               Responsável: {store.responsible_name || '-'} | Telefone: {store.responsible_phone || '-'}
             </p>
 
-            <p className="mt-1 text-sm text-zinc-500">
-              E-mail: {store.responsible_email || '-'}
-            </p>
+            <p className="mt-1 text-sm text-zinc-500">E-mail: {store.responsible_email || '-'}</p>
 
             <div className="mt-3 rounded-2xl border border-zinc-100 bg-white p-3">
               <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Portal da loja</p>
@@ -391,14 +604,14 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
                 </button>
 
                 {store.slug ? (
-                  <a className="premium-button-secondary text-xs" href={portalLink(store.slug)} target="_blank">
+                  <a className="premium-button-secondary text-xs" href={portalLink(store.slug)} target="_blank" rel="noreferrer">
                     <ExternalLink size={14} /> Abrir portal
                   </a>
                 ) : null}
               </div>
             </div>
 
-            <p className="mt-1 text-xs font-bold text-zinc-400">
+            <p className="mt-2 text-xs font-bold text-zinc-400">
               Histórico: {store.event_state_snapshot || '-'} | {store.event_city_snapshot || '-'} | {dateText(store.event_start_date_snapshot)} até {dateText(store.event_end_date_snapshot)}
             </p>
 
@@ -407,14 +620,27 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
               <Mini label="Carros no estoque" value={String(stock)} />
             </div>
 
-            {showHistory ? <StoreParticipationHistory store={store} events={events} stores={dedupedStores} sales={sales} inventory={realStockRows as any[]} /> : null}
+            {showHistory ? (
+              <StoreParticipationHistory
+                store={store}
+                events={events}
+                stores={dedupedStores}
+                sales={sales}
+                inventory={realStockRows as any[]}
+              />
+            ) : null}
 
             <div className="mt-4 flex flex-wrap gap-2">
               <button className="premium-button-secondary text-xs" type="button" onClick={() => startEdit(store)}>
                 <Pencil size={14} /> Editar
               </button>
 
-              <button className="premium-button-secondary text-xs" type="button" onClick={() => generateStorePassword(store)} disabled={passwordLoadingId === store.id}>
+              <button
+                className="premium-button-secondary text-xs"
+                type="button"
+                onClick={() => generateStorePassword(store)}
+                disabled={passwordLoadingId === store.id}
+              >
                 <KeyRound size={14} /> {passwordLoadingId === store.id ? 'Gerando...' : 'Gerar nova senha'}
               </button>
 
@@ -427,30 +653,126 @@ export function StoresByEventList({ refreshKey = 0 }: { refreshKey?: number }) {
       </div>
     );
   }
-return (
-    <section className="space-y-5">
-      <div className="premium-card p-6">
-        <h2 className="text-2xl font-black text-zinc-950">Lojas por evento</h2>
 
-        <div className="mt-5">
-          <EventSelectField events={events} value={eventId} onChange={setEventId} label="Filtrar evento" />
+  return (
+    <section className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard icon={CalendarCheck2} label="Eventos ativos" value={String(activeEventCount)} />
+        <SummaryCard icon={CalendarX2} label="Eventos inativos" value={String(inactiveEventCount)} />
+        <SummaryCard icon={Building2} label="Lojas no evento" value={String(selectedStores.length)} />
+        <SummaryCard icon={Building2} label="Outras lojas" value={String(generalStores.length)} />
+      </div>
+
+      <div className="premium-card p-6">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <h2 className="text-2xl font-black text-zinc-950">Filtros de eventos e lojas</h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              Pesquise por evento, loja, responsável, cidade, telefone ou e-mail e combine com período e status.
+            </p>
+          </div>
+
+          <button className="premium-button-secondary text-xs" type="button" onClick={clearFilters}>
+            <RotateCcw size={14} /> Limpar filtros
+          </button>
         </div>
 
-        <p className="mt-3 text-sm text-zinc-500">Total no evento selecionado: {selectedStores.length}</p>
+        <div className="mt-5 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+          <label className="relative lg:col-span-2 xl:col-span-3">
+            <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
+            <input
+              className="premium-input pl-11"
+              placeholder="Pesquisar evento, loja, responsável, cidade, telefone ou e-mail"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+            />
+          </label>
+
+          <EventSelectField events={selectableEvents} value={eventId} onChange={selectEvent} label="Evento selecionado" />
+
+          <label className="text-xs font-bold uppercase tracking-wide text-zinc-400">
+            Status do evento
+            <select
+              className="premium-input mt-1"
+              value={eventStatusFilter}
+              onChange={(event) => setEventStatusFilter(event.target.value as 'all' | 'active' | 'inactive')}
+            >
+              <option value="all">Todos os eventos</option>
+              <option value="active">Eventos ativos</option>
+              <option value="inactive">Eventos inativos</option>
+            </select>
+          </label>
+
+          <label className="text-xs font-bold uppercase tracking-wide text-zinc-400">
+            Status da loja
+            <select
+              className="premium-input mt-1"
+              value={storeStatusFilter}
+              onChange={(event) => setStoreStatusFilter(event.target.value as 'all' | 'active' | 'inactive')}
+            >
+              <option value="all">Todas as lojas</option>
+              <option value="active">Lojas ativas</option>
+              <option value="inactive">Lojas inativas</option>
+            </select>
+          </label>
+
+          <label className="text-xs font-bold uppercase tracking-wide text-zinc-400">
+            Período a partir de
+            <input className="premium-input mt-1" type="date" value={startDateFilter} onChange={(event) => setStartDateFilter(event.target.value)} />
+          </label>
+
+          <label className="text-xs font-bold uppercase tracking-wide text-zinc-400">
+            Período até
+            <input className="premium-input mt-1" type="date" value={endDateFilter} onChange={(event) => setEndDateFilter(event.target.value)} />
+          </label>
+        </div>
+
+        <p className="mt-4 text-xs font-bold text-zinc-400">
+          {filteredEvents.length} evento(s) e {selectedStores.length + generalStores.length} loja(s) correspondem aos filtros atuais.
+        </p>
+      </div>
+
+      <div className="premium-card p-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-black text-zinc-950">Lojas por evento</h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              {selectedEvent
+                ? `${selectedEvent.event_name} · ${dateText(selectedEvent.start_date)} até ${dateText(selectedEvent.end_date)}`
+                : 'Selecione um evento para consultar as lojas vinculadas.'}
+            </p>
+          </div>
+
+          {selectedEvent ? (
+            <StatusBadge
+              active={isEventActive(selectedEvent)}
+              activeLabel="Evento ativo"
+              inactiveLabel="Evento inativo"
+            />
+          ) : null}
+        </div>
+
+        <p className="mt-3 text-sm text-zinc-500">Total exibido no evento selecionado: {selectedStores.length}</p>
 
         <div className="mt-5 space-y-3">
           {selectedStores.map((store) => renderStoreCard(store))}
-          {selectedStores.length === 0 ? <p className="text-sm text-zinc-500">Nenhuma loja vinculada a este evento.</p> : null}
+          {selectedStores.length === 0 ? (
+            <p className="text-sm text-zinc-500">Nenhuma loja corresponde ao evento e aos filtros selecionados.</p>
+          ) : null}
         </div>
       </div>
 
       <div className="premium-card p-6">
         <h2 className="text-2xl font-black text-zinc-950">Outras lojas cadastradas</h2>
-        <p className="mt-1 text-sm text-zinc-500">Lista geral sem repetir as lojas já exibidas no evento selecionado.</p>
+        <p className="mt-1 text-sm text-zinc-500">
+          Histórico geral sem repetir as lojas já exibidas no evento selecionado. Os mesmos filtros permanecem aplicados.
+        </p>
 
         <div className="mt-5 space-y-3">
           {generalStores.map((store) => renderStoreCard(store, false))}
-          {generalStores.length === 0 ? <p className="text-sm text-zinc-500">Nenhuma outra loja cadastrada.</p> : null}
+          {generalStores.length === 0 ? (
+            <p className="text-sm text-zinc-500">Nenhuma outra loja corresponde aos filtros selecionados.</p>
+          ) : null}
         </div>
       </div>
 
@@ -459,14 +781,8 @@ return (
           <div className="w-full max-w-3xl rounded-[34px] bg-white p-6 shadow-2xl">
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div>
-                <p className="text-xs font-black uppercase tracking-wide text-emerald-700">
-                  Senha gerada com sucesso
-                </p>
-
-                <h3 className="mt-2 text-3xl font-black text-zinc-950">
-                  {passwordResult.store_name}
-                </h3>
-
+                <p className="text-xs font-black uppercase tracking-wide text-emerald-700">Senha gerada com sucesso</p>
+                <h3 className="mt-2 text-3xl font-black text-zinc-950">{passwordResult.store_name}</h3>
                 <p className="mt-2 text-sm font-bold text-zinc-500">
                   Copie este acesso e envie para a loja. A senha aparece somente agora.
                 </p>
@@ -483,27 +799,17 @@ return (
 
             <div className="mt-6 grid gap-4">
               <div className="rounded-[24px] border border-zinc-100 bg-zinc-50 p-5">
-                <p className="text-xs font-black uppercase tracking-wide text-zinc-400">
-                  Login da loja
-                </p>
-                <p className="mt-2 break-all text-xl font-black text-zinc-950">
-                  {passwordResult.email}
-                </p>
+                <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Login da loja</p>
+                <p className="mt-2 break-all text-xl font-black text-zinc-950">{passwordResult.email}</p>
               </div>
 
               <div className="rounded-[24px] border-2 border-red-200 bg-red-50 p-5">
-                <p className="text-xs font-black uppercase tracking-wide text-red-600">
-                  Nova senha
-                </p>
-                <p className="mt-2 select-all break-all text-4xl font-black text-red-600">
-                  {passwordResult.password}
-                </p>
+                <p className="text-xs font-black uppercase tracking-wide text-red-600">Nova senha</p>
+                <p className="mt-2 select-all break-all text-4xl font-black text-red-600">{passwordResult.password}</p>
               </div>
 
               <div className="rounded-[24px] border border-zinc-100 bg-zinc-50 p-5">
-                <p className="text-xs font-black uppercase tracking-wide text-zinc-400">
-                  Portal da loja
-                </p>
+                <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Portal da loja</p>
                 <p className="mt-2 break-all text-sm font-black text-zinc-950">
                   {typeof window !== 'undefined'
                     ? `${window.location.origin}${passwordResult.portal_path}`
@@ -513,19 +819,11 @@ return (
             </div>
 
             <div className="mt-6 grid gap-3 md:grid-cols-2">
-              <button
-                className="premium-button-primary justify-center"
-                type="button"
-                onClick={copyGeneratedPassword}
-              >
+              <button className="premium-button-primary justify-center" type="button" onClick={copyGeneratedPassword}>
                 <Copy size={16} /> Copiar acesso completo
               </button>
 
-              <button
-                className="premium-button-secondary justify-center"
-                type="button"
-                onClick={() => setPasswordResult(null)}
-              >
+              <button className="premium-button-secondary justify-center" type="button" onClick={() => setPasswordResult(null)}>
                 Fechar
               </button>
             </div>
@@ -537,6 +835,36 @@ return (
         <p className="rounded-2xl bg-white p-3 text-sm font-bold text-zinc-600">{message}</p>
       ) : null}
     </section>
+  );
+}
+
+function StatusBadge({ active, activeLabel, inactiveLabel }: {
+  active: boolean;
+  activeLabel: string;
+  inactiveLabel: string;
+}) {
+  return (
+    <span className={`inline-flex w-fit rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wide ${active ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-200 text-zinc-600'}`}>
+      {active ? activeLabel : inactiveLabel}
+    </span>
+  );
+}
+
+function SummaryCard({ icon: Icon, label, value }: {
+  icon: typeof Building2;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="premium-card flex items-center gap-4 p-5">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-50 text-red-600">
+        <Icon size={20} />
+      </div>
+      <div>
+        <p className="text-xs font-black uppercase tracking-wide text-zinc-400">{label}</p>
+        <strong className="mt-1 block text-2xl font-black text-zinc-950">{value}</strong>
+      </div>
+    </div>
   );
 }
 
