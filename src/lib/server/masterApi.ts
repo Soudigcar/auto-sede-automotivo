@@ -42,12 +42,10 @@ export async function requireMaster(request: Request, supabase = getAdminClient(
       .limit(1)
       .maybeSingle();
 
-    const canUseEmailFallback = Boolean(
+    if (
       emailProfile &&
       (!emailProfile.auth_user_id || emailProfile.auth_user_id === data.user.id)
-    );
-
-    if (canUseEmailFallback) {
+    ) {
       profile = emailProfile;
 
       if (!emailProfile.auth_user_id) {
