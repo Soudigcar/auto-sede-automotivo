@@ -516,7 +516,7 @@ export default function MasterMarketplacePage() {
             <>
               <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <MetricCard icon={<Car size={21} />} label="Veículos cadastrados" value={data.summary.total_vehicles} detail="Estoque dentro do período selecionado" tone="blue" onClick={() => setActiveTab('vehicles')} />
-                <MetricCard icon={<ShieldCheck size={21} />} label="Publicados" value={data.summary.published_vehicles} detail="Disponíveis e visíveis na landing" tone="emerald" onClick={() => setActiveTab('vehicles')} />
+                <MetricCard icon={<ShieldCheck size={21} />} label="Publicados" value={data.summary.published_vehicles} detail="Disponíveis e visíveis no Portal Oficial" tone="emerald" onClick={() => setActiveTab('vehicles')} />
                 <MetricCard icon={<FileClock size={21} />} label="Pendências" value={data.summary.pending_items} detail="Links e arquivos aguardando tratamento" tone="amber" onClick={() => setActiveTab('pending')} />
                 <MetricCard icon={<AlertTriangle size={21} />} label="Problemas" value={data.summary.problems} detail="Inconsistências operacionais detectadas" tone="red" onClick={() => setActiveTab('problems')} />
                 <MetricCard icon={<Store size={21} />} label="Lojas ativas" value={data.summary.active_stores} detail="Ativas e habilitadas no portal" onClick={() => setActiveTab('stores')} />
@@ -626,7 +626,7 @@ export default function MasterMarketplacePage() {
                               {locked ? <p className="rounded-xl bg-zinc-100 p-3 text-xs font-black text-zinc-500">Bloqueado: use o fluxo da venda.</p> : (
                                 <>
                                   <div className="flex flex-wrap gap-2">
-                                    <button className="premium-button-secondary px-3 py-2 text-xs" type="button" disabled={Boolean(actionKey)} onClick={() => void executeAction(`visibility-${vehicle.id}`, { action: 'vehicle_visibility', vehicle_id: vehicle.id, visible: !vehicle.show_on_landing }, vehicle.show_on_landing ? { prompt: 'Retirar este veículo da landing?', code: 'RETIRAR' } : { prompt: 'Publicar este veículo na landing?', code: 'PUBLICAR' })}>
+                                    <button className="premium-button-secondary px-3 py-2 text-xs" type="button" disabled={Boolean(actionKey)} onClick={() => void executeAction(`visibility-${vehicle.id}`, { action: 'vehicle_visibility', vehicle_id: vehicle.id, visible: !vehicle.show_on_landing }, vehicle.show_on_landing ? { prompt: 'Ocultar este veículo do Portal Oficial?', code: 'RETIRAR' } : { prompt: 'Publicar este veículo no Portal Oficial?', code: 'PUBLICAR' })}>
                                       {vehicle.show_on_landing ? <EyeOff size={14} /> : <Eye size={14} />} {vehicle.show_on_landing ? 'Retirar' : 'Publicar'}
                                     </button>
                                     <button className="premium-button-secondary px-3 py-2 text-xs" type="button" disabled={Boolean(actionKey)} onClick={() => void executeAction(`featured-${vehicle.id}`, { action: 'vehicle_featured', vehicle_id: vehicle.id, featured: !vehicle.is_featured })}>
