@@ -4,11 +4,11 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import {
   Activity,
   AlertTriangle,
+  CalendarRange,
   CheckCircle2,
   Clock3,
   Eye,
   EyeOff,
-  MessageCircle,
   PhoneCall,
   PhoneOff,
   Radio,
@@ -19,6 +19,7 @@ import {
   X
 } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
+import { EventScopeSelect, eventScopeLabel } from '@/components/EventScopeSelect';
 import { createClient } from '@/lib/supabase';
 
 const statusLabels: Record<string, string> = {
@@ -40,12 +41,13 @@ function formatDateTime(value: unknown) {
   if (Number.isNaN(date.getTime())) return 'Data inválida';
 
   return date.toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
   });
+}
+
+function eventPeriod(event: any) {
+  const date = (value?: string) => value ? new Date(`${value}T12:00:00`).toLocaleDateString('pt-BR') : '';
+  return [date(event?.start_date), date(event?.end_date)].filter(Boolean).join(' a ');
 }
 
 function elapsed(value: unknown) {
@@ -83,15 +85,12 @@ function attentionMessage(lead: any) {
   if (!lead.first_phone_viewed_at && ageMinutes(lead.created_at) >= 10) {
     return `Enviado há ${elapsed(lead.created_at)} e o telefone ainda não foi visualizado`;
   }
-
   if (lead.status === 'new_lead' && lead.first_phone_viewed_at && ageMinutes(lead.first_phone_viewed_at) >= 15) {
     return `Telefone visualizado há ${elapsed(lead.first_phone_viewed_at)}, mas o atendimento não começou`;
   }
-
   if (lead.status === 'in_service' && ageMinutes(lead.stage_entered_at) >= 30) {
     return `Parado em atendimento há ${elapsed(lead.stage_entered_at)}`;
   }
-
   return '';
 }
 
@@ -109,6 +108,9 @@ export default function LeadMonitoringPage() {
   const [leads, setLeads] = useState<any[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
   const [stores, setStores] = useState<any[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
+  const [eventFilter, setEventFilter] = useState('auto');
+  const [historicalScope, setHistoricalScope] = useState(false);
   const [query, setQuery] = useState('');
   const [storeFilter, setStoreFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -128,26 +130,29 @@ export default function LeadMonitoringPage() {
         return;
       }
 
-      const response = await fetch('/api/master/lead-monitoring', {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: 'no-store'
+      const response = await fetch(`/api/master/lead-monitoring?event_scope=${encodeURIComponent(eventFilter)}`, {
+        headers: { Authorization: `Bearer ${token}` }, cache: 'no-store'
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Erro ao carregar monitoramento.');
 
+      if (eventFilter === 'auto' && result.resolved_event_scope) {
+        setEventFilter(result.resolved_event_scope);
+      }
+
       setLeads(result.leads || []);
       setActivities(result.activities || []);
       setStores(result.stores || []);
+      setEvents(result.events || []);
+      setHistoricalScope(result.historical_scope === true);
       setLastUpdatedAt(result.generated_at || new Date().toISOString());
       setMessage('');
     } catch (error: any) {
       setMessage(error?.message || 'Erro ao carregar monitoramento.');
     }
-  }, [supabase]);
+  }, [eventFilter, supabase]);
 
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -168,6 +173,10 @@ export default function LeadMonitoringPage() {
     };
   }, [loadData, supabase]);
 
+  useEffect(() => {
+    if (historicalScope && attentionFilter !== 'all') setAttentionFilter('all');
+  }, [attentionFilter, historicalScope]);
+
   const activitiesByLead = useMemo(() => {
     const map = new Map<string, any[]>();
     for (const item of activities) {
@@ -185,39 +194,47 @@ export default function LeadMonitoringPage() {
     return leads.filter((lead) => {
       if (storeFilter !== 'all' && lead.assigned_store_id !== storeFilter) return false;
       if (statusFilter !== 'all' && lead.status !== statusFilter) return false;
-      if (attentionFilter === 'attention' && !needsAttention(lead)) return false;
-      if (attentionFilter === 'unopened' && lead.first_viewed_at) return false;
-      if (attentionFilter === 'phone_unseen' && lead.first_phone_viewed_at) return false;
-      if (attentionFilter === 'phone_seen' && !lead.first_phone_viewed_at) return false;
-      if (attentionFilter === 'whatsapp' && !lead.first_whatsapp_clicked_at) return false;
+      if (!historicalScope) {
+        if (attentionFilter === 'attention' && !needsAttention(lead)) return false;
+        if (attentionFilter === 'unopened' && lead.first_viewed_at) return false;
+        if (attentionFilter === 'phone_unseen' && lead.first_phone_viewed_at) return false;
+        if (attentionFilter === 'phone_seen' && !lead.first_phone_viewed_at) return false;
+        if (attentionFilter === 'whatsapp' && !lead.first_whatsapp_clicked_at) return false;
+      }
 
       if (!term) return true;
       return [
-        lead.customer_name,
-        lead.customer_phone,
-        lead.interested_vehicle,
-        lead.origin,
-        lead.assigned_store_name,
-        lead.first_viewed_by_name,
-        lead.first_phone_viewed_by_name,
-        lead.last_activity_by_name
+        lead.customer_name, lead.customer_phone, lead.interested_vehicle, lead.origin,
+        lead.assigned_store_name, lead.event_name, lead.first_viewed_by_name,
+        lead.first_phone_viewed_by_name, lead.last_activity_by_name
       ].some((value) => String(value || '').toLowerCase().includes(term));
     });
-  }, [attentionFilter, leads, query, statusFilter, storeFilter]);
+  }, [attentionFilter, historicalScope, leads, query, statusFilter, storeFilter]);
 
   const summary = useMemo(() => ({
     total: leads.length,
     unopened: leads.filter((lead) => !lead.first_viewed_at).length,
     phoneUnseen: leads.filter((lead) => !lead.first_phone_viewed_at).length,
-    attention: leads.filter(needsAttention).length,
+    attention: historicalScope ? 0 : leads.filter(needsAttention).length,
     service: leads.filter((lead) => lead.status === 'in_service').length,
     scheduled: leads.filter((lead) => lead.status === 'scheduled').length,
     sold: leads.filter((lead) => lead.status === 'sale_confirmed').length
-  }), [leads]);
+  }), [historicalScope, leads]);
 
   const selectedLead = leads.find((lead) => lead.id === selectedLeadId) || null;
   const selectedActivities = selectedLead ? activitiesByLead.get(selectedLead.id) || [] : [];
+  const selectedEvent = events.find((event) => event.id === eventFilter) || null;
   const live = realtimeStatus === 'SUBSCRIBED';
+  const scopeTitle = eventScopeLabel(events, eventFilter);
+  const noActiveEvents = eventFilter === 'active' && !events.some((event) => event.status === 'active');
+
+  function changeEventScope(value: string) {
+    setEventFilter(value);
+    setStoreFilter('all');
+    setAttentionFilter('all');
+    setSelectedLeadId('');
+    setMessage('Atualizando escopo do evento...');
+  }
 
   return (
     <main className="premium-page">
@@ -230,7 +247,7 @@ export default function LeadMonitoringPage() {
               <p className="premium-eyebrow">Central de acompanhamento</p>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Monitoramento de Leads</h1>
               <p className="premium-muted mt-3 max-w-3xl text-sm">
-                Diferencie abertura do lead, visualização do telefone, WhatsApp, mudança de etapa e tempo de resposta.
+                Acompanhe cada evento sem misturar alertas, lojas, etapas e resultados de campanhas encerradas.
               </p>
             </div>
 
@@ -247,6 +264,20 @@ export default function LeadMonitoringPage() {
 
           {message ? <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">{message}</div> : null}
 
+          <div className={`mt-5 rounded-3xl border p-4 ${historicalScope ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-blue-200 bg-blue-50 text-blue-900'}`}>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <CalendarRange className="mt-0.5 shrink-0" size={20} />
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.16em]">Visualizando</p>
+                  <strong className="mt-1 block text-base">{scopeTitle}</strong>
+                  {selectedEvent ? <span className="text-xs font-bold opacity-70">{eventPeriod(selectedEvent)} · {[selectedEvent.city, selectedEvent.state].filter(Boolean).join(' / ')}</span> : null}
+                </div>
+              </div>
+              {historicalScope ? <span className="rounded-full bg-white/70 px-3 py-2 text-xs font-black">Visualização histórica · alertas de tempo desativados</span> : null}
+            </div>
+          </div>
+
           <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
             <Kpi label="Leads monitorados" value={summary.total} icon={<Activity size={18} />} />
             <Kpi label="Não abertos" value={summary.unopened} icon={<EyeOff size={18} />} />
@@ -258,14 +289,16 @@ export default function LeadMonitoringPage() {
           </section>
 
           <section className="premium-card mt-6 p-5">
-            <div className="grid gap-3 xl:grid-cols-[1.4fr_0.8fr_0.8fr_0.9fr]">
+            <div className="grid gap-3 2xl:grid-cols-[1.25fr_1fr_0.8fr_0.8fr_0.95fr]">
               <label className="relative min-w-0">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
-                <input className="premium-input pl-11" placeholder="Buscar cliente, telefone, veículo, loja ou responsável" value={query} onChange={(event) => setQuery(event.target.value)} />
+                <input className="premium-input pl-11" placeholder="Buscar cliente, telefone, veículo, evento, loja ou responsável" value={query} onChange={(event) => setQuery(event.target.value)} />
               </label>
 
+              <EventScopeSelect events={events} value={eventFilter === 'auto' ? 'active' : eventFilter} onChange={changeEventScope} allLabel="Todos os eventos e histórico" />
+
               <select className="premium-input" value={storeFilter} onChange={(event) => setStoreFilter(event.target.value)}>
-                <option value="all">Todas as lojas</option>
+                <option value="all">Todas as lojas do escopo</option>
                 {stores.map((store) => <option key={store.id} value={store.id}>{store.store_name}</option>)}
               </select>
 
@@ -274,8 +307,8 @@ export default function LeadMonitoringPage() {
                 {statusOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
 
-              <select className="premium-input" value={attentionFilter} onChange={(event) => setAttentionFilter(event.target.value)}>
-                <option value="all">Todos os acompanhamentos</option>
+              <select className="premium-input" value={attentionFilter} disabled={historicalScope} onChange={(event) => setAttentionFilter(event.target.value)}>
+                <option value="all">{historicalScope ? 'Alertas desativados no histórico' : 'Todos os acompanhamentos'}</option>
                 <option value="attention">Precisam de atenção</option>
                 <option value="unopened">Lead ainda não aberto</option>
                 <option value="phone_unseen">Telefone não visualizado</option>
@@ -287,7 +320,7 @@ export default function LeadMonitoringPage() {
 
           <section className="mt-5 space-y-4">
             {filtered.map((lead) => {
-              const warning = attentionMessage(lead);
+              const warning = historicalScope ? '' : attentionMessage(lead);
               const history = activitiesByLead.get(lead.id) || [];
 
               return (
@@ -297,6 +330,7 @@ export default function LeadMonitoringPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="break-words text-lg font-black text-zinc-950">{lead.customer_name || 'Cliente sem nome'}</h2>
                         <span className={`rounded-full px-3 py-1 text-xs font-black ${statusClass(lead.status)}`}>{statusLabels[lead.status] || lead.status}</span>
+                        <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-black text-indigo-700">Evento: {lead.event_name}</span>
                         <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-black ${lead.first_viewed_at ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`}>
                           {lead.first_viewed_at ? <Eye size={13} /> : <EyeOff size={13} />} {lead.first_viewed_at ? 'Lead aberto' : 'Não aberto'}
                         </span>
@@ -338,7 +372,11 @@ export default function LeadMonitoringPage() {
               );
             })}
 
-            {!filtered.length && !message ? <div className="premium-card p-10 text-center text-sm font-bold text-zinc-500">Nenhum lead encontrado com estes filtros.</div> : null}
+            {!filtered.length && !message ? (
+              <div className="premium-card p-10 text-center text-sm font-bold text-zinc-500">
+                {noActiveEvents ? 'Nenhum evento está ativo no momento. Selecione um evento encerrado para consultar o histórico.' : 'Nenhum lead encontrado com estes filtros.'}
+              </div>
+            ) : null}
           </section>
 
           <p className="mt-5 text-right text-xs font-bold text-zinc-400">Última sincronização: {lastUpdatedAt ? formatDateTime(lastUpdatedAt) : 'carregando'}</p>
@@ -352,7 +390,7 @@ export default function LeadMonitoringPage() {
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.25em] text-red-600">Linha do tempo</p>
                 <h2 className="mt-2 text-2xl font-black text-zinc-950">{selectedLead.customer_name || 'Cliente sem nome'}</h2>
-                <p className="mt-1 text-sm font-bold text-zinc-500">{selectedLead.assigned_store_name}</p>
+                <p className="mt-1 text-sm font-bold text-zinc-500">{selectedLead.event_name} · {selectedLead.assigned_store_name}</p>
               </div>
               <button className="rounded-2xl bg-zinc-100 p-3 text-zinc-600" type="button" onClick={() => setSelectedLeadId('')}><X size={18} /></button>
             </div>
