@@ -1,3 +1,4 @@
+// Compatibilidade para links diretos e mensagens compartilhadas pelo aplicativo da OLX.
 import { NextResponse } from 'next/server';
 import { extractCanonicalOlxUrl } from '@/lib/olxSharedUrl';
 
