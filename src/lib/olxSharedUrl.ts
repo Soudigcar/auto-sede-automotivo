@@ -1,3 +1,4 @@
+// Normaliza links diretos, mensagens compartilhadas e registros antigos malformados da OLX.
 const OLX_URL_PATTERN = /(?:https?:\/\/)?(?:www\.)?(?:[a-z0-9-]+\.)*olx\.com\.br\/[^\s<>"'`]+/gi;
 
 function decodedVariants(value: string) {
