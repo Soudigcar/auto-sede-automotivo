@@ -1,4 +1,4 @@
-// Compatibilidade para links diretos e mensagens compartilhadas pelo aplicativo da OLX.
+// Compatibilidade para links diretos, mensagens compartilhadas e URLs antigas da OLX sem rastreadores.
 import { NextResponse } from 'next/server';
 import { extractCanonicalOlxUrl } from '@/lib/olxSharedUrl';
 
