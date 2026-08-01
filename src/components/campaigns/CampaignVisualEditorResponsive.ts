@@ -31,6 +31,13 @@ function detectManualBackground(draft: FlowDraft): FlowDraft {
       Math.abs(layout.backgroundScale - desktop.backgroundScale) > 0.01 ||
       Math.abs(layout.backgroundX - desktop.backgroundX) > 0.01 ||
       Math.abs(layout.backgroundY - desktop.backgroundY) > 0.01 ||
+      Math.abs(layout.backgroundRotation - desktop.backgroundRotation) > 0.01 ||
+      layout.backgroundFlipX !== desktop.backgroundFlipX ||
+      layout.backgroundFlipY !== desktop.backgroundFlipY ||
+      Math.abs(layout.cropX - desktop.cropX) > 0.01 ||
+      Math.abs(layout.cropY - desktop.cropY) > 0.01 ||
+      Math.abs(layout.cropWidth - desktop.cropWidth) > 0.01 ||
+      Math.abs(layout.cropHeight - desktop.cropHeight) > 0.01 ||
       draft.backgroundMode[target] !== draft.backgroundMode.desktop ||
       (draft.backgroundMode.desktop === 'custom' && draft.backgroundData[target] !== draft.backgroundData.desktop);
     if (differs && syncBackground[target]) syncBackground[target] = false;
@@ -67,7 +74,9 @@ export function setResponsiveEnabled(draft: Draft, enabled: boolean): Responsive
 
 export function setDeviceLinked(draft: Draft, target: ResponsiveTarget, linked: boolean): ResponsiveDraft {
   const normalized = ensureResponsive(draft);
+  const settings = flowResponsiveSettings(normalized);
   if (!linked) {
+    if (!settings.linked[target] || normalized.devices[target].flowMode === false) return normalized;
     const measurement = getCachedFlowMeasurement(target);
     return measurement ? applyFlowMeasurement(normalized, target, measurement) : markFlowDeviceManual(normalized, target);
   }
@@ -77,6 +86,8 @@ export function setDeviceLinked(draft: Draft, target: ResponsiveTarget, linked: 
 export function markDeviceManual(draft: Draft, device: Device): ResponsiveDraft {
   if (device === 'desktop') return ensureResponsive(draft);
   const normalized = ensureResponsive(draft);
+  const settings = flowResponsiveSettings(normalized);
+  if (!settings.linked[device] || normalized.devices[device].flowMode === false) return normalized;
   const measurement = getCachedFlowMeasurement(device);
   return measurement ? applyFlowMeasurement(normalized, device, measurement) : markFlowDeviceManual(normalized, device);
 }
