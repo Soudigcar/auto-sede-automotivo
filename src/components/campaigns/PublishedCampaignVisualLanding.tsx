@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MetaPixelTracker } from '@/components/MetaPixelTracker';
 import { CampaignFinanceSimulatorModal } from '@/components/campaigns/CampaignFinanceSimulator';
-import { CampaignVisualEditorPreviewResponsive } from './CampaignVisualEditorPreviewResponsive';
+import { CampaignVisualEditorPreviewFlow } from './CampaignVisualEditorPreviewFlow';
 import type { Device } from './CampaignVisualEditorModel';
 import { safe } from './CampaignVisualEditorModel';
 import { ensureResponsive } from './CampaignVisualEditorResponsive';
@@ -68,7 +68,7 @@ export function PublishedCampaignVisualLanding({ campaign, eventInfo, vehicles, 
   return (
     <main id="landing-inicio" className="min-h-screen bg-slate-50 text-slate-950">
       <MetaPixelTracker />
-      <CampaignVisualEditorPreviewResponsive
+      <CampaignVisualEditorPreviewFlow
         draft={draft}
         device={device}
         campaign={campaign}
@@ -88,6 +88,7 @@ export function PublishedCampaignVisualLanding({ campaign, eventInfo, vehicles, 
         onWheel={() => undefined}
         onBackgroundDoubleClick={() => undefined}
         onSelectVehicle={(vehicleId) => openSimulator(vehicleId)}
+        onFlowMeasurement={() => undefined}
       />
       <CampaignFinanceSimulatorModal
         campaign={campaign}
