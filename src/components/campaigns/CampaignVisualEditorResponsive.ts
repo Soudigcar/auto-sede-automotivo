@@ -1,8 +1,10 @@
 import type { Device, Draft } from './CampaignVisualEditorModel';
 import {
+  applyFlowMeasurement,
   ensureFlowResponsive,
   flowResponsiveSettings,
   forceFlowBoth,
+  getCachedFlowMeasurement,
   markFlowDeviceManual,
   setFlowDeviceLinked,
   setFlowResponsiveEnabled,
@@ -64,12 +66,19 @@ export function setResponsiveEnabled(draft: Draft, enabled: boolean): Responsive
 }
 
 export function setDeviceLinked(draft: Draft, target: ResponsiveTarget, linked: boolean): ResponsiveDraft {
-  return setFlowDeviceLinked(ensureResponsive(draft), target, linked);
+  const normalized = ensureResponsive(draft);
+  if (!linked) {
+    const measurement = getCachedFlowMeasurement(target);
+    return measurement ? applyFlowMeasurement(normalized, target, measurement) : markFlowDeviceManual(normalized, target);
+  }
+  return setFlowDeviceLinked(normalized, target, true);
 }
 
 export function markDeviceManual(draft: Draft, device: Device): ResponsiveDraft {
   if (device === 'desktop') return ensureResponsive(draft);
-  return markFlowDeviceManual(ensureResponsive(draft), device);
+  const normalized = ensureResponsive(draft);
+  const measurement = getCachedFlowMeasurement(device);
+  return measurement ? applyFlowMeasurement(normalized, device, measurement) : markFlowDeviceManual(normalized, device);
 }
 
 export function forceResponsiveBoth(draft: Draft): ResponsiveDraft {
