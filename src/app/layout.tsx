@@ -6,6 +6,7 @@ import { PipelineAddLeadWithStock } from '@/components/PipelineAddLeadWithStock'
 import { PipelineSaleConfirmation } from '@/components/PipelineSaleConfirmation';
 import { StoreCalendarRealtimeSync } from '@/components/StoreCalendarRealtimeSync';
 import { StoreTeamManualMember } from '@/components/StoreTeamManualMember';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.autosede.com.br'),
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PipelineSaleConfirmation />
         <StoreCalendarRealtimeSync />
         <StoreTeamManualMember />
+        <SpeedInsights />
       </body>
     </html>
   );
