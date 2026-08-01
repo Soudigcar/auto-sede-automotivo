@@ -85,5 +85,5 @@ export function CampaignVisualEditorLauncher() {
     };
   }, []);
 
-  return <div ref={rootRef}><NativeCampaignVisualEditorLauncher /></div>;
+  return <div ref={rootRef} className="[&>section]:hidden"><NativeCampaignVisualEditorLauncher /></div>;
 }
