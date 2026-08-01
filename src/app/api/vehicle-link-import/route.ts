@@ -362,8 +362,15 @@ async function savePreview(context: ImportContext, existing: any, sourceUrl: str
   return data;
 }
 
+function isStoredVehicleImage(url: string) {
+  return url.includes('/storage/v1/object/public/vehicle-images/');
+}
+
 async function persistImages(request: Request, draft: any) {
-  const imported = await importerRequest(request, 'import', draft.source_url, draft.image_urls);
+  const selected = cleanImages(draft.image_urls);
+  if (!selected.length || selected.every(isStoredVehicleImage)) return draft;
+
+  const imported = await importerRequest(request, 'import', draft.source_url, selected);
   const uploaded = cleanImages(imported.uploadedImages);
   if (!uploaded.length) return draft;
   return { ...draft, image_url: uploaded[0], image_urls: uploaded };
@@ -490,7 +497,7 @@ export async function POST(request: Request) {
     if (!existing) throw new ImportHttpError('Importe os dados antes de salvar ou publicar.', 404);
     let draft = normalizeDraft(body.vehicle || body, sourceUrl);
 
-    if (action === 'submit_approval' || action === 'publish') {
+    if (action === 'save_draft' || action === 'submit_approval' || action === 'publish') {
       draft = await persistImages(request, draft);
     }
 
