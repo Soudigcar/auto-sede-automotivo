@@ -1,6 +1,7 @@
 'use client';
 
 import type { MutableRefObject, PointerEvent, WheelEvent } from 'react';
+import { CampaignLandingNavigation } from './CampaignLandingNavigation';
 import { CampaignVisualEditorPreviewFlow } from './CampaignVisualEditorPreviewFlow';
 import { cacheFlowMeasurement, type FlowMeasurement, type ResponsiveTarget } from './CampaignVisualEditorFlow';
 import type { ContentKey, Device, Draft, Layer } from './CampaignVisualEditorModel';
@@ -28,5 +29,19 @@ type Props = {
 };
 
 export function CampaignVisualEditorPreviewResponsive(props: Props) {
-  return <CampaignVisualEditorPreviewFlow {...props} onFlowMeasurement={(target: ResponsiveTarget, measurement: FlowMeasurement) => cacheFlowMeasurement(target, measurement)} />;
+  return (
+    <div id="editor-inicio">
+      <CampaignLandingNavigation
+        primaryColor={props.draft.primaryColor}
+        homeSelector="#editor-inicio"
+        vehiclesSelector="#editor-vehicles"
+        simulationSelector="#editor-inline-simulator"
+        preview
+      />
+      <CampaignVisualEditorPreviewFlow
+        {...props}
+        onFlowMeasurement={(target: ResponsiveTarget, measurement: FlowMeasurement) => cacheFlowMeasurement(target, measurement)}
+      />
+    </div>
+  );
 }
