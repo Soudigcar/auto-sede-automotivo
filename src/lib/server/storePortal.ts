@@ -11,6 +11,7 @@ export type StorePortalPermission =
   | 'view_whatsapp'
   | 'view_calendar'
   | 'manage_stock'
+  | 'submit_stock_import'
   | 'manage_operation'
   | 'manage_team';
 
@@ -31,11 +32,11 @@ const roleLabels: Record<StorePortalRole, string> = {
 };
 
 const rolePermissions: Record<StorePortalRole, StorePortalPermission[]> = {
-  master: ['view_dashboard', 'manage_store', 'view_pipeline', 'view_whatsapp', 'view_calendar', 'manage_stock', 'manage_operation', 'manage_team'],
-  store: ['view_dashboard', 'manage_store', 'view_pipeline', 'view_whatsapp', 'view_calendar', 'manage_stock', 'manage_operation', 'manage_team'],
-  pre_sales: ['view_dashboard', 'view_pipeline', 'view_whatsapp', 'view_calendar'],
-  seller: ['view_dashboard', 'view_pipeline', 'view_whatsapp', 'view_calendar'],
-  prospector: ['view_dashboard', 'view_pipeline', 'view_whatsapp', 'view_calendar']
+  master: ['view_dashboard', 'manage_store', 'view_pipeline', 'view_whatsapp', 'view_calendar', 'manage_stock', 'submit_stock_import', 'manage_operation', 'manage_team'],
+  store: ['view_dashboard', 'manage_store', 'view_pipeline', 'view_whatsapp', 'view_calendar', 'manage_stock', 'submit_stock_import', 'manage_operation', 'manage_team'],
+  pre_sales: ['view_dashboard', 'view_pipeline', 'view_whatsapp', 'view_calendar', 'submit_stock_import'],
+  seller: ['view_dashboard', 'view_pipeline', 'view_whatsapp', 'view_calendar', 'submit_stock_import'],
+  prospector: ['view_dashboard', 'view_pipeline', 'view_whatsapp', 'view_calendar', 'submit_stock_import']
 };
 
 const menuCatalog: Array<Omit<StorePortalMenuItem, 'href'>> = [
@@ -44,6 +45,7 @@ const menuCatalog: Array<Omit<StorePortalMenuItem, 'href'>> = [
   { key: 'pipeline', label: 'Pipeline', segment: 'pipeline', permission: 'view_pipeline' },
   { key: 'whatsapp', label: 'WhatsApp CRM', segment: 'whatsapp', permission: 'view_whatsapp' },
   { key: 'calendar', label: 'Calendário', segment: 'calendario', permission: 'view_calendar' },
+  { key: 'stock-import', label: 'Importar OLX', segment: 'importar-veiculo', permission: 'submit_stock_import' },
   { key: 'stock', label: 'Estoque', segment: 'estoque', permission: 'manage_stock' },
   { key: 'operation', label: 'Operação', segment: 'operacao', permission: 'manage_operation' },
   { key: 'team', label: 'Equipe', segment: 'equipe', permission: 'manage_team' }

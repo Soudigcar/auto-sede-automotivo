@@ -72,9 +72,11 @@ export default function StoreSelfRegistrationPage() {
     }
 
     setMessage(result.existing_store
-      ? 'Loja localizada. Participação adicionada sem criar outro cadastro. Redirecionando...'
-      : 'Loja criada e vinculada ao evento. Redirecionando para o login...');
-    router.replace(result.login_url || '/login');
+      ? 'Loja localizada. Participação adicionada. Redirecionando para importar o estoque...'
+      : 'Loja criada e vinculada ao evento. Redirecionando para importar o estoque...');
+
+    const stockPath = result.store_slug ? `/loja/${result.store_slug}/estoque` : '/store';
+    router.replace(`/login?redirectedFrom=${encodeURIComponent(stockPath)}`);
   }
 
   if (loading) {
@@ -141,7 +143,7 @@ export default function StoreSelfRegistrationPage() {
               <div><h2 className="text-2xl font-black text-zinc-950">Veículos para o evento</h2><p className="text-sm text-zinc-500">Envie os veículos que deseja destacar nesta participação.</p></div>
             </div>
 
-            <div className="mt-5 rounded-2xl bg-red-50 p-4"><p className="text-sm font-bold text-red-700">Cole até 6 links públicos dos anúncios. O estoque permanente da loja continuará disponível após o evento.</p></div>
+            <div className="mt-5 rounded-2xl bg-red-50 p-4"><p className="text-sm font-bold text-red-700">Cole até 6 links públicos dos anúncios. Depois do login, o sistema importará os dados e as fotos automaticamente como rascunho.</p></div>
 
             <div className="mt-5 grid gap-3">
               {vehicleLinks.map((link, index) => <input key={index} className="premium-input" placeholder={`Link do veículo ${index + 1}`} value={link} onChange={(event) => updateVehicleLink(index, event.target.value)} />)}
