@@ -7,12 +7,31 @@ import { extractCanonicalOlxUrl } from '@/lib/olxSharedUrl';
 
 export type OlxImportStore = { id: string; name?: string; store_name?: string };
 export type OlxImportInitial = { submissionId?: string; storeId?: string; url?: string };
+export type OlxBrowserImage = { url: string; data_url?: string; error?: string };
+export type OlxBrowserImportPayload = {
+  source_url: string;
+  title?: string;
+  description?: string;
+  brand?: string;
+  model?: string;
+  version?: string;
+  year?: string;
+  mileage?: string;
+  color?: string;
+  transmission?: string;
+  fuel?: string;
+  price?: number | string;
+  image_url?: string;
+  image_urls?: string[];
+  images?: OlxBrowserImage[];
+};
 
 type Props = {
   open: boolean;
   stores: OlxImportStore[];
   initial?: OlxImportInitial | null;
   fixedStoreId?: string;
+  browserPayload?: OlxBrowserImportPayload | null;
   onClose: () => void;
   onComplete?: (result: any) => void;
 };
@@ -32,7 +51,28 @@ function moneyInput(value: unknown) {
   return number > 0 ? String(Math.round(number)) : '';
 }
 
-export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, onClose, onComplete }: Props) {
+function readableError(value: unknown, fallback: string): string {
+  if (typeof value === 'string' && value.trim() && value !== '[object Object]') return value.trim();
+  if (value && typeof value === 'object') {
+    const candidate = value as Record<string, unknown>;
+    return readableError(candidate.error || candidate.message || candidate.detail, fallback);
+  }
+  return fallback;
+}
+
+function browserDisplayImages(payload?: OlxBrowserImportPayload | null) {
+  const images = Array.isArray(payload?.images) ? payload.images : [];
+  const prepared = images.map((item) => item.data_url || item.url).filter(Boolean);
+  if (prepared.length) return Array.from(new Set(prepared));
+  return Array.from(new Set(Array.isArray(payload?.image_urls) ? payload.image_urls : [])).filter(Boolean);
+}
+
+function browserRemoteImages(payload?: OlxBrowserImportPayload | null) {
+  const fromObjects = (Array.isArray(payload?.images) ? payload.images : []).map((item) => item.url).filter(Boolean);
+  return Array.from(new Set([...fromObjects, ...(Array.isArray(payload?.image_urls) ? payload.image_urls : [])])).filter(Boolean);
+}
+
+export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, browserPayload, onClose, onComplete }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const autoImportRef = useRef('');
   const [storeId, setStoreId] = useState('');
@@ -48,25 +88,37 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, onC
   useEffect(() => {
     if (!open) return;
     autoImportRef.current = '';
+    const sourceUrl = extractCanonicalOlxUrl(browserPayload?.source_url || initial?.url || '');
+    const images = browserDisplayImages(browserPayload);
     setStoreId(fixedStoreId || initial?.storeId || stores[0]?.id || '');
     setSubmissionId(initial?.submissionId || '');
-    setUrl(initial?.url || '');
-    setVehicle({ ...emptyVehicle, source_url: initial?.url || '' });
+    setUrl(sourceUrl || initial?.url || '');
+    setVehicle(browserPayload ? {
+      ...emptyVehicle,
+      ...browserPayload,
+      source_url: sourceUrl,
+      price: moneyInput(browserPayload.price),
+      image_url: images[0] || browserPayload.image_url || '',
+      image_urls: images
+    } : { ...emptyVehicle, source_url: initial?.url || '' });
     setCanPublish(false);
-    setMessage(initial?.url ? 'Importando automaticamente os dados do anúncio...' : 'Cole o link ou a mensagem compartilhada da OLX.');
+    setMessage(browserPayload
+      ? 'Dados lidos pelo navegador. Registrando a prévia para revisão...'
+      : initial?.url ? 'Importando automaticamente os dados do anúncio...' : 'Cole o link ou a mensagem compartilhada da OLX.');
     setMissing([]);
-  }, [open, initial?.submissionId, initial?.storeId, initial?.url, fixedStoreId, stores[0]?.id]);
+  }, [open, initial?.submissionId, initial?.storeId, initial?.url, fixedStoreId, stores[0]?.id, browserPayload?.source_url]);
 
   async function token() {
     const { data } = await supabase.auth.getSession();
     return data.session?.access_token || '';
   }
 
-  async function request(actionName: 'preview' | 'save_draft' | 'submit_approval' | 'publish') {
+  async function standardRequest(actionName: 'preview' | 'save_draft' | 'submit_approval' | 'publish', vehicleOverride?: any) {
     const accessToken = await token();
     if (!accessToken) throw new Error('Sua sessão expirou. Entre novamente.');
 
-    const sourceUrl = extractCanonicalOlxUrl(url || vehicle.source_url);
+    const activeVehicle = vehicleOverride || vehicle;
+    const sourceUrl = extractCanonicalOlxUrl(url || activeVehicle.source_url);
     if (!sourceUrl) throw new Error('Não foi encontrado um link válido da OLX no texto informado.');
     if (sourceUrl !== url) setUrl(sourceUrl);
 
@@ -78,37 +130,70 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, onC
         store_id: storeId,
         submission_id: submissionId,
         source_url: sourceUrl,
-        vehicle: { ...vehicle, source_url: sourceUrl }
+        vehicle: { ...activeVehicle, source_url: sourceUrl }
       })
     });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error || 'Não foi possível processar o anúncio.');
+    if (!response.ok) throw new Error(readableError(result, 'Não foi possível processar o anúncio.'));
+    return result;
+  }
+
+  async function browserPreviewRequest() {
+    if (!browserPayload) throw new Error('A extensão não enviou os dados do anúncio.');
+    const accessToken = await token();
+    if (!accessToken) throw new Error('Sua sessão expirou. Entre novamente.');
+    const sourceUrl = extractCanonicalOlxUrl(browserPayload.source_url || url);
+    const remoteImages = browserRemoteImages(browserPayload);
+    const payloadVehicle: Record<string, unknown> = {
+      ...browserPayload,
+      source_url: sourceUrl,
+      image_url: remoteImages[0] || browserPayload.image_url || '',
+      image_urls: remoteImages
+    };
+    delete payloadVehicle.images;
+
+    const response = await fetch('/api/vehicle-link-import/browser-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({
+        store_id: storeId,
+        submission_id: submissionId,
+        source_url: sourceUrl,
+        vehicle: payloadVehicle
+      })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(readableError(result, 'Não foi possível registrar os dados lidos pelo navegador.'));
     return result;
   }
 
   async function importData() {
     if (!storeId) return setMessage('Selecione a loja proprietária.');
-    if (!extractCanonicalOlxUrl(url)) return setMessage('Cole o link ou a mensagem compartilhada da OLX.');
+    if (!extractCanonicalOlxUrl(browserPayload?.source_url || url)) return setMessage('Cole o link ou use a extensão no anúncio aberto da OLX.');
     setLoading(true);
-    setMessage('Lendo os dados e as fotos do anúncio...');
+    setMessage(browserPayload ? 'Registrando os dados lidos no navegador...' : 'Lendo os dados e as fotos do anúncio...');
     try {
-      const result = await request('preview');
+      const result = browserPayload ? await browserPreviewRequest() : await standardRequest('preview');
       const imported = result.imported || {};
+      const displayImages = browserPayload ? browserDisplayImages(browserPayload) : (Array.isArray(imported.image_urls) ? imported.image_urls : []);
       setSubmissionId(result.submission_id || submissionId);
       setCanPublish(Boolean(result.can_publish));
       setMissing(result.missing || []);
-      setUrl(imported.source_url || extractCanonicalOlxUrl(url) || url);
-      setVehicle({
+      setUrl(imported.source_url || extractCanonicalOlxUrl(browserPayload?.source_url || url) || url);
+      setVehicle((current: any) => ({
         ...emptyVehicle,
         ...imported,
-        source_url: imported.source_url || extractCanonicalOlxUrl(url) || url,
-        price: moneyInput(imported.price),
-        image_url: imported.image_url || imported.image_urls?.[0] || '',
-        image_urls: Array.isArray(imported.image_urls) ? imported.image_urls : []
-      });
+        ...(browserPayload || {}),
+        source_url: imported.source_url || extractCanonicalOlxUrl(browserPayload?.source_url || url) || url,
+        price: moneyInput(imported.price || browserPayload?.price),
+        image_url: displayImages[0] || imported.image_url || '',
+        image_urls: displayImages,
+        show_on_landing: current.show_on_landing !== false,
+        is_featured: current.is_featured === true
+      }));
       setMessage(result.missing?.length
         ? `Importação concluída. Revise os campos pendentes: ${result.missing.join(', ')}.`
-        : 'Importação concluída. Confira os dados e as fotos antes de continuar.');
+        : 'Importação concluída pelo navegador. Confira os dados e as fotos antes de continuar.');
     } catch (error: any) {
       setMessage(error?.message || 'Falha ao importar o anúncio.');
     } finally {
@@ -117,20 +202,57 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, onC
   }
 
   useEffect(() => {
-    if (!open || !initial?.url || !storeId || !url || loading) return;
-    const key = `${initial.submissionId || ''}:${storeId}:${extractCanonicalOlxUrl(url) || url}`;
+    if (!open || !storeId || loading) return;
+    const source = browserPayload?.source_url || initial?.url;
+    if (!source) return;
+    const key = `${browserPayload ? 'browser' : 'server'}:${initial?.submissionId || ''}:${storeId}:${extractCanonicalOlxUrl(source) || source}`;
     if (autoImportRef.current === key) return;
     autoImportRef.current = key;
-    const timer = window.setTimeout(() => void importData(), 80);
+    const timer = window.setTimeout(() => void importData(), 100);
     return () => window.clearTimeout(timer);
-  }, [open, initial?.url, initial?.submissionId, storeId, url]);
+  }, [open, browserPayload?.source_url, initial?.url, initial?.submissionId, storeId]);
+
+  async function persistBrowserImages(activeVehicle: any) {
+    const images = Array.isArray(activeVehicle.image_urls) ? activeVehicle.image_urls : [];
+    if (!images.some((image: string) => image.startsWith('data:image/'))) return activeVehicle;
+    const accessToken = await token();
+    if (!accessToken) throw new Error('Sua sessão expirou. Entre novamente.');
+    const uploaded: string[] = [];
+
+    for (let index = 0; index < images.length; index += 1) {
+      const image = String(images[index] || '');
+      if (!image.startsWith('data:image/')) {
+        uploaded.push(image);
+        continue;
+      }
+      setMessage(`Salvando foto ${index + 1} de ${images.length}...`);
+      const response = await fetch('/api/vehicle-link-import/browser-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({
+          store_id: storeId,
+          source_url: activeVehicle.source_url || url,
+          index: index + 1,
+          data_url: image
+        })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(readableError(result, `Não foi possível salvar a foto ${index + 1}.`));
+      if (result.url) uploaded.push(result.url);
+    }
+
+    if (!uploaded.length) throw new Error('Nenhuma foto pôde ser armazenada.');
+    return { ...activeVehicle, image_url: uploaded[0], image_urls: uploaded };
+  }
 
   async function finish(actionName: 'save_draft' | 'submit_approval' | 'publish') {
     if (!submissionId) return setMessage('Importe os dados antes de salvar.');
     setAction(actionName);
-    setMessage(actionName === 'publish' ? 'Copiando fotos e publicando...' : actionName === 'submit_approval' ? 'Copiando fotos e enviando para aprovação...' : 'Salvando rascunho...');
+    setMessage(actionName === 'publish' ? 'Salvando fotos e publicando...' : actionName === 'submit_approval' ? 'Salvando fotos e enviando para aprovação...' : 'Salvando rascunho...');
     try {
-      const result = await request(actionName);
+      const preparedVehicle = await persistBrowserImages(vehicle);
+      setVehicle(preparedVehicle);
+      const result = await standardRequest(actionName, preparedVehicle);
       if (result.imported) {
         setVehicle((current: any) => ({ ...current, ...result.imported, price: moneyInput(result.imported.price) }));
       }
@@ -177,9 +299,9 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, onC
             <option value="">Selecione a loja</option>
             {stores.map((store) => <option key={store.id} value={store.id}>{storeLabel(store)}</option>)}
           </select>
-          <input className="premium-input" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="Cole o link ou a mensagem compartilhada da OLX" aria-label="Link do anúncio OLX" />
+          <input className="premium-input" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="Cole o link ou use a extensão no anúncio aberto" aria-label="Link do anúncio OLX" readOnly={Boolean(browserPayload)} />
           <button type="button" className="premium-button-primary justify-center" onClick={() => void importData()} disabled={loading || Boolean(action)}>
-            {loading ? <Loader2 className="animate-spin" size={17} /> : <UploadCloud size={17} />} Importar dados
+            {loading ? <Loader2 className="animate-spin" size={17} /> : <UploadCloud size={17} />} {browserPayload ? 'Carregar dados do navegador' : 'Importar dados'}
           </button>
         </section>
 
@@ -204,7 +326,7 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, onC
 
           <aside className="rounded-[26px] border border-zinc-200 bg-zinc-50 p-5">
             <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.15em] text-zinc-400">Fotos importadas</p><p className="mt-1 text-xs font-semibold text-zinc-500">Clique em uma foto para definir a capa.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-zinc-600">{vehicle.image_urls?.length || 0}</span></div>
-            <div className="mt-4 grid grid-cols-2 gap-3">{(vehicle.image_urls || []).map((image: string) => <div key={image} className={`relative overflow-hidden rounded-2xl border-2 bg-white ${vehicle.image_url === image ? 'border-red-500' : 'border-transparent'}`}>
+            <div className="mt-4 grid grid-cols-2 gap-3">{(vehicle.image_urls || []).map((image: string, index: number) => <div key={`${index}-${image.slice(0, 80)}`} className={`relative overflow-hidden rounded-2xl border-2 bg-white ${vehicle.image_url === image ? 'border-red-500' : 'border-transparent'}`}>
               <button type="button" className="block aspect-[4/3] w-full" onClick={() => setCover(image)}><img src={image} alt="Foto importada" className="h-full w-full object-cover" /></button>
               <button type="button" className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/70 text-white" onClick={() => removeImage(image)}><X size={13} /></button>
               {vehicle.image_url === image ? <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full bg-red-600 px-2 py-1 text-[10px] font-black text-white"><Check size={11} /> CAPA</span> : null}
