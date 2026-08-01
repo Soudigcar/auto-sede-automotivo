@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ImagePlus, Loader2, Save, Send, UploadCloud, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import { extractCanonicalOlxUrl } from '@/lib/olxSharedUrl';
 
 export type OlxImportStore = { id: string; name?: string; store_name?: string };
 export type OlxImportInitial = { submissionId?: string; storeId?: string; url?: string };
@@ -52,7 +53,7 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, onC
     setUrl(initial?.url || '');
     setVehicle({ ...emptyVehicle, source_url: initial?.url || '' });
     setCanPublish(false);
-    setMessage(initial?.url ? 'Importando automaticamente os dados do anúncio...' : 'Cole o link completo do anúncio da OLX.');
+    setMessage(initial?.url ? 'Importando automaticamente os dados do anúncio...' : 'Cole o link ou a mensagem compartilhada da OLX.');
     setMissing([]);
   }, [open, initial?.submissionId, initial?.storeId, initial?.url, fixedStoreId, stores[0]?.id]);
 
@@ -65,15 +66,19 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, onC
     const accessToken = await token();
     if (!accessToken) throw new Error('Sua sessão expirou. Entre novamente.');
 
-    const response = await fetch('/api/vehicle-link-import', {
+    const sourceUrl = extractCanonicalOlxUrl(url || vehicle.source_url);
+    if (!sourceUrl) throw new Error('Não foi encontrado um link válido da OLX no texto informado.');
+    if (sourceUrl !== url) setUrl(sourceUrl);
+
+    const response = await fetch('/api/vehicle-link-import-v2', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({
         action: actionName,
         store_id: storeId,
         submission_id: submissionId,
-        source_url: url || vehicle.source_url,
-        vehicle: { ...vehicle, source_url: url || vehicle.source_url }
+        source_url: sourceUrl,
+        vehicle: { ...vehicle, source_url: sourceUrl }
       })
     });
     const result = await response.json().catch(() => ({}));
@@ -83,7 +88,7 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, onC
 
   async function importData() {
     if (!storeId) return setMessage('Selecione a loja proprietária.');
-    if (!url.trim()) return setMessage('Cole o link do anúncio da OLX.');
+    if (!extractCanonicalOlxUrl(url)) return setMessage('Cole o link ou a mensagem compartilhada da OLX.');
     setLoading(true);
     setMessage('Lendo os dados e as fotos do anúncio...');
     try {
@@ -92,10 +97,11 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, onC
       setSubmissionId(result.submission_id || submissionId);
       setCanPublish(Boolean(result.can_publish));
       setMissing(result.missing || []);
+      setUrl(imported.source_url || extractCanonicalOlxUrl(url) || url);
       setVehicle({
         ...emptyVehicle,
         ...imported,
-        source_url: imported.source_url || url,
+        source_url: imported.source_url || extractCanonicalOlxUrl(url) || url,
         price: moneyInput(imported.price),
         image_url: imported.image_url || imported.image_urls?.[0] || '',
         image_urls: Array.isArray(imported.image_urls) ? imported.image_urls : []
@@ -112,7 +118,7 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, onC
 
   useEffect(() => {
     if (!open || !initial?.url || !storeId || !url || loading) return;
-    const key = `${initial.submissionId || ''}:${storeId}:${url}`;
+    const key = `${initial.submissionId || ''}:${storeId}:${extractCanonicalOlxUrl(url) || url}`;
     if (autoImportRef.current === key) return;
     autoImportRef.current = key;
     const timer = window.setTimeout(() => void importData(), 80);
@@ -171,7 +177,7 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, onC
             <option value="">Selecione a loja</option>
             {stores.map((store) => <option key={store.id} value={store.id}>{storeLabel(store)}</option>)}
           </select>
-          <input className="premium-input" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://...olx.com.br/..." />
+          <input className="premium-input" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="Cole o link ou a mensagem compartilhada da OLX" aria-label="Link do anúncio OLX" />
           <button type="button" className="premium-button-primary justify-center" onClick={() => void importData()} disabled={loading || Boolean(action)}>
             {loading ? <Loader2 className="animate-spin" size={17} /> : <UploadCloud size={17} />} Importar dados
           </button>
