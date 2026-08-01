@@ -38,8 +38,6 @@ export async function GET(request: Request) {
     const supabase = getAdminClient();
     const master = await requireMaster(request, supabase);
 
-    // O seletor não pode ficar vazio enquanto o Supabase restaura a sessão no navegador.
-    // Neste fallback retornamos somente os dados operacionais não sensíveis dos eventos.
     if (!master) {
       const { data: events, error } = await supabase
         .from('events')
@@ -55,27 +53,38 @@ export async function GET(request: Request) {
       );
     }
 
-    const [campaignResult, eventResult, participationResult, assignmentResult] = await Promise.all([
+    const [campaignResult, eventResult, participationResult, assignmentResult, layoutResult] = await Promise.all([
       supabase.from('site_campaigns').select('*').order('created_at', { ascending: false }),
       supabase.from('events').select('*').neq('status', 'deleted').order('created_at', { ascending: false }),
       supabase.from('store_event_participations').select('event_id,store_id,status,auto_sync_inventory'),
-      supabase.from('event_vehicle_assignments').select('event_id,vehicle_id,status,show_on_landing')
+      supabase.from('event_vehicle_assignments').select('event_id,vehicle_id,status,show_on_landing'),
+      supabase.from('site_campaign_layouts').select('campaign_id,editor_draft,published_layout,layout_version,draft_updated_at,published_at,published_by')
     ]);
 
-    const error = campaignResult.error || eventResult.error || participationResult.error || assignmentResult.error;
+    const error = campaignResult.error || eventResult.error || participationResult.error || assignmentResult.error || layoutResult.error;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     const events = eventResult.data || [];
     const eventMap = Object.fromEntries(events.map((event) => [event.id, event]));
     const participations = participationResult.data || [];
     const assignments = assignmentResult.data || [];
+    const layoutMap = Object.fromEntries((layoutResult.data || []).map((layout) => [layout.campaign_id, layout]));
 
-    const campaigns = (campaignResult.data || []).map((campaign) => ({
-      ...campaign,
-      event: campaign.event_id ? eventMap[campaign.event_id] || null : null,
-      store_count: participations.filter((item) => item.event_id === campaign.event_id && item.status === 'active').length,
-      vehicle_count: assignments.filter((item) => item.event_id === campaign.event_id && item.status === 'active' && item.show_on_landing).length
-    }));
+    const campaigns = (campaignResult.data || []).map((campaign) => {
+      const visualLayout = layoutMap[campaign.id] || null;
+      return {
+        ...campaign,
+        editor_draft: visualLayout?.editor_draft || null,
+        published_layout: visualLayout?.published_layout || null,
+        layout_version: visualLayout?.layout_version || 2,
+        draft_updated_at: visualLayout?.draft_updated_at || null,
+        published_at: visualLayout?.published_at || campaign.published_at || null,
+        published_by: visualLayout?.published_by || null,
+        event: campaign.event_id ? eventMap[campaign.event_id] || null : null,
+        store_count: participations.filter((item) => item.event_id === campaign.event_id && item.status === 'active').length,
+        vehicle_count: assignments.filter((item) => item.event_id === campaign.event_id && item.status === 'active' && item.show_on_landing).length
+      };
+    });
 
     return NextResponse.json(
       { campaigns, events },
