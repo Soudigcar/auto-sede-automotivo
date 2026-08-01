@@ -49,26 +49,28 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Campanha não encontrada.' }, { status: 404 });
     }
 
+    const campaignRecord = campaign as any;
+
     const { data: visualLayout, error: layoutError } = await supabase
       .from('site_campaign_layouts')
       .select('published_layout,layout_version,published_at')
-      .eq('campaign_id', campaign.id)
+      .eq('campaign_id', campaignRecord.id)
       .maybeSingle();
 
     if (layoutError) return NextResponse.json({ error: layoutError.message }, { status: 500 });
 
     const publicCampaign = {
-      ...campaign,
+      ...campaignRecord,
       published_layout: visualLayout?.published_layout || null,
       layout_version: visualLayout?.layout_version || 2,
-      published_at: visualLayout?.published_at || campaign.published_at || null
+      published_at: visualLayout?.published_at || campaignRecord.published_at || null
     };
 
-    if (!campaign.event_id) {
+    if (!campaignRecord.event_id) {
       const { data: legacyVehicles, error } = await supabase
         .from('site_vehicles')
         .select('*')
-        .eq('campaign_id', campaign.id)
+        .eq('campaign_id', campaignRecord.id)
         .eq('status', 'disponivel')
         .eq('show_on_landing', true)
         .gt('price', 0)
@@ -80,12 +82,12 @@ export async function GET(request: Request) {
     }
 
     const [eventResult, participationResult, assignmentResult] = await Promise.all([
-      supabase.from('events').select('*').eq('id', campaign.event_id).maybeSingle(),
-      supabase.from('store_event_participations').select('store_id,status').eq('event_id', campaign.event_id).eq('status', 'active'),
+      supabase.from('events').select('*').eq('id', campaignRecord.event_id).maybeSingle(),
+      supabase.from('store_event_participations').select('store_id,status').eq('event_id', campaignRecord.event_id).eq('status', 'active'),
       supabase
         .from('event_vehicle_assignments')
         .select('*')
-        .eq('event_id', campaign.event_id)
+        .eq('event_id', campaignRecord.event_id)
         .eq('status', 'active')
         .eq('show_on_landing', true)
     ]);
