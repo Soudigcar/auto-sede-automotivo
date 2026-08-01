@@ -27,6 +27,35 @@ class ImportHttpError extends Error {
   }
 }
 
+function readableError(value: unknown, fallback: string) {
+  if (typeof value === 'string') {
+    const text = cleanText(value, 900);
+    if (text && !/^\[object Object\]$/i.test(text)) return text;
+  }
+
+  if (value instanceof Error && value.message) return cleanText(value.message, 900);
+
+  if (value && typeof value === 'object') {
+    const object = value as Record<string, unknown>;
+    for (const key of ['message', 'error_description', 'description', 'detail', 'error']) {
+      const candidate = object[key];
+      if (candidate && candidate !== value) {
+        const message = readableError(candidate, '');
+        if (message) return message;
+      }
+    }
+
+    try {
+      const serialized = cleanText(JSON.stringify(value), 900);
+      if (serialized && serialized !== '{}') return serialized;
+    } catch {
+      // Usa a mensagem padrão abaixo.
+    }
+  }
+
+  return fallback;
+}
+
 function normalizeOlxUrl(value: unknown) {
   const raw = cleanText(value, 1600);
   if (!raw) return '';
@@ -123,20 +152,27 @@ function olxImages(html: string) {
 async function fetchOlxSupplement(url: string) {
   const response = await fetch(url, {
     headers: {
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36 AutoControleAutomotivo/2.0',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36 AutoControleAutomotivo/2.1',
       accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
       'accept-language': 'pt-BR,pt;q=0.9,en;q=0.7'
     },
+    redirect: 'follow',
     cache: 'no-store'
   });
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    throw new ImportHttpError(`A OLX recusou a leitura do anúncio. Status ${response.status}.`, 502, {
+      provider: 'olx',
+      provider_status: response.status
+    });
+  }
+
   const html = await response.text();
   const metaDescription = html.match(/<meta[^>]+(?:property|name)=["'](?:og:description|description)["'][^>]+content=["']([^"']+)["']/i)?.[1]
     || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:description|description)["']/i)?.[1]
     || '';
 
-  return {
+  const result = {
     title: embeddedValue(html, 'subject', 500),
     description: embeddedValue(html, 'body', 12000) || cleanText(metaDescription, 12000),
     price: Number(html.match(/"price_value"\s*:\s*(\d{4,9})/i)?.[1] || 0),
@@ -152,16 +188,66 @@ async function fetchOlxSupplement(url: string) {
       fuel: detailLabel(html, 'fuel')
     }
   };
+
+  const hasData = Boolean(
+    result.title || result.description || result.price || result.images.length ||
+    result.vehicle.brand || result.vehicle.model || result.vehicle.year
+  );
+
+  if (!hasData) {
+    throw new ImportHttpError('A OLX respondeu, mas a página não trouxe os dados públicos do anúncio.', 502, {
+      provider: 'olx',
+      provider_status: response.status,
+      response_type: response.headers.get('content-type') || null
+    });
+  }
+
+  return result;
 }
 
 async function importerRequest(request: Request, action: 'preview' | 'import', url: string, images?: string[]) {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  const cookie = request.headers.get('cookie');
+  const protectionBypass = request.headers.get('x-vercel-protection-bypass');
+  const protectionCookie = request.headers.get('x-vercel-set-bypass-cookie');
+
+  if (cookie) headers.set('cookie', cookie);
+  if (protectionBypass) headers.set('x-vercel-protection-bypass', protectionBypass);
+  if (protectionCookie) headers.set('x-vercel-set-bypass-cookie', protectionCookie);
+
   const response = await fetch(`${new URL(request.url).origin}/api/site-import`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, url, images })
+    headers,
+    body: JSON.stringify({ action, url, images }),
+    redirect: 'manual',
+    cache: 'no-store'
   });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new ImportHttpError(result.error || 'Não foi possível importar o anúncio da OLX.', 502);
+
+  const contentType = response.headers.get('content-type') || '';
+  const responseText = await response.text();
+  let result: any = {};
+
+  if (responseText) {
+    try {
+      result = JSON.parse(responseText);
+    } catch {
+      result = { error: responseText };
+    }
+  }
+
+  if (!response.ok) {
+    const protectedPreview = response.status === 401 || response.status === 403 || response.status === 302 || contentType.includes('text/html');
+    const fallback = protectedPreview
+      ? `A proteção do Preview bloqueou a comunicação interna do importador. Status ${response.status}.`
+      : `O importador interno respondeu com status ${response.status}.`;
+
+    throw new ImportHttpError(readableError(result?.error || result, fallback), 502, {
+      upstream_route: '/api/site-import',
+      upstream_status: response.status,
+      upstream_content_type: contentType || null
+    });
+  }
+
   return result;
 }
 
@@ -191,6 +277,13 @@ function mergePreview(generic: any, supplement: any, sourceUrl: string) {
     show_on_landing: true,
     is_featured: false
   };
+}
+
+function previewHasData(value: any) {
+  return Boolean(
+    value?.title || value?.description || value?.brand || value?.model || value?.year ||
+    Number(value?.price || 0) > 0 || value?.image_urls?.length
+  );
 }
 
 function normalizeDraft(value: any, sourceUrl: string) {
@@ -477,11 +570,39 @@ export async function POST(request: Request) {
     await ensureNoDuplicate(context.supabase, sourceUrl, existing?.id || '');
 
     if (action === 'preview') {
-      const [generic, supplement] = await Promise.all([
+      const [genericResult, supplementResult] = await Promise.allSettled([
         importerRequest(request, 'preview', sourceUrl),
-        fetchOlxSupplement(sourceUrl).catch(() => null)
+        fetchOlxSupplement(sourceUrl)
       ]);
+
+      const generic = genericResult.status === 'fulfilled' ? genericResult.value : null;
+      const supplement = supplementResult.status === 'fulfilled' ? supplementResult.value : null;
+
+      if (!generic && !supplement) {
+        const genericError = genericResult.status === 'rejected'
+          ? readableError(genericResult.reason, 'O importador interno falhou.')
+          : '';
+        const supplementError = supplementResult.status === 'rejected'
+          ? readableError(supplementResult.reason, 'O parser da OLX falhou.')
+          : '';
+
+        throw new ImportHttpError(
+          [genericError, supplementError].filter(Boolean).join(' | ') || 'Nenhum parser conseguiu ler o anúncio da OLX.',
+          502,
+          {
+            parser_status: {
+              generic: genericResult.status,
+              olx: supplementResult.status
+            }
+          }
+        );
+      }
+
       const preview = mergePreview(generic, supplement, sourceUrl);
+      if (!previewHasData(preview)) {
+        throw new ImportHttpError('Os parsers acessaram o anúncio, mas nenhum dado ou foto pôde ser extraído.', 422);
+      }
+
       const submission = await savePreview(context, existing, sourceUrl, preview);
       return NextResponse.json({
         success: true,
@@ -490,7 +611,11 @@ export async function POST(request: Request) {
         missing: missingFields(preview),
         role: context.role,
         can_publish: context.canPublish,
-        store: context.store
+        store: context.store,
+        parsers: {
+          generic: genericResult.status,
+          olx: supplementResult.status
+        }
       });
     }
 
@@ -521,7 +646,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     const status = error instanceof ImportHttpError ? error.status : 500;
     return NextResponse.json({
-      error: error?.message || 'Erro ao importar anúncio da OLX.',
+      error: readableError(error, 'Erro ao importar anúncio da OLX.'),
       ...(error instanceof ImportHttpError && error.details ? error.details : {})
     }, { status });
   }
