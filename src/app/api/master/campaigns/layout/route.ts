@@ -23,16 +23,30 @@ export async function GET(request: Request) {
     const id = cleanText(new URL(request.url).searchParams.get('id'), 80);
     if (!id) return NextResponse.json({ error: 'Landing obrigatória.' }, { status: 400 });
 
-    const { data, error } = await supabase
-      .from('site_campaigns')
-      .select('id,slug,is_active,editor_draft,published_layout,layout_version,draft_updated_at,published_at,published_by')
-      .eq('id', id)
-      .maybeSingle();
+    const [{ data: campaign, error: campaignError }, { data: layout, error: layoutError }] = await Promise.all([
+      supabase.from('site_campaigns').select('id,slug,is_active,published_at').eq('id', id).maybeSingle(),
+      supabase
+        .from('site_campaign_layouts')
+        .select('campaign_id,editor_draft,published_layout,layout_version,draft_updated_at,published_at,published_by')
+        .eq('campaign_id', id)
+        .maybeSingle()
+    ]);
 
+    const error = campaignError || layoutError;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    if (!data) return NextResponse.json({ error: 'Landing não encontrada.' }, { status: 404 });
+    if (!campaign) return NextResponse.json({ error: 'Landing não encontrada.' }, { status: 404 });
 
-    return NextResponse.json({ campaign: data }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+    return NextResponse.json({
+      campaign: {
+        ...campaign,
+        editor_draft: layout?.editor_draft || null,
+        published_layout: layout?.published_layout || null,
+        layout_version: layout?.layout_version || LAYOUT_VERSION,
+        draft_updated_at: layout?.draft_updated_at || null,
+        published_at: layout?.published_at || campaign.published_at || null,
+        published_by: layout?.published_by || null
+      }
+    }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Erro ao carregar o layout.' }, { status: 500 });
   }
@@ -55,7 +69,7 @@ export async function POST(request: Request) {
 
     const { data: campaign, error: campaignError } = await supabase
       .from('site_campaigns')
-      .select('id,slug,event_id,is_active')
+      .select('id,slug,event_id,is_active,published_at')
       .eq('id', id)
       .maybeSingle();
 
@@ -63,7 +77,8 @@ export async function POST(request: Request) {
     if (!campaign) return NextResponse.json({ error: 'Landing não encontrada.' }, { status: 404 });
 
     const now = new Date().toISOString();
-    const payload: Record<string, unknown> = {
+    const layoutPayload: Record<string, unknown> = {
+      campaign_id: id,
       editor_draft: layout,
       layout_version: LAYOUT_VERSION,
       draft_updated_at: now,
@@ -84,26 +99,49 @@ export async function POST(request: Request) {
         }
       }
 
-      payload.published_layout = layout;
-      payload.published_at = now;
-      payload.published_by = master.id;
-      payload.is_active = true;
+      layoutPayload.published_layout = layout;
+      layoutPayload.published_at = now;
+      layoutPayload.published_by = master.id;
     }
 
-    const { data, error } = await supabase
-      .from('site_campaigns')
-      .update(payload)
-      .eq('id', id)
-      .select('id,slug,is_active,editor_draft,published_layout,layout_version,draft_updated_at,published_at,published_by')
+    const { data: savedLayout, error: layoutError } = await supabase
+      .from('site_campaign_layouts')
+      .upsert(layoutPayload, { onConflict: 'campaign_id' })
+      .select('campaign_id,editor_draft,published_layout,layout_version,draft_updated_at,published_at,published_by')
       .single();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (layoutError || !savedLayout) {
+      return NextResponse.json({ error: layoutError?.message || 'Não foi possível salvar o layout.' }, { status: 400 });
+    }
+
+    let campaignState = campaign;
+    if (action === 'publish') {
+      const { data: publishedCampaign, error: publishError } = await supabase
+        .from('site_campaigns')
+        .update({ is_active: true, published_at: now, updated_at: now })
+        .eq('id', id)
+        .select('id,slug,is_active,published_at')
+        .single();
+
+      if (publishError || !publishedCampaign) {
+        return NextResponse.json({ error: publishError?.message || 'O layout foi salvo, mas a landing não pôde ser ativada.' }, { status: 400 });
+      }
+      campaignState = { ...campaign, ...publishedCampaign };
+    }
 
     return NextResponse.json({
       success: true,
       action,
-      campaign: data,
-      public_path: `/campanha/${data.slug}`
+      campaign: {
+        ...campaignState,
+        editor_draft: savedLayout.editor_draft,
+        published_layout: savedLayout.published_layout,
+        layout_version: savedLayout.layout_version,
+        draft_updated_at: savedLayout.draft_updated_at,
+        published_at: savedLayout.published_at || campaignState.published_at || null,
+        published_by: savedLayout.published_by
+      },
+      public_path: `/campanha/${campaign.slug}`
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Erro ao salvar o layout.' }, { status: 500 });
