@@ -22,9 +22,7 @@ const publicCampaignFields = [
   'benefits',
   'terms_text',
   'published_at',
-  'auto_sync_inventory',
-  'published_layout',
-  'layout_version'
+  'auto_sync_inventory'
 ].join(',');
 
 function getAdminClient() {
@@ -51,6 +49,21 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Campanha não encontrada.' }, { status: 404 });
     }
 
+    const { data: visualLayout, error: layoutError } = await supabase
+      .from('site_campaign_layouts')
+      .select('published_layout,layout_version,published_at')
+      .eq('campaign_id', campaign.id)
+      .maybeSingle();
+
+    if (layoutError) return NextResponse.json({ error: layoutError.message }, { status: 500 });
+
+    const publicCampaign = {
+      ...campaign,
+      published_layout: visualLayout?.published_layout || null,
+      layout_version: visualLayout?.layout_version || 2,
+      published_at: visualLayout?.published_at || campaign.published_at || null
+    };
+
     if (!campaign.event_id) {
       const { data: legacyVehicles, error } = await supabase
         .from('site_vehicles')
@@ -63,7 +76,7 @@ export async function GET(request: Request) {
         .order('created_at', { ascending: false });
 
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json({ campaign, event: null, stores: [], vehicles: legacyVehicles || [] });
+      return NextResponse.json({ campaign: publicCampaign, event: null, stores: [], vehicles: legacyVehicles || [] });
     }
 
     const [eventResult, participationResult, assignmentResult] = await Promise.all([
@@ -128,7 +141,7 @@ export async function GET(request: Request) {
       });
 
     return NextResponse.json({
-      campaign,
+      campaign: publicCampaign,
       event: eventResult.data || null,
       stores: storeResult.data || [],
       vehicles
