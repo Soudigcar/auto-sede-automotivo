@@ -4,7 +4,7 @@ import { cleanText, getAdminClient, requireMaster } from '@/lib/server/masterApi
 export const runtime = 'nodejs';
 
 const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
-const allowedKinds = new Set(['logo', 'hero', 'mobile-hero', 'sponsor']);
+const allowedKinds = new Set(['logo', 'header', 'hero', 'tablet-hero', 'mobile-hero', 'sponsor']);
 
 function safeName(value: string) {
   return cleanText(value, 180)
