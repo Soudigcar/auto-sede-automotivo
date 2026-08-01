@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { Building2, CalendarDays, CarFront, CheckCircle2, MapPin, Store } from 'lucide-react';
 import { MetaPixelTracker } from '@/components/MetaPixelTracker';
 import { CampaignFinanceSimulatorModal, CampaignSimulatorCard } from '@/components/campaigns/CampaignFinanceSimulator';
+import { PublishedCampaignVisualLanding } from '@/components/campaigns/PublishedCampaignVisualLanding';
 
 function money(value: number) {
   return `R$ ${Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -54,7 +55,7 @@ export function EventCampaignLanding() {
   }, [slug]);
 
   useEffect(() => {
-    if (!campaign || !slug || autoOpenedSlugRef.current === slug) return;
+    if (!campaign || campaign.published_layout || !slug || autoOpenedSlugRef.current === slug) return;
 
     autoOpenedSlugRef.current = slug;
     setSimulatorVehicleId('');
@@ -78,8 +79,12 @@ export function EventCampaignLanding() {
   if (loading) return <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">Carregando evento...</main>;
   if (!campaign) return <main className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-center text-white">{message || 'Evento indisponível.'}</main>;
 
+  if (campaign.published_layout) {
+    return <PublishedCampaignVisualLanding campaign={campaign} eventInfo={eventInfo} vehicles={vehicles} stores={stores} slug={slug} />;
+  }
+
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-950">
+    <main id="landing-inicio" className="min-h-screen bg-slate-50 text-slate-950">
       <MetaPixelTracker />
 
       <section className="relative min-h-[760px] overflow-hidden px-4 pb-20 pt-5 text-white sm:px-6 lg:px-8" style={{ backgroundColor: secondary }}>
