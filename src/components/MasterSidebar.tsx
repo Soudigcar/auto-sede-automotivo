@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Activity, BarChart3, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, Globe2, Inbox, Landmark, LogOut, Megaphone, MessageCircle, Plug, ShoppingBag, Store, UserCog } from 'lucide-react';
+import { MasterOlxImportBridge } from '@/components/marketplace/MasterOlxImportBridge';
 
 const masterMenu = [
   { label: 'Dashboard', href: '/master/dashboard/live', icon: BarChart3 },
@@ -35,7 +36,7 @@ export function MasterSidebar({ active }: { active: string }) {
     localStorage.setItem('master-sidebar-collapsed', String(next));
   }
 
-  return (
+  return <>
     <aside className={`hidden shrink-0 bg-[#071020] px-4 py-7 text-white transition-all duration-300 lg:block ${collapsed ? 'w-20' : 'w-72'}`}>
       <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
         <div className="flex items-center gap-3">
@@ -93,5 +94,6 @@ export function MasterSidebar({ active }: { active: string }) {
         })}
       </nav>
     </aside>
-  );
+    <MasterOlxImportBridge />
+  </>;
 }
