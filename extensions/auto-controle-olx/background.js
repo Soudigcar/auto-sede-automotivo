@@ -1,6 +1,22 @@
-const DEFAULT_TARGET = 'https://auto-sede-automotivo-git-agent-native-backgrou-98032b-soudigcar.vercel.app/importar-olx';
+const DEFAULT_TARGET = 'https://sistemaautomotivo.autosede.com.br/importar-olx';
+const LEGACY_PREVIEW_HOSTS = new Set([
+  'auto-sede-automotivo-git-agent-native-backgrou-98032b-soudigcar.vercel.app'
+]);
 const PENDING_KEY = 'autoControleOlxPendingImport';
 const TARGET_KEY = 'autoControleTargetUrl';
+
+function normalizeStoredTarget(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return DEFAULT_TARGET;
+
+  try {
+    const parsed = new URL(raw);
+    if (LEGACY_PREVIEW_HOSTS.has(parsed.hostname)) return DEFAULT_TARGET;
+    return raw;
+  } catch {
+    return DEFAULT_TARGET;
+  }
+}
 
 function bytesToBase64(bytes) {
   let binary = '';
@@ -68,7 +84,13 @@ async function prepareImport(payload) {
 
 async function targetUrl() {
   const stored = await chrome.storage.local.get(TARGET_KEY);
-  const value = String(stored[TARGET_KEY] || DEFAULT_TARGET).trim();
+  const rawValue = String(stored[TARGET_KEY] || DEFAULT_TARGET).trim();
+  const value = normalizeStoredTarget(rawValue);
+
+  if (value !== rawValue) {
+    await chrome.storage.local.set({ [TARGET_KEY]: value });
+  }
+
   try {
     const parsed = new URL(value);
     parsed.pathname = '/importar-olx';
@@ -103,15 +125,21 @@ async function openAutoControle() {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'AUTO_CONTROLE_SAVE_TARGET') {
-    chrome.storage.local.set({ [TARGET_KEY]: String(message.url || '').trim() })
-      .then(() => sendResponse({ ok: true }))
+    const value = normalizeStoredTarget(message.url);
+    chrome.storage.local.set({ [TARGET_KEY]: value })
+      .then(() => sendResponse({ ok: true, target_url: value }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
 
   if (message?.type === 'AUTO_CONTROLE_GET_SETTINGS') {
     chrome.storage.local.get([TARGET_KEY, PENDING_KEY])
-      .then((result) => sendResponse({ ok: true, target_url: result[TARGET_KEY] || DEFAULT_TARGET, pending: result[PENDING_KEY] || null }))
+      .then(async (result) => {
+        const rawValue = String(result[TARGET_KEY] || DEFAULT_TARGET).trim();
+        const target = normalizeStoredTarget(rawValue);
+        if (target !== rawValue) await chrome.storage.local.set({ [TARGET_KEY]: target });
+        sendResponse({ ok: true, target_url: target, pending: result[PENDING_KEY] || null });
+      })
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
