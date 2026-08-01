@@ -19,8 +19,9 @@ function canonical(value: string) {
 }
 
 function vehicleLinkFromButton(button: HTMLElement) {
-  const card = button.closest('div.rounded-3xl, article, tr');
-  const anchors = Array.from(card?.querySelectorAll<HTMLAnchorElement>('a[href]') || []);
+  const card = button.closest<HTMLDivElement>('div.rounded-3xl');
+  if (!card || !card.textContent?.toLowerCase().includes('link de veículo')) return '';
+  const anchors = Array.from(card.querySelectorAll<HTMLAnchorElement>('a[href]'));
   return anchors.find((anchor) => anchor.href.includes('olx.com.br'))?.href || '';
 }
 
