@@ -1,6 +1,30 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+const publicCampaignFields = [
+  'id',
+  'event_id',
+  'name',
+  'slug',
+  'title',
+  'description',
+  'interest_rate',
+  'whatsapp_number',
+  'is_active',
+  'logo_url',
+  'hero_image_url',
+  'mobile_hero_image_url',
+  'sponsor_logo_urls',
+  'hero_eyebrow',
+  'cta_label',
+  'primary_color',
+  'secondary_color',
+  'benefits',
+  'terms_text',
+  'published_at',
+  'auto_sync_inventory'
+].join(',');
+
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -16,7 +40,7 @@ export async function GET(request: Request) {
     const supabase = getAdminClient();
     const { data: campaign, error: campaignError } = await supabase
       .from('site_campaigns')
-      .select('*')
+      .select(publicCampaignFields)
       .eq('slug', slug)
       .eq('is_active', true)
       .maybeSingle();
@@ -25,11 +49,28 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Campanha não encontrada.' }, { status: 404 });
     }
 
-    if (!campaign.event_id) {
+    const campaignRecord = campaign as any;
+
+    const { data: visualLayout, error: layoutError } = await supabase
+      .from('site_campaign_layouts')
+      .select('published_layout,layout_version,published_at')
+      .eq('campaign_id', campaignRecord.id)
+      .maybeSingle();
+
+    if (layoutError) return NextResponse.json({ error: layoutError.message }, { status: 500 });
+
+    const publicCampaign = {
+      ...campaignRecord,
+      published_layout: visualLayout?.published_layout || null,
+      layout_version: visualLayout?.layout_version || 2,
+      published_at: visualLayout?.published_at || campaignRecord.published_at || null
+    };
+
+    if (!campaignRecord.event_id) {
       const { data: legacyVehicles, error } = await supabase
         .from('site_vehicles')
         .select('*')
-        .eq('campaign_id', campaign.id)
+        .eq('campaign_id', campaignRecord.id)
         .eq('status', 'disponivel')
         .eq('show_on_landing', true)
         .gt('price', 0)
@@ -37,16 +78,16 @@ export async function GET(request: Request) {
         .order('created_at', { ascending: false });
 
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json({ campaign, event: null, stores: [], vehicles: legacyVehicles || [] });
+      return NextResponse.json({ campaign: publicCampaign, event: null, stores: [], vehicles: legacyVehicles || [] });
     }
 
     const [eventResult, participationResult, assignmentResult] = await Promise.all([
-      supabase.from('events').select('*').eq('id', campaign.event_id).maybeSingle(),
-      supabase.from('store_event_participations').select('store_id,status').eq('event_id', campaign.event_id).eq('status', 'active'),
+      supabase.from('events').select('*').eq('id', campaignRecord.event_id).maybeSingle(),
+      supabase.from('store_event_participations').select('store_id,status').eq('event_id', campaignRecord.event_id).eq('status', 'active'),
       supabase
         .from('event_vehicle_assignments')
         .select('*')
-        .eq('event_id', campaign.event_id)
+        .eq('event_id', campaignRecord.event_id)
         .eq('status', 'active')
         .eq('show_on_landing', true)
     ]);
@@ -102,7 +143,7 @@ export async function GET(request: Request) {
       });
 
     return NextResponse.json({
-      campaign,
+      campaign: publicCampaign,
       event: eventResult.data || null,
       stores: storeResult.data || [],
       vehicles
