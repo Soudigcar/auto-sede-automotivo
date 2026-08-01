@@ -1,6 +1,6 @@
 'use client';
 
-// Integra o modal de revisão OLX aos atalhos existentes do Marketplace Master.
+// Integra o modal de revisão OLX aos atalhos existentes do catálogo Master.
 import { useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Link2 } from 'lucide-react';
@@ -28,7 +28,7 @@ function vehicleLinkFromButton(button: HTMLElement) {
 export function MasterOlxImportBridge() {
   const pathname = usePathname();
   const supabase = useMemo(() => createClient(), []);
-  const active = pathname.startsWith('/master/marketplace') || pathname.startsWith('/master/stores');
+  const active = pathname.startsWith('/master/marketplace/catalog') || pathname.startsWith('/master/stores');
   const [open, setOpen] = useState(false);
   const [stores, setStores] = useState<OlxImportStore[]>([]);
   const [submissions, setSubmissions] = useState<any[]>([]);
