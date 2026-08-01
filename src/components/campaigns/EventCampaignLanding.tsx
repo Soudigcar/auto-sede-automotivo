@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Building2, CalendarDays, CarFront, CheckCircle2, MapPin, Store } from 'lucide-react';
 import { MetaPixelTracker } from '@/components/MetaPixelTracker';
@@ -30,10 +30,13 @@ export function EventCampaignLanding() {
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
-  const [simulatorOpen, setSimulatorOpen] = useState(true);
+  const [simulatorOpen, setSimulatorOpen] = useState(false);
   const [simulatorVehicleId, setSimulatorVehicleId] = useState('');
+  const autoOpenedSlugRef = useRef('');
 
   useEffect(() => {
+    setLoading(true);
+    setSimulatorOpen(false);
     fetch(`/api/site-vehicles?slug=${encodeURIComponent(slug)}`, { cache: 'no-store' })
       .then(async (response) => ({ response, result: await response.json() }))
       .then(({ response, result }) => {
@@ -49,6 +52,16 @@ export function EventCampaignLanding() {
         setLoading(false);
       });
   }, [slug]);
+
+  useEffect(() => {
+    if (!campaign || !slug || autoOpenedSlugRef.current === slug) return;
+
+    autoOpenedSlugRef.current = slug;
+    setSimulatorVehicleId('');
+    const timer = window.setTimeout(() => setSimulatorOpen(true), 250);
+
+    return () => window.clearTimeout(timer);
+  }, [campaign, slug]);
 
   const primary = campaign?.primary_color || '#DC2626';
   const secondary = campaign?.secondary_color || '#071020';
@@ -104,7 +117,9 @@ export function EventCampaignLanding() {
               </div>
             </div>
 
-            <CampaignSimulatorCard campaign={campaign} vehicles={vehicles} primaryColor={primary} onOpen={() => openSimulator()} cardRadius={34} buttonRadius={16} />
+            <div id="simulacao">
+              <CampaignSimulatorCard campaign={campaign} vehicles={vehicles} primaryColor={primary} onOpen={() => openSimulator()} cardRadius={34} buttonRadius={16} />
+            </div>
           </div>
         </div>
       </section>
