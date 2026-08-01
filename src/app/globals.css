@@ -161,6 +161,106 @@ textarea {
   color: var(--app-muted);
 }
 
+/*
+ * O formulário de conferência do estoque é renderizado dentro do card do
+ * veículo. Visualmente ele funciona como modal, sem alterar o fluxo de dados
+ * nem a publicação manual já existente.
+ */
+body:has(.premium-card > form.mt-5) {
+  overflow: hidden;
+}
+
+.premium-card > form.mt-5 {
+  position: fixed;
+  z-index: 1000;
+  top: 2vh;
+  left: 50%;
+  width: min(1120px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: 96vh;
+  margin: 0;
+  padding: 18px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  transform: translateX(-50%);
+  border-radius: 28px;
+  border: 1px solid rgba(229, 27, 35, 0.18);
+  background: #fffafa;
+  box-shadow:
+    0 0 0 100vmax rgba(2, 6, 23, 0.72),
+    0 28px 80px rgba(2, 6, 23, 0.40);
+}
+
+.premium-card > form.mt-5 * {
+  min-width: 0;
+}
+
+.premium-card > form.mt-5 input,
+.premium-card > form.mt-5 select,
+.premium-card > form.mt-5 textarea,
+.premium-card > form.mt-5 button,
+.premium-card > form.mt-5 a {
+  max-width: 100%;
+}
+
+.premium-card > form.mt-5 > div:first-child {
+  position: sticky;
+  z-index: 5;
+  top: -18px;
+  margin: -18px -18px 0;
+  padding: 18px;
+  border-bottom: 1px solid rgba(229, 27, 35, 0.12);
+  background: rgba(255, 250, 250, 0.97);
+  backdrop-filter: blur(14px);
+}
+
+.premium-card > form.mt-5 > div.mt-4 {
+  display: grid;
+  min-width: 0;
+}
+
+/* Exibe alertas e falhas da IA antes dos campos para não ficarem escondidos. */
+.premium-card > form.mt-5 .border-violet-100 {
+  order: -1;
+}
+
+.premium-card > form.mt-5 > div.mt-4 > div:last-child {
+  position: sticky;
+  z-index: 4;
+  bottom: -18px;
+  margin: 0 -18px -18px;
+  padding: 14px 18px 18px;
+  border-top: 1px solid rgba(228, 231, 236, 0.92);
+  background: rgba(255, 250, 250, 0.97);
+  backdrop-filter: blur(14px);
+}
+
+@media (max-width: 767px) {
+  .premium-card > form.mt-5 {
+    top: 0;
+    width: 100vw;
+    max-width: 100vw;
+    max-height: 100dvh;
+    min-height: 100dvh;
+    padding: 14px;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .premium-card > form.mt-5 > div:first-child {
+    top: -14px;
+    margin: -14px -14px 0;
+    padding: 14px;
+  }
+
+  .premium-card > form.mt-5 > div.mt-4 > div:last-child {
+    bottom: -14px;
+    margin: 0 -14px -14px;
+    padding: 12px 14px 14px;
+  }
+}
+
 @media (min-width: 768px) {
   .premium-page {
     padding: 24px;
