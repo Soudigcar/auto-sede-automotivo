@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Pencil, PlayCircle, Power, RotateCcw, Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { ChevronRight, Pencil, PlayCircle, Power, RotateCcw, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
 function dateText(value?: string) {
@@ -15,6 +16,7 @@ function statusLabel(status?: string) {
 }
 
 export function EventListManager({ refreshKey = 0 }: { refreshKey?: number }) {
+  const router = useRouter();
   const supabase = createClient();
   const [events, setEvents] = useState<any[]>([]);
   const [message, setMessage] = useState('');
@@ -171,16 +173,33 @@ export function EventListManager({ refreshKey = 0 }: { refreshKey?: number }) {
     await loadData();
   }
 
+  function openEvent(item: any) {
+    if (editingId === item.id || actionId === item.id) return;
+    router.push(`/master/events/${item.id}`);
+  }
+
   return (
     <section className="premium-card p-6">
       <h2 className="text-2xl font-black text-zinc-950">Eventos cadastrados</h2>
-      <p className="mt-1 text-sm text-zinc-500">Edite, ative, desative ou reative sem excluir o histórico.</p>
+      <p className="mt-1 text-sm text-zinc-500">Clique no card para abrir a operação. Edite, ative, desative ou reative sem excluir o histórico.</p>
 
       <div className="mt-5 space-y-3">
         {events.map((item) => (
-          <div key={item.id} className="rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
+          <article
+            key={item.id}
+            role={editingId === item.id ? undefined : 'button'}
+            tabIndex={editingId === item.id ? -1 : 0}
+            onClick={() => openEvent(item)}
+            onKeyDown={(event) => {
+              if ((event.key === 'Enter' || event.key === ' ') && editingId !== item.id) {
+                event.preventDefault();
+                openEvent(item);
+              }
+            }}
+            className={`rounded-2xl border bg-zinc-50 p-4 transition ${editingId === item.id ? 'border-zinc-200' : 'cursor-pointer border-zinc-100 hover:-translate-y-0.5 hover:border-red-200 hover:bg-white hover:shadow-lg'}`}
+          >
             {editingId === item.id ? (
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-2" onClick={(event) => event.stopPropagation()}>
                 <input className="premium-input md:col-span-2" value={form.eventName} onChange={(e) => setForm({ ...form, eventName: e.target.value })} />
 
                 <label className="text-xs font-bold uppercase tracking-wide text-zinc-400">
@@ -207,13 +226,13 @@ export function EventListManager({ refreshKey = 0 }: { refreshKey?: number }) {
 
                 <input className="premium-input" placeholder="Link" value={form.liveUrl} onChange={(e) => setForm({ ...form, liveUrl: e.target.value })} />
 
-                <button className="premium-button-primary" type="button" onClick={saveEdit}>Salvar edição</button>
+                <button className="premium-button-primary" type="button" onClick={() => void saveEdit()}>Salvar edição</button>
                 <button className="premium-button-secondary" type="button" onClick={() => setEditingId('')}>Cancelar</button>
               </div>
             ) : (
               <>
                 <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-black text-zinc-950">{item.event_name}</h3>
                       <span className={`rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-wide ${item.status === 'active' ? 'bg-emerald-100 text-emerald-700' : item.status === 'inactive' ? 'bg-amber-100 text-amber-700' : 'bg-zinc-200 text-zinc-600'}`}>
@@ -227,9 +246,13 @@ export function EventListManager({ refreshKey = 0 }: { refreshKey?: number }) {
                       Banco: {item.sponsor_bank || '-'} | Local: {item.location || '-'}
                     </p>
                   </div>
+
+                  <div className="flex items-center gap-2 text-xs font-black text-red-600">
+                    Abrir painel do evento <ChevronRight size={17} />
+                  </div>
                 </div>
 
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-4 flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
                   <button className="premium-button-secondary text-xs" type="button" onClick={() => startEdit(item)}>
                     <Pencil size={14} /> Editar
                   </button>
@@ -244,13 +267,13 @@ export function EventListManager({ refreshKey = 0 }: { refreshKey?: number }) {
                     {actionId === item.id ? 'Processando...' : item.status === 'active' ? 'Desativar' : item.status === 'inactive' ? 'Reativar' : 'Ativar'}
                   </button>
 
-                  <button className="premium-button-secondary text-xs" type="button" onClick={() => removeEvent(item)}>
+                  <button className="premium-button-secondary text-xs" type="button" onClick={() => void removeEvent(item)}>
                     <Trash2 size={14} /> Excluir
                   </button>
                 </div>
               </>
             )}
-          </div>
+          </article>
         ))}
 
         {events.length === 0 ? <p className="text-sm text-zinc-500">Nenhum evento cadastrado.</p> : null}
