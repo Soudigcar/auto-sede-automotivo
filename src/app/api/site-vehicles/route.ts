@@ -1,6 +1,32 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+const publicCampaignFields = [
+  'id',
+  'event_id',
+  'name',
+  'slug',
+  'title',
+  'description',
+  'interest_rate',
+  'whatsapp_number',
+  'is_active',
+  'logo_url',
+  'hero_image_url',
+  'mobile_hero_image_url',
+  'sponsor_logo_urls',
+  'hero_eyebrow',
+  'cta_label',
+  'primary_color',
+  'secondary_color',
+  'benefits',
+  'terms_text',
+  'published_at',
+  'auto_sync_inventory',
+  'published_layout',
+  'layout_version'
+].join(',');
+
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -16,7 +42,7 @@ export async function GET(request: Request) {
     const supabase = getAdminClient();
     const { data: campaign, error: campaignError } = await supabase
       .from('site_campaigns')
-      .select('*')
+      .select(publicCampaignFields)
       .eq('slug', slug)
       .eq('is_active', true)
       .maybeSingle();
