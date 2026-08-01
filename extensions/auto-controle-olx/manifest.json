@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Auto Controle — Importador OLX",
+  "version": "0.1.0",
+  "description": "Lê anúncios de veículos abertos na OLX e envia os dados e fotos para revisão no Auto Controle Automotivo.",
+  "permissions": ["storage", "tabs", "activeTab", "unlimitedStorage"],
+  "host_permissions": [
+    "https://*.olx.com.br/*",
+    "https://autosede.com.br/*",
+    "https://www.autosede.com.br/*",
+    "https://sistemaautomotivo.autosede.com.br/*",
+    "https://*.vercel.app/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Importar anúncio OLX",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.olx.com.br/*"],
+      "js": ["olx-content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://autosede.com.br/*",
+        "https://www.autosede.com.br/*",
+        "https://sistemaautomotivo.autosede.com.br/*",
+        "https://*.vercel.app/*"
+      ],
+      "js": ["auto-controle-content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}
