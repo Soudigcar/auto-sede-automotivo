@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ImagePlus, Loader2, Save, Send, UploadCloud, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
@@ -33,6 +33,7 @@ function moneyInput(value: unknown) {
 
 export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, onClose, onComplete }: Props) {
   const supabase = useMemo(() => createClient(), []);
+  const autoImportRef = useRef('');
   const [storeId, setStoreId] = useState('');
   const [submissionId, setSubmissionId] = useState('');
   const [url, setUrl] = useState('');
@@ -45,14 +46,15 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, onC
 
   useEffect(() => {
     if (!open) return;
+    autoImportRef.current = '';
     setStoreId(fixedStoreId || initial?.storeId || stores[0]?.id || '');
     setSubmissionId(initial?.submissionId || '');
     setUrl(initial?.url || '');
     setVehicle({ ...emptyVehicle, source_url: initial?.url || '' });
     setCanPublish(false);
-    setMessage(initial?.url ? 'Clique em “Importar dados” para carregar o anúncio.' : 'Cole o link completo do anúncio da OLX.');
+    setMessage(initial?.url ? 'Importando automaticamente os dados do anúncio...' : 'Cole o link completo do anúncio da OLX.');
     setMissing([]);
-  }, [open, initial?.submissionId, initial?.storeId, initial?.url, fixedStoreId, stores]);
+  }, [open, initial?.submissionId, initial?.storeId, initial?.url, fixedStoreId, stores[0]?.id]);
 
   async function token() {
     const { data } = await supabase.auth.getSession();
@@ -107,6 +109,15 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, onC
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!open || !initial?.url || !storeId || !url || loading) return;
+    const key = `${initial.submissionId || ''}:${storeId}:${url}`;
+    if (autoImportRef.current === key) return;
+    autoImportRef.current = key;
+    const timer = window.setTimeout(() => void importData(), 80);
+    return () => window.clearTimeout(timer);
+  }, [open, initial?.url, initial?.submissionId, storeId, url]);
 
   async function finish(actionName: 'save_draft' | 'submit_approval' | 'publish') {
     if (!submissionId) return setMessage('Importe os dados antes de salvar.');
