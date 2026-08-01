@@ -28,6 +28,19 @@ export type FlowMeasurement = {
   content: Partial<Record<ContentKey, Box>>;
 };
 
+const FLOW_MEASUREMENT_CACHE: Record<ResponsiveTarget, FlowMeasurement | null> = {
+  tablet: null,
+  mobile: null
+};
+
+export function cacheFlowMeasurement(target: ResponsiveTarget, measurement: FlowMeasurement): void {
+  FLOW_MEASUREMENT_CACHE[target] = measurement;
+}
+
+export function getCachedFlowMeasurement(target: ResponsiveTarget): FlowMeasurement | null {
+  return FLOW_MEASUREMENT_CACHE[target];
+}
+
 const DEFAULT_SETTINGS: FlowResponsiveSettings = {
   enabled: true,
   linked: { tablet: true, mobile: true },
@@ -192,17 +205,25 @@ export function synchronizeFlow(
   const settings = flowResponsiveSettings(draft);
   const force = new Set(options.force || []);
   const devices = { ...draft.devices };
+  const backgroundMode = { ...draft.backgroundMode };
+  const backgroundData = { ...draft.backgroundData };
 
   for (const target of ['tablet', 'mobile'] as ResponsiveTarget[]) {
     if (force.has(target) || (settings.enabled && settings.linked[target])) {
       devices[target] = deriveFlowLayout(draft, target);
+      if (settings.syncBackground[target]) {
+        backgroundMode[target] = draft.backgroundMode.desktop;
+        backgroundData[target] = draft.backgroundMode.desktop === 'custom' ? draft.backgroundData.desktop : '';
+      }
     }
   }
 
   return {
     ...draft,
     responsive: settings,
-    devices
+    devices,
+    backgroundMode,
+    backgroundData
   };
 }
 
