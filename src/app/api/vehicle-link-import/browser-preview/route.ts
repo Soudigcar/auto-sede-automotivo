@@ -121,8 +121,27 @@ export async function POST(request: Request) {
     duplicateQuery = adId ? duplicateQuery.ilike('vehicle_url', `%${adId}%`) : duplicateQuery.eq('vehicle_url', sourceUrl);
     const duplicateResult = await duplicateQuery;
     const duplicate = (duplicateResult.data || []).find((item: any) => item.id !== existing?.id);
-    if (duplicate) {
+    if (duplicate && !existing && duplicate.store_id === store.id && ['pending', 'reviewing'].includes(String(duplicate.status || ''))) {
+      const reusable = await supabase
+        .from('store_vehicle_link_submissions')
+        .select('*')
+        .eq('id', duplicate.id)
+        .eq('store_id', store.id)
+        .maybeSingle();
+      existing = reusable.data || null;
+    } else if (duplicate) {
       return NextResponse.json({ error: 'Este anúncio da OLX já foi importado ou está em revisão.', duplicate }, { status: 409 });
+    }
+
+    let vehicleQuery = supabase
+      .from('site_vehicles')
+      .select('id,store_id,status,source_url')
+      .neq('status', 'excluido')
+      .limit(1);
+    vehicleQuery = adId ? vehicleQuery.ilike('source_url', `%${adId}%`) : vehicleQuery.eq('source_url', sourceUrl);
+    const vehicleDuplicate = (await vehicleQuery).data?.[0] || null;
+    if (vehicleDuplicate) {
+      return NextResponse.json({ error: 'Este anúncio já corresponde a um veículo publicado no portal.', duplicate: vehicleDuplicate }, { status: 409 });
     }
 
     const now = new Date().toISOString();
