@@ -27,9 +27,11 @@ export async function POST(request: Request) {
         : body?.vehicle
     };
 
-    const headers = new Headers(request.headers);
-    headers.set('content-type', 'application/json');
-    headers.delete('content-length');
+    const headers = new Headers({ 'content-type': 'application/json' });
+    const authorization = request.headers.get('authorization');
+    const cookie = request.headers.get('cookie');
+    if (authorization) headers.set('authorization', authorization);
+    if (cookie) headers.set('cookie', cookie);
 
     const upstream = await fetch(new URL('/api/vehicle-link-import', request.url), {
       method: 'POST',
