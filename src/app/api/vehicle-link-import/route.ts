@@ -27,7 +27,7 @@ class ImportHttpError extends Error {
   }
 }
 
-function readableError(value: unknown, fallback: string) {
+function readableError(value: unknown, fallback: string): string {
   if (typeof value === 'string') {
     const text = cleanText(value, 900);
     if (text && !/^\[object Object\]$/i.test(text)) return text;
