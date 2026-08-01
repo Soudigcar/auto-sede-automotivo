@@ -19,8 +19,8 @@ type NavigationItem = {
 export function CampaignLandingNavigation({
   primaryColor = '#DC2626',
   homeSelector,
-  vehiclesSelector = '#veiculos',
-  simulationSelector = 'main section button',
+  vehiclesSelector = '#editor-vehicles, #veiculos',
+  simulationSelector = '#editor-inline-simulator, #simulacao',
   preview = false
 }: CampaignLandingNavigationProps) {
   const navigate = useCallback((item: NavigationItem) => {
