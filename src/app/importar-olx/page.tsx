@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Chrome, CheckCircle2, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, Loader2, Puzzle, RefreshCw, ShieldCheck } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { OlxVehicleImportModal, type OlxBrowserImportPayload } from '@/components/marketplace/OlxVehicleImportModal';
 
@@ -87,7 +87,7 @@ export default function BrowserOlxImportPage() {
       <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-900">{message}</div>
 
       <section className="mt-6 grid gap-4 md:grid-cols-3">
-        <article className="rounded-3xl border border-zinc-200 bg-white p-6"><Chrome className="text-red-600" /><h2 className="mt-4 text-lg font-black">1. Abra o anúncio</h2><p className="mt-2 text-sm font-semibold text-zinc-500">Na OLX, clique em “Importar para Auto Controle”.</p></article>
+        <article className="rounded-3xl border border-zinc-200 bg-white p-6"><Puzzle className="text-red-600" /><h2 className="mt-4 text-lg font-black">1. Abra o anúncio</h2><p className="mt-2 text-sm font-semibold text-zinc-500">Na OLX, clique em “Importar para Auto Controle”.</p></article>
         <article className="rounded-3xl border border-zinc-200 bg-white p-6"><CheckCircle2 className="text-red-600" /><h2 className="mt-4 text-lg font-black">2. Revise tudo</h2><p className="mt-2 text-sm font-semibold text-zinc-500">Confira dados, preço, descrição, capa e galeria antes de continuar.</p></article>
         <article className="rounded-3xl border border-zinc-200 bg-white p-6"><ShieldCheck className="text-red-600" /><h2 className="mt-4 text-lg font-black">3. Permissões</h2><p className="mt-2 text-sm font-semibold text-zinc-500">{context?.can_publish ? 'Seu perfil pode publicar diretamente.' : 'Seu perfil envia o veículo para aprovação.'}</p></article>
       </section>
