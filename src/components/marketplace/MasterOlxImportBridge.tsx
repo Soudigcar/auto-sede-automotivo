@@ -1,5 +1,6 @@
 'use client';
 
+// Integra o modal de revisão OLX aos atalhos existentes do Marketplace Master.
 import { useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Link2 } from 'lucide-react';
