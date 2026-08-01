@@ -83,7 +83,7 @@ export function markDeviceManual(draft: Draft, device: Device): ResponsiveDraft 
 
 export function forceResponsiveBoth(draft: Draft): ResponsiveDraft {
   const normalized = ensureFlowResponsive(draft);
-  return forceFlowBoth({
+  const configured: ResponsiveDraft = {
     ...normalized,
     responsive: {
       ...flowResponsiveSettings(normalized),
@@ -92,5 +92,6 @@ export function forceResponsiveBoth(draft: Draft): ResponsiveDraft {
       syncBackground: { tablet: true, mobile: true },
       version: 2
     }
-  });
+  };
+  return forceFlowBoth(configured);
 }
