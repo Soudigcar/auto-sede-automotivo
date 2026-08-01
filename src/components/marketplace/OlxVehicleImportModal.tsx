@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ImagePlus, Loader2, Save, Send, UploadCloud, X } from 'lucide-react';
+import { BrainCircuit, Check, ImagePlus, Loader2, MessageCircle, Save, Send, Sparkles, UploadCloud, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { extractCanonicalOlxUrl } from '@/lib/olxSharedUrl';
 
@@ -84,6 +84,8 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, bro
   const [action, setAction] = useState('');
   const [message, setMessage] = useState('');
   const [missing, setMissing] = useState<string[]>([]);
+  const [aiAction, setAiAction] = useState('');
+  const [aiReview, setAiReview] = useState<any>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -106,6 +108,8 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, bro
       ? 'Dados lidos pelo navegador. Registrando a prévia para revisão...'
       : initial?.url ? 'Importando automaticamente os dados do anúncio...' : 'Cole o link ou a mensagem compartilhada da OLX.');
     setMissing([]);
+    setAiAction('');
+    setAiReview(null);
   }, [open, initial?.submissionId, initial?.storeId, initial?.url, fixedStoreId, stores[0]?.id, browserPayload?.source_url]);
 
   async function token() {
@@ -267,6 +271,48 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, bro
     }
   }
 
+  async function runAi(actionName: 'normalize' | 'description' | 'marketing') {
+    if (!submissionId) return setMessage('Importe os dados do anúncio antes de usar a IA.');
+    const accessToken = await token();
+    if (!accessToken) return setMessage('Sua sessão expirou. Entre novamente.');
+
+    setAiAction(actionName);
+    setMessage(actionName === 'marketing' ? 'Criando conteúdos comerciais com IA...' : 'Analisando os dados do veículo com IA...');
+    try {
+      const response = await fetch('/api/vehicle-link-import-ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ action: actionName, store_id: storeId, vehicle })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Não foi possível analisar o veículo com IA.');
+
+      const review = payload.result || {};
+      setAiReview(review);
+      if (actionName !== 'marketing') {
+        setVehicle((current: any) => ({
+          ...current,
+          ...(review.vehicle || {}),
+          description: review.optimized_description || review.vehicle?.description || current.description,
+          price: moneyInput(review.vehicle?.price || current.price),
+          source_url: current.source_url,
+          image_url: current.image_url,
+          image_urls: current.image_urls,
+          show_on_landing: current.show_on_landing,
+          is_featured: current.is_featured
+        }));
+      }
+      const conflictCount = review.conflicts?.length || 0;
+      setMessage(conflictCount
+        ? `Análise concluída. A IA identificou ${conflictCount} possível(is) divergência(s); confira antes de salvar.`
+        : 'Análise concluída. Confira as sugestões antes de salvar.');
+    } catch (error: any) {
+      setMessage(error?.message || 'Falha ao analisar o veículo com IA.');
+    } finally {
+      setAiAction('');
+    }
+  }
+
   function patch(key: string, value: any) {
     setVehicle((current: any) => ({ ...current, [key]: value }));
   }
@@ -307,6 +353,14 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, bro
 
         {submissionId ? <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_430px]">
           <section className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2 rounded-[24px] border border-violet-200 bg-violet-50 p-4">
+              <div className="flex items-start gap-3"><BrainCircuit className="mt-0.5 text-violet-700" size={22} /><div><p className="text-sm font-black text-violet-950">Assistente de cadastro</p><p className="mt-1 text-xs font-semibold leading-relaxed text-violet-700">A IA sugere ajustes e aponta divergências. Nada é salvo ou publicado automaticamente.</p></div></div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <AiButton loading={aiAction === 'normalize'} disabled={Boolean(aiAction) || Boolean(action)} icon={<BrainCircuit size={15} />} label="Organizar e auditar" onClick={() => void runAi('normalize')} />
+                <AiButton loading={aiAction === 'description'} disabled={Boolean(aiAction) || Boolean(action)} icon={<Sparkles size={15} />} label="Melhorar descrição" onClick={() => void runAi('description')} />
+                <AiButton loading={aiAction === 'marketing'} disabled={Boolean(aiAction) || Boolean(action)} icon={<MessageCircle size={15} />} label="Criar conteúdos" onClick={() => void runAi('marketing')} />
+              </div>
+            </div>
             <Field label="Título do anúncio" value={vehicle.title} onChange={(value) => patch('title', value)} wide />
             <Field label="Marca *" value={vehicle.brand} onChange={(value) => patch('brand', value)} />
             <Field label="Modelo *" value={vehicle.model} onChange={(value) => patch('model', value)} />
@@ -322,6 +376,12 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, bro
             <label className="flex items-center gap-3 rounded-2xl bg-zinc-50 p-4 text-sm font-black"><input type="checkbox" checked={vehicle.show_on_landing !== false} onChange={(event) => patch('show_on_landing', event.target.checked)} /> Publicar no Portal Oficial</label>
             <label className="flex items-center gap-3 rounded-2xl bg-zinc-50 p-4 text-sm font-black"><input type="checkbox" checked={vehicle.is_featured === true} onChange={(event) => patch('is_featured', event.target.checked)} /> Destacar veículo</label>
             {missing.length ? <div className="sm:col-span-2 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">Pendências: {missing.join(', ')}.</div> : null}
+            {aiReview?.conflicts?.length ? <div className="sm:col-span-2 rounded-2xl border border-red-200 bg-red-50 p-4"><p className="text-xs font-black uppercase text-red-700">Divergências para conferir</p><ul className="mt-2 space-y-1 text-sm font-semibold text-red-800">{aiReview.conflicts.map((item: any, index: number) => <li key={`${item.field}-${index}`}>• {item.message}</li>)}</ul></div> : null}
+            {aiReview?.warnings?.length ? <div className="sm:col-span-2 rounded-2xl border border-amber-200 bg-amber-50 p-4"><p className="text-xs font-black uppercase text-amber-700">Alertas da análise</p><ul className="mt-2 space-y-1 text-sm font-semibold text-amber-800">{aiReview.warnings.map((item: string, index: number) => <li key={`${item}-${index}`}>• {item}</li>)}</ul></div> : null}
+            {aiReview?.instagram_caption || aiReview?.whatsapp_message ? <div className="sm:col-span-2 grid gap-3 lg:grid-cols-2">
+              {aiReview.instagram_caption ? <GeneratedContent label="Legenda para Instagram" value={aiReview.instagram_caption} /> : null}
+              {aiReview.whatsapp_message ? <GeneratedContent label="Mensagem para WhatsApp" value={aiReview.whatsapp_message} /> : null}
+            </div> : null}
           </section>
 
           <aside className="rounded-[26px] border border-zinc-200 bg-zinc-50 p-5">
@@ -347,4 +407,18 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, bro
 
 function Field({ label, value, onChange, type = 'text', wide = false }: { label: string; value: any; onChange: (value: string) => void; type?: string; wide?: boolean }) {
   return <label className={`text-xs font-black uppercase text-zinc-500 ${wide ? 'sm:col-span-2' : ''}`}>{label}<input className="premium-input mt-2" type={type} min={type === 'number' ? 0 : undefined} value={value || ''} onChange={(event) => onChange(event.target.value)} /></label>;
+}
+
+function AiButton({ loading, disabled, icon, label, onClick }: { loading: boolean; disabled: boolean; icon: React.ReactNode; label: string; onClick: () => void }) {
+  return <button type="button" onClick={onClick} disabled={disabled} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-white px-3 text-xs font-black text-violet-800 shadow-sm ring-1 ring-violet-200 disabled:opacity-50">{loading ? <Loader2 className="animate-spin" size={15} /> : icon}{label}</button>;
+}
+
+function GeneratedContent({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    await navigator.clipboard.writeText(value);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  }
+  return <article className="rounded-2xl border border-violet-200 bg-white p-4"><div className="flex items-center justify-between gap-3"><p className="text-xs font-black uppercase text-violet-700">{label}</p><button type="button" onClick={() => void copy()} className="text-xs font-black text-zinc-500 hover:text-violet-700">{copied ? 'Copiado' : 'Copiar'}</button></div><p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-relaxed text-zinc-700">{value}</p></article>;
 }
