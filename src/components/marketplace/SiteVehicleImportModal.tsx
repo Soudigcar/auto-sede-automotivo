@@ -140,9 +140,15 @@ export function SiteVehicleImportModal({
         image_url: imported.image_url || imported.image_urls?.[0] || '',
         image_urls: Array.isArray(imported.image_urls) ? imported.image_urls : []
       });
+      const descriptionGenerated = result.ai_review?.description_generated === true;
+      const aiWarning = result.ai_review?.ok === false;
       setMessage(result.missing?.length
-        ? `Leitura concluída. Revise os campos pendentes: ${result.missing.join(', ')}.`
-        : 'Leitura concluída. Confira todos os dados e as fotos.');
+        ? `${descriptionGenerated ? 'Descrição gerada pela IA. ' : ''}Revise os campos pendentes: ${result.missing.join(', ')}.`
+        : descriptionGenerated
+          ? 'Leitura concluída e descrição gerada pela IA. Confira os dados e as fotos.'
+          : aiWarning
+            ? 'Dados lidos. A IA não conseguiu gerar uma nova descrição; revise o texto antes de publicar.'
+            : 'Leitura concluída. Confira todos os dados e as fotos.');
     } catch (error: any) {
       setMessage(readableError(error?.message || error, 'Falha ao importar o site da loja.'));
     } finally {
@@ -261,8 +267,11 @@ export function SiteVehicleImportModal({
                 <Field label="Preço *" type="number" value={vehicle.price} onChange={(value) => patch('price', value)} />
 
                 <label className="text-xs font-black uppercase text-zinc-500 sm:col-span-2">
-                  Descrição importada
+                  Descrição gerada pela IA
                   <textarea className="premium-input mt-2 min-h-36 py-3" value={vehicle.description || ''} onChange={(event) => patch('description', event.target.value)} />
+                  <span className="mt-2 block normal-case tracking-normal text-zinc-400">
+                    A IA redige o texto; cor, ano, câmbio e demais dados técnicos vêm do anúncio original.
+                  </span>
                 </label>
 
                 <label className="text-xs font-black uppercase text-zinc-500 sm:col-span-2">
