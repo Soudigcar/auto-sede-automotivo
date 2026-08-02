@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Clipboard, Clock3, ExternalLink, Store, XCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import { absoluteInternalSystemUrl } from '@/lib/publicRoutes';
 
 function dateTime(value?: string) {
   if (!value) return '-';
@@ -86,7 +87,7 @@ export function StorePortalApplicationsManager() {
 
   async function copyAccess() {
     if (!access?.password) return;
-    const login = typeof window === 'undefined' ? access.login_path : `${window.location.origin}${access.login_path}`;
+    const login = absoluteInternalSystemUrl(access.login_path || '/login');
     await navigator.clipboard.writeText(`Loja: ${access.store_name}\nLogin: ${access.email}\nSenha provisória: ${access.password}\nAcesso: ${login}`);
     setMessage('Acesso da loja copiado.');
   }
@@ -148,7 +149,7 @@ export function StorePortalApplicationsManager() {
             <div className="mt-5 grid gap-3">
               <Info label="Login" value={access.email} />
               <Info label="Senha provisória" value={access.password} important />
-              <Info label="Página de acesso" value={access.login_path} />
+              <Info label="Página de acesso" value={absoluteInternalSystemUrl(access.login_path || '/login')} />
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               <button type="button" onClick={copyAccess} className="premium-button-primary justify-center"><Clipboard size={17} /> Copiar acesso</button>

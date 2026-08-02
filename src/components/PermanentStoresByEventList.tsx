@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Copy, ExternalLink, Eye, EyeOff, KeyRound, Link2, Pencil, Search, Unlink, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { EventSelectField } from '@/components/EventSelectField';
+import { absoluteInternalSystemUrl, officialStoreLoginUrl } from '@/lib/publicRoutes';
 
 function normalize(value: unknown) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -16,10 +17,7 @@ function dateText(value?: string) {
 }
 
 function portalLink(slug?: string) {
-  if (!slug) return '';
-  const redirectedFrom = encodeURIComponent(`/loja/${slug}`);
-  if (typeof window === 'undefined') return `/login?redirectedFrom=${redirectedFrom}`;
-  return `${window.location.origin}/login?redirectedFrom=${redirectedFrom}`;
+  return officialStoreLoginUrl(slug || '');
 }
 
 function eventIsActive(event: any) {
@@ -228,7 +226,8 @@ export function PermanentStoresByEventList({ refreshKey = 0, eventId: controlled
 
   async function copyPassword() {
     if (!passwordResult?.password) return;
-    await navigator.clipboard.writeText(`Loja: ${passwordResult.store_name}\nLogin: ${passwordResult.email}\nSenha: ${passwordResult.password}\nPortal: ${window.location.origin}${passwordResult.portal_path}`);
+    const portal = absoluteInternalSystemUrl(passwordResult.portal_path || '/login');
+    await navigator.clipboard.writeText(`Loja: ${passwordResult.store_name}\nLogin: ${passwordResult.email}\nSenha: ${passwordResult.password}\nPortal: ${portal}`);
     setMessage('Acesso completo copiado.');
   }
 
@@ -305,7 +304,7 @@ export function PermanentStoresByEventList({ refreshKey = 0, eventId: controlled
 
       {message ? <p className="rounded-2xl bg-white p-3 text-sm font-bold text-zinc-600">{message}</p> : null}
 
-      {passwordResult ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur"><div className="w-full max-w-2xl rounded-[32px] bg-white p-7 shadow-2xl"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-wide text-emerald-700">Senha gerada</p><h3 className="mt-2 text-3xl font-black text-zinc-950">{passwordResult.store_name}</h3></div><button type="button" onClick={() => setPasswordResult(null)} className="rounded-xl bg-zinc-100 p-3 text-zinc-600"><X size={18} /></button></div><div className="mt-5 grid gap-3"><Info label="Login" value={passwordResult.email} /><Info label="Nova senha" value={passwordResult.password} important /><Info label="Portal" value={passwordResult.portal_path} /></div><button type="button" onClick={copyPassword} className="premium-button-primary mt-5 w-full justify-center"><Copy size={16} /> Copiar acesso completo</button></div></div> : null}
+      {passwordResult ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur"><div className="w-full max-w-2xl rounded-[32px] bg-white p-7 shadow-2xl"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-wide text-emerald-700">Senha gerada</p><h3 className="mt-2 text-3xl font-black text-zinc-950">{passwordResult.store_name}</h3></div><button type="button" onClick={() => setPasswordResult(null)} className="rounded-xl bg-zinc-100 p-3 text-zinc-600"><X size={18} /></button></div><div className="mt-5 grid gap-3"><Info label="Login" value={passwordResult.email} /><Info label="Nova senha" value={passwordResult.password} important /><Info label="Portal" value={absoluteInternalSystemUrl(passwordResult.portal_path || '/login')} /></div><button type="button" onClick={copyPassword} className="premium-button-primary mt-5 w-full justify-center"><Copy size={16} /> Copiar acesso completo</button></div></div> : null}
     </section>
   );
 }

@@ -75,6 +75,11 @@ export default function StoreSelfRegistrationPage() {
       ? 'Loja localizada. Participação adicionada. Redirecionando para importar o estoque...'
       : 'Loja criada e vinculada ao evento. Redirecionando para importar o estoque...');
 
+    if (result.login_url) {
+      window.location.assign(result.login_url);
+      return;
+    }
+
     const stockPath = result.store_slug ? `/loja/${result.store_slug}/estoque` : '/store';
     router.replace(`/login?redirectedFrom=${encodeURIComponent(stockPath)}`);
   }

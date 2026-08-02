@@ -17,6 +17,7 @@ import {
 import { createClient } from '@/lib/supabase';
 import { EventSelectField } from '@/components/EventSelectField';
 import { StoreParticipationHistory } from '@/components/StoreParticipationHistory';
+import { absoluteInternalSystemUrl, officialStoreLoginUrl } from '@/lib/publicRoutes';
 
 function dateText(value?: string) {
   return value ? value.split('-').reverse().join('/') : '-';
@@ -27,9 +28,7 @@ function eventLabel(store: any, eventNameById: Record<string, string>) {
 }
 
 function portalLink(slug?: string) {
-  if (!slug) return '';
-  if (typeof window === 'undefined') return `/loja/${slug}`;
-  return `${window.location.origin}/loja/${slug}`;
+  return officialStoreLoginUrl(slug || '');
 }
 
 function storeIdentity(store: any) {
@@ -541,7 +540,7 @@ export function StoresByEventList({
     if (!passwordResult?.password) return;
 
     await navigator.clipboard.writeText(
-      `Login: ${passwordResult.email}\nSenha: ${passwordResult.password}\nPortal: ${window.location.origin}${passwordResult.portal_path}`
+      `Login: ${passwordResult.email}\nSenha: ${passwordResult.password}\nPortal: ${absoluteInternalSystemUrl(passwordResult.portal_path || '/login')}`
     );
     setMessage('Login, senha e portal copiados.');
   }
@@ -811,9 +810,7 @@ export function StoresByEventList({
               <div className="rounded-[24px] border border-zinc-100 bg-zinc-50 p-5">
                 <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Portal da loja</p>
                 <p className="mt-2 break-all text-sm font-black text-zinc-950">
-                  {typeof window !== 'undefined'
-                    ? `${window.location.origin}${passwordResult.portal_path}`
-                    : passwordResult.portal_path}
+                  {absoluteInternalSystemUrl(passwordResult.portal_path || '/login')}
                 </p>
               </div>
             </div>

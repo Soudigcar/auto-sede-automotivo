@@ -4,22 +4,18 @@ import { useEffect, useState } from 'react';
 import { Copy, ExternalLink } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { EventSelectField } from '@/components/EventSelectField';
+import { officialStoreLoginUrl, officialStoreRegistrationUrl } from '@/lib/publicRoutes';
 
 function slugify(value: string) {
   return value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '') || 'loja';
 }
 
 function portalLink(slug?: string) {
-  if (!slug) return '';
-  const redirectedFrom = encodeURIComponent(`/loja/${slug}`);
-  if (typeof window === 'undefined') return `/login?redirectedFrom=${redirectedFrom}`;
-  return `${window.location.origin}/login?redirectedFrom=${redirectedFrom}`;
+  return officialStoreLoginUrl(slug || '');
 }
 
 function registrationPublicLink(token?: string) {
-  if (!token) return '';
-  if (typeof window === 'undefined') return `/cadastro-loja/${token}`;
-  return `${window.location.origin}/cadastro-loja/${token}`;
+  return officialStoreRegistrationUrl(token || '');
 }
 
 function generatePublicToken() {

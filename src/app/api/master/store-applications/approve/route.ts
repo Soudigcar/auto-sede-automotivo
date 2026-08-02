@@ -1,6 +1,7 @@
 import { randomInt } from 'crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { officialStoreLoginUrl, storeLoginPath } from '@/lib/publicRoutes';
 
 export const runtime = 'nodejs';
 
@@ -193,6 +194,8 @@ export async function POST(request: Request) {
       updated_at: new Date().toISOString()
     }).eq('id', application.id);
 
+    const loginPath = storeLoginPath(store.slug);
+
     return NextResponse.json({
       success: true,
       existing_store: false,
@@ -200,7 +203,8 @@ export async function POST(request: Request) {
       store_name: store.store_name,
       email: applicationEmail,
       password,
-      login_path: `/login?redirectedFrom=${encodeURIComponent(`/loja/${store.slug}`)}`
+      login_path: loginPath,
+      login_url: officialStoreLoginUrl(store.slug)
     });
   } catch (error: any) {
     const supabase = getAdminClient();

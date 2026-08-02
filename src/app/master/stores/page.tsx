@@ -6,17 +6,14 @@ import { BarChart3, CalendarDays, Car, FileText, KeyRound, Pencil, Store, Trash2
 import { createClient } from '@/lib/supabase';
 import { getActiveEvent, getActiveStores } from '@/lib/database';
 import { inventoryKey, parseInventoryText } from '@/lib/inventory-import';
+import { absoluteInternalSystemUrl } from '@/lib/publicRoutes';
 
 function getStorePortalPath(storeId: string) {
   return `/login?redirectedFrom=${encodeURIComponent(`/store/operation?store_id=${storeId}`)}`;
 }
 
 function getStorePortalUrl(storeId: string) {
-  const path = getStorePortalPath(storeId);
-  const configuredUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '');
-  if (configuredUrl) return `${configuredUrl}${path}`;
-  if (typeof window === 'undefined') return path;
-  return `${window.location.origin}${path}`;
+  return absoluteInternalSystemUrl(getStorePortalPath(storeId));
 }
 
 function generateTemporaryPassword() {

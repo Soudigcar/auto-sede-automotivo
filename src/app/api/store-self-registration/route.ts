@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { officialLoginUrl } from '@/lib/publicRoutes';
 
 export const runtime = 'nodejs';
 
@@ -184,7 +185,7 @@ export async function POST(request: Request) {
       await saveEventMaterials(supabase, context, store, existingProfile, vehicleLinks, stockFile);
       await incrementUsage(supabase, context.link);
 
-      const loginUrl = `/login?redirectedFrom=${encodeURIComponent(`/loja/${store.slug}`)}`;
+      const loginUrl = officialLoginUrl(`/loja/${store.slug}/estoque`);
       return NextResponse.json({ success: true, existing_store: true, store_slug: store.slug, login_url: loginUrl });
     }
 
@@ -229,7 +230,7 @@ export async function POST(request: Request) {
     await saveEventMaterials(supabase, context, store, profile, vehicleLinks, stockFile);
     await incrementUsage(supabase, context.link);
 
-    const loginUrl = `/login?redirectedFrom=${encodeURIComponent(`/loja/${store.slug}`)}`;
+    const loginUrl = officialLoginUrl(`/loja/${store.slug}/estoque`);
     return NextResponse.json({ success: true, existing_store: false, store_slug: store.slug, login_url: loginUrl });
   } catch (error: any) {
     const supabase = getAdminClient();
