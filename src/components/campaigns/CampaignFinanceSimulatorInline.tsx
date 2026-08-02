@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, RotateCcw, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, MessageCircle, RotateCcw, ShieldCheck } from 'lucide-react';
 import { CampaignVehicleGallery } from '@/components/campaigns/CampaignVehicleGallery';
 import { calculateCampaignFinance, campaignInstallmentOptions } from '@/lib/campaignFinance';
 
@@ -143,6 +143,9 @@ export function CampaignFinanceSimulatorInline({
           <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
             Pelos dados informados, seu perfil avançou para a pré-análise com 80% de aprovação. O resultado final depende da análise da instituição financeira. Um dos nossos representantes entrará em contato com você.
           </p>
+          <span className="mx-auto mt-5 inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-lg">
+            <MessageCircle size={18} /> Quero antecipar meu atendimento agora
+          </span>
           <p className="mx-auto mt-3 max-w-xl rounded-2xl bg-indigo-50 p-3 text-xs font-bold text-indigo-700">Modo Preview: nenhum lead ou contato foi criado.</p>
           <button
             type="button"
