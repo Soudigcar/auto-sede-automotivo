@@ -33,9 +33,9 @@ function findReviewButton(vehicleUrl: string) {
 
 export default function StockReviewLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
-    const originalFetch = window.fetch.bind(window);
+    const originalFetch = window.fetch.bind(window) as typeof window.fetch;
 
-    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const patchedFetch = async (input: any, init?: any): Promise<Response> => {
       let parsedBody: any = null;
       try {
         if (typeof init?.body === 'string') parsedBody = JSON.parse(init.body);
@@ -44,7 +44,7 @@ export default function StockReviewLayout({ children }: { children: ReactNode })
       }
 
       const response = await originalFetch(input, init);
-      const requestUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const requestUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input?.url || '';
       const isManualReimport = requestUrl.includes('/api/store-stock')
         && ['import-data', 'retry-import'].includes(String(parsedBody?.action || ''))
         && parsedBody?.automatic !== true;
@@ -59,6 +59,8 @@ export default function StockReviewLayout({ children }: { children: ReactNode })
 
       return response;
     };
+
+    window.fetch = patchedFetch as typeof window.fetch;
 
     const stored = sessionStorage.getItem(STORAGE_KEY);
     if (!stored) return () => { window.fetch = originalFetch; };
