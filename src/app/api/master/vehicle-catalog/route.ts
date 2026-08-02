@@ -15,6 +15,25 @@ type Resource =
   | 'aliases'
   | 'suggestions';
 
+type ConfigurationStatus = 'all' | 'active' | 'inactive';
+
+type ConfigurationPageInput = {
+  page: number;
+  pageSize: number;
+  search: string;
+  status: ConfigurationStatus;
+};
+
+type ConfigurationSearchReferences = {
+  brands: any[];
+  models: any[];
+  versions: any[];
+  fuels: any[];
+  transmissions: any[];
+};
+
+const CONFIGURATION_PAGE_SIZE = 100;
+
 const tableByResource: Record<Resource, string> = {
   brands: 'vehicle_catalog_brands',
   models: 'vehicle_catalog_models',
@@ -94,6 +113,167 @@ function uuid(value: unknown) {
 
 function metadata(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function configurationPageInput(request: Request): ConfigurationPageInput {
+  const { searchParams } = new URL(request.url);
+  const statusValue = cleanText(searchParams.get('status'), 20);
+
+  return {
+    page: integer(searchParams.get('page'), 1) || 1,
+    pageSize: integer(searchParams.get('pageSize'), 1, CONFIGURATION_PAGE_SIZE) || CONFIGURATION_PAGE_SIZE,
+    search: cleanText(searchParams.get('search'), 120),
+    status: ['active', 'inactive'].includes(statusValue) ? statusValue as ConfigurationStatus : 'all'
+  };
+}
+
+function embeddedCount(value: unknown) {
+  if (Array.isArray(value)) return Number(value[0]?.count || 0);
+  if (value && typeof value === 'object' && 'count' in value) {
+    return Number((value as { count?: number }).count || 0);
+  }
+  return 0;
+}
+
+async function loadConfigurationSearchReferences(
+  supabase: ReturnType<typeof getAdminClient>
+): Promise<ConfigurationSearchReferences> {
+  const [brandsResult, modelsResult, versionsResult, fuelsResult, transmissionsResult] = await Promise.all([
+    supabase.from('vehicle_catalog_brands').select('id,normalized_name').limit(2000),
+    supabase.from('vehicle_catalog_models').select('id,brand_id,normalized_name').limit(5000),
+    supabase.from('vehicle_catalog_versions').select('id,model_id,normalized_name').limit(10000),
+    supabase.from('vehicle_catalog_fuels').select('id,normalized_name,code').limit(500),
+    supabase.from('vehicle_catalog_transmissions').select('id,normalized_name,code').limit(500)
+  ]);
+
+  const results = [brandsResult, modelsResult, versionsResult, fuelsResult, transmissionsResult];
+  const firstError = results.find((result) => result.error)?.error;
+  if (firstError) throw firstError;
+
+  return {
+    brands: brandsResult.data || [],
+    models: modelsResult.data || [],
+    versions: versionsResult.data || [],
+    fuels: fuelsResult.data || [],
+    transmissions: transmissionsResult.data || []
+  };
+}
+
+async function loadConfigurationPage(
+  supabase: ReturnType<typeof getAdminClient>,
+  input: ConfigurationPageInput,
+  providedReferences?: ConfigurationSearchReferences
+) {
+  const from = (input.page - 1) * input.pageSize;
+  const to = from + input.pageSize - 1;
+  const normalizedSearch = normalizeKey(input.search);
+  const references = normalizedSearch
+    ? providedReferences || await loadConfigurationSearchReferences(supabase)
+    : providedReferences;
+
+  let query = supabase
+    .from('vehicle_catalog_configurations')
+    .select(`
+      *,
+      vehicle_catalog_versions!inner (
+        id,
+        model_id,
+        normalized_name,
+        vehicle_catalog_models!inner (
+          id,
+          brand_id,
+          normalized_name,
+          vehicle_catalog_brands!inner (id, normalized_name)
+        )
+      )
+    `, { count: 'exact' });
+
+  if (input.status === 'active') query = query.eq('is_active', true);
+  if (input.status === 'inactive') query = query.eq('is_active', false);
+
+  if (normalizedSearch && references) {
+    const brandNameById = new Map(
+      references.brands.map((item) => [String(item.id), String(item.normalized_name || '')])
+    );
+    const modelById = new Map(references.models.map((item) => [String(item.id), item]));
+    const modelSearchText = new Map(
+      references.models.map((item) => [
+        String(item.id),
+        `${brandNameById.get(String(item.brand_id)) || ''} ${item.normalized_name || ''}`.trim()
+      ])
+    );
+
+    const matchingBrandIds = references.brands
+      .filter((item) => String(item.normalized_name || '').includes(normalizedSearch))
+      .map((item) => String(item.id));
+    const matchingModelIds = references.models
+      .filter((item) => (modelSearchText.get(String(item.id)) || '').includes(normalizedSearch))
+      .map((item) => String(item.id));
+    const matchingVersionIds = references.versions
+      .filter((item) => {
+        const model = modelById.get(String(item.model_id));
+        const hierarchy = `${modelSearchText.get(String(item.model_id)) || ''} ${item.normalized_name || ''}`.trim();
+        return Boolean(model) && hierarchy.includes(normalizedSearch);
+      })
+      .map((item) => String(item.id));
+    const matchingFuelIds = references.fuels
+      .filter((item) => `${item.normalized_name || ''} ${normalizeKey(item.code)}`.includes(normalizedSearch))
+      .map((item) => String(item.id));
+    const matchingTransmissionIds = references.transmissions
+      .filter((item) => `${item.normalized_name || ''} ${normalizeKey(item.code)}`.includes(normalizedSearch))
+      .map((item) => String(item.id));
+    const searchedYear = /^\d{4}$/.test(normalizedSearch) ? Number(normalizedSearch) : null;
+
+    if (searchedYear) {
+      query = query.or(`manufacture_year.eq.${searchedYear},model_year.eq.${searchedYear}`);
+    } else if (matchingBrandIds.length) {
+      query = query.in('vehicle_catalog_versions.vehicle_catalog_models.brand_id', matchingBrandIds);
+    } else if (matchingFuelIds.length) {
+      query = query.in('fuel_id', matchingFuelIds);
+    } else if (matchingTransmissionIds.length) {
+      query = query.in('transmission_id', matchingTransmissionIds);
+    } else if (matchingVersionIds.length && matchingVersionIds.length <= 180) {
+      query = query.in('version_id', matchingVersionIds);
+    } else if (matchingModelIds.length) {
+      query = query.in('vehicle_catalog_versions.model_id', matchingModelIds);
+    } else if (matchingVersionIds.length) {
+      query = query.ilike('vehicle_catalog_versions.normalized_name', `%${normalizedSearch}%`);
+    } else {
+      const pattern = `*${normalizedSearch}*`;
+      query = query.or([
+        `engine_name.ilike.${pattern}`,
+        `body_type.ilike.${pattern}`,
+        `traction.ilike.${pattern}`,
+        `notes.ilike.${pattern}`
+      ].join(','));
+    }
+  }
+
+  const { data, error, count } = await query
+    .order('manufacture_year', { ascending: false })
+    .order('model_year', { ascending: false })
+    .order('id', { ascending: true })
+    .range(from, to);
+
+  if (error) throw error;
+
+  const total = count || 0;
+  return {
+    items: (data || []).map((item: any) => {
+      const { vehicle_catalog_versions: _relationship, ...configuration } = item;
+      return configuration;
+    }),
+    pagination: {
+      page: input.page,
+      page_size: input.pageSize,
+      total,
+      total_pages: Math.max(1, Math.ceil(total / input.pageSize)),
+      from: total ? from + 1 : 0,
+      to: total ? Math.min(to + 1, total) : 0,
+      search: input.search,
+      status: input.status
+    }
+  };
 }
 
 async function ensureUniqueName(
@@ -309,12 +489,15 @@ async function audit(
   });
 }
 
-async function loadSnapshot(supabase: ReturnType<typeof getAdminClient>) {
+async function loadSnapshot(
+  supabase: ReturnType<typeof getAdminClient>,
+  configurationInput: ConfigurationPageInput
+) {
   const [
     brandsResult,
     modelsResult,
     versionsResult,
-    configurationsResult,
+    configurationTotalResult,
     fuelsResult,
     transmissionsResult,
     colorsResult,
@@ -324,13 +507,12 @@ async function loadSnapshot(supabase: ReturnType<typeof getAdminClient>) {
   ] = await Promise.all([
     supabase.from('vehicle_catalog_brands').select('*').order('name').limit(2000),
     supabase.from('vehicle_catalog_models').select('*').order('name').limit(5000),
-    supabase.from('vehicle_catalog_versions').select('*').order('name').limit(10000),
     supabase
-      .from('vehicle_catalog_configurations')
-      .select('*')
-      .order('manufacture_year', { ascending: false })
-      .order('model_year', { ascending: false })
-      .limit(15000),
+      .from('vehicle_catalog_versions')
+      .select('*, configuration_totals:vehicle_catalog_configurations(count)')
+      .order('name')
+      .limit(10000),
+    supabase.from('vehicle_catalog_configurations').select('*', { count: 'exact', head: true }),
     supabase.from('vehicle_catalog_fuels').select('*').order('sort_order').order('name').limit(500),
     supabase.from('vehicle_catalog_transmissions').select('*').order('sort_order').order('name').limit(500),
     supabase.from('vehicle_catalog_colors').select('*').order('sort_order').order('name').limit(1000),
@@ -348,7 +530,7 @@ async function loadSnapshot(supabase: ReturnType<typeof getAdminClient>) {
     brandsResult,
     modelsResult,
     versionsResult,
-    configurationsResult,
+    configurationTotalResult,
     fuelsResult,
     transmissionsResult,
     colorsResult,
@@ -361,7 +543,6 @@ async function loadSnapshot(supabase: ReturnType<typeof getAdminClient>) {
   const brands = brandsResult.data || [];
   const models = modelsResult.data || [];
   const versions = versionsResult.data || [];
-  const configurations = configurationsResult.data || [];
   const fuels = fuelsResult.data || [];
   const transmissions = transmissionsResult.data || [];
   const colors = colorsResult.data || [];
@@ -370,15 +551,21 @@ async function loadSnapshot(supabase: ReturnType<typeof getAdminClient>) {
 
   const modelCount = new Map<string, number>();
   const versionCount = new Map<string, number>();
-  const configurationCount = new Map<string, number>();
   const aliasCount = new Map<string, number>();
 
   models.forEach((item: any) => modelCount.set(item.brand_id, (modelCount.get(item.brand_id) || 0) + 1));
   versions.forEach((item: any) => versionCount.set(item.model_id, (versionCount.get(item.model_id) || 0) + 1));
-  configurations.forEach((item: any) => configurationCount.set(item.version_id, (configurationCount.get(item.version_id) || 0) + 1));
   aliases.forEach((item: any) => {
     const key = `${item.entity_type}:${item.entity_id}`;
     aliasCount.set(key, (aliasCount.get(key) || 0) + 1);
+  });
+
+  const configurationPage = await loadConfigurationPage(supabase, configurationInput, {
+    brands,
+    models,
+    versions,
+    fuels,
+    transmissions
   });
 
   return {
@@ -387,7 +574,7 @@ async function loadSnapshot(supabase: ReturnType<typeof getAdminClient>) {
       brands: brands.length,
       models: models.length,
       versions: versions.length,
-      configurations: configurations.length,
+      configurations: configurationTotalResult.count || 0,
       aliases: aliases.length,
       pending_suggestions: suggestions.filter((item: any) => ['pending', 'reviewing'].includes(item.status)).length,
       inactive_records: [...brands, ...models, ...versions, ...fuels, ...transmissions, ...colors]
@@ -403,12 +590,16 @@ async function loadSnapshot(supabase: ReturnType<typeof getAdminClient>) {
       versions_count: versionCount.get(item.id) || 0,
       aliases_count: aliasCount.get(`model:${item.id}`) || 0
     })),
-    versions: versions.map((item: any) => ({
-      ...item,
-      configurations_count: configurationCount.get(item.id) || 0,
-      aliases_count: aliasCount.get(`version:${item.id}`) || 0
-    })),
-    configurations,
+    versions: versions.map((item: any) => {
+      const { configuration_totals: configurationTotals, ...version } = item;
+      return {
+        ...version,
+        configurations_count: embeddedCount(configurationTotals),
+        aliases_count: aliasCount.get(`version:${item.id}`) || 0
+      };
+    }),
+    configurations: configurationPage.items,
+    pagination: configurationPage.pagination,
     fuels: fuels.map((item: any) => ({ ...item, aliases_count: aliasCount.get(`fuel:${item.id}`) || 0 })),
     transmissions: transmissions.map((item: any) => ({ ...item, aliases_count: aliasCount.get(`transmission:${item.id}`) || 0 })),
     colors: colors.map((item: any) => ({ ...item, aliases_count: aliasCount.get(`color:${item.id}`) || 0 })),
@@ -424,7 +615,18 @@ export async function GET(request: Request) {
     const master = await requireMaster(request, supabase);
     if (!master) return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
 
-    return NextResponse.json(await loadSnapshot(supabase));
+    const input = configurationPageInput(request);
+    const { searchParams } = new URL(request.url);
+    if (searchParams.get('section') === 'configurations') {
+      const page = await loadConfigurationPage(supabase, input);
+      return NextResponse.json({
+        generated_at: new Date().toISOString(),
+        configurations: page.items,
+        pagination: page.pagination
+      });
+    }
+
+    return NextResponse.json(await loadSnapshot(supabase, input));
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Não foi possível carregar o catálogo.' }, { status: 500 });
   }
@@ -458,7 +660,7 @@ export async function POST(request: Request) {
     if (error) throw error;
     await audit(supabase, master, 'vehicle_catalog_create', resource, data.id, null, data);
 
-    return NextResponse.json({ ok: true, record: data, snapshot: await loadSnapshot(supabase) }, { status: 201 });
+    return NextResponse.json({ ok: true, record: data }, { status: 201 });
   } catch (error: any) {
     const duplicate = error?.code === '23505';
     return NextResponse.json(
@@ -500,7 +702,7 @@ export async function PATCH(request: Request) {
     if (error) throw error;
 
     await audit(supabase, master, 'vehicle_catalog_update', resource, id, current, data);
-    return NextResponse.json({ ok: true, record: data, snapshot: await loadSnapshot(supabase) });
+    return NextResponse.json({ ok: true, record: data });
   } catch (error: any) {
     const duplicate = error?.code === '23505';
     return NextResponse.json(

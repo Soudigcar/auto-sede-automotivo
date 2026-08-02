@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Edit3,
   Loader2,
   Plus,
@@ -39,6 +41,18 @@ type Snapshot = {
   aliases: any[];
   suggestions: any[];
   history: any[];
+  pagination?: ConfigurationPagination;
+};
+
+type ConfigurationPagination = {
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+  from: number;
+  to: number;
+  search: string;
+  status: 'all' | 'active' | 'inactive';
 };
 
 const emptySnapshot: Snapshot = {
@@ -129,17 +143,25 @@ function activeLabel(value: any) {
   return value?.is_active === false ? 'Inativo' : 'Ativo';
 }
 
+function formatNumber(value: number) {
+  return new Intl.NumberFormat('pt-BR').format(value || 0);
+}
+
 export default function MasterVehicleCatalogPage() {
   const supabase = useMemo(() => createClient(), []);
   const [snapshot, setSnapshot] = useState<Snapshot>(emptySnapshot);
   const [tab, setTab] = useState<CatalogTab>('brands');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'pending'>('all');
+  const [configurationPage, setConfigurationPage] = useState(1);
+  const [catalogReady, setCatalogReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [editing, setEditing] = useState<any | null>(null);
   const [form, setForm] = useState<any>(defaultForm('brands'));
+  const requestSequence = useRef(0);
 
   const brandById = useMemo(() => new Map(snapshot.brands.map((item) => [String(item.id), item])), [snapshot.brands]);
   const modelById = useMemo(() => new Map(snapshot.models.map((item) => [String(item.id), item])), [snapshot.models]);
@@ -155,35 +177,94 @@ export default function MasterVehicleCatalogPage() {
     return data.session?.access_token || '';
   }
 
-  async function load() {
+  async function load(options: {
+    partial?: boolean;
+    page?: number;
+    search?: string;
+    status?: 'all' | 'active' | 'inactive' | 'pending';
+    clearMessage?: boolean;
+  } = {}) {
+    const requestId = ++requestSequence.current;
+    const requestedPage = options.page || 1;
+    const requestedSearch = options.search || '';
+    const requestedStatus = ['active', 'inactive'].includes(options.status || '')
+      ? options.status as 'active' | 'inactive'
+      : 'all';
+    const params = new URLSearchParams({
+      page: String(requestedPage),
+      pageSize: '100',
+      search: requestedSearch,
+      status: requestedStatus
+    });
+    if (options.partial) params.set('section', 'configurations');
+
     setLoading(true);
-    setMessage('');
+    if (options.clearMessage !== false) setMessage('');
     try {
       const token = await getToken();
       if (!token) throw new Error('Sua sessão expirou.');
-      const response = await fetch('/api/master/vehicle-catalog', {
+      const response = await fetch(`/api/master/vehicle-catalog?${params.toString()}`, {
         cache: 'no-store',
         headers: { Authorization: `Bearer ${token}` }
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || 'Não foi possível carregar o catálogo.');
-      setSnapshot({ ...emptySnapshot, ...payload });
+      if (requestId !== requestSequence.current) return false;
+
+      if (options.partial) {
+        setSnapshot((current) => ({
+          ...current,
+          generated_at: payload.generated_at || current.generated_at,
+          configurations: payload.configurations || [],
+          pagination: payload.pagination || current.pagination
+        }));
+      } else {
+        setSnapshot({ ...emptySnapshot, ...payload });
+        setCatalogReady(true);
+      }
+      return true;
     } catch (error: any) {
-      setMessage(error?.message || 'Não foi possível carregar o catálogo.');
+      if (requestId === requestSequence.current) {
+        setMessage(error?.message || 'Não foi possível carregar o catálogo.');
+      }
+      return false;
     } finally {
-      setLoading(false);
+      if (requestId === requestSequence.current) setLoading(false);
     }
   }
 
   useEffect(() => {
-    void load();
+    void load({ page: 1, search: '', status: 'all' });
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 400);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    if (!catalogReady || tab !== 'configurations') return;
+    void load({
+      partial: true,
+      page: configurationPage,
+      search: debouncedSearch,
+      status: statusFilter
+    });
+  }, [catalogReady, configurationPage, debouncedSearch, statusFilter, tab]);
 
   useEffect(() => {
     setEditing(null);
     setForm(defaultForm(tab));
     setStatusFilter(tab === 'suggestions' ? 'pending' : 'all');
+    setConfigurationPage(1);
   }, [tab]);
+
+  useEffect(() => {
+    if (tab !== 'configurations' || !snapshot.pagination) return;
+    if (configurationPage > snapshot.pagination.total_pages) {
+      setConfigurationPage(snapshot.pagination.total_pages);
+    }
+  }, [configurationPage, snapshot.pagination, tab]);
 
   function openEdit(item: any) {
     setEditing(item);
@@ -214,8 +295,13 @@ export default function MasterVehicleCatalogPage() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || 'Não foi possível salvar.');
-      if (payload.snapshot) setSnapshot({ ...emptySnapshot, ...payload.snapshot });
-      setMessage(editing?.id ? 'Cadastro atualizado.' : 'Cadastro criado.');
+      const reloaded = await load({
+        page: tab === 'configurations' ? configurationPage : 1,
+        search: tab === 'configurations' ? debouncedSearch : '',
+        status: tab === 'configurations' ? statusFilter : 'all',
+        clearMessage: false
+      });
+      if (reloaded) setMessage(editing?.id ? 'Cadastro atualizado.' : 'Cadastro criado.');
       closeModal();
     } catch (error: any) {
       setMessage(error?.message || 'Não foi possível salvar.');
@@ -241,8 +327,13 @@ export default function MasterVehicleCatalogPage() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || 'Não foi possível atualizar.');
-      if (payload.snapshot) setSnapshot({ ...emptySnapshot, ...payload.snapshot });
-      setMessage('Cadastro atualizado.');
+      const reloaded = await load({
+        page: tab === 'configurations' ? configurationPage : 1,
+        search: tab === 'configurations' ? debouncedSearch : '',
+        status: tab === 'configurations' ? statusFilter : 'all',
+        clearMessage: false
+      });
+      if (reloaded) setMessage('Cadastro atualizado.');
     } catch (error: any) {
       setMessage(error?.message || 'Não foi possível atualizar.');
     } finally {
@@ -253,6 +344,7 @@ export default function MasterVehicleCatalogPage() {
   const currentItems = snapshot[tab] || [];
 
   const filteredItems = useMemo(() => {
+    if (tab === 'configurations') return currentItems;
     const query = search.trim().toLowerCase();
     return currentItems.filter((item: any) => {
       const searchable = JSON.stringify(item).toLowerCase();
@@ -337,6 +429,7 @@ export default function MasterVehicleCatalogPage() {
 
   const activeTab = tabs.find((item) => item.key === tab)!;
   const modalOpen = editing !== null || Boolean(form.__creating);
+  const pagination = snapshot.pagination;
 
   function createFromButton() {
     setEditing(null);
@@ -368,7 +461,11 @@ export default function MasterVehicleCatalogPage() {
                   <button
                     type="button"
                     className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-black text-zinc-700 hover:border-red-200"
-                    onClick={() => void load()}
+                    onClick={() => void load({
+                      page: tab === 'configurations' ? configurationPage : 1,
+                      search: tab === 'configurations' ? debouncedSearch : '',
+                      status: tab === 'configurations' ? statusFilter : 'all'
+                    })}
                     disabled={loading || saving}
                   >
                     <RefreshCw size={17} className={loading ? 'animate-spin' : ''} />
@@ -437,13 +534,19 @@ export default function MasterVehicleCatalogPage() {
                     className={`${inputClass} pl-11`}
                     placeholder={`Buscar em ${activeTab.label.toLowerCase()}...`}
                     value={search}
-                    onChange={(event) => setSearch(event.target.value)}
+                    onChange={(event) => {
+                      setSearch(event.target.value);
+                      if (tab === 'configurations') setConfigurationPage(1);
+                    }}
                   />
                 </label>
                 <select
                   className={inputClass}
                   value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value as any)}
+                  onChange={(event) => {
+                    setStatusFilter(event.target.value as any);
+                    if (tab === 'configurations') setConfigurationPage(1);
+                  }}
                 >
                   <option value="all">Todos</option>
                   {tab === 'suggestions' ? (
@@ -554,6 +657,52 @@ export default function MasterVehicleCatalogPage() {
                   </p>
                 </div>
               )}
+
+              {tab === 'configurations' && pagination && !loading ? (
+                <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 lg:flex-row lg:items-center lg:justify-between">
+                  <p className="text-sm font-bold text-zinc-600">
+                    <strong className="text-zinc-950">
+                      {formatNumber(pagination.from)}–{formatNumber(pagination.to)}
+                    </strong>{' '}
+                    de {formatNumber(pagination.total)} configurações
+                  </p>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-black text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      onClick={() => setConfigurationPage((current) => Math.max(1, current - 1))}
+                      disabled={configurationPage <= 1}
+                    >
+                      <ChevronLeft size={15} /> Anterior
+                    </button>
+
+                    <label className="flex items-center gap-2 text-xs font-black text-zinc-600">
+                      Página
+                      <select
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-black text-zinc-900 outline-none focus:border-red-400"
+                        value={configurationPage}
+                        onChange={(event) => setConfigurationPage(Number(event.target.value))}
+                        aria-label="Selecionar página de configurações"
+                      >
+                        {Array.from({ length: pagination.total_pages }, (_, index) => index + 1).map((pageNumber) => (
+                          <option key={pageNumber} value={pageNumber}>{pageNumber}</option>
+                        ))}
+                      </select>
+                      de {formatNumber(pagination.total_pages)}
+                    </label>
+
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-black text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      onClick={() => setConfigurationPage((current) => Math.min(pagination.total_pages, current + 1))}
+                      disabled={configurationPage >= pagination.total_pages}
+                    >
+                      Próxima <ChevronRight size={15} />
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </section>
 
             <section className="mt-6 rounded-[28px] border border-zinc-200 bg-white p-6 shadow-sm">
