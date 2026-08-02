@@ -1,173 +1,139 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-function text(value: unknown) {
-  return String(value || '').replace(/\s+/g, ' ').trim();
+export const runtime = 'nodejs';
+
+const maxRequestBytes = 20_000;
+const allowedInstallments = new Set([12, 24, 36, 48, 60]);
+
+function clean(value: unknown, maxLength = 500) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
 }
 
-function number(value: unknown) {
+function numericValue(value: unknown) {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function getSupabaseAdmin() {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!supabaseUrl || !serviceKey) throw new Error('Configuração do servidor incompleta.');
-  return createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+function isValidUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
-async function pickLegacyStore(supabase: any) {
-  const { data, error } = await supabase.rpc('pick_next_lead_store', { p_routing_key: 'default' });
-  if (error) throw new Error(`Erro ao escolher loja: ${error.message}`);
-  return Array.isArray(data) && data.length ? data[0] : null;
+function metadataValue(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function getSupabaseAdmin() {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error('Configuração do servidor incompleta.');
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false
+    }
+  });
+}
+
+function statusForDatabaseError(message: string) {
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes('não está disponível') || normalized.includes('não está vinculado')) {
+    return 409;
+  }
+
+  if (
+    normalized.includes('obrigatório') ||
+    normalized.includes('obrigatórios') ||
+    normalized.includes('inválido') ||
+    normalized.includes('inválida')
+  ) {
+    return 400;
+  }
+
+  return 500;
 }
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const name = text(body.name);
-    const phone = text(body.phone);
-    const campaignId = text(body.campaign_id);
-    const vehicleId = text(body.vehicle_id);
+    const contentLength = Number(request.headers.get('content-length') || 0);
+    if (contentLength > maxRequestBytes) {
+      return NextResponse.json({ error: 'Solicitação muito grande.' }, { status: 413 });
+    }
 
-    if (!name || !phone) return NextResponse.json({ error: 'Nome e telefone são obrigatórios.' }, { status: 400 });
-    if (!campaignId || !vehicleId) return NextResponse.json({ error: 'Campanha e veículo são obrigatórios.' }, { status: 400 });
+    const requestUrl = new URL(request.url);
+    const originHeader = request.headers.get('origin');
+    if (originHeader && originHeader !== requestUrl.origin) {
+      return NextResponse.json({ error: 'Origem da solicitação não autorizada.' }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const name = clean(body.name, 160);
+    const phone = clean(body.phone, 40);
+    const cpf = clean(body.cpf, 30);
+    const email = clean(body.email, 180).toLowerCase();
+    const campaignId = clean(body.campaign_id, 80);
+    const vehicleId = clean(body.vehicle_id, 80);
+    const installments = Math.trunc(numericValue(body.installments));
+
+    if (name.length < 3 || !phone) {
+      return NextResponse.json({ error: 'Nome e telefone são obrigatórios.' }, { status: 400 });
+    }
+
+    if (!isValidUuid(campaignId) || !isValidUuid(vehicleId)) {
+      return NextResponse.json({ error: 'Campanha ou veículo inválido.' }, { status: 400 });
+    }
+
+    if (!allowedInstallments.has(installments)) {
+      return NextResponse.json({ error: 'Quantidade de parcelas inválida.' }, { status: 400 });
+    }
 
     const supabase = getSupabaseAdmin();
-    const [{ data: campaign }, { data: vehicle }] = await Promise.all([
-      supabase.from('site_campaigns').select('*').eq('id', campaignId).eq('is_active', true).maybeSingle(),
-      supabase.from('site_vehicles').select('*').eq('id', vehicleId).eq('status', 'disponivel').maybeSingle()
-    ]);
-
-    if (!campaign || !vehicle) return NextResponse.json({ error: 'Campanha ou veículo indisponível.' }, { status: 409 });
-
-    let selectedStore: any = null;
-    let eventId: string | null = campaign.event_id || null;
-    let routingStrategy = 'unassigned_no_store';
-
-    if (campaign.event_id && vehicle.store_id) {
-      const [{ data: assignment }, { data: participation }, { data: store }] = await Promise.all([
-        supabase
-          .from('event_vehicle_assignments')
-          .select('id,store_id,status,show_on_landing')
-          .eq('event_id', campaign.event_id)
-          .eq('vehicle_id', vehicle.id)
-          .eq('store_id', vehicle.store_id)
-          .eq('status', 'active')
-          .eq('show_on_landing', true)
-          .maybeSingle(),
-        supabase
-          .from('store_event_participations')
-          .select('id,status')
-          .eq('event_id', campaign.event_id)
-          .eq('store_id', vehicle.store_id)
-          .eq('status', 'active')
-          .maybeSingle(),
-        supabase.from('stores').select('id,store_name,status').eq('id', vehicle.store_id).eq('status', 'active').maybeSingle()
-      ]);
-
-      if (!assignment || !participation || !store) {
-        return NextResponse.json({ error: 'Este veículo não está mais disponível para o evento.' }, { status: 409 });
+    const { data, error } = await supabase.rpc('create_event_landing_lead', {
+      p_name: name,
+      p_phone: phone,
+      p_cpf: cpf,
+      p_email: email,
+      p_campaign_id: campaignId,
+      p_vehicle_id: vehicleId,
+      p_down_payment: Math.max(numericValue(body.down_payment), 0),
+      p_financed_amount: Math.max(numericValue(body.financed_amount), 0),
+      p_installments: installments,
+      p_estimated_installment: Math.max(numericValue(body.estimated_installment), 0),
+      p_interest_rate: Math.max(numericValue(body.interest_rate), 0),
+      p_notes: clean(body.notes, 1_500),
+      p_metadata: {
+        ...metadataValue(body.metadata),
+        source: 'event_landing_simulator'
       }
+    });
 
-      selectedStore = { store_id: store.id, store_name: store.store_name, event_id: campaign.event_id };
-      routingStrategy = 'event_vehicle_owner';
-    } else {
-      selectedStore = await pickLegacyStore(supabase);
-      eventId = selectedStore?.event_id || null;
-      routingStrategy = selectedStore?.store_id ? 'legacy_round_robin' : 'unassigned_no_store';
+    if (error) {
+      const message = clean(error.message || 'Não foi possível enviar sua simulação.', 300);
+      return NextResponse.json({ error: message }, { status: statusForDatabaseError(message) });
     }
 
-    let routedLeadId: string | null = null;
-    const assignedStoreId = selectedStore?.store_id || null;
-    const assignedStoreName = selectedStore?.store_name || '';
-    const assignedAt = assignedStoreId ? new Date().toISOString() : null;
-    const vehicleName = text(body.vehicle_name) || `${vehicle.brand || ''} ${vehicle.model || ''}`.trim();
-
-    if (assignedStoreId) {
-      const { data: routedLead, error: routedLeadError } = await supabase
-        .from('leads')
-        .insert({
-          event_id: eventId,
-          customer_name: name,
-          customer_phone: phone,
-          customer_bank: '',
-          interested_vehicle: vehicleName,
-          interested_vehicle_id: vehicle.id,
-          interested_vehicle_price: number(body.vehicle_price) || number(vehicle.price),
-          vehicle_category_interest: '',
-          origin: 'manual',
-          assigned_store_id: assignedStoreId,
-          status: 'new_lead',
-          notes: [
-            'Lead criado automaticamente pela landing do evento.',
-            campaign.name ? `Campanha: ${campaign.name}.` : '',
-            vehicleName ? `Veículo: ${vehicleName}.` : '',
-            `Roteamento: ${routingStrategy}.`
-          ].filter(Boolean).join(' ')
-        })
-        .select('id')
-        .single();
-
-      if (routedLeadError) throw new Error(`Erro ao criar lead no pipeline da loja: ${routedLeadError.message}`);
-      routedLeadId = routedLead?.id || null;
-    }
-
-    const metadata = {
-      ...(body.metadata || {}),
-      event_id: eventId,
-      campaign_slug: campaign.slug,
-      routing: {
-        strategy: routingStrategy,
-        assigned_store_id: assignedStoreId,
-        assigned_store_name: assignedStoreName,
-        assigned_at: assignedAt,
-        routed_lead_id: routedLeadId
-      }
-    };
-
-    const payload = {
-      event_id: eventId,
-      name,
-      phone,
-      cpf: text(body.cpf),
-      email: text(body.email),
-      source: text(body.source) || 'Landing Page Simulador',
-      campaign_id: campaign.id,
-      campaign_name: campaign.name,
-      vehicle_id: vehicle.id,
-      vehicle_name: vehicleName,
-      vehicle_price: number(body.vehicle_price) || number(vehicle.price),
-      down_payment: number(body.down_payment),
-      financed_amount: number(body.financed_amount),
-      installments: Number(body.installments || 0),
-      estimated_installment: number(body.estimated_installment),
-      interest_rate: number(body.interest_rate) || number(campaign.interest_rate) || 1.89,
-      status: 'Novo lead',
-      assigned_store_id: assignedStoreId,
-      assigned_store_name: assignedStoreName || null,
-      assigned_at: assignedAt,
-      routed_lead_id: routedLeadId,
-      routing_strategy: routingStrategy,
-      notes: text(body.notes),
-      metadata,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
-
-    const { error } = await supabase.from('leads_base').insert(payload);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const result = data && typeof data === 'object' ? data as Record<string, unknown> : {};
 
     return NextResponse.json({
-      success: true,
-      event_id: eventId,
-      assigned_store_id: assignedStoreId,
-      assigned_store_name: assignedStoreName,
-      routed_lead_id: routedLeadId,
-      routing_strategy: routingStrategy
+      success: result.success === true,
+      duplicate: result.duplicate === true,
+      queued_for_manual_assignment: result.queued_for_manual_assignment === true,
+      event_id: clean(result.event_id, 80) || null,
+      assigned_store_id: clean(result.assigned_store_id, 80) || null,
+      assigned_store_name: clean(result.assigned_store_name, 180),
+      routed_lead_id: clean(result.routed_lead_id, 80) || null,
+      routing_strategy: clean(result.routing_strategy, 80) || 'event_round_robin'
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Erro ao salvar lead.' }, { status: 500 });
+    return NextResponse.json(
+      { error: clean(error?.message || 'Erro ao salvar lead.', 300) },
+      { status: 500 }
+    );
   }
 }
