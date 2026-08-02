@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { asStorePortalRole, type StorePortalRole } from '@/lib/server/storePortal';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
+import { reviewVehicleImportWithOpenAI } from '@/lib/server/vehicleImportAi';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 type ImportAction = 'preview' | 'save_draft' | 'submit_approval' | 'publish';
 
@@ -281,7 +282,7 @@ async function ensureNoPublishedDuplicate(context: ImportContext, sourceUrl: str
   }
 }
 
-async function savePreview(context: ImportContext, existing: any, sourceUrl: string, preview: any) {
+async function savePreview(context: ImportContext, existing: any, sourceUrl: string, preview: any, aiReview: any) {
   const now = new Date().toISOString();
   const metadata = {
     ...(existing?.metadata || {}),
@@ -289,6 +290,7 @@ async function savePreview(context: ImportContext, existing: any, sourceUrl: str
     provider: 'website',
     publication_status: 'em_revisao',
     imported_preview: preview,
+    ai_review: aiReview,
     missing_fields: missingFields(preview),
     imported_at: now,
     audit_history: withAudit(existing?.metadata, audit(context.profile, context.role, 'website_preview_imported'))
@@ -486,15 +488,30 @@ export async function POST(request: Request) {
       existing = await findReusableSubmission(context, sourceUrl, existing);
       await ensureNoPublishedDuplicate(context, sourceUrl);
       const imported = await siteImporterRequest(request, 'preview', sourceUrl);
-      const preview = mapImporterPreview(imported, sourceUrl);
+      const extracted = mapImporterPreview(imported, sourceUrl);
+      const aiReview = await reviewVehicleImportWithOpenAI(extracted, 'site público da loja');
+      const generatedDescription = aiReview.ok ? cleanText(aiReview.optimized_description, 12000) : '';
+      const preview = normalizeDraft({
+        ...extracted,
+        description: generatedDescription || extracted.description
+      }, sourceUrl);
+      const aiReviewMetadata = {
+        ok: aiReview.ok,
+        model: aiReview.model,
+        description_generated: Boolean(generatedDescription),
+        conflicts: aiReview.conflicts,
+        warnings: aiReview.warnings,
+        error: aiReview.error || null
+      };
       if (!preview.title && !preview.model && !preview.description && !preview.image_urls.length) {
         throw new ImportHttpError('O site foi acessado, mas não foram encontrados dados suficientes do veículo.', 422);
       }
-      const submission = await savePreview(context, existing, sourceUrl, preview);
+      const submission = await savePreview(context, existing, sourceUrl, preview, aiReviewMetadata);
       return NextResponse.json({
         success: true,
         submission_id: submission.id,
         imported: preview,
+        ai_review: aiReviewMetadata,
         missing: missingFields(preview),
         role: context.role,
         can_publish: context.canPublish,
