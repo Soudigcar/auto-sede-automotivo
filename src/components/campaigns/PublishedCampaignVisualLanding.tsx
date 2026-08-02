@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MetaPixelTracker } from '@/components/MetaPixelTracker';
 import { CampaignFinanceSimulatorModal } from '@/components/campaigns/CampaignFinanceSimulator';
+import { CampaignVehicleShowcase } from '@/components/campaigns/CampaignVehicleShowcase';
 import { CampaignVisualEditorPreviewFlow } from './CampaignVisualEditorPreviewFlow';
 import type { Device } from './CampaignVisualEditorModel';
 import { safe } from './CampaignVisualEditorModel';
@@ -68,28 +69,52 @@ export function PublishedCampaignVisualLanding({ campaign, eventInfo, vehicles, 
   return (
     <main id="landing-inicio" className="min-h-screen bg-slate-50 text-slate-950">
       <MetaPixelTracker />
-      <CampaignVisualEditorPreviewFlow
-        draft={draft}
-        device={device}
-        campaign={campaign}
-        eventInfo={eventInfo}
-        vehicles={vehicles}
-        stores={stores}
-        layer="content"
-        selectedContent="title"
-        clientView
-        heroRef={heroRef}
-        heroSource={heroSource}
-        onSelect={() => undefined}
-        onSelectContent={() => undefined}
-        onStartBox={() => undefined}
-        onStartContent={() => undefined}
-        onStartBackground={() => undefined}
-        onWheel={() => undefined}
-        onBackgroundDoubleClick={() => undefined}
-        onSelectVehicle={(vehicleId) => openSimulator(vehicleId)}
-        onFlowMeasurement={() => undefined}
-      />
+      <div className="published-campaign-flow">
+        <CampaignVisualEditorPreviewFlow
+          draft={draft}
+          device={device}
+          campaign={campaign}
+          eventInfo={eventInfo}
+          vehicles={vehicles}
+          stores={stores}
+          layer="content"
+          selectedContent="title"
+          clientView
+          heroRef={heroRef}
+          heroSource={heroSource}
+          onSelect={() => undefined}
+          onSelectContent={() => undefined}
+          onStartBox={() => undefined}
+          onStartContent={() => undefined}
+          onStartBackground={() => undefined}
+          onWheel={() => undefined}
+          onBackgroundDoubleClick={() => undefined}
+          onSelectVehicle={(vehicleId) => openSimulator(vehicleId)}
+          onFlowMeasurement={() => undefined}
+        />
+      </div>
+
+      <CampaignVehicleShowcase vehicles={vehicles} primaryColor={draft.primaryColor} onOpenSimulator={openSimulator} />
+
+      {draft.footer.visible ? (
+        <footer
+          style={{
+            backgroundColor: draft.footer.backgroundColor,
+            color: draft.footer.textColor,
+            textAlign: draft.footer.align,
+            padding: `${draft.footer.paddingY}px 24px`,
+            fontSize: draft.footer.fontSize
+          }}
+        >
+          <div className="mx-auto" style={{ maxWidth: draft.footer.maxWidth }}>
+            <p>{draft.footer.notice.replace('{ANO}', String(new Date().getFullYear()))}</p>
+            {draft.footer.showTerms && (draft.footer.termsOverride || campaign?.terms_text) ? (
+              <p className="mt-3 opacity-70">{draft.footer.termsOverride || campaign?.terms_text}</p>
+            ) : null}
+          </div>
+        </footer>
+      ) : null}
+
       <CampaignFinanceSimulatorModal
         campaign={campaign}
         eventInfo={eventInfo}
@@ -101,6 +126,12 @@ export function PublishedCampaignVisualLanding({ campaign, eventInfo, vehicles, 
         primaryColor={draft.primaryColor}
         slug={slug}
       />
+      <style jsx global>{`
+        .published-campaign-flow #editor-vehicles,
+        .published-campaign-flow > div > footer {
+          display: none;
+        }
+      `}</style>
       <span className="sr-only">Layout publicado para {campaign?.name}. Altura do banner: {layout.heroHeight}px.</span>
     </main>
   );
