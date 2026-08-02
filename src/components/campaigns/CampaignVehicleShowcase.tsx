@@ -38,6 +38,17 @@ function vehiclePhotos(vehicle: any) {
   }).filter(Boolean)));
 }
 
+function vehicleDescription(vehicle: any) {
+  return String(
+    vehicle?.description ||
+    vehicle?.public_description ||
+    vehicle?.site_description ||
+    vehicle?.ai_description ||
+    vehicle?.details ||
+    ''
+  ).trim();
+}
+
 function detailRows(vehicle: any) {
   return [
     ['Versão', vehicle?.version],
@@ -46,8 +57,7 @@ function detailRows(vehicle: any) {
     ['Câmbio', vehicle?.transmission],
     ['Combustível', vehicle?.fuel],
     ['Cor', vehicle?.color],
-    ['Portas', vehicle?.doors],
-    ['Loja', vehicle?.store_name]
+    ['Portas', vehicle?.doors]
   ].filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '');
 }
 
@@ -55,6 +65,7 @@ export function CampaignVehicleShowcase({ vehicles, primaryColor, onOpenSimulato
   const [selected, setSelected] = useState<any>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
   const photos = useMemo(() => selected ? vehiclePhotos(selected) : [], [selected]);
+  const description = useMemo(() => selected ? vehicleDescription(selected) : '', [selected]);
 
   useEffect(() => {
     if (!selected) return;
@@ -117,28 +128,41 @@ export function CampaignVehicleShowcase({ vehicles, primaryColor, onOpenSimulato
       </section>
 
       {selected ? (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-3 sm:p-6" role="dialog" aria-modal="true" aria-label={`Fotos e detalhes de ${selected.brand} ${selected.model}`} onMouseDown={(event) => { if (event.currentTarget === event.target) setSelected(null); }}>
-          <div className="max-h-[94vh] w-full max-w-6xl overflow-y-auto rounded-[28px] bg-white shadow-2xl">
-            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur">
-              <div><p className="text-xs font-black uppercase tracking-[0.15em] text-slate-400">{selected.store_name || 'Loja participante'}</p><h2 className="text-xl font-black">{selected.brand} {selected.model}</h2></div>
-              <button type="button" onClick={() => setSelected(null)} className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-100" aria-label="Fechar"><X size={22} /></button>
-            </div>
-            <div className="grid lg:grid-cols-[1.45fr_0.75fr]">
-              <div className="bg-slate-950 p-3 sm:p-5">
-                <div className="relative aspect-[16/10] overflow-hidden rounded-2xl bg-slate-900">
-                  {photos.length ? <img src={photos[photoIndex]} alt={`${selected.brand} ${selected.model} - foto ${photoIndex + 1}`} className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center text-slate-500"><CarFront size={72} /></div>}
-                  {photos.length > 1 ? <><button type="button" onClick={() => setPhotoIndex((photoIndex - 1 + photos.length) % photos.length)} className="absolute left-3 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white" aria-label="Foto anterior"><ChevronLeft /></button><button type="button" onClick={() => setPhotoIndex((photoIndex + 1) % photos.length)} className="absolute right-3 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white" aria-label="Próxima foto"><ChevronRight /></button></> : null}
-                </div>
-                {photos.length > 1 ? <div className="mt-3 flex gap-2 overflow-x-auto pb-1">{photos.map((photo, index) => <button type="button" key={photo} onClick={() => setPhotoIndex(index)} className={`h-16 w-24 shrink-0 overflow-hidden rounded-xl border-2 ${index === photoIndex ? 'border-white' : 'border-transparent opacity-60'}`}><img src={photo} alt="" className="h-full w-full object-cover" /></button>)}</div> : null}
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-3 sm:p-5" role="dialog" aria-modal="true" aria-label={`Fotos e detalhes de ${selected.brand} ${selected.model}`} onMouseDown={(event) => { if (event.currentTarget === event.target) setSelected(null); }}>
+          <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-[24px] bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3 sm:px-6">
+              <div className="min-w-0">
+                <p className="truncate text-[11px] font-black uppercase tracking-[0.15em] text-slate-400">{selected.store_name || 'Loja participante'}</p>
+                <h2 className="truncate text-lg font-black sm:text-xl">{selected.brand} {selected.model}</h2>
               </div>
-              <div className="p-6 sm:p-8">
-                <p className="text-sm text-slate-500">{selected.version || 'Versão não informada'}</p>
-                {selected.original_price ? <p className="mt-5 text-sm font-bold text-slate-400 line-through">{money(selected.original_price)}</p> : null}
-                <strong className="mt-1 block text-3xl font-black">{money(selected.price)}</strong>
-                <div className="mt-6 grid grid-cols-2 gap-3">{detailRows(selected).map(([label, value]) => <div key={label} className="rounded-2xl bg-slate-100 p-3"><p className="text-[10px] font-black uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 text-sm font-bold">{String(value)}</p></div>)}</div>
-                {selected.description ? <p className="mt-6 whitespace-pre-line text-sm leading-relaxed text-slate-600">{selected.description}</p> : null}
-                {selected.store_name ? <p className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-slate-600"><MapPin size={17} /> {selected.store_name}</p> : null}
-                <button type="button" onClick={() => { const id = selected.id; setSelected(null); onOpenSimulator(id); }} className="mt-7 min-h-14 w-full rounded-2xl px-5 text-sm font-black text-white" style={{ backgroundColor: primaryColor }}>VER PARCELAS</button>
+              <button type="button" onClick={() => setSelected(null)} className="ml-4 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100" aria-label="Fechar"><X size={20} /></button>
+            </div>
+
+            <div className="grid max-h-[calc(90vh-65px)] overflow-y-auto lg:grid-cols-[1.08fr_0.92fr]">
+              <div className="bg-slate-950 p-3 sm:p-4">
+                <div className="relative mx-auto aspect-[16/9] max-h-[430px] overflow-hidden rounded-2xl bg-slate-900">
+                  {photos.length ? <img src={photos[photoIndex]} alt={`${selected.brand} ${selected.model} - foto ${photoIndex + 1}`} className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center text-slate-500"><CarFront size={64} /></div>}
+                  {photos.length > 1 ? <><button type="button" onClick={() => setPhotoIndex((photoIndex - 1 + photos.length) % photos.length)} className="absolute left-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/65 text-white" aria-label="Foto anterior"><ChevronLeft size={20} /></button><button type="button" onClick={() => setPhotoIndex((photoIndex + 1) % photos.length)} className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/65 text-white" aria-label="Próxima foto"><ChevronRight size={20} /></button></> : null}
+                  {photos.length ? <span className="absolute bottom-2 right-2 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white">{photoIndex + 1}/{photos.length}</span> : null}
+                </div>
+                {photos.length > 1 ? <div className="mt-2 flex gap-2 overflow-x-auto pb-1">{photos.map((photo, index) => <button type="button" key={photo} onClick={() => setPhotoIndex(index)} className={`h-12 w-20 shrink-0 overflow-hidden rounded-lg border-2 ${index === photoIndex ? 'border-white' : 'border-transparent opacity-55'}`}><img src={photo} alt="" className="h-full w-full object-cover" /></button>)}</div> : null}
+              </div>
+
+              <div className="p-5 sm:p-6">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-500">{selected.version || 'Versão não informada'}</p>
+                    {selected.original_price ? <p className="mt-2 text-xs font-bold text-slate-400 line-through">{money(selected.original_price)}</p> : null}
+                    <strong className="mt-1 block text-3xl font-black leading-none">{money(selected.price)}</strong>
+                  </div>
+                  {selected.store_name ? <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600"><MapPin size={15} /> {selected.store_name}</span> : null}
+                </div>
+
+                <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">{detailRows(selected).map(([label, value]) => <div key={label} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"><p className="text-[9px] font-black uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 text-xs font-bold leading-snug text-slate-800">{String(value)}</p></div>)}</div>
+
+                {description ? <div className="mt-5 border-t border-slate-200 pt-4"><h3 className="text-sm font-black text-slate-900">Descrição</h3><p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-line pr-1 text-sm leading-relaxed text-slate-600">{description}</p></div> : null}
+
+                <button type="button" onClick={() => { const id = selected.id; setSelected(null); onOpenSimulator(id); }} className="mt-6 min-h-12 w-full rounded-2xl px-5 text-sm font-black text-white" style={{ backgroundColor: primaryColor }}>VER PARCELAS</button>
               </div>
             </div>
           </div>
