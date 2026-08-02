@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, RotateCcw, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, MessageCircle, RotateCcw, ShieldCheck } from 'lucide-react';
+import { CampaignVehicleGallery } from '@/components/campaigns/CampaignVehicleGallery';
+import { calculateCampaignFinance, campaignInstallmentOptions } from '@/lib/campaignFinance';
 
 type Props = {
   campaign: any;
@@ -82,24 +84,21 @@ export function CampaignFinanceSimulatorInline({
     [vehicles, form.vehicle_id]
   );
 
+  const hasDownPayment = form.down_payment.trim() !== '' && Number.isFinite(Number(form.down_payment));
+
   const simulation = useMemo(() => {
-    const vehiclePrice = Number(selectedVehicle?.price || 0);
-    const downPayment = Math.max(Number(form.down_payment || 0), 0);
-    const financedAmount = Math.max(vehiclePrice - downPayment, 0);
-    const installments = Math.max(Number(form.installments || 60), 1);
-    const monthlyRate = Math.max(Number(campaign?.interest_rate || 1.89), 0) / 100;
-    const estimatedInstallment = financedAmount > 0 && monthlyRate > 0
-      ? (financedAmount * monthlyRate) / (1 - Math.pow(1 + monthlyRate, -installments))
-      : installments > 0
-        ? financedAmount / installments
-        : 0;
-    return { vehiclePrice, downPayment, financedAmount, installments, estimatedInstallment };
-  }, [selectedVehicle, form.down_payment, form.installments, campaign]);
+    return calculateCampaignFinance({
+      vehiclePrice: selectedVehicle?.price,
+      downPayment: hasDownPayment ? form.down_payment : 0,
+      installments: form.installments,
+      monthlyRatePercent: campaign?.interest_rate || 1.89
+    });
+  }, [selectedVehicle, hasDownPayment, form.down_payment, form.installments, campaign]);
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     event.stopPropagation();
-    if (!selectedVehicle || !form.name || !form.phone || !form.cpf || !form.email || !form.consent) {
+    if (!selectedVehicle || !hasDownPayment || !form.name || !form.phone || !form.cpf || !form.email || !form.consent) {
       setMessage('Preencha todos os campos obrigatórios para testar a simulação.');
       return;
     }
@@ -140,10 +139,14 @@ export function CampaignFinanceSimulatorInline({
       {submitted ? (
         <div className="p-7 text-center">
           <CheckCircle2 size={50} className="mx-auto text-emerald-500" />
-          <h3 className="mt-4 text-2xl font-black">Simulação testada</h3>
+          <h3 className="mt-4 text-2xl font-black">Parabéns, {form.name.trim()}! Sua simulação foi recebida.</h3>
           <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
-            O cálculo, os campos e as máscaras foram validados. Nenhum lead ou contato foi criado.
+            Pelos dados informados, seu perfil avançou para a pré-análise com 80% de aprovação. O resultado final depende da análise da instituição financeira. Um dos nossos representantes entrará em contato com você.
           </p>
+          <span className="mx-auto mt-5 inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-lg">
+            <MessageCircle size={18} /> Quero antecipar meu atendimento agora
+          </span>
+          <p className="mx-auto mt-3 max-w-xl rounded-2xl bg-indigo-50 p-3 text-xs font-bold text-indigo-700">Modo Preview: nenhum lead ou contato foi criado.</p>
           <button
             type="button"
             onClick={restart}
@@ -171,13 +174,13 @@ export function CampaignFinanceSimulatorInline({
                 </option>
               ))}
             </select>
-            <input className="premium-input" type="number" min="0" max={selectedVehicle?.price || undefined} placeholder="Valor de entrada" value={form.down_payment} onChange={(event) => setForm({ ...form, down_payment: event.target.value })} required />
+            <input className="premium-input" type="number" inputMode="decimal" min="0" step="0.01" max={selectedVehicle?.price || undefined} placeholder="Digite o valor da entrada" value={form.down_payment} onChange={(event) => setForm({ ...form, down_payment: event.target.value })} required />
             <select className="premium-input" value={form.installments} onChange={(event) => setForm({ ...form, installments: event.target.value })}>
-              {[12, 24, 36, 48, 60].map((value) => <option key={value} value={value}>{value} parcelas</option>)}
+              {campaignInstallmentOptions.map((value) => <option key={value} value={value}>{value} parcelas</option>)}
             </select>
             <label className="sm:col-span-2 flex items-start gap-3 rounded-2xl bg-slate-50 p-4 text-xs font-semibold text-slate-500">
               <input type="checkbox" checked={form.consent} onChange={(event) => setForm({ ...form, consent: event.target.checked })} required />
-              Autorizo o contato comercial da Auto Sede e da loja responsável pelo veículo selecionado.
+              Autorizo o contato comercial da Auto Sede e de uma das lojas participantes do evento.
             </label>
           </div>
 
@@ -185,25 +188,25 @@ export function CampaignFinanceSimulatorInline({
             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Resumo</p>
             {selectedVehicle ? (
               <>
+                <div className="mt-3"><CampaignVehicleGallery vehicle={selectedVehicle} compact /></div>
                 <h3 className="mt-3 text-lg font-black">{selectedVehicle.brand} {selectedVehicle.model}</h3>
-                <p className="mt-1 text-xs text-slate-400">{selectedVehicle.store_name || eventInfo?.name || 'Loja responsável'}</p>
+                <p className="mt-1 text-xs text-slate-400">{selectedVehicle.version || selectedVehicle.year || eventInfo?.name || 'Veículo selecionado'}</p>
               </>
             ) : (
-              <p className="mt-3 text-sm text-slate-400">Selecione um veículo para calcular.</p>
+              <p className="mt-3 text-sm text-slate-400">Selecione um veículo para visualizar as fotos e calcular.</p>
             )}
             <div className="mt-5 space-y-3 text-sm">
               <p className="flex justify-between gap-4"><span className="text-slate-400">Veículo</span><strong>{money(simulation.vehiclePrice)}</strong></p>
-              <p className="flex justify-between gap-4"><span className="text-slate-400">Entrada</span><strong>{money(simulation.downPayment)}</strong></p>
-              <p className="flex justify-between gap-4"><span className="text-slate-400">Financiado</span><strong>{money(simulation.financedAmount)}</strong></p>
+              <p className="flex justify-between gap-4"><span className="text-slate-400">Entrada</span><strong>{hasDownPayment ? money(simulation.downPayment) : '—'}</strong></p>
+              <p className="flex justify-between gap-4"><span className="text-slate-400">Financiado</span><strong>{hasDownPayment ? money(simulation.financedAmount) : '—'}</strong></p>
             </div>
             <div className="mt-5 rounded-2xl bg-white/10 p-4">
               <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Parcela estimada</p>
-              <strong className="mt-2 block text-2xl font-black">{money(simulation.estimatedInstallment)}</strong>
-              <p className="mt-1 text-xs text-slate-400">em {simulation.installments}x • taxa referencial</p>
+              {hasDownPayment ? <><strong className="mt-2 block text-2xl font-black">{money(simulation.estimatedInstallment)}</strong><p className="mt-1 text-xs text-slate-400">em {simulation.installments}x • taxa referencial</p><div className="mt-4 space-y-2 border-t border-white/10 pt-3 text-xs"><p className="flex justify-between gap-3"><span className="text-slate-400">Total das parcelas</span><strong>{money(simulation.totalInstallments)}</strong></p><p className="flex justify-between gap-3"><span className="text-slate-400">Total com entrada</span><strong>{money(simulation.totalWithDownPayment)}</strong></p></div></> : <p className="mt-2 text-sm font-bold text-white">Informe o valor da entrada para calcular.</p>}
             </div>
             <button
               type="submit"
-              disabled={!selectedVehicle}
+              disabled={!selectedVehicle || !hasDownPayment}
               className="mt-5 min-h-12 w-full rounded-2xl text-sm font-black text-white disabled:opacity-50"
               style={{ backgroundColor: primary }}
             >
