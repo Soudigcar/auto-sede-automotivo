@@ -269,8 +269,8 @@ export function CampaignFinanceSimulatorModal({
             </div>
           </div>
         ) : (
-          <form onSubmit={submit} className="grid min-w-0 w-full grid-cols-[minmax(0,1fr)] gap-6 overflow-x-hidden p-5 sm:p-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-            <div className="grid min-w-0 max-w-full gap-3 sm:grid-cols-2">
+          <form onSubmit={submit} className="grid min-w-0 w-full grid-cols-[minmax(0,1fr)] items-start gap-6 overflow-x-hidden p-5 sm:p-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="grid min-w-0 max-w-full content-start self-start gap-3 sm:grid-cols-2">
               <input className="premium-input min-w-0 max-w-full sm:col-span-2" placeholder="Nome completo" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
               <input className="premium-input min-w-0 max-w-full" placeholder="WhatsApp" value={form.phone} onChange={(event) => setForm({ ...form, phone: maskPhone(event.target.value) })} required />
               <input className="premium-input min-w-0 max-w-full" placeholder="CPF" value={form.cpf} onChange={(event) => setForm({ ...form, cpf: maskCpf(event.target.value) })} required />
