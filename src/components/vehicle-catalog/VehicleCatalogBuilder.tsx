@@ -14,6 +14,7 @@ import {
   X
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import type { EvidenceSource } from '@/lib/vehicleCatalogAssistantRules';
 
 type BuilderRow = {
   id: string;
@@ -26,11 +27,15 @@ type BuilderRow = {
   model_year: number | null;
   fuel: string;
   transmission: string;
+  fuel_source?: EvidenceSource;
+  transmission_source?: EvidenceSource;
   source_count: number;
   sources: string[];
   raw_brands: string[];
   raw_models: string[];
   raw_versions: string[];
+  raw_fuels?: string[];
+  raw_transmissions?: string[];
   warnings: string[];
   existing?: Record<string, string | null>;
 };
@@ -49,6 +54,8 @@ type Analysis = {
   };
   rows: BuilderRow[];
   brands: { id: string; name: string }[];
+  fuels: { id: string; name: string }[];
+  transmissions: { id: string; name: string }[];
 };
 
 const emptyAnalysis: Analysis = {
@@ -63,7 +70,9 @@ const emptyAnalysis: Analysis = {
     existing: 0
   },
   rows: [],
-  brands: []
+  brands: [],
+  fuels: [],
+  transmissions: []
 };
 
 const inputClass =
@@ -83,6 +92,20 @@ const statusClasses: Record<string, string> = {
   conflict: 'border-amber-200 bg-amber-50 text-amber-800',
   incomplete: 'border-red-200 bg-red-50 text-red-700',
   existing: 'border-zinc-200 bg-zinc-100 text-zinc-600'
+};
+
+const evidenceLabels: Record<EvidenceSource, string> = {
+  source: 'Informado pelo estoque',
+  version: 'Inferido da versão',
+  none: 'Sem comprovação',
+  reviewed: 'Revisado manualmente'
+};
+
+const evidenceClasses: Record<EvidenceSource, string> = {
+  source: 'text-emerald-700',
+  version: 'text-blue-700',
+  none: 'text-amber-700',
+  reviewed: 'text-violet-700'
 };
 
 export function VehicleCatalogBuilder({ onApplied }: { onApplied: () => void | Promise<void> }) {
@@ -144,7 +167,7 @@ export function VehicleCatalogBuilder({ onApplied }: { onApplied: () => void | P
       ...current,
       rows: current.rows.map((row) => {
         if (!visibleIds.has(row.id)) return row;
-        if (['existing', 'incomplete'].includes(row.status)) return { ...row, selected: false };
+        if (['existing', 'incomplete', 'conflict'].includes(row.status)) return { ...row, selected: false };
         return { ...row, selected: value };
       })
     }));
@@ -187,6 +210,7 @@ export function VehicleCatalogBuilder({ onApplied }: { onApplied: () => void | P
         `${result.processed || 0} linha(s) processada(s). ` +
         `${result.models_created || 0} modelo(s), ${result.versions_created || 0} versão(ões) e ` +
         `${result.configurations_created || 0} configuração(ões) criadas.` +
+        (result.configurations_existing ? ` ${result.configurations_existing} duplicidade(s) ignorada(s).` : '') +
         (errorCount ? ` ${errorCount} linha(s) precisam de revisão.` : '')
       );
       await onApplied();
@@ -398,18 +422,44 @@ export function VehicleCatalogBuilder({ onApplied }: { onApplied: () => void | P
                               />
                             </td>
                             <td className="px-3 py-3">
-                              <input
+                              <div className="grid gap-1">
+                                <select
                                 value={row.fuel || ''}
-                                onChange={(event) => updateRow(row.id, { fuel: event.target.value })}
+                                onChange={(event) => updateRow(row.id, {
+                                  fuel: event.target.value,
+                                  fuel_source: event.target.value ? 'reviewed' : 'none',
+                                  selected: false
+                                })}
                                 className={inputClass}
-                              />
+                                >
+                                  <option value="">Sem comprovação</option>
+                                  {analysis.fuels.map((fuel) => <option key={fuel.id} value={fuel.name}>{fuel.name}</option>)}
+                                </select>
+                                <span className={`text-[9px] font-black uppercase ${evidenceClasses[row.fuel_source || 'none']}`}>
+                                  {evidenceLabels[row.fuel_source || 'none']}
+                                </span>
+                              </div>
                             </td>
                             <td className="px-3 py-3">
-                              <input
+                              <div className="grid gap-1">
+                                <select
                                 value={row.transmission || ''}
-                                onChange={(event) => updateRow(row.id, { transmission: event.target.value })}
+                                onChange={(event) => updateRow(row.id, {
+                                  transmission: event.target.value,
+                                  transmission_source: event.target.value ? 'reviewed' : 'none',
+                                  selected: false
+                                })}
                                 className={inputClass}
-                              />
+                                >
+                                  <option value="">Sem comprovação</option>
+                                  {analysis.transmissions.map((transmission) => (
+                                    <option key={transmission.id} value={transmission.name}>{transmission.name}</option>
+                                  ))}
+                                </select>
+                                <span className={`text-[9px] font-black uppercase ${evidenceClasses[row.transmission_source || 'none']}`}>
+                                  {evidenceLabels[row.transmission_source || 'none']}
+                                </span>
+                              </div>
                             </td>
                             <td className="px-3 py-3">
                               <strong className="block text-sm font-black">{row.source_count || 1}</strong>

@@ -1,5 +1,17 @@
 import { NextResponse } from 'next/server';
 import { cleanText, getAdminClient, requireMaster } from '@/lib/server/masterApi';
+import {
+  classifyFuel,
+  classifyTransmission,
+  configurationIdentityKey,
+  isValidYearPair,
+  normalizeEngineNotation,
+  normalizeVehicleText,
+  parseVehicleYears,
+  resolveEvidence,
+  semanticVersionKey,
+  type EvidenceSource
+} from '@/lib/vehicleCatalogAssistantRules';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,6 +27,8 @@ type SourceVehicle = {
   year: string;
   fuel: string;
   transmission: string;
+  fuel_source?: EvidenceSource;
+  transmission_source?: EvidenceSource;
 };
 
 type ProposalRow = {
@@ -33,6 +47,8 @@ type ProposalRow = {
   raw_brands?: string[];
   raw_models?: string[];
   raw_versions?: string[];
+  raw_fuels?: string[];
+  raw_transmissions?: string[];
   warnings?: string[];
   existing?: {
     brand_id?: string | null;
@@ -91,13 +107,7 @@ function decodeHtml(value: unknown) {
 }
 
 function normalizeKey(value: unknown) {
-  return decodeHtml(cleanText(value, 1000))
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return normalizeVehicleText(cleanText(value, 1000));
 }
 
 function titleCase(value: unknown) {
@@ -198,7 +208,7 @@ function cleanVersion(raw: unknown, brand: string, model: string) {
   if (model === 'T-Cross') value = value.replace(/^cross\s+/i, '');
   if (model === 'Nivus') value = value.replace(/^nivus\s+/i, '');
 
-  value = value
+  value = normalizeEngineNotation(value)
     .replace(/\b(10)(MT|AT)\b/gi, '1.0 $2')
     .replace(/\b(13)(MT|AT)?\b/gi, (_, __, suffix) => `1.3${suffix ? ` ${suffix}` : ''}`)
     .replace(/\b(14)(MT|AT)?\b/gi, (_, __, suffix) => `1.4${suffix ? ` ${suffix}` : ''}`)
@@ -215,35 +225,12 @@ function cleanVersion(raw: unknown, brand: string, model: string) {
     .replace(/\bGti\b/g, 'GTI');
 }
 
-function parseYears(raw: unknown) {
-  const years = Array.from(String(raw || '').matchAll(/\b(19|20)\d{2}\b/g)).map((match) => Number(match[0]));
-  if (!years.length) return { manufacture_year: null, model_year: null };
-  if (years.length === 1) return { manufacture_year: years[0], model_year: years[0] };
-  return { manufacture_year: years[0], model_year: years[1] };
-}
-
 function canonicalFuel(raw: unknown) {
-  const key = normalizeKey(raw);
-  if (!key || ignoredValues.has(key)) return '';
-  if (key.includes('flex')) return 'Flex';
-  if (key.includes('diesel')) return 'Diesel';
-  if (key.includes('gasolina')) return 'Gasolina';
-  if (key.includes('etanol') || key.includes('alcool')) return 'Etanol';
-  if (key.includes('eletric')) return 'Elétrico';
-  if (key.includes('hibrid')) return 'Híbrido';
-  if (key.includes('gnv')) return 'GNV';
-  return titleCase(raw);
+  return classifyFuel(raw).value;
 }
 
 function canonicalTransmission(raw: unknown) {
-  const key = normalizeKey(raw);
-  if (!key || ignoredValues.has(key)) return '';
-  if (key.includes('cvt')) return 'CVT';
-  if (key.includes('dupla embreagem') || key.includes('dsg') || key.includes('dct')) return 'Dupla embreagem';
-  if (key.includes('automatiz')) return 'Automatizado';
-  if (key.includes('automatic')) return 'Automático';
-  if (key.includes('manual') || key === 'mt') return 'Manual';
-  return titleCase(raw);
+  return classifyTransmission(raw).value;
 }
 
 function inferEngine(version: string) {
@@ -268,18 +255,36 @@ function normalizeSourceVehicle(item: any, source: SourceVehicle['source']): Sou
   };
 }
 
+async function loadAllConfigurations(supabase: AdminClient) {
+  const pageSize = 1000;
+  const rows: any[] = [];
+
+  for (let from = 0; from < 100000; from += pageSize) {
+    const { data, error } = await supabase
+      .from('vehicle_catalog_configurations')
+      .select('id,version_id,manufacture_year,model_year,fuel_id,transmission_id')
+      .order('id', { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if ((data || []).length < pageSize) break;
+  }
+
+  return rows;
+}
+
 async function loadReferenceData(supabase: AdminClient) {
   const [brandsResult, modelsResult, versionsResult, configurationsResult, fuelsResult, transmissionsResult, aliasesResult] = await Promise.all([
     supabase.from('vehicle_catalog_brands').select('*').order('name').limit(2000),
     supabase.from('vehicle_catalog_models').select('*').order('name').limit(10000),
     supabase.from('vehicle_catalog_versions').select('*').order('name').limit(20000),
-    supabase.from('vehicle_catalog_configurations').select('*').limit(30000),
+    loadAllConfigurations(supabase),
     supabase.from('vehicle_catalog_fuels').select('*').limit(1000),
     supabase.from('vehicle_catalog_transmissions').select('*').limit(1000),
     supabase.from('vehicle_catalog_aliases').select('*').eq('is_active', true).limit(20000)
   ]);
 
-  const results = [brandsResult, modelsResult, versionsResult, configurationsResult, fuelsResult, transmissionsResult, aliasesResult];
+  const results = [brandsResult, modelsResult, versionsResult, fuelsResult, transmissionsResult, aliasesResult];
   const error = results.find((result) => result.error)?.error;
   if (error) throw error;
 
@@ -287,7 +292,7 @@ async function loadReferenceData(supabase: AdminClient) {
     brands: brandsResult.data || [],
     models: modelsResult.data || [],
     versions: versionsResult.data || [],
-    configurations: configurationsResult.data || [],
+    configurations: configurationsResult,
     fuels: fuelsResult.data || [],
     transmissions: transmissionsResult.data || [],
     aliases: aliasesResult.data || []
@@ -298,6 +303,8 @@ function buildExistingMaps(reference: Awaited<ReturnType<typeof loadReferenceDat
   const brandByKey = new Map<string, any>();
   const modelByKey = new Map<string, any>();
   const versionByKey = new Map<string, any>();
+  const fuelByKey = new Map<string, any>();
+  const transmissionByKey = new Map<string, any>();
   const configurationByKey = new Map<string, any>();
 
   reference.brands.forEach((item: any) => brandByKey.set(normalizeKey(item.name), item));
@@ -316,19 +323,47 @@ function buildExistingMaps(reference: Awaited<ReturnType<typeof loadReferenceDat
       if (model) modelByKey.set(`${model.brand_id}:${normalizeKey(item.alias)}`, model);
     });
 
-  reference.versions.forEach((item: any) => versionByKey.set(`${item.model_id}:${normalizeKey(item.name)}`, item));
+  reference.versions.forEach((item: any) => versionByKey.set(`${item.model_id}:${semanticVersionKey(item.name)}`, item));
   reference.aliases
     .filter((item: any) => item.entity_type === 'version')
     .forEach((item: any) => {
       const version = reference.versions.find((entry: any) => entry.id === item.entity_id);
-      if (version) versionByKey.set(`${version.model_id}:${normalizeKey(item.alias)}`, version);
+      if (version) versionByKey.set(`${version.model_id}:${semanticVersionKey(item.alias)}`, version);
+    });
+
+  reference.fuels.forEach((item: any) => {
+    fuelByKey.set(normalizeKey(item.name), item);
+    if (item.code) fuelByKey.set(normalizeKey(item.code), item);
+  });
+  reference.aliases
+    .filter((item: any) => item.entity_type === 'fuel')
+    .forEach((item: any) => {
+      const fuel = reference.fuels.find((entry: any) => entry.id === item.entity_id);
+      if (fuel) fuelByKey.set(normalizeKey(item.alias), fuel);
+    });
+
+  reference.transmissions.forEach((item: any) => {
+    transmissionByKey.set(normalizeKey(item.name), item);
+    if (item.code) transmissionByKey.set(normalizeKey(item.code), item);
+  });
+  reference.aliases
+    .filter((item: any) => item.entity_type === 'transmission')
+    .forEach((item: any) => {
+      const transmission = reference.transmissions.find((entry: any) => entry.id === item.entity_id);
+      if (transmission) transmissionByKey.set(normalizeKey(item.alias), transmission);
     });
 
   reference.configurations.forEach((item: any) => {
-    configurationByKey.set(`${item.version_id}:${item.manufacture_year}:${item.model_year}`, item);
+    configurationByKey.set(configurationIdentityKey({
+      versionId: item.version_id,
+      manufactureYear: item.manufacture_year,
+      modelYear: item.model_year,
+      fuelId: item.fuel_id,
+      transmissionId: item.transmission_id
+    }), item);
   });
 
-  return { brandByKey, modelByKey, versionByKey, configurationByKey };
+  return { brandByKey, modelByKey, versionByKey, fuelByKey, transmissionByKey, configurationByKey };
 }
 
 async function analyzeCatalog(supabase: AdminClient) {
@@ -351,102 +386,192 @@ async function analyzeCatalog(supabase: AdminClient) {
   if (siteResult.error) throw siteResult.error;
   if (inventoryResult.error) throw inventoryResult.error;
 
-  const officialBrands = new Map(reference.brands.map((item: any) => [normalizeKey(item.name), item]));
-  const existing = buildExistingMaps(reference);
   const sourceVehicles = [
     ...(siteResult.data || []).map((item: any) => normalizeSourceVehicle(item, 'site_vehicles')),
     ...(inventoryResult.data || []).map((item: any) => normalizeSourceVehicle(item, 'inventory'))
   ];
 
-  const groups = new Map<string, any>();
+  return buildCatalogAnalysis(reference, sourceVehicles);
+}
+
+function buildCatalogAnalysis(
+  reference: Awaited<ReturnType<typeof loadReferenceData>>,
+  sourceVehicles: SourceVehicle[]
+) {
+  const existing = buildExistingMaps(reference);
+
+  const baseGroups = new Map<string, any[]>();
   let ignored = 0;
 
   for (const source of sourceVehicles) {
-    const brand = canonicalBrand(source.brand, officialBrands);
-    const model = cleanModel(source.model, brand, source.version);
-    const version = cleanVersion(source.version, brand, model);
-    const years = parseYears(source.year || source.version);
-    const fuel = canonicalFuel(source.fuel || source.version);
-    const transmission = canonicalTransmission(source.transmission || source.version);
+    const brandCandidate = canonicalBrand(source.brand, existing.brandByKey);
+    const officialBrand = existing.brandByKey.get(normalizeKey(brandCandidate));
+    const brand = officialBrand?.name || brandCandidate;
+
+    const modelCandidate = cleanModel(source.model, brand, source.version);
+    const modelRecord = officialBrand
+      ? existing.modelByKey.get(`${officialBrand.id}:${normalizeKey(modelCandidate)}`)
+      : null;
+    const model = modelRecord?.name || modelCandidate;
+
+    const versionCandidate = cleanVersion(source.version, brand, model);
+    const versionRecord = modelRecord && versionCandidate
+      ? existing.versionByKey.get(`${modelRecord.id}:${semanticVersionKey(versionCandidate)}`)
+      : null;
+    const version = versionRecord?.name || versionCandidate;
+
+    const years = parseVehicleYears(source.year, source.version);
+    const fuelEvidence = resolveEvidence(source.fuel, source.version, classifyFuel);
+    const transmissionEvidence = resolveEvidence(source.transmission, source.version, classifyTransmission);
+    const fuelRecord = fuelEvidence.value
+      ? existing.fuelByKey.get(normalizeKey(fuelEvidence.value))
+      : null;
+    const transmissionRecord = transmissionEvidence.value
+      ? existing.transmissionByKey.get(normalizeKey(transmissionEvidence.value))
+      : null;
+    const fuel = fuelRecord?.name || '';
+    const transmission = transmissionRecord?.name || '';
 
     if (!brand && !model && !version) {
       ignored += 1;
       continue;
     }
 
-    const key = [normalizeKey(brand), normalizeKey(model), normalizeKey(version), years.manufacture_year || '', years.model_year || ''].join('|');
-    const current = groups.get(key) || {
+    const baseKey = [
+      normalizeKey(brand),
+      normalizeKey(model),
+      semanticVersionKey(version),
+      years.manufacture_year || '',
+      years.model_year || ''
+    ].join('|');
+    const current = baseGroups.get(baseKey) || [];
+    current.push({
+      source,
       brand,
       model,
       version,
       manufacture_year: years.manufacture_year,
       model_year: years.model_year,
-      fuels: new Set<string>(),
-      transmissions: new Set<string>(),
-      sources: new Set<string>(),
-      source_ids: new Set<string>(),
-      raw_brands: new Set<string>(),
-      raw_models: new Set<string>(),
-      raw_versions: new Set<string>()
-    };
-
-    if (fuel) current.fuels.add(fuel);
-    if (transmission) current.transmissions.add(transmission);
-    current.sources.add(source.source);
-    current.source_ids.add(`${source.source}:${source.source_id}`);
-    if (source.brand) current.raw_brands.add(source.brand);
-    if (source.model) current.raw_models.add(source.model);
-    if (source.version) current.raw_versions.add(source.version);
-    groups.set(key, current);
+      fuel,
+      transmission,
+      fuelEvidence,
+      transmissionEvidence,
+      officialBrand,
+      modelRecord,
+      versionRecord,
+      fuelRecord,
+      transmissionRecord
+    });
+    baseGroups.set(baseKey, current);
   }
 
-  const rows: ProposalRow[] = Array.from(groups.entries()).map(([key, group]) => {
+  const groups = new Map<string, any[]>();
+  for (const [baseKey, observations] of baseGroups.entries()) {
+    const knownFuels = new Set(observations.map((item) => item.fuel).filter(Boolean));
+    const knownTransmissions = new Set(observations.map((item) => item.transmission).filter(Boolean));
+
+    if (knownFuels.size <= 1 && knownTransmissions.size <= 1) {
+      const fuel = Array.from(knownFuels)[0] || '';
+      const transmission = Array.from(knownTransmissions)[0] || '';
+      groups.set(`${baseKey}|${normalizeKey(fuel)}|${normalizeKey(transmission)}`, observations);
+      continue;
+    }
+
+    for (const observation of observations) {
+      const exactKey = `${baseKey}|${normalizeKey(observation.fuel)}|${normalizeKey(observation.transmission)}`;
+      const current = groups.get(exactKey) || [];
+      current.push({ ...observation, ambiguousConfigurationFamily: !observation.fuel || !observation.transmission });
+      groups.set(exactKey, current);
+    }
+  }
+
+  const rows: ProposalRow[] = Array.from(groups.entries()).map(([key, observations]) => {
     const warnings: string[] = [];
-    const brandKey = normalizeKey(group.brand);
-    const officialBrand = existing.brandByKey.get(brandKey);
-    const modelRecord = officialBrand ? existing.modelByKey.get(`${officialBrand.id}:${normalizeKey(group.model)}`) : null;
-    const versionRecord = modelRecord && group.version
-      ? existing.versionByKey.get(`${modelRecord.id}:${normalizeKey(group.version)}`)
-      : null;
-    const configurationRecord = versionRecord && group.manufacture_year && group.model_year
-      ? existing.configurationByKey.get(`${versionRecord.id}:${group.manufacture_year}:${group.model_year}`)
+    const first = observations[0];
+    const officialBrand = first.officialBrand;
+    const modelRecord = first.modelRecord;
+    const versionRecord = first.versionRecord;
+    const fuel = observations.find((item) => item.fuel)?.fuel || '';
+    const transmission = observations.find((item) => item.transmission)?.transmission || '';
+    const fuelRecord = fuel ? existing.fuelByKey.get(normalizeKey(fuel)) : null;
+    const transmissionRecord = transmission ? existing.transmissionByKey.get(normalizeKey(transmission)) : null;
+    const configurationRecord = versionRecord && isValidYearPair(first.manufacture_year, first.model_year)
+      ? existing.configurationByKey.get(configurationIdentityKey({
+        versionId: versionRecord.id,
+        manufactureYear: first.manufacture_year,
+        modelYear: first.model_year,
+        fuelId: fuelRecord?.id || null,
+        transmissionId: transmissionRecord?.id || null
+      }))
       : null;
 
-    const fuels = Array.from(group.fuels) as string[];
-    const transmissions = Array.from(group.transmissions) as string[];
+    const rawBrands = new Set(observations.map((item) => item.source.brand).filter(Boolean));
+    const rawModels = new Set(observations.map((item) => item.source.model).filter(Boolean));
+    const rawVersions = new Set(observations.map((item) => item.source.version).filter(Boolean));
+    const rawFuels = new Set(observations.map((item) => item.source.fuel).filter(Boolean));
+    const rawTransmissions = new Set(observations.map((item) => item.source.transmission).filter(Boolean));
+    const sources = new Set(observations.map((item) => item.source.source));
+    const sourceIds = new Set(observations.map((item) => `${item.source.source}:${item.source.source_id}`));
+    const invalidFuel = observations.some((item) => item.fuelEvidence.invalidExplicit || item.fuelEvidence.ambiguous);
+    const invalidTransmission = observations.some((item) => item.transmissionEvidence.invalidExplicit || item.transmissionEvidence.ambiguous);
+    const ambiguousFamily = observations.some((item) => item.ambiguousConfigurationFamily);
+    const modelEqualsBrand = normalizeKey(first.model) === normalizeKey(first.brand);
 
-    if (!group.brand) warnings.push('Marca ausente ou inválida.');
-    if (!group.model) warnings.push('Modelo ausente ou inválido.');
-    if (!officialBrand && group.brand) warnings.push('Marca não encontrada na lista oficial; revise antes de cadastrar.');
-    if (fuels.length > 1) warnings.push(`Combustíveis divergentes: ${fuels.join(', ')}.`);
-    if (transmissions.length > 1) warnings.push(`Câmbios divergentes: ${transmissions.join(', ')}.`);
-    if (group.raw_models.size > 1) warnings.push(`${group.raw_models.size} escritas de modelo foram agrupadas.`);
-    if (group.raw_versions.size > 1) warnings.push(`${group.raw_versions.size} escritas de versão foram agrupadas.`);
-    if (!group.manufacture_year || !group.model_year) warnings.push('Ano incompleto; a configuração não será criada até a revisão.');
-    if (!group.version) warnings.push('Versão não informada; será possível cadastrar apenas a marca e o modelo.');
+    const evidenceRank: Record<EvidenceSource, number> = { source: 0, reviewed: 1, version: 2, none: 3 };
+    const fuelSource = observations
+      .filter((item) => item.fuel === fuel)
+      .map((item) => item.fuelEvidence.source as EvidenceSource)
+      .sort((a, b) => evidenceRank[a] - evidenceRank[b])[0] || 'none';
+    const transmissionSource = observations
+      .filter((item) => item.transmission === transmission)
+      .map((item) => item.transmissionEvidence.source as EvidenceSource)
+      .sort((a, b) => evidenceRank[a] - evidenceRank[b])[0] || 'none';
+
+    if (!first.brand) warnings.push('Marca ausente ou inválida.');
+    if (!first.model) warnings.push('Modelo ausente ou inválido.');
+    if (modelEqualsBrand) warnings.push('O modelo repete a marca; corrija o modelo antes de aprovar.');
+    if (!officialBrand && first.brand) warnings.push('Marca não encontrada na lista oficial; revise antes de cadastrar.');
+    if (!isValidYearPair(first.manufacture_year, first.model_year)) warnings.push('Ano incompleto ou incompatível; revise fabricação e modelo.');
+    if (!first.version) warnings.push('Versão não informada; a configuração não pode ser criada.');
+    if (!fuel) warnings.push('Combustível sem comprovação; o campo foi mantido vazio.');
+    if (!transmission) warnings.push('Câmbio sem comprovação; o campo foi mantido vazio.');
+    if (invalidFuel) warnings.push('O texto original de combustível não corresponde a um dos 7 valores oficiais.');
+    if (invalidTransmission) warnings.push('O texto original de câmbio não corresponde a um dos 5 valores oficiais.');
+    if (ambiguousFamily) warnings.push('Há configurações diferentes para a mesma versão/ano; revise o campo sem evidência.');
+    if (rawModels.size > 1) warnings.push(`${rawModels.size} escritas equivalentes de modelo foram agrupadas.`);
+    if (rawVersions.size > 1) warnings.push(`${rawVersions.size} escritas equivalentes de versão foram agrupadas.`);
 
     let status = 'new';
-    if (!group.brand || !group.model) status = 'incomplete';
-    else if (configurationRecord || (!group.version && modelRecord)) status = 'existing';
-    else if (fuels.length > 1 || transmissions.length > 1 || (!officialBrand && Boolean(group.brand))) status = 'conflict';
-    else if (group.raw_models.size > 1 || group.raw_versions.size > 1 || group.source_ids.size > 1) status = 'duplicate';
+    if (!first.brand || !first.model || !first.version || modelEqualsBrand || !isValidYearPair(first.manufacture_year, first.model_year)) {
+      status = 'incomplete';
+    } else if (configurationRecord) {
+      status = 'existing';
+    } else if (!officialBrand || !fuel || !transmission || invalidFuel || invalidTransmission || ambiguousFamily) {
+      status = 'conflict';
+    } else if (rawModels.size > 1 || rawVersions.size > 1 || sourceIds.size > 1) {
+      status = 'duplicate';
+    }
 
     return {
       id: stableId(key),
       selected: !['existing', 'incomplete', 'conflict'].includes(status),
       status,
-      brand: group.brand,
-      model: group.model,
-      version: group.version,
-      manufacture_year: group.manufacture_year,
-      model_year: group.model_year,
-      fuel: fuels[0] || '',
-      transmission: transmissions[0] || '',
-      source_count: group.source_ids.size,
-      sources: Array.from(group.sources),
-      raw_brands: Array.from(group.raw_brands),
-      raw_models: Array.from(group.raw_models),
-      raw_versions: Array.from(group.raw_versions),
+      brand: first.brand,
+      model: first.model,
+      version: first.version,
+      manufacture_year: first.manufacture_year,
+      model_year: first.model_year,
+      fuel,
+      transmission,
+      fuel_source: fuelSource,
+      transmission_source: transmissionSource,
+      source_count: sourceIds.size,
+      sources: Array.from(sources),
+      raw_brands: Array.from(rawBrands),
+      raw_models: Array.from(rawModels),
+      raw_versions: Array.from(rawVersions),
+      raw_fuels: Array.from(rawFuels),
+      raw_transmissions: Array.from(rawTransmissions),
       warnings,
       existing: {
         brand_id: officialBrand?.id || null,
@@ -478,7 +603,9 @@ async function analyzeCatalog(supabase: AdminClient) {
       existing: statusCount('existing')
     },
     rows,
-    brands: reference.brands.map((item: any) => ({ id: item.id, name: item.name }))
+    brands: reference.brands.map((item: any) => ({ id: item.id, name: item.name })),
+    fuels: reference.fuels.map((item: any) => ({ id: item.id, name: item.name })),
+    transmissions: reference.transmissions.map((item: any) => ({ id: item.id, name: item.name }))
   };
 }
 
@@ -575,6 +702,7 @@ async function applyRows(supabase: AdminClient, master: any, rawRows: unknown) {
     models_created: 0,
     versions_created: 0,
     configurations_created: 0,
+    configurations_existing: 0,
     fuels_created: 0,
     transmissions_created: 0,
     aliases_created: 0,
@@ -582,37 +710,59 @@ async function applyRows(supabase: AdminClient, master: any, rawRows: unknown) {
     errors: [] as { id: string; error: string }[]
   };
 
+  const reference = await loadReferenceData(supabase);
+  const existing = buildExistingMaps(reference);
+
   for (const row of rows) {
     try {
-      const brandName = cleanText(row.brand, 120);
-      const modelName = cleanText(row.model, 140);
-      const versionName = cleanText(row.version, 180);
-      if (!brandName || !modelName) {
-        result.skipped += 1;
-        continue;
+      const brandCandidate = canonicalBrand(row.brand, existing.brandByKey);
+      const brandRecord = existing.brandByKey.get(normalizeKey(brandCandidate));
+      if (!brandRecord) throw new Error('Marca não reconhecida na lista oficial.');
+
+      const brandName = brandRecord.name;
+      const modelName = cleanModel(row.model, brandName, row.version);
+      const versionName = cleanVersion(row.version, brandName, modelName);
+      const manufactureYear = Number(row.manufacture_year || 0) || null;
+      const modelYear = Number(row.model_year || 0) || null;
+
+      if (!modelName || normalizeKey(modelName) === normalizeKey(brandName)) {
+        throw new Error('Modelo ausente ou igual à marca.');
+      }
+      if (!versionName) throw new Error('Versão não informada.');
+      if (!isValidYearPair(manufactureYear, modelYear)) {
+        throw new Error('Ano de fabricação/modelo ausente ou incompatível.');
       }
 
-      const brandOutcome = await findOrCreateNamed(
-        supabase,
-        master,
-        'vehicle_catalog_brands',
-        'brands',
-        brandName
-      );
-      if (brandOutcome.created) result.brands_created += 1;
+      const canonicalFuelName = row.fuel ? canonicalFuel(row.fuel) : '';
+      if (row.fuel && !canonicalFuelName) throw new Error('Combustível fora da lista oficial.');
+      const fuelRecord = canonicalFuelName
+        ? existing.fuelByKey.get(normalizeKey(canonicalFuelName))
+        : null;
+      if (canonicalFuelName && !fuelRecord) throw new Error('Combustível oficial não localizado.');
 
-      const modelOutcome = await findOrCreateNamed(
-        supabase,
-        master,
-        'vehicle_catalog_models',
-        'models',
-        modelName,
-        {
-          brand_id: brandOutcome.record.id,
-          start_year: row.manufacture_year || null,
-          end_year: null
-        }
-      );
+      const canonicalTransmissionName = row.transmission ? canonicalTransmission(row.transmission) : '';
+      if (row.transmission && !canonicalTransmissionName) throw new Error('Câmbio fora da lista oficial.');
+      const transmissionRecord = canonicalTransmissionName
+        ? existing.transmissionByKey.get(normalizeKey(canonicalTransmissionName))
+        : null;
+      if (canonicalTransmissionName && !transmissionRecord) throw new Error('Câmbio oficial não localizado.');
+
+      const knownModel = existing.modelByKey.get(`${brandRecord.id}:${normalizeKey(modelName)}`);
+      const modelOutcome = knownModel
+        ? { record: knownModel, created: false }
+        : await findOrCreateNamed(
+          supabase,
+          master,
+          'vehicle_catalog_models',
+          'models',
+          modelName,
+          {
+            brand_id: brandRecord.id,
+            start_year: manufactureYear,
+            end_year: null
+          }
+        );
+
       if (modelOutcome.created) result.models_created += 1;
 
       for (const rawModel of unique(row.raw_models || [])) {
@@ -621,8 +771,8 @@ async function applyRows(supabase: AdminClient, master: any, rawRows: unknown) {
         }
       }
 
-      let versionRecord: any = null;
-      if (versionName) {
+      let versionRecord: any = existing.versionByKey.get(`${modelOutcome.record.id}:${semanticVersionKey(versionName)}`);
+      if (!versionRecord) {
         const versionOutcome = await findOrCreateNamed(
           supabase,
           master,
@@ -637,75 +787,64 @@ async function applyRows(supabase: AdminClient, master: any, rawRows: unknown) {
         );
         versionRecord = versionOutcome.record;
         if (versionOutcome.created) result.versions_created += 1;
+      }
 
-        for (const rawVersion of unique(row.raw_versions || [])) {
-          if (await ensureAlias(supabase, master, 'version', versionRecord.id, rawVersion, versionName)) {
-            result.aliases_created += 1;
-          }
+      for (const rawVersion of unique(row.raw_versions || [])) {
+        if (await ensureAlias(supabase, master, 'version', versionRecord.id, rawVersion, versionName)) {
+          result.aliases_created += 1;
         }
       }
 
-      let fuelId: string | null = null;
-      if (row.fuel) {
-        const fuelOutcome = await findOrCreateNamed(
-          supabase,
-          master,
-          'vehicle_catalog_fuels',
-          'fuels',
-          canonicalFuel(row.fuel)
-        );
-        fuelId = fuelOutcome.record.id;
-        if (fuelOutcome.created) result.fuels_created += 1;
-      }
+      const fuelId = fuelRecord?.id || null;
+      const transmissionId = transmissionRecord?.id || null;
+      let configurationQuery = supabase
+        .from('vehicle_catalog_configurations')
+        .select('*')
+        .eq('version_id', versionRecord.id)
+        .eq('manufacture_year', manufactureYear)
+        .eq('model_year', modelYear);
+      configurationQuery = fuelId
+        ? configurationQuery.eq('fuel_id', fuelId)
+        : configurationQuery.is('fuel_id', null);
+      configurationQuery = transmissionId
+        ? configurationQuery.eq('transmission_id', transmissionId)
+        : configurationQuery.is('transmission_id', null);
 
-      let transmissionId: string | null = null;
-      if (row.transmission) {
-        const transmissionOutcome = await findOrCreateNamed(
-          supabase,
-          master,
-          'vehicle_catalog_transmissions',
-          'transmissions',
-          canonicalTransmission(row.transmission)
-        );
-        transmissionId = transmissionOutcome.record.id;
-        if (transmissionOutcome.created) result.transmissions_created += 1;
-      }
+      const { data: existingConfiguration, error: findConfigurationError } = await configurationQuery
+        .limit(1)
+        .maybeSingle();
+      if (findConfigurationError) throw findConfigurationError;
 
-      if (versionRecord && row.manufacture_year && row.model_year) {
-        const { data: existingConfiguration, error: findConfigurationError } = await supabase
+      if (existingConfiguration) {
+        result.configurations_existing += 1;
+      } else {
+        const { data: configuration, error: configurationError } = await supabase
           .from('vehicle_catalog_configurations')
+          .insert({
+            version_id: versionRecord.id,
+            manufacture_year: manufactureYear,
+            model_year: modelYear,
+            fuel_id: fuelId,
+            transmission_id: transmissionId,
+            engine_name: inferEngine(versionName) ? `${inferEngine(versionName)} L` : null,
+            engine_displacement: inferEngine(versionName),
+            notes: 'Criado após revisão no assistente de construção automática do catálogo.',
+            is_active: true,
+            metadata: {
+              source: 'catalog_assistant',
+              source_count: row.source_count || 1,
+              sources: row.sources || []
+            },
+            created_by: master.id,
+            updated_by: master.id
+          })
           .select('*')
-          .eq('version_id', versionRecord.id)
-          .eq('manufacture_year', row.manufacture_year)
-          .eq('model_year', row.model_year)
-          .limit(1)
-          .maybeSingle();
-        if (findConfigurationError) throw findConfigurationError;
-
-        if (!existingConfiguration) {
-          const { data: configuration, error: configurationError } = await supabase
-            .from('vehicle_catalog_configurations')
-            .insert({
-              version_id: versionRecord.id,
-              manufacture_year: row.manufacture_year,
-              model_year: row.model_year,
-              fuel_id: fuelId,
-              transmission_id: transmissionId,
-              engine_name: inferEngine(versionName) ? `${inferEngine(versionName)} L` : null,
-              engine_displacement: inferEngine(versionName),
-              notes: 'Criado após revisão no assistente de construção automática do catálogo.',
-              is_active: true,
-              metadata: {
-                source: 'catalog_assistant',
-                source_count: row.source_count || 1,
-                sources: row.sources || []
-              },
-              created_by: master.id,
-              updated_by: master.id
-            })
-            .select('*')
-            .single();
-          if (configurationError) throw configurationError;
+          .single();
+        if (configurationError?.code === '23505') {
+          result.configurations_existing += 1;
+        } else if (configurationError) {
+          throw configurationError;
+        } else {
           result.configurations_created += 1;
           await writeAudit(supabase, master, 'vehicle_catalog_assistant_create', 'configurations', configuration);
         }
