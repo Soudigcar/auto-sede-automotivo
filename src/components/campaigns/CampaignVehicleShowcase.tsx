@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, CalendarDays, CarFront, ChevronLeft, ChevronRight, Fuel, Gauge, Heart, Image as ImageIcon, MapPin, MessageCircle, Palette, Share2, SlidersHorizontal, X } from 'lucide-react';
 
 type Props = {
@@ -37,15 +37,24 @@ export function CampaignVehicleShowcase({ vehicles, primaryColor, onOpenSimulato
   const [selected, setSelected] = useState<any>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [favorite, setFavorite] = useState(false);
+  const swipeStartX = useRef<number | null>(null);
   const photos = useMemo(() => selected ? vehiclePhotos(selected) : [], [selected]);
   const description = useMemo(() => selected ? vehicleDescription(selected) : '', [selected]);
+
+  function previousPhoto() {
+    setPhotoIndex((index) => photos.length ? (index - 1 + photos.length) % photos.length : 0);
+  }
+
+  function nextPhoto() {
+    setPhotoIndex((index) => photos.length ? (index + 1) % photos.length : 0);
+  }
 
   useEffect(() => {
     if (!selected) return;
     const keyboard = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setSelected(null);
-      if (event.key === 'ArrowLeft') setPhotoIndex((index) => photos.length ? (index - 1 + photos.length) % photos.length : 0);
-      if (event.key === 'ArrowRight') setPhotoIndex((index) => photos.length ? (index + 1) % photos.length : 0);
+      if (event.key === 'ArrowLeft') previousPhoto();
+      if (event.key === 'ArrowRight') nextPhoto();
     };
     document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', keyboard);
@@ -58,11 +67,33 @@ export function CampaignVehicleShowcase({ vehicles, primaryColor, onOpenSimulato
     setFavorite(false);
   }
 
+  function startSwipe(clientX: number) {
+    swipeStartX.current = clientX;
+  }
+
+  function finishSwipe(clientX: number) {
+    if (swipeStartX.current === null || photos.length < 2) return;
+    const distance = clientX - swipeStartX.current;
+    swipeStartX.current = null;
+    if (Math.abs(distance) < 45) return;
+    if (distance < 0) nextPhoto();
+    else previousPhoto();
+  }
+
   async function shareVehicle() {
     const data = { title: `${selected.brand || ''} ${selected.model || ''}`.trim(), text: `Confira este veículo: ${selected.brand || ''} ${selected.model || ''}`.trim(), url: window.location.href };
     if (navigator.share) await navigator.share(data).catch(() => undefined);
     else await navigator.clipboard?.writeText(window.location.href).catch(() => undefined);
   }
+
+  const overview = selected ? [
+    [CalendarDays, 'Ano', selected.year || selected.model_year],
+    [Gauge, 'Quilometragem', kilometers(selected.mileage || selected.km)],
+    [SlidersHorizontal, 'Câmbio', selected.transmission],
+    [Fuel, 'Combustível', selected.fuel],
+    [Palette, 'Cor', selected.color],
+    [CarFront, 'Versão', selected.version]
+  ].filter(([, , value]) => value) : [];
 
   return <>
     <section id="veiculos" className="bg-slate-100 px-4 py-16 sm:px-6 lg:px-8">
@@ -93,23 +124,19 @@ export function CampaignVehicleShowcase({ vehicles, primaryColor, onOpenSimulato
 
       <main className="mx-auto grid max-w-[1600px] gap-5 p-4 sm:p-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
-          <section className="relative min-h-[420px] overflow-hidden rounded-[28px] bg-slate-950 sm:min-h-[560px]">
-            {photos.length ? <img src={photos[photoIndex]} alt={`${selected.brand} ${selected.model}`} className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 flex items-center justify-center text-slate-500"><CarFront size={90} /></div>}
+          <section className="relative min-h-[420px] touch-pan-y select-none overflow-hidden rounded-[28px] bg-slate-950 sm:min-h-[560px]" onTouchStart={(event) => startSwipe(event.touches[0].clientX)} onTouchEnd={(event) => finishSwipe(event.changedTouches[0].clientX)} onMouseDown={(event) => startSwipe(event.clientX)} onMouseUp={(event) => finishSwipe(event.clientX)} onMouseLeave={() => { swipeStartX.current = null; }}>
+            {photos.length ? <img key={photos[photoIndex]} src={photos[photoIndex]} alt={`${selected.brand} ${selected.model}`} draggable={false} className="absolute inset-0 h-full w-full object-cover transition-transform duration-300" /> : <div className="absolute inset-0 flex items-center justify-center text-slate-500"><CarFront size={90} /></div>}
             <div className="absolute inset-0 bg-gradient-to-r from-slate-950/95 via-slate-950/35 to-transparent" />
-            <div className="relative z-10 flex min-h-[420px] max-w-2xl flex-col justify-end p-6 text-white sm:min-h-[560px] sm:p-10">
+            <div className="pointer-events-none relative z-10 flex min-h-[420px] max-w-2xl flex-col justify-end p-6 text-white sm:min-h-[560px] sm:p-10">
               {selected.store_name ? <span className="mb-5 inline-flex w-fit items-center gap-2 rounded-full bg-black/45 px-4 py-2 text-sm font-bold backdrop-blur"><MapPin size={17} /> {selected.store_name}</span> : null}
               <h1 className="text-4xl font-black leading-none tracking-[-0.04em] sm:text-6xl">{selected.brand} {selected.model}</h1>
               <h2 className="mt-3 text-2xl font-black sm:text-4xl">{selected.version || ''}</h2>
               <p className="mt-5 text-sm font-bold text-slate-200 sm:text-base">{[selected.year || selected.model_year, kilometers(selected.mileage || selected.km), selected.transmission, selected.fuel].filter(Boolean).join('  •  ')}</p>
               <strong className="mt-6 text-4xl font-black sm:text-5xl">{money(selected.price)}</strong>
-              <div className="mt-6 flex flex-wrap gap-3"><button type="button" onClick={() => { const id = selected.id; setSelected(null); onOpenSimulator(id); }} className="min-h-12 rounded-2xl px-6 text-sm font-black text-white" style={{ backgroundColor: primaryColor }}>SIMULAR FINANCIAMENTO</button>{whatsappLink(selected) ? <a href={whatsappLink(selected)} target="_blank" rel="noreferrer" className="inline-flex min-h-12 items-center gap-2 rounded-2xl border border-white/50 bg-black/25 px-6 text-sm font-black text-white backdrop-blur"><MessageCircle size={18} /> FALAR COM A LOJA</a> : null}</div>
+              <div className="pointer-events-auto mt-6 flex flex-wrap gap-3"><button type="button" onClick={() => { const id = selected.id; setSelected(null); onOpenSimulator(id); }} className="min-h-12 rounded-2xl px-6 text-sm font-black text-white" style={{ backgroundColor: primaryColor }}>SIMULAR FINANCIAMENTO</button>{whatsappLink(selected) ? <a href={whatsappLink(selected)} target="_blank" rel="noreferrer" className="inline-flex min-h-12 items-center gap-2 rounded-2xl border border-white/50 bg-black/25 px-6 text-sm font-black text-white backdrop-blur"><MessageCircle size={18} /> FALAR COM A LOJA</a> : null}</div>
             </div>
-            {photos.length > 1 ? <><button type="button" onClick={() => setPhotoIndex((photoIndex - 1 + photos.length) % photos.length)} className="absolute left-3 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white"><ChevronLeft /></button><button type="button" onClick={() => setPhotoIndex((photoIndex + 1) % photos.length)} className="absolute right-3 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white"><ChevronRight /></button></> : null}
+            {photos.length > 1 ? <><button type="button" onClick={(event) => { event.stopPropagation(); previousPhoto(); }} className="absolute left-3 top-1/2 z-30 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white shadow-lg transition hover:scale-105 hover:bg-black/75" aria-label="Foto anterior"><ChevronLeft size={28} /></button><button type="button" onClick={(event) => { event.stopPropagation(); nextPhoto(); }} className="absolute right-3 top-1/2 z-30 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white shadow-lg transition hover:scale-105 hover:bg-black/75" aria-label="Próxima foto"><ChevronRight size={28} /></button><span className="absolute bottom-4 right-4 z-30 rounded-full bg-black/60 px-3 py-1.5 text-xs font-black text-white">{photoIndex + 1}/{photos.length}</span></> : null}
           </section>
-
-          <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-7"><h3 className="text-xl font-black">Visão geral</h3><div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">{[
-            [CalendarDays, 'Ano', selected.year || selected.model_year], [Gauge, 'Quilometragem', kilometers(selected.mileage || selected.km)], [SlidersHorizontal, 'Câmbio', selected.transmission], [Fuel, 'Combustível', selected.fuel], [Palette, 'Cor', selected.color], [CarFront, 'Versão', selected.version]
-          ].filter(([, , value]) => value).map(([Icon, label, value]: any) => <div key={label} className="flex items-start gap-3 border-slate-200 xl:border-r xl:last:border-r-0"><Icon size={22} className="mt-0.5 text-slate-500" /><div><p className="text-[10px] font-black uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 text-sm font-bold text-slate-800">{String(value)}</p></div></div>)}</div></section>
 
           {photos.length ? <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-7"><h3 className="text-xl font-black">Galeria</h3><div className="mt-4 flex gap-3 overflow-x-auto pb-2">{photos.map((photo, index) => <button type="button" key={photo} onClick={() => setPhotoIndex(index)} className={`h-28 w-44 shrink-0 overflow-hidden rounded-2xl border-2 ${index === photoIndex ? '' : 'border-transparent opacity-75'}`} style={index === photoIndex ? { borderColor: primaryColor } : undefined}><img src={photo} alt="" className="h-full w-full object-cover" /></button>)}</div><button type="button" onClick={() => window.scrollTo({ top: 64, behavior: 'smooth' })} className="mx-auto mt-4 block rounded-xl border border-slate-300 px-5 py-3 text-sm font-black">VER TODAS AS {photos.length} FOTOS</button></section> : null}
 
@@ -117,7 +144,9 @@ export function CampaignVehicleShowcase({ vehicles, primaryColor, onOpenSimulato
         </div>
 
         <aside className="space-y-5 xl:sticky xl:top-20 xl:self-start">
-          <section className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-lg"><p className="text-sm font-bold text-slate-500">Preço</p>{selected.original_price ? <p className="mt-2 text-sm font-bold text-slate-400 line-through">{money(selected.original_price)}</p> : null}<strong className="mt-1 block text-4xl font-black">{money(selected.price)}</strong><button type="button" onClick={() => { const id = selected.id; setSelected(null); onOpenSimulator(id); }} className="mt-6 min-h-14 w-full rounded-2xl text-sm font-black text-white" style={{ backgroundColor: primaryColor }}>SIMULAR FINANCIAMENTO</button>{whatsappLink(selected) ? <a href={whatsappLink(selected)} target="_blank" rel="noreferrer" className="mt-3 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border-2 border-emerald-500 text-sm font-black text-emerald-600"><MessageCircle size={19} /> WHATSAPP</a> : null}<div className="mt-5 border-t border-slate-200 pt-5"><p className="text-xs font-black uppercase tracking-wide text-slate-400">Loja responsável</p><p className="mt-2 flex items-center gap-2 text-sm font-bold"><MapPin size={17} /> {selected.store_name || 'Loja participante'}</p></div></section>
+          <section className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-lg"><p className="text-sm font-bold text-slate-500">Preço</p>{selected.original_price ? <p className="mt-2 text-sm font-bold text-slate-400 line-through">{money(selected.original_price)}</p> : null}<strong className="mt-1 block text-4xl font-black">{money(selected.price)}</strong><button type="button" onClick={() => { const id = selected.id; setSelected(null); onOpenSimulator(id); }} className="mt-6 min-h-14 w-full rounded-2xl text-sm font-black text-white" style={{ backgroundColor: primaryColor }}>SIMULAR FINANCIAMENTO</button>
+            {overview.length ? <div className="mt-5 border-t border-slate-200 pt-5"><h3 className="text-sm font-black uppercase tracking-wide text-slate-500">Informações do veículo</h3><div className="mt-4 grid grid-cols-2 gap-3">{overview.map(([Icon, label, value]: any) => <div key={label} className="min-w-0 rounded-2xl bg-slate-50 p-3"><Icon size={19} className="text-slate-500" /><p className="mt-2 text-[9px] font-black uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 break-words text-sm font-bold leading-snug text-slate-800">{String(value)}</p></div>)}</div></div> : null}
+            {whatsappLink(selected) ? <a href={whatsappLink(selected)} target="_blank" rel="noreferrer" className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border-2 border-emerald-500 text-sm font-black text-emerald-600"><MessageCircle size={19} /> WHATSAPP</a> : null}<div className="mt-5 border-t border-slate-200 pt-5"><p className="text-xs font-black uppercase tracking-wide text-slate-400">Loja responsável</p><p className="mt-2 flex items-center gap-2 text-sm font-bold"><MapPin size={17} /> {selected.store_name || 'Loja participante'}</p></div></section>
           {description ? <section className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm"><h3 className="text-lg font-black">Destaques do veículo</h3><p className="mt-3 line-clamp-6 text-sm leading-6 text-slate-600">{description}</p></section> : null}
         </aside>
       </main>
