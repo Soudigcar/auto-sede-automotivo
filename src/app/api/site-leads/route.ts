@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { calculateCampaignFinance, campaignInstallmentOptions } from '@/lib/campaignFinance';
 
 export const runtime = 'nodejs';
 
 const maxRequestBytes = 20_000;
-const allowedInstallments = new Set([12, 24, 36, 48, 60]);
+const allowedInstallments = new Set<number>(campaignInstallmentOptions);
 
 function clean(value: unknown, maxLength = 500) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
@@ -80,6 +81,8 @@ export async function POST(request: Request) {
     const campaignId = clean(body.campaign_id, 80);
     const vehicleId = clean(body.vehicle_id, 80);
     const installments = Math.trunc(numericValue(body.installments));
+    const downPaymentProvided = body.down_payment !== null && body.down_payment !== undefined && body.down_payment !== '';
+    const requestedDownPayment = Number(body.down_payment);
 
     if (name.length < 3 || !phone) {
       return NextResponse.json({ error: 'Nome e telefone são obrigatórios.' }, { status: 400 });
@@ -93,7 +96,66 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Quantidade de parcelas inválida.' }, { status: 400 });
     }
 
+    if (!downPaymentProvided || !Number.isFinite(requestedDownPayment) || requestedDownPayment < 0) {
+      return NextResponse.json({ error: 'Informe um valor de entrada válido.' }, { status: 400 });
+    }
+
+    if (body.consent !== true) {
+      return NextResponse.json({ error: 'A autorização de contato é obrigatória.' }, { status: 400 });
+    }
+
     const supabase = getSupabaseAdmin();
+    const { data: campaign, error: campaignError } = await supabase
+      .from('site_campaigns')
+      .select('id,event_id,interest_rate,is_active')
+      .eq('id', campaignId)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (campaignError || !campaign?.event_id) {
+      return NextResponse.json({ error: 'Esta campanha de evento não está disponível.' }, { status: 409 });
+    }
+
+    const [vehicleResult, assignmentResult] = await Promise.all([
+      supabase
+        .from('site_vehicles')
+        .select('id,price,status,show_on_landing')
+        .eq('id', vehicleId)
+        .eq('status', 'disponivel')
+        .eq('show_on_landing', true)
+        .maybeSingle(),
+      supabase
+        .from('event_vehicle_assignments')
+        .select('promotional_price,status,show_on_landing')
+        .eq('event_id', campaign.event_id)
+        .eq('vehicle_id', vehicleId)
+        .eq('status', 'active')
+        .eq('show_on_landing', true)
+        .maybeSingle()
+    ]);
+
+    if (vehicleResult.error || assignmentResult.error || !vehicleResult.data || !assignmentResult.data) {
+      return NextResponse.json({ error: 'Este veículo não está disponível no evento.' }, { status: 409 });
+    }
+
+    const promotionalPrice = Math.max(numericValue(assignmentResult.data.promotional_price), 0);
+    const vehiclePrice = promotionalPrice > 0 ? promotionalPrice : Math.max(numericValue(vehicleResult.data.price), 0);
+
+    if (vehiclePrice <= 0) {
+      return NextResponse.json({ error: 'O veículo selecionado não possui um preço válido.' }, { status: 409 });
+    }
+
+    if (requestedDownPayment > vehiclePrice) {
+      return NextResponse.json({ error: 'O valor da entrada não pode ultrapassar o valor do veículo.' }, { status: 400 });
+    }
+
+    const simulation = calculateCampaignFinance({
+      vehiclePrice,
+      downPayment: requestedDownPayment,
+      installments,
+      monthlyRatePercent: campaign.interest_rate || 1.89
+    });
+
     const { data, error } = await supabase.rpc('create_event_landing_lead', {
       p_name: name,
       p_phone: phone,
@@ -101,11 +163,11 @@ export async function POST(request: Request) {
       p_email: email,
       p_campaign_id: campaignId,
       p_vehicle_id: vehicleId,
-      p_down_payment: Math.max(numericValue(body.down_payment), 0),
-      p_financed_amount: Math.max(numericValue(body.financed_amount), 0),
+      p_down_payment: simulation.downPayment,
+      p_financed_amount: simulation.financedAmount,
       p_installments: installments,
-      p_estimated_installment: Math.max(numericValue(body.estimated_installment), 0),
-      p_interest_rate: Math.max(numericValue(body.interest_rate), 0),
+      p_estimated_installment: simulation.estimatedInstallment,
+      p_interest_rate: simulation.monthlyRatePercent,
       p_notes: clean(body.notes, 1_500),
       p_metadata: {
         ...metadataValue(body.metadata),
@@ -128,7 +190,8 @@ export async function POST(request: Request) {
       assigned_store_id: clean(result.assigned_store_id, 80) || null,
       assigned_store_name: clean(result.assigned_store_name, 180),
       routed_lead_id: clean(result.routed_lead_id, 80) || null,
-      routing_strategy: clean(result.routing_strategy, 80) || 'event_round_robin'
+      routing_strategy: clean(result.routing_strategy, 80) || 'event_round_robin',
+      simulation
     });
   } catch (error: any) {
     return NextResponse.json(
