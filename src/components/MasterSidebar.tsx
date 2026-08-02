@@ -10,6 +10,7 @@ const masterMenu = [
   { label: 'Monitoramento', href: '/master/lead-monitoring', icon: Activity },
   { label: 'Eventos', href: '/master/events', icon: CalendarDays },
   { label: 'Lojas & Estoque', href: '/master/stores/events', icon: Store },
+  { label: 'Cadastro de Veículos', href: '/master/vehicle-catalog', icon: Car },
   { label: 'Equipe', href: '/master/users', icon: UserCog },
   { label: 'Relatórios', href: '/master/reports', icon: FileText },
   { label: 'Financeiro', href: '/master/finance', icon: Landmark },
