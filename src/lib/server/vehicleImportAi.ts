@@ -66,7 +66,11 @@ const responseSchema = {
 } as const;
 
 function cleanText(value: unknown, maxLength = 12000) {
-  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+  return String(value || '')
+    .replace(/\uFFFD+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength);
 }
 
 function safeVehicle(value: any): VehicleImportInput {
@@ -134,7 +138,9 @@ export async function reviewVehicleImportWithOpenAI(
           'Nunca invente quilometragem, cor, ano, versão, combustível, câmbio, preço, opcionais, garantia, histórico ou condição comercial.',
           'Quando uma informação não estiver comprovada, preserve o valor recebido ou deixe o campo vazio.',
           'Não altere números sem evidência explícita. Registre divergências em conflicts e incertezas em warnings.',
-          'Produza uma descrição comercial clara, objetiva e fiel, sem promessas ou benefícios não informados.',
+          'Ignore totalmente menus, navegação, rodapé, cookies, contatos, redes sociais, formulários, veículos relacionados, ofertas de outros carros e trechos com caracteres corrompidos.',
+          'optimized_description deve ser uma nova descrição comercial, clara e natural, em um ou dois parágrafos curtos, baseada somente nos dados confirmados do veículo.',
+          'Não copie o texto bruto da página e não inclua links, telefone, endereço, preço de parcelas, chamadas genéricas ou promessas não comprovadas.',
           'Responda em português do Brasil e siga exatamente o JSON Schema solicitado.'
         ].join('\n'),
         input: JSON.stringify({ source: sourceLabel, vehicle }),
