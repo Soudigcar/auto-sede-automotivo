@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireMaster } from '@/lib/require-master';
 
 export async function POST(request: Request) {
+  const authorization = await requireMaster();
+  if (!authorization.ok) return authorization.response;
+
   try {
     const body = await request.json();
     const email = String(body.email || '').trim().toLowerCase();
