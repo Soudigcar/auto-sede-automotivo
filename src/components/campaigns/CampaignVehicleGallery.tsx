@@ -47,8 +47,8 @@ export function CampaignVehicleGallery({ vehicle, compact = false }: Props) {
   }
 
   return (
-    <div>
-      <div className={`relative overflow-hidden rounded-2xl bg-slate-900 ${compact ? 'aspect-[16/9]' : 'aspect-[4/3]'}`}>
+    <div className="min-w-0 max-w-full">
+      <div className={`relative w-full max-w-full overflow-hidden rounded-2xl bg-slate-900 ${compact ? 'aspect-[16/9]' : 'aspect-[4/3]'}`}>
         {/* URLs vêm de múltiplas integrações de estoque, por isso a imagem permanece sem otimização de domínio. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={activeImage} alt={`${vehicleLabel} — foto ${activeIndex + 1}`} className="h-full w-full object-cover" />
@@ -68,14 +68,14 @@ export function CampaignVehicleGallery({ vehicle, compact = false }: Props) {
       </div>
 
       {images.length > 1 ? (
-        <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+        <div className="mt-2 flex min-w-0 w-full max-w-full gap-2 overflow-x-auto overscroll-x-contain pb-1">
           {images.map((image, index) => (
             <button
               type="button"
               key={`${image}-${index}`}
               onClick={() => setActiveIndex(index)}
               aria-label={`Abrir foto ${index + 1}`}
-              className={`h-12 w-16 shrink-0 overflow-hidden rounded-xl border-2 ${index === activeIndex ? 'border-emerald-400' : 'border-transparent opacity-65'}`}
+              className={`h-10 w-14 shrink-0 overflow-hidden rounded-xl border-2 sm:h-12 sm:w-16 ${index === activeIndex ? 'border-emerald-400' : 'border-transparent opacity-65'}`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={image} alt="" className="h-full w-full object-cover" />
