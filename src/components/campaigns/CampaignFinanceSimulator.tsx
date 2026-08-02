@@ -215,19 +215,19 @@ export function CampaignFinanceSimulatorModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[350] flex items-center justify-center bg-slate-950/80 p-3 backdrop-blur-sm sm:p-6">
-      <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-[30px] bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-100 p-5 sm:p-6">
-          <div>
+    <div className="fixed inset-0 z-[350] flex items-center justify-center overflow-x-hidden bg-slate-950/80 p-3 backdrop-blur-sm sm:p-6">
+      <div className="max-h-[94vh] min-w-0 w-full max-w-5xl overflow-x-hidden overflow-y-auto overscroll-contain rounded-[30px] bg-white shadow-2xl">
+        <div className="flex min-w-0 items-center justify-between border-b border-slate-100 p-5 sm:p-6">
+          <div className="min-w-0 pr-3">
             <p className="text-xs font-black uppercase tracking-[0.18em]" style={{ color: primary }}>
               Simulador do evento
             </p>
-            <h2 className="mt-1 text-2xl font-black">Faça sua simulação inicial</h2>
+            <h2 className="mt-1 break-words text-xl font-black sm:text-2xl">Faça sua simulação inicial</h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-100"
             aria-label="Fechar simulador"
           >
             <X size={20} />
@@ -269,29 +269,29 @@ export function CampaignFinanceSimulatorModal({
             </div>
           </div>
         ) : (
-          <form onSubmit={submit} className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[1fr_360px]">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <input className="premium-input sm:col-span-2" placeholder="Nome completo" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
-              <input className="premium-input" placeholder="WhatsApp" value={form.phone} onChange={(event) => setForm({ ...form, phone: maskPhone(event.target.value) })} required />
-              <input className="premium-input" placeholder="CPF" value={form.cpf} onChange={(event) => setForm({ ...form, cpf: maskCpf(event.target.value) })} required />
-              <input className="premium-input sm:col-span-2" type="email" placeholder="E-mail" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
-              <select className="premium-input sm:col-span-2" value={form.vehicle_id} onChange={(event) => setForm({ ...form, vehicle_id: event.target.value, down_payment: '' })} required>
+          <form onSubmit={submit} className="grid min-w-0 w-full grid-cols-[minmax(0,1fr)] gap-6 overflow-x-hidden p-5 sm:p-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="grid min-w-0 max-w-full gap-3 sm:grid-cols-2">
+              <input className="premium-input min-w-0 max-w-full sm:col-span-2" placeholder="Nome completo" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
+              <input className="premium-input min-w-0 max-w-full" placeholder="WhatsApp" value={form.phone} onChange={(event) => setForm({ ...form, phone: maskPhone(event.target.value) })} required />
+              <input className="premium-input min-w-0 max-w-full" placeholder="CPF" value={form.cpf} onChange={(event) => setForm({ ...form, cpf: maskCpf(event.target.value) })} required />
+              <input className="premium-input min-w-0 max-w-full sm:col-span-2" type="email" placeholder="E-mail" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
+              <select className="premium-input min-w-0 max-w-full sm:col-span-2" value={form.vehicle_id} onChange={(event) => setForm({ ...form, vehicle_id: event.target.value, down_payment: '' })} required>
                 <option value="">Selecione o veículo</option>
                 {vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.brand} {vehicle.model} {vehicle.year || ''} — {money(vehicle.price)}</option>)}
               </select>
-              <input className="premium-input" type="number" inputMode="decimal" min="0" step="0.01" max={selectedVehicle?.price || undefined} placeholder="Digite o valor da entrada" value={form.down_payment} onChange={(event) => setForm({ ...form, down_payment: event.target.value })} required />
-              <select className="premium-input" value={form.installments} onChange={(event) => setForm({ ...form, installments: event.target.value })}>
+              <input className="premium-input min-w-0 max-w-full" type="number" inputMode="decimal" min="0" step="0.01" max={selectedVehicle?.price || undefined} placeholder="Digite o valor da entrada" value={form.down_payment} onChange={(event) => setForm({ ...form, down_payment: event.target.value })} required />
+              <select className="premium-input min-w-0 max-w-full" value={form.installments} onChange={(event) => setForm({ ...form, installments: event.target.value })}>
                 {campaignInstallmentOptions.map((value) => <option key={value} value={value}>{value} parcelas</option>)}
               </select>
-              <label className="sm:col-span-2 flex items-start gap-3 rounded-2xl bg-slate-50 p-4 text-xs font-semibold text-slate-500">
-                <input type="checkbox" checked={form.consent} onChange={(event) => setForm({ ...form, consent: event.target.checked })} required />
-                Autorizo o contato comercial da Auto Sede e de uma das lojas participantes do evento.
+              <label className="flex min-w-0 max-w-full items-start gap-3 rounded-2xl bg-slate-50 p-4 text-xs font-semibold text-slate-500 sm:col-span-2">
+                <input className="shrink-0" type="checkbox" checked={form.consent} onChange={(event) => setForm({ ...form, consent: event.target.checked })} required />
+                <span className="min-w-0 break-words">Autorizo o contato comercial da Auto Sede e de uma das lojas participantes do evento.</span>
               </label>
             </div>
 
-            <aside className="rounded-[26px] bg-slate-950 p-5 text-white">
+            <aside className="min-w-0 max-w-full overflow-hidden rounded-[26px] bg-slate-950 p-5 text-white">
               <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Resumo</p>
-              {selectedVehicle ? <div className="mt-3"><CampaignVehicleGallery vehicle={selectedVehicle} /><h3 className="mt-4 text-xl font-black">{selectedVehicle.brand} {selectedVehicle.model}</h3><p className="mt-1 text-xs text-slate-400">{selectedVehicle.version || selectedVehicle.year || 'Veículo selecionado'}</p></div> : <p className="mt-3 text-sm text-slate-400">Selecione um veículo para visualizar as fotos e calcular.</p>}
+              {selectedVehicle ? <div className="mt-3 min-w-0 max-w-full"><CampaignVehicleGallery vehicle={selectedVehicle} /><h3 className="mt-4 break-words text-xl font-black">{selectedVehicle.brand} {selectedVehicle.model}</h3><p className="mt-1 break-words text-xs text-slate-400">{selectedVehicle.version || selectedVehicle.year || 'Veículo selecionado'}</p></div> : <p className="mt-3 text-sm text-slate-400">Selecione um veículo para visualizar as fotos e calcular.</p>}
               <div className="mt-5 space-y-3 text-sm">
                 <p className="flex justify-between gap-4"><span className="text-slate-400">Veículo</span><strong>{money(simulation.vehiclePrice)}</strong></p>
                 <p className="flex justify-between gap-4"><span className="text-slate-400">Entrada</span><strong>{hasDownPayment ? money(simulation.downPayment) : '—'}</strong></p>
