@@ -25,7 +25,7 @@ function parsePrice(value: any) { const raw = String(value || '').replace(/[^\d,
 function money(value: any) { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0)); }
 function vehicleImages(vehicle: any) { return uniqueVehicleImages([...(Array.isArray(vehicle?.image_urls) ? vehicle.image_urls : []), vehicle?.image_url]); }
 function isOlxItem(item: any) { const source = cleanText(item?.metadata?.source || item?.metadata?.provider).toLowerCase(); if (source.includes('olx')) return true; try { const host = new URL(item?.vehicle_url || '').hostname.toLowerCase(); return host === 'olx.com.br' || host.endsWith('.olx.com.br'); } catch { return false; } }
-function missingFields(form: any) { const missing = requiredFields.filter(([key]) => key === 'price' ? !parsePrice(form.price) : !cleanText(form[key])).map(([, label]) => label); if (!uniqueVehicleImages(form.image_urls || []).length) missing.push('Pelo menos 1 foto'); return missing; }
+function missingFields(form: any) { const missing: string[] = requiredFields.filter(([key]) => key === 'price' ? !parsePrice(form.price) : !cleanText(form[key])).map(([, label]) => label); if (!uniqueVehicleImages(form.image_urls || []).length) missing.push('Pelo menos 1 foto'); return missing; }
 function itemState(item: any, importingId: string) {
   if (importingId === item.id || item?.metadata?.publication_status === 'importando_automaticamente') return ['Importando automaticamente', 'bg-blue-50 text-blue-700'];
   if (item.status === 'error' || item?.metadata?.publication_status === 'falha_importacao') return ['Falha na importação', 'bg-red-50 text-red-700'];
