@@ -15,20 +15,27 @@ const TRANSMISSION_VALUES = [
   'dupla embreagem', 'dct', 'tiptronic'
 ];
 
+const HTML_ENTITIES: Record<string, string> = {
+  nbsp: ' ', amp: '&', quot: '"', apos: "'", lt: '<', gt: '>',
+  aacute: 'á', eacute: 'é', iacute: 'í', oacute: 'ó', uacute: 'ú',
+  agrave: 'à', egrave: 'è', igrave: 'ì', ograve: 'ò', ugrave: 'ù',
+  acirc: 'â', ecirc: 'ê', icirc: 'î', ocirc: 'ô', ucirc: 'û',
+  atilde: 'ã', otilde: 'õ', auml: 'ä', euml: 'ë', iuml: 'ï', ouml: 'ö', uuml: 'ü',
+  ccedil: 'ç', ordm: 'º', ordf: 'ª', deg: '°', ndash: '–', mdash: '—', hellip: '…'
+};
+
 function decodeHtml(value: string) {
-  return String(value || '')
-    .replace(/&nbsp;|&#160;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code) || 32));
+  const decodeNamed = (input: string) => input.replace(/&([a-z]+);/gi, (entity, name) => HTML_ENTITIES[String(name).toLowerCase()] ?? entity);
+  const decoded = String(value || '')
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(Number.parseInt(code, 16) || 32))
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code) || 32));
+  return decodeNamed(decodeNamed(decoded));
 }
 
 function cleanText(value: unknown, maxLength = 20000) {
   return decodeHtml(String(value || ''))
     .replace(/\u00a0/g, ' ')
+    .replace(/\uFFFD+/g, '')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, maxLength);
@@ -94,7 +101,9 @@ function getVisibleLines(html: string) {
 
 function getMainVehicleHtml(html: string) {
   const cutPatterns = [
-    /ve[ií]culos\s+relacionados/i,
+    /ve(?:i|í|&iacute;|&#0*237;|&#x0*ed;|ã­)culos(?:\s|&nbsp;|&#160;)+relacionados/i,
+    /(?:outros|mais)(?:\s|&nbsp;|&#160;)+(?:ve(?:i|í|&iacute;|&#0*237;|&#x0*ed;|ã­)culos|carros)/i,
+    /(?:ve(?:i|í|&iacute;|&#0*237;|&#x0*ed;|ã­)culos|carros)(?:\s|&nbsp;|&#160;)+(?:similares|semelhantes)/i,
     /siga-nos\s+nas\s+redes/i,
     /receba\s+as\s+melhores\s+ofertas/i,
     /desenvolvido\s+por/i
@@ -270,9 +279,16 @@ function extractMileage(lines: string[], focusedText: string) {
 
 function findControlledValue(text: string, values: string[]) {
   const normalized = normalize(text);
-  const sorted = [...values].sort((a, b) => b.length - a.length);
-  const found = sorted.find((value) => new RegExp(`(?:^|[^a-z])${normalize(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:$|[^a-z])`, 'i').test(normalized));
-  return found ? titleCase(found) : '';
+  let best: { value: string; index: number } | null = null;
+  for (const value of [...values].sort((a, b) => b.length - a.length)) {
+    const escaped = normalize(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = new RegExp(`(?:^|[^a-z0-9])${escaped}(?=$|[^a-z0-9])`, 'i').exec(normalized);
+    if (!match) continue;
+    if (!best || match.index < best.index || (match.index === best.index && value.length > best.value.length)) {
+      best = { value, index: match.index };
+    }
+  }
+  return best ? titleCase(best.value) : '';
 }
 
 function extractYear(text: string, fallback = '') {
@@ -345,28 +361,85 @@ function parseVehicle(title: string, url: string, lines: string[]) {
   };
 }
 
-function extractImages(html: string, baseUrl: string) {
-  const output: string[] = [];
-  const ogImage = extractMeta(html, 'og:image');
-  if (ogImage) output.push(absoluteUrl(ogImage, baseUrl));
+type ImageCandidate = { url: string; score: number; order: number; identityMatch: boolean };
 
-  const patterns = [
-    /<img[^>]+(?:src|data-src|data-original|data-lazy)=["']([^"']+)["'][^>]*>/gi,
-    /<source[^>]+srcset=["']([^"']+)["'][^>]*>/gi,
-    /["'](https?:\/\/[^"']+\.(?:jpe?g|png|webp)(?:\?[^"']*)?)["']/gi
-  ];
-  for (const pattern of patterns) {
-    for (const match of html.matchAll(pattern)) {
-      for (const candidate of String(match[1] || '').split(',')) {
-        const url = absoluteUrl(candidate.trim().split(/\s+/)[0], baseUrl);
-        const lower = url.toLowerCase();
-        if (!url || !/\.(?:jpe?g|png|webp)(?:\?|$)/i.test(lower)) continue;
-        if (/logo|icon|favicon|whatsapp|facebook|instagram|placeholder|banner|financeira|mapa/.test(lower)) continue;
-        output.push(url);
-      }
+function imageIdentityTokens(baseUrl: string) {
+  try {
+    return unique((new URL(baseUrl).pathname.match(/\d{6,}/g) || []).filter((token) => !/^(?:19|20)\d{2}$/.test(token)));
+  } catch {
+    return [];
+  }
+}
+
+function imageFamilyKey(value: string) {
+  try {
+    const parsed = new URL(value);
+    parsed.search = '';
+    return `${parsed.origin}${parsed.pathname}`
+      .toLowerCase()
+      .replace(/_([bmvw])_([a-f0-9]{6,})(?=\.[a-z0-9]+$)/i, '_$2');
+  } catch {
+    return value.toLowerCase();
+  }
+}
+
+function extractTagAttributes(tag: string) {
+  const attributes: Record<string, string> = {};
+  for (const match of tag.matchAll(/([\w:-]+)\s*=\s*(["'])([\s\S]*?)\2/g)) {
+    attributes[String(match[1]).toLowerCase()] = String(match[3] || '');
+  }
+  return attributes;
+}
+
+function extractImages(html: string, baseUrl: string) {
+  const candidates: ImageCandidate[] = [];
+  const identityTokens = imageIdentityTokens(baseUrl);
+  let order = 0;
+
+  const addCandidate = (rawValue: string, sourceScore: number, context = '') => {
+    for (const item of String(rawValue || '').split(',')) {
+      const raw = item.trim().split(/\s+/)[0];
+      const url = absoluteUrl(raw, baseUrl);
+      const lower = normalize(`${url} ${context}`);
+      if (!url || !/\.(?:jpe?g|png|webp)(?:\?|$)/i.test(url)) continue;
+      if (/logo|icon|favicon|whatsapp|facebook|instagram|placeholder|banner|financeira|mapa|sem[\s_-]*foto|no[\s_-]*image|preparacao|coming[\s_-]*soon/.test(lower)) continue;
+      const identityMatch = identityTokens.some((token) => new RegExp(`(?:^|\\D)${token}(?:\\D|$)`).test(url));
+      const galleryCue = /gallery|galeria|thumb|foto|photo|slide|zoom|amplia/.test(lower);
+      candidates.push({ url, score: sourceScore + (identityMatch ? 120 : 0) + (galleryCue ? 25 : 0), order: order++, identityMatch });
+    }
+  };
+
+  const ogImage = extractMeta(html, 'og:image');
+  if (ogImage) addCandidate(ogImage, 90, 'og:image foto principal');
+
+  for (const tagMatch of html.matchAll(/<(?:img|source)\b[^>]*>/gi)) {
+    const tag = String(tagMatch[0] || '');
+    const attributes = extractTagAttributes(tag);
+    const context = `${tag} ${attributes.alt || ''} ${attributes.title || ''}`;
+    const sources: Array<[string, number]> = [
+      ['ref', 105], ['data-full', 100], ['data-zoom', 98], ['data-large', 96],
+      ['data-original', 92], ['srcset', 82], ['data-src', 78], ['data-lazy', 76], ['src', 70]
+    ];
+    for (const [attribute, score] of sources) {
+      if (attributes[attribute]) addCandidate(attributes[attribute], score, context);
     }
   }
-  return unique(output).slice(0, 20);
+
+  const hasIdentityMatches = candidates.some((candidate) => candidate.identityMatch);
+  const eligible = hasIdentityMatches ? candidates.filter((candidate) => candidate.identityMatch) : candidates;
+  const families = new Map<string, ImageCandidate>();
+  for (const candidate of eligible) {
+    const key = imageFamilyKey(candidate.url);
+    const current = families.get(key);
+    if (!current || candidate.score > current.score) {
+      families.set(key, { ...candidate, order: Math.min(candidate.order, current?.order ?? candidate.order) });
+    }
+  }
+
+  return [...families.values()]
+    .sort((a, b) => a.order - b.order || b.score - a.score)
+    .map((candidate) => candidate.url)
+    .slice(0, 20);
 }
 
 async function fetchHtml(url: string) {
@@ -379,7 +452,22 @@ async function fetchHtml(url: string) {
     cache: 'no-store'
   });
   if (!response.ok) throw new Error(`Não foi possível acessar o link. Status ${response.status}`);
-  return response.text();
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  const headerCharset = contentType.match(/charset\s*=\s*["']?([^;"'\s]+)/i)?.[1] || '';
+  const latinPreview = new TextDecoder('windows-1252').decode(bytes.slice(0, 8192));
+  const metaCharset = latinPreview.match(/<meta[^>]+charset\s*=\s*["']?([^"'\s/>]+)/i)?.[1]
+    || latinPreview.match(/<meta[^>]+content=["'][^"']*charset\s*=\s*([^;"'\s]+)/i)?.[1]
+    || '';
+  const declaredCharset = normalize(headerCharset || metaCharset);
+  if (/iso-8859-1|latin1|windows-1252|cp1252/.test(declaredCharset)) {
+    return new TextDecoder('windows-1252').decode(bytes);
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes);
+  }
 }
 
 async function uploadImageToSupabase(imageUrl: string, folder: string, index: number) {
