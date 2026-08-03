@@ -1,4 +1,5 @@
 import { normalizeVehicleOption } from '@/lib/vehicleCatalogOptions';
+import { combineVehicleYears, normalizeVehicleYear, normalizeVehicleYears } from '@/lib/vehicleYears';
 
 export type CatalogVehicleInput = {
   source_url?: string;
@@ -7,6 +8,8 @@ export type CatalogVehicleInput = {
   brand?: string;
   model?: string;
   version?: string;
+  manufacture_year?: string;
+  model_year?: string;
   year?: string;
   mileage?: string;
   color?: string;
@@ -16,7 +19,7 @@ export type CatalogVehicleInput = {
 };
 
 type CatalogEvidence = {
-  field: 'fuel' | 'transmission';
+  field: 'fuel' | 'transmission' | 'manufacture_year' | 'model_year';
   value: string;
   source: 'vehicle_catalog';
   confidence: 'high' | 'consensus';
@@ -179,20 +182,33 @@ export async function enrichVehicleFromCatalog(
   supabase: any,
   input: CatalogVehicleInput
 ): Promise<CatalogEnrichmentResult> {
+  const normalizedYears = normalizeVehicleYears({
+    manufacture_year: input.manufacture_year,
+    model_year: input.model_year,
+    year: input.year
+  });
   const vehicle: CatalogVehicleInput = {
     ...input,
     brand: cleanText(input.brand, 100),
     model: cleanText(input.model, 140),
     version: cleanText(input.version, 220),
-    year: cleanText(input.year, 40),
+    manufacture_year: normalizedYears.manufacture_year,
+    model_year: normalizedYears.model_year,
+    year: normalizedYears.year,
     fuel: normalizeVehicleOption('fuel', input.fuel),
     transmission: normalizeVehicleOption('transmission', input.transmission)
   };
 
   const evidence: CatalogEvidence[] = [];
   const warnings: string[] = [];
+  const allSupportedFieldsFilled = Boolean(
+    vehicle.fuel
+    && vehicle.transmission
+    && vehicle.manufacture_year
+    && vehicle.model_year
+  );
 
-  if (!vehicle.brand || !vehicle.model || (vehicle.fuel && vehicle.transmission)) {
+  if (!vehicle.brand || !vehicle.model || allSupportedFieldsFilled) {
     return {
       vehicle,
       evidence,
@@ -260,11 +276,31 @@ export async function enrichVehicleFromCatalog(
       .limit(1000);
     if (configurationsResult.error) throw configurationsResult.error;
 
-    const years = extractYears(vehicle.year);
+    const manufactureYear = normalizeVehicleYear(vehicle.manufacture_year);
+    const modelYear = normalizeVehicleYear(vehicle.model_year);
+    const legacyYears = !manufactureYear && !modelYear ? extractYears(vehicle.year) : [];
     const rawConfigurations = configurationsResult.data || [];
-    const configurations = years.length
-      ? rawConfigurations.filter((configuration: any) => years.includes(Number(configuration.model_year)) || years.includes(Number(configuration.manufacture_year)))
-      : rawConfigurations;
+    const configurations = rawConfigurations.filter((configuration: any) => {
+      if (manufactureYear && Number(configuration.manufacture_year) !== Number(manufactureYear)) return false;
+      if (modelYear && Number(configuration.model_year) !== Number(modelYear)) return false;
+      if (legacyYears.length && !legacyYears.includes(Number(configuration.model_year)) && !legacyYears.includes(Number(configuration.manufacture_year))) return false;
+      return true;
+    });
+
+    if (!configurations.length) {
+      return {
+        vehicle,
+        evidence,
+        warnings,
+        metadata: {
+          matched: true,
+          brand: brand.name,
+          model: model.name,
+          candidate_versions: plausible.map((version: any) => version.name),
+          reason: 'O catálogo não possui configuração compatível com os anos informados.'
+        }
+      };
+    }
 
     const fuelIds = Array.from(new Set(configurations.map((item: any) => item.fuel_id).filter(Boolean)));
     const transmissionIds = Array.from(new Set(configurations.map((item: any) => item.transmission_id).filter(Boolean)));
@@ -289,13 +325,17 @@ export async function enrichVehicleFromCatalog(
       const transmissionFromName = explicitTransmissionFromVersion(version.name);
       const fuelFromConfigurations = unanimous(candidateConfigurations.map((configuration: any) => fuelMap.get(configuration.fuel_id)).filter(Boolean));
       const transmissionFromConfigurations = unanimous(candidateConfigurations.map((configuration: any) => transmissionMap.get(configuration.transmission_id)).filter(Boolean));
+      const candidateManufactureYear = unanimous(candidateConfigurations.map((configuration: any) => configuration.manufacture_year).filter(Boolean));
+      const candidateModelYear = unanimous(candidateConfigurations.map((configuration: any) => configuration.model_year).filter(Boolean));
 
       return {
         version: version.name,
         fuel: fuelFromName || fuelFromConfigurations,
-        transmission: transmissionFromName || transmissionFromConfigurations
+        transmission: transmissionFromName || transmissionFromConfigurations,
+        manufacture_year: candidateManufactureYear,
+        model_year: candidateModelYear
       };
-    });
+    }).filter((item: any) => configurations.some((configuration: any) => configuration.version_id === plausible.find((version: any) => version.name === item.version)?.id));
 
     const candidateVersions = candidateValues.map((item: any) => item.version);
     const confidence: 'high' | 'consensus' = candidateValues.length === 1 ? 'high' : 'consensus';
@@ -317,6 +357,26 @@ export async function enrichVehicleFromCatalog(
         warnings.push(`Câmbio preenchido pelo catálogo interno (${confidence === 'high' ? 'correspondência única' : 'consenso entre versões compatíveis'}): ${consensusTransmission}.`);
       }
     }
+
+    if (!vehicle.manufacture_year) {
+      const consensusManufactureYear = unanimous(candidateValues.map((item: any) => item.manufacture_year));
+      if (consensusManufactureYear && candidateValues.every((item: any) => item.manufacture_year === consensusManufactureYear)) {
+        vehicle.manufacture_year = consensusManufactureYear;
+        evidence.push({ field: 'manufacture_year', value: consensusManufactureYear, source: 'vehicle_catalog', confidence, candidate_versions: candidateVersions });
+        warnings.push(`Ano de fabricação preenchido pelo catálogo interno (${confidence === 'high' ? 'correspondência única' : 'consenso entre configurações compatíveis'}): ${consensusManufactureYear}.`);
+      }
+    }
+
+    if (!vehicle.model_year) {
+      const consensusModelYear = unanimous(candidateValues.map((item: any) => item.model_year));
+      if (consensusModelYear && candidateValues.every((item: any) => item.model_year === consensusModelYear)) {
+        vehicle.model_year = consensusModelYear;
+        evidence.push({ field: 'model_year', value: consensusModelYear, source: 'vehicle_catalog', confidence, candidate_versions: candidateVersions });
+        warnings.push(`Ano-modelo preenchido pelo catálogo interno (${confidence === 'high' ? 'correspondência única' : 'consenso entre configurações compatíveis'}): ${consensusModelYear}.`);
+      }
+    }
+
+    vehicle.year = combineVehicleYears(vehicle.manufacture_year, vehicle.model_year, vehicle.year);
 
     return {
       vehicle,
