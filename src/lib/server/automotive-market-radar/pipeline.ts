@@ -104,7 +104,7 @@ export function normalizeListing(raw: RawMarketListing): NormalizedMarketListing
     source_url: cleanText(raw.sourceUrl),
     external_id: cleanText(raw.externalId) || null,
     municipality: cleanText(raw.municipality) || null,
-    state_code: stateCode || 'DF',
+    state_code: stateCode,
     title: cleanText(raw.title),
     brand: cleanText(raw.brand) || null,
     model: cleanText(raw.model) || null,
