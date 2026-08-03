@@ -1,4 +1,6 @@
+import { createClient } from '@supabase/supabase-js';
 import { ensureMileageInDescription, normalizeVehicleOption } from '@/lib/vehicleCatalogOptions';
+import { enrichVehicleFromCatalog } from '@/lib/server/vehicleCatalogEnrichment';
 
 type VehicleImportInput = {
   source_url?: string;
@@ -87,21 +89,49 @@ function responseText(payload: any) {
   return '';
 }
 
-function sanitizeReviewMessages(messages: unknown[], vehicle: VehicleImportInput) {
-  return messages
-    .map((message) => cleanText(message, 500))
-    .filter(Boolean)
-    .filter((message) => {
-      const normalized = fold(message);
-      const saysColorMissing = /\bcor\b/.test(normalized) && /(nao inform|nao identific|nao encontr|ausente)/.test(normalized);
-      const saysTransmissionMissing = /\b(cambio|transmissao)\b/.test(normalized) && /(nao inform|nao identific|nao encontr|ausente)/.test(normalized);
-      const saysFuelMissing = /\b(combustivel|fuel)\b/.test(normalized) && /(nao inform|nao identific|nao encontr|ausente)/.test(normalized);
+function uniqueMessages(messages: unknown[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const message of messages) {
+    const text = cleanText(message, 500);
+    const key = fold(text);
+    if (!text || !key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(text);
+  }
+  return result;
+}
 
-      if (vehicle.color && saysColorMissing && (!saysTransmissionMissing || vehicle.transmission)) return false;
-      if (vehicle.transmission && saysTransmissionMissing && (!saysColorMissing || vehicle.color)) return false;
-      if (vehicle.fuel && saysFuelMissing) return false;
-      return true;
-    });
+function sanitizeReviewMessages(messages: unknown[], vehicle: VehicleImportInput) {
+  return uniqueMessages(messages).filter((message) => {
+    const normalized = fold(message);
+    const saysColorMissing = /\bcor\b/.test(normalized) && /(nao inform|nao identific|nao encontr|ausente)/.test(normalized);
+    const saysTransmissionMissing = /\b(cambio|transmissao)\b/.test(normalized) && /(nao inform|nao identific|nao encontr|ausente)/.test(normalized);
+    const saysFuelMissing = /\b(combustivel|fuel)\b/.test(normalized) && /(nao inform|nao identific|nao encontr|ausente)/.test(normalized);
+
+    if (vehicle.color && saysColorMissing && (!saysTransmissionMissing || vehicle.transmission)) return false;
+    if (vehicle.transmission && saysTransmissionMissing && (!saysColorMissing || vehicle.color)) return false;
+    if (vehicle.fuel && saysFuelMissing) return false;
+    return true;
+  });
+}
+
+async function enrichWithConfiguredCatalog(vehicle: VehicleImportInput) {
+  const supabaseUrl = String(process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
+  const serviceKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+
+  if (!supabaseUrl || !serviceKey) {
+    return {
+      vehicle,
+      warnings: [] as string[],
+      metadata: { matched: false, reason: 'Catálogo interno indisponível no ambiente.' }
+    };
+  }
+
+  const supabase = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+  return enrichVehicleFromCatalog(supabase, vehicle);
 }
 
 export async function reviewVehicleImportWithOpenAI(
@@ -109,12 +139,27 @@ export async function reviewVehicleImportWithOpenAI(
   sourceLabel = 'site público da loja',
   context: VehicleImportReviewContext = {}
 ): Promise<AiReviewResult> {
-  const vehicle = safeVehicle(input);
+  const technicalVehicle = safeVehicle(input);
+  const catalogResult = await enrichWithConfiguredCatalog(technicalVehicle);
+  const vehicle = safeVehicle(catalogResult.vehicle);
+  const catalogWarnings = uniqueMessages(catalogResult.warnings || []);
+  const catalogEvidence = context.catalog_evidence || catalogResult.metadata || null;
   const apiKey = String(process.env.OPENAI_API_KEY || '').trim();
   const model = cleanText(process.env.OPENAI_MODEL || 'gpt-5', 100);
 
   if (!apiKey) {
-    return { ok: false, model, vehicle, optimized_description: vehicle.description || '', conflicts: [], warnings: ['A revisão por IA está indisponível neste ambiente. A importação técnica foi preservada para conferência manual.'], error: 'OPENAI_API_KEY não disponível no ambiente de execução.' };
+    return {
+      ok: false,
+      model,
+      vehicle,
+      optimized_description: vehicle.description || '',
+      conflicts: [],
+      warnings: uniqueMessages([
+        ...catalogWarnings,
+        'A revisão por IA está indisponível neste ambiente. A importação técnica foi preservada para conferência manual.'
+      ]),
+      error: 'OPENAI_API_KEY não disponível no ambiente de execução.'
+    };
   }
 
   try {
@@ -144,7 +189,7 @@ export async function reviewVehicleImportWithOpenAI(
           vehicle,
           evidence: {
             source: context.source_evidence || null,
-            catalog: context.catalog_evidence || null
+            catalog: catalogEvidence
           }
         }),
         text: { verbosity: 'low', format: { type: 'json_schema', name: 'vehicle_site_import_review', strict: true, schema: responseSchema } }
@@ -155,11 +200,29 @@ export async function reviewVehicleImportWithOpenAI(
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const providerMessage = cleanText(payload?.error?.message, 500) || `OpenAI respondeu com status ${response.status}.`;
-      return { ok: false, model, vehicle, optimized_description: vehicle.description || '', conflicts: [], warnings: [`A revisão por IA não foi aplicada: ${providerMessage}`], error: providerMessage };
+      return {
+        ok: false,
+        model,
+        vehicle,
+        optimized_description: vehicle.description || '',
+        conflicts: [],
+        warnings: uniqueMessages([...catalogWarnings, `A revisão por IA não foi aplicada: ${providerMessage}`]),
+        error: providerMessage
+      };
     }
 
     const output = responseText(payload);
-    if (!output) return { ok: false, model: payload?.model || model, vehicle, optimized_description: vehicle.description || '', conflicts: [], warnings: ['A OpenAI respondeu sem conteúdo estruturado.'], error: 'Resposta vazia da OpenAI.' };
+    if (!output) {
+      return {
+        ok: false,
+        model: payload?.model || model,
+        vehicle,
+        optimized_description: vehicle.description || '',
+        conflicts: [],
+        warnings: uniqueMessages([...catalogWarnings, 'A OpenAI respondeu sem conteúdo estruturado.']),
+        error: 'Resposta vazia da OpenAI.'
+      };
+    }
 
     const parsed = JSON.parse(output);
     const reviewed = safeVehicle({ ...parsed?.vehicle, source_url: vehicle.source_url });
@@ -179,11 +242,22 @@ export async function reviewVehicleImportWithOpenAI(
       vehicle: reviewedVehicle,
       optimized_description: ensureMileageInDescription(cleanText(parsed?.optimized_description, 12000) || vehicle.description, reviewedVehicle.mileage),
       conflicts: Array.isArray(parsed?.conflicts) ? parsed.conflicts.slice(0, 20).map((item: any) => ({ field: cleanText(item?.field, 100), message: cleanText(item?.message, 500) })) : [],
-      warnings: sanitizeReviewMessages(Array.isArray(parsed?.warnings) ? parsed.warnings.slice(0, 20) : [], reviewedVehicle)
+      warnings: uniqueMessages([
+        ...catalogWarnings,
+        ...sanitizeReviewMessages(Array.isArray(parsed?.warnings) ? parsed.warnings.slice(0, 20) : [], reviewedVehicle)
+      ])
     };
   } catch (error: any) {
     const message = cleanText(error?.message || 'Falha ao consultar a OpenAI.', 500);
-    return { ok: false, model, vehicle, optimized_description: vehicle.description || '', conflicts: [], warnings: [`A revisão por IA não foi aplicada: ${message}`], error: message };
+    return {
+      ok: false,
+      model,
+      vehicle,
+      optimized_description: vehicle.description || '',
+      conflicts: [],
+      warnings: uniqueMessages([...catalogWarnings, `A revisão por IA não foi aplicada: ${message}`]),
+      error: message
+    };
   }
 }
 
