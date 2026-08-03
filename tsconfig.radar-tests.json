@@ -10,6 +10,7 @@
     "outDir": ".radar-test-dist",
     "isolatedModules": false,
     "allowJs": false,
+    "types": ["node"],
     "plugins": []
   },
   "include": [
