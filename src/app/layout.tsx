@@ -7,6 +7,8 @@ import { PipelineSaleConfirmation } from '@/components/PipelineSaleConfirmation'
 import { StoreCalendarRealtimeSync } from '@/components/StoreCalendarRealtimeSync';
 import { StoreTeamManualMember } from '@/components/StoreTeamManualMember';
 import { OlxSharedTextNormalizerBridge } from '@/components/OlxSharedTextNormalizerBridge';
+import { StorePipelineAuraTheme } from '@/components/StorePipelineAuraTheme';
+import { StorePipelineSidebarToggle } from '@/components/StorePipelineSidebarToggle';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.autosede.com.br'),
@@ -24,6 +26,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StoreCalendarRealtimeSync />
         <StoreTeamManualMember />
         <OlxSharedTextNormalizerBridge />
+        <StorePipelineAuraTheme />
+        <StorePipelineSidebarToggle />
       </body>
     </html>
   );
