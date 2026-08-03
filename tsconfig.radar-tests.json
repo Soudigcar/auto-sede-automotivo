@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "incremental": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2020",
+    "rootDir": ".",
+    "outDir": ".radar-test-dist",
+    "isolatedModules": false,
+    "allowJs": false,
+    "plugins": []
+  },
+  "include": [
+    "src/lib/server/automotive-market-radar/types.ts",
+    "src/lib/server/automotive-market-radar/pipeline.ts",
+    "src/lib/server/automotive-market-radar/aggregate.ts",
+    "tests/automotive-market-radar/**/*.ts"
+  ]
+}
