@@ -60,13 +60,17 @@ export function StorePipelineAuraTheme() {
     const decorate = () => {
       document.body.classList.add('pipeline-aura-active');
 
-      const storeShell = document.querySelector<HTMLElement>('.premium-shell');
-      storeShell?.classList.add('pipeline-aura-shell');
-
-      const sidebars = Array.from(document.querySelectorAll<HTMLElement>('aside'));
-      sidebars.forEach((aside) => {
-        if (aside.closest('.premium-shell')) aside.classList.add('pipeline-aura-sidebar');
+      const portalShell = Array.from(document.querySelectorAll<HTMLElement>('section.premium-shell')).find((shell) => {
+        return Boolean(shell.querySelector(':scope > aside') && shell.querySelector('.store-portal-child'));
       });
+      portalShell?.classList.add('pipeline-aura-portal-shell');
+
+      const portalSidebar = portalShell?.querySelector<HTMLElement>(':scope > aside');
+      portalSidebar?.classList.add('pipeline-aura-sidebar');
+
+      const portalCanvas = portalShell?.querySelector<HTMLElement>(':scope > .premium-canvas');
+      portalCanvas?.classList.add('pipeline-aura-portal-canvas');
+      portalCanvas?.querySelector<HTMLElement>(':scope > header')?.classList.add('pipeline-aura-mobile-native-header');
 
       const pageMain = Array.from(document.querySelectorAll<HTMLElement>('main')).find((item) => {
         return item.querySelector('h1')?.textContent?.includes('Pipeline da Loja');
@@ -76,8 +80,18 @@ export function StorePipelineAuraTheme() {
       const canvas = pageMain?.querySelector<HTMLElement>('.premium-canvas') || pageMain?.querySelector<HTMLElement>(':scope > section > div');
       canvas?.classList.add('pipeline-aura-canvas');
 
-      const header = pageMain?.querySelector<HTMLElement>('header');
+      const header = pageMain
+        ? Array.from(pageMain.querySelectorAll<HTMLElement>('header')).find((item) => item.querySelector('h1')?.textContent?.includes('Pipeline da Loja'))
+        : null;
       header?.classList.add('pipeline-aura-hero');
+
+      const nativeActions = header
+        ? Array.from(header.querySelectorAll<HTMLElement>('div')).find((item) => {
+            const label = normalize(item.textContent || '');
+            return label.includes('calendario') && label.includes('atualizar pipeline');
+          })
+        : null;
+      nativeActions?.classList.add('pipeline-aura-native-actions');
 
       const kpiSection = pageMain
         ? Array.from(pageMain.querySelectorAll<HTMLElement>('section')).find((section) => section.querySelectorAll(':scope > .premium-card').length === 5)
@@ -195,15 +209,25 @@ const styles = `
   }
 
   body.pipeline-aura-active { background: var(--aura-bg) !important; color: var(--aura-text) !important; }
-  body.pipeline-aura-active .pipeline-aura-sidebar { display: none !important; }
+  body.pipeline-aura-active .pipeline-aura-portal-shell { background: var(--aura-bg) !important; }
+  body.pipeline-aura-active .pipeline-aura-sidebar {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 115 !important;
+    display: none;
+    height: 100vh;
+    border-right: 1px solid rgba(148,163,184,.15);
+    box-shadow: 18px 0 44px rgba(0,0,0,.18);
+  }
+  body.pipeline-aura-active .pipeline-aura-portal-canvas { background: var(--aura-bg) !important; }
   body.pipeline-aura-active .premium-shell { background: var(--aura-bg) !important; }
   body.pipeline-aura-active .store-portal-child { padding: 0 !important; }
   body.pipeline-aura-active .pipeline-aura-page { min-height: 100vh !important; background: var(--aura-bg) !important; color: var(--aura-text) !important; }
-  body.pipeline-aura-active .pipeline-aura-canvas { padding: 136px 16px 98px !important; background: var(--aura-bg) !important; }
+  body.pipeline-aura-active .pipeline-aura-canvas { padding: 104px 16px 98px !important; background: var(--aura-bg) !important; }
   body.pipeline-aura-active .pipeline-aura-canvas > * { max-width: 1600px; margin-left: auto; margin-right: auto; }
 
   .aura-topbar {
-    position: fixed; inset: 0 0 auto 0; z-index: 100;
+    position: fixed; inset: 0 0 auto 0; z-index: 110;
     display: flex; min-height: 80px; align-items: center; justify-content: space-between; gap: 20px;
     border-bottom: 1px solid var(--aura-border); background: color-mix(in srgb, var(--aura-bg) 92%, transparent);
     padding: 12px 28px; color: var(--aura-text); backdrop-filter: blur(18px);
@@ -223,14 +247,31 @@ const styles = `
   .aura-orb, .aura-face { display: flex; width: 43px; height: 43px; align-items: center; justify-content: center; border: 1px solid rgba(239,45,52,.7); border-radius: 50%; background: radial-gradient(circle at 35% 30%, #555d68, #11151c 60%); color: white; box-shadow: 0 0 22px rgba(239,45,52,.28); }
   .aura-face { font-size: 17px; letter-spacing: 2px; background: #11151c; }
 
-  body.pipeline-aura-active .pipeline-aura-hero { position: relative; min-height: 164px; align-items: flex-start !important; border: 1px solid var(--aura-border); border-radius: 22px; background: radial-gradient(circle at 75% 15%, rgba(239,45,52,.08), transparent 34%), var(--aura-surface); padding: 30px 30px 24px !important; box-shadow: 0 18px 55px var(--aura-shadow); }
+  body.pipeline-aura-active .pipeline-aura-hero {
+    position: relative;
+    min-height: 190px;
+    align-items: flex-start !important;
+    border: 1px solid var(--aura-border);
+    border-radius: 22px;
+    background: radial-gradient(circle at 75% 15%, rgba(239,45,52,.08), transparent 34%), var(--aura-surface);
+    padding: 30px 430px 24px 30px !important;
+    box-shadow: 0 18px 55px var(--aura-shadow);
+  }
   body.pipeline-aura-active .pipeline-aura-hero > div:first-child { max-width: 650px; }
   body.pipeline-aura-active .pipeline-aura-hero .premium-eyebrow { color: #ef2d34 !important; letter-spacing: .22em !important; text-transform: uppercase; }
   body.pipeline-aura-active .pipeline-aura-hero h1 { color: var(--aura-text) !important; font-size: clamp(38px, 5vw, 58px) !important; letter-spacing: -.045em !important; }
   body.pipeline-aura-active .pipeline-aura-hero p { color: var(--aura-muted) !important; }
-  body.pipeline-aura-active .pipeline-aura-hero > div:last-child { display: none !important; }
+  body.pipeline-aura-active .pipeline-aura-native-actions { display: none !important; }
 
-  .aura-hero-actions { position: fixed; z-index: 99; right: 32px; top: 104px; display: grid; grid-template-columns: auto auto; gap: 12px; }
+  .aura-hero-actions {
+    position: absolute;
+    z-index: 99;
+    right: 32px;
+    top: 108px;
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 12px;
+  }
   .aura-hero-actions button { display: inline-flex; min-height: 50px; align-items: center; justify-content: center; gap: 9px; border-radius: 13px; padding: 0 20px; font-size: 13px; font-weight: 900; }
   .aura-secondary, .aura-customize { border: 1px solid var(--aura-border); background: var(--aura-surface-2); color: var(--aura-soft); }
   .aura-primary { border: 1px solid #ef2d34; background: #ef2d34; color: white; box-shadow: 0 14px 30px rgba(239,45,52,.24); }
@@ -272,13 +313,32 @@ const styles = `
 
   body.pipeline-aura-active .pipeline-add-lead-button { display: none !important; }
 
+  @media (min-width: 1024px) {
+    body.pipeline-aura-active .pipeline-aura-sidebar { display: flex !important; }
+    .aura-topbar { left: 18rem; }
+    .aura-bottom-dock { left: calc(18rem + 16px); }
+  }
+
+  @media (max-width: 1279px) {
+    body.pipeline-aura-active .pipeline-aura-hero { padding-right: 350px !important; }
+    .aura-hero-actions { right: 22px; }
+  }
+
   @media (max-width: 1023px) {
     .aura-topbar { padding: 10px 14px; }
     .aura-search { width: min(380px, 58vw); }
     .aura-profile > span:nth-child(2), .aura-face, .aura-monitor { display: none !important; }
-    .aura-hero-actions { position: fixed; right: 16px; top: 92px; }
-    body.pipeline-aura-active .pipeline-aura-canvas { padding-top: 164px !important; }
+    .aura-hero-actions { top: 166px; right: 16px; }
+    body.pipeline-aura-active .pipeline-aura-mobile-native-header { top: 80px !important; z-index: 90 !important; }
+    body.pipeline-aura-active .pipeline-aura-canvas { padding-top: 94px !important; }
+    body.pipeline-aura-active .pipeline-aura-hero { min-height: 220px; padding: 28px 330px 24px 24px !important; }
     body.pipeline-aura-active .pipeline-aura-kpis { grid-template-columns: repeat(2, minmax(150px, 1fr)) !important; }
+  }
+
+  @media (max-width: 760px) {
+    .aura-hero-actions { position: static; margin: -78px 14px 22px; grid-template-columns: 1fr 1fr; }
+    .aura-customize { grid-column: 1 / -1; }
+    body.pipeline-aura-active .pipeline-aura-hero { min-height: 170px; padding: 24px 20px !important; }
   }
 
   @media (max-width: 640px) {
@@ -288,11 +348,12 @@ const styles = `
     .aura-top-actions { flex: none; }
     .aura-profile { padding: 0; }
     .aura-face { display: flex !important; width: 40px; height: 40px; }
-    .aura-hero-actions { position: fixed; left: 12px; right: 12px; top: 78px; grid-template-columns: 1fr 1fr; }
+    body.pipeline-aura-active .pipeline-aura-mobile-native-header { top: 70px !important; }
+    .aura-hero-actions { margin-top: -66px; }
     .aura-hero-actions button { min-height: 44px; padding: 0 10px; font-size: 11px; }
     .aura-customize { display: none !important; }
-    body.pipeline-aura-active .pipeline-aura-canvas { padding: 142px 10px 112px !important; }
-    body.pipeline-aura-active .pipeline-aura-hero { min-height: 150px; padding: 22px 18px !important; }
+    body.pipeline-aura-active .pipeline-aura-canvas { padding: 84px 10px 112px !important; }
+    body.pipeline-aura-active .pipeline-aura-hero { min-height: 150px; }
     body.pipeline-aura-active .pipeline-aura-hero h1 { font-size: 34px !important; }
     body.pipeline-aura-active .pipeline-aura-kpis { display: flex !important; overflow-x: auto; }
     body.pipeline-aura-active .pipeline-aura-kpis .premium-card { min-width: 160px; }
