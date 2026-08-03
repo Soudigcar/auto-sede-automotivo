@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MetaPixelTracker } from '@/components/MetaPixelTracker';
 import { CampaignFinanceSimulatorModal } from '@/components/campaigns/CampaignFinanceSimulator';
-import { CampaignVehicleShowcase } from '@/components/campaigns/CampaignVehicleShowcase';
+import { CampaignVehicleDiscovery } from '@/components/campaigns/CampaignVehicleDiscovery';
 import { CampaignVisualEditorPreviewFlow } from './CampaignVisualEditorPreviewFlow';
 import type { Device } from './CampaignVisualEditorModel';
 import { safe } from './CampaignVisualEditorModel';
@@ -94,7 +94,7 @@ export function PublishedCampaignVisualLanding({ campaign, eventInfo, vehicles, 
         />
       </div>
 
-      <CampaignVehicleShowcase vehicles={vehicles} primaryColor={draft.primaryColor} onOpenSimulator={openSimulator} />
+      <CampaignVehicleDiscovery vehicles={vehicles} primaryColor={draft.primaryColor} onOpenSimulator={openSimulator} />
 
       {draft.footer.visible ? (
         <footer
