@@ -68,6 +68,8 @@ function matchesKind(vehicle: any, kind: string) {
   return true;
 }
 
+const kindOptions = ['todos', 'usados', '0km', 'suv', 'sedan', 'hatch', 'picape'];
+
 export function CampaignVehicleDiscovery({ vehicles, primaryColor, onOpenSimulator }: Props) {
   const [query, setQuery] = useState('');
   const [brand, setBrand] = useState('');
@@ -80,7 +82,7 @@ export function CampaignVehicleDiscovery({ vehicles, primaryColor, onOpenSimulat
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
   const [sort, setSort] = useState('featured');
-  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const showcaseRef = useRef<HTMLDivElement | null>(null);
 
   const brandStats = useMemo(() => {
@@ -94,7 +96,6 @@ export function CampaignVehicleDiscovery({ vehicles, primaryColor, onOpenSimulat
       .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name, 'pt-BR'));
   }, [vehicles]);
 
-  const brands = useMemo(() => brandStats.map((item) => item.name).sort((left, right) => left.localeCompare(right, 'pt-BR')), [brandStats]);
   const models = useMemo(() => Array.from(new Set(
     vehicles
       .filter((vehicle) => !brand || text(vehicle.brand) === brand)
@@ -150,8 +151,7 @@ export function CampaignVehicleDiscovery({ vehicles, primaryColor, onOpenSimulat
     nestedSection?.removeAttribute('id');
   }, [filtered.length]);
 
-  const activeCount = [
-    query,
+  const filterCount = [
     brand,
     model,
     transmission,
@@ -162,7 +162,7 @@ export function CampaignVehicleDiscovery({ vehicles, primaryColor, onOpenSimulat
     maxPrice,
     kind !== 'todos' ? kind : ''
   ].filter(Boolean).length;
-  const popularBrands = brandStats.slice(0, 10);
+  const activeCount = filterCount + (query ? 1 : 0);
 
   function selectBrand(nextBrand: string) {
     setBrand(brand === nextBrand ? '' : nextBrand);
@@ -183,123 +183,167 @@ export function CampaignVehicleDiscovery({ vehicles, primaryColor, onOpenSimulat
     setSort('featured');
   }
 
+  function renderFilterPanel() {
+    return (
+      <div className="space-y-6">
+        <div>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-black uppercase tracking-[0.14em] text-white">Categorias</h3>
+            {kind !== 'todos' ? <button type="button" onClick={() => setKind('todos')} className="text-[11px] font-black" style={{ color: primaryColor }}>Limpar</button> : null}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {kindOptions.map((item) => (
+              <button
+                key={item}
+                type="button"
+                aria-pressed={kind === item}
+                onClick={() => setKind(item)}
+                className="rounded-full border border-slate-700 bg-slate-800 px-3.5 py-2 text-[11px] font-black uppercase text-white transition hover:border-slate-500"
+                style={kind === item ? { backgroundColor: primaryColor, borderColor: primaryColor } : undefined}
+              >
+                {item === 'todos' ? 'Todos' : item === '0km' ? '0 km' : item}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {brandStats.length ? (
+          <div className="border-t border-slate-700 pt-5">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-black uppercase tracking-[0.14em] text-white">Marcas</h3>
+              {brand ? <button type="button" onClick={() => selectBrand(brand)} className="text-[11px] font-black" style={{ color: primaryColor }}>Ver todas</button> : null}
+            </div>
+            <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+              {brandStats.map((item) => (
+                <button
+                  key={item.name}
+                  type="button"
+                  aria-pressed={brand === item.name}
+                  onClick={() => selectBrand(item.name)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2.5 text-left text-white transition hover:border-slate-500"
+                  style={brand === item.name ? { borderColor: primaryColor, boxShadow: `0 0 0 1px ${primaryColor}` } : undefined}
+                >
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-black text-white" style={{ backgroundColor: brand === item.name ? primaryColor : '#475569' }}>{item.name.slice(0, 2).toUpperCase()}</span>
+                    <span className="truncate text-xs font-black">{item.name}</span>
+                  </span>
+                  <span className="shrink-0 rounded-full bg-slate-700 px-2 py-1 text-[10px] font-black text-white">{item.count}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="space-y-3 border-t border-slate-700 pt-5">
+          <h3 className="text-sm font-black uppercase tracking-[0.14em] text-white">Detalhes</h3>
+
+          <label className="relative block">
+            <select value={model} onChange={(event) => setModel(event.target.value)} className="campaign-filter-field h-12 w-full appearance-none rounded-xl border border-slate-700 bg-slate-800 px-3.5 pr-9 text-sm font-bold text-white outline-none focus:border-slate-500">
+              <option value="">Todos os modelos</option>
+              {models.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-300" size={17} />
+          </label>
+
+          <label className="relative block">
+            <select value={transmission} onChange={(event) => setTransmission(event.target.value)} className="campaign-filter-field h-12 w-full appearance-none rounded-xl border border-slate-700 bg-slate-800 px-3.5 pr-9 text-sm font-bold text-white outline-none focus:border-slate-500">
+              <option value="">Todos os câmbios</option>
+              {transmissions.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-300" size={17} />
+          </label>
+
+          <label className="relative block">
+            <select value={fuel} onChange={(event) => setFuel(event.target.value)} className="campaign-filter-field h-12 w-full appearance-none rounded-xl border border-slate-700 bg-slate-800 px-3.5 pr-9 text-sm font-bold text-white outline-none focus:border-slate-500">
+              <option value="">Todos os combustíveis</option>
+              {fuels.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-300" size={17} />
+          </label>
+
+          <div className="grid grid-cols-2 gap-2">
+            <input value={minYear} onChange={(event) => setMinYear(event.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="Ano de" inputMode="numeric" className="campaign-filter-field h-12 min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-sm font-bold text-white outline-none placeholder:text-slate-400 focus:border-slate-500" />
+            <input value={maxYear} onChange={(event) => setMaxYear(event.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="Ano até" inputMode="numeric" className="campaign-filter-field h-12 min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-sm font-bold text-white outline-none placeholder:text-slate-400 focus:border-slate-500" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <input value={minPrice} onChange={(event) => setMinPrice(event.target.value.replace(/\D/g, ''))} placeholder="Preço de" inputMode="numeric" className="campaign-filter-field h-12 min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-sm font-bold text-white outline-none placeholder:text-slate-400 focus:border-slate-500" />
+            <input value={maxPrice} onChange={(event) => setMaxPrice(event.target.value.replace(/\D/g, ''))} placeholder="Preço até" inputMode="numeric" className="campaign-filter-field h-12 min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-sm font-bold text-white outline-none placeholder:text-slate-400 focus:border-slate-500" />
+          </div>
+        </div>
+
+        {activeCount ? (
+          <button type="button" onClick={clearFilters} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-600 bg-slate-800 px-4 text-xs font-black text-white transition hover:bg-slate-700">
+            <X size={16} /> Limpar filtros
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <section id="veiculos" className="bg-slate-100 px-4 py-14 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-[1480px]">
-        <div className="rounded-[30px] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+        <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <label className="relative flex-1">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={21} />
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Buscar por marca, modelo ou versão"
-                className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-12 pr-12 text-sm font-semibold outline-none transition focus:border-slate-400 focus:bg-white"
+                className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-12 pr-12 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:bg-white"
               />
               {query ? <button type="button" onClick={() => setQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" aria-label="Limpar busca"><X size={18} /></button> : null}
             </label>
 
-            <div className="flex gap-3">
-              <button type="button" onClick={() => setFiltersOpen((value) => !value)} className="inline-flex h-14 flex-1 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black lg:flex-none">
-                <Filter size={19} /> Filtros {activeCount ? `(${activeCount})` : ''}
-              </button>
-              <label className="relative min-w-44 flex-1 lg:flex-none">
-                <select value={sort} onChange={(event) => setSort(event.target.value)} className="h-14 w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 pr-10 text-sm font-bold outline-none">
+            <button type="button" onClick={() => setFiltersOpen((value) => !value)} className="inline-flex h-14 items-center justify-center gap-2 rounded-2xl bg-slate-900 px-5 text-sm font-black text-white lg:hidden" aria-expanded={filtersOpen} aria-controls="campaign-mobile-filters">
+              <Filter size={19} /> Filtros {filterCount ? `(${filterCount})` : ''}
+            </button>
+          </div>
+
+          {filtersOpen ? <div id="campaign-mobile-filters" className="mt-4 rounded-2xl bg-slate-900 p-4 lg:hidden">{renderFilterPanel()}</div> : null}
+        </div>
+
+        <div className="mt-8 grid items-start gap-7 lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[330px_minmax(0,1fr)]">
+          <aside className="hidden rounded-[26px] bg-slate-900 p-5 shadow-lg lg:sticky lg:top-24 lg:block">
+            {renderFilterPanel()}
+          </aside>
+
+          <div className="min-w-0">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em]" style={{ color: primaryColor }}>Estoque do evento</p>
+                <h2 className="mt-2 text-3xl font-black tracking-[-0.04em] sm:text-4xl">Veículos disponíveis</h2>
+                <p className="mt-2 text-sm font-bold text-slate-500">{filtered.length} {filtered.length === 1 ? 'veículo encontrado' : 'veículos encontrados'}</p>
+              </div>
+
+              <label className="relative w-full sm:w-56">
+                <select value={sort} onChange={(event) => setSort(event.target.value)} className="h-12 w-full appearance-none rounded-xl border border-slate-300 bg-white px-4 pr-10 text-sm font-bold text-slate-900 outline-none focus:border-slate-500">
                   <option value="featured">Destaques</option>
                   <option value="price_asc">Menor preço</option>
                   <option value="price_desc">Maior preço</option>
                   <option value="year_desc">Ano mais recente</option>
                   <option value="mileage_asc">Menor quilometragem</option>
                 </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
               </label>
             </div>
-          </div>
 
-          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-            {['todos', 'usados', '0km', 'suv', 'sedan', 'hatch', 'picape'].map((item) => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => setKind(item)}
-                className="shrink-0 rounded-full border px-4 py-2 text-xs font-black uppercase"
-                style={kind === item ? { backgroundColor: primaryColor, borderColor: primaryColor, color: '#fff' } : { borderColor: '#e2e8f0', color: '#475569' }}
-              >
-                {item === 'todos' ? 'Todos' : item === '0km' ? '0 km' : item}
-              </button>
-            ))}
-          </div>
-
-          {popularBrands.length ? (
-            <div className="mt-5 border-t border-slate-100 pt-5">
-              <div className="flex items-center justify-between gap-3">
-                <strong className="text-sm font-black">Marcas mais encontradas</strong>
-                {brand ? <button type="button" onClick={() => selectBrand(brand)} className="text-xs font-black" style={{ color: primaryColor }}>Ver todas</button> : null}
+            {filtered.length ? (
+              <div ref={showcaseRef} className="campaign-discovery-showcase mt-7">
+                <CampaignVehicleShowcase vehicles={filtered} primaryColor={primaryColor} onOpenSimulator={onOpenSimulator} />
               </div>
-              <div className="mt-3 flex gap-3 overflow-x-auto pb-2">
-                {popularBrands.map((item) => (
-                  <button
-                    key={item.name}
-                    type="button"
-                    onClick={() => selectBrand(item.name)}
-                    className="flex min-w-32 shrink-0 items-center gap-3 rounded-2xl border bg-white px-4 py-3 text-left shadow-sm"
-                    style={brand === item.name ? { borderColor: primaryColor, boxShadow: `0 0 0 2px ${primaryColor}20` } : { borderColor: '#e2e8f0' }}
-                  >
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-black text-white" style={{ backgroundColor: brand === item.name ? primaryColor : '#334155' }}>{item.name.slice(0, 2).toUpperCase()}</span>
-                    <span><span className="block text-sm font-black">{item.name}</span><span className="text-[11px] font-bold text-slate-400">{item.count} oferta(s)</span></span>
-                  </button>
-                ))}
+            ) : (
+              <div className="mt-7 rounded-[28px] border border-dashed border-slate-300 bg-white p-12 text-center">
+                <SlidersHorizontal size={42} className="mx-auto text-slate-300" />
+                <h3 className="mt-4 text-2xl font-black">Nenhum veículo encontrado</h3>
+                <p className="mt-2 text-sm text-slate-500">Tente remover alguns filtros ou buscar por outro modelo.</p>
+                <button type="button" onClick={clearFilters} className="mt-5 rounded-2xl px-5 py-3 text-sm font-black text-white" style={{ backgroundColor: primaryColor }}>Limpar filtros</button>
               </div>
-            </div>
-          ) : null}
-
-          {filtersOpen ? (
-            <div className="mt-5 grid gap-3 border-t border-slate-100 pt-5 sm:grid-cols-2 lg:grid-cols-4">
-              <select value={brand} onChange={(event) => { setBrand(event.target.value); setModel(''); }} className="h-12 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold">
-                <option value="">Todas as marcas</option>
-                {brands.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <select value={model} onChange={(event) => setModel(event.target.value)} className="h-12 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold">
-                <option value="">Todos os modelos</option>
-                {models.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <select value={transmission} onChange={(event) => setTransmission(event.target.value)} className="h-12 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold">
-                <option value="">Todos os câmbios</option>
-                {transmissions.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <select value={fuel} onChange={(event) => setFuel(event.target.value)} className="h-12 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold">
-                <option value="">Todos os combustíveis</option>
-                {fuels.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <input value={minYear} onChange={(event) => setMinYear(event.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="Ano de" inputMode="numeric" className="h-12 rounded-2xl border border-slate-200 px-4 text-sm font-bold" />
-              <input value={maxYear} onChange={(event) => setMaxYear(event.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="Ano até" inputMode="numeric" className="h-12 rounded-2xl border border-slate-200 px-4 text-sm font-bold" />
-              <input value={minPrice} onChange={(event) => setMinPrice(event.target.value.replace(/\D/g, ''))} placeholder="Preço de" inputMode="numeric" className="h-12 rounded-2xl border border-slate-200 px-4 text-sm font-bold" />
-              <input value={maxPrice} onChange={(event) => setMaxPrice(event.target.value.replace(/\D/g, ''))} placeholder="Preço até" inputMode="numeric" className="h-12 rounded-2xl border border-slate-200 px-4 text-sm font-bold" />
-              {activeCount ? <button type="button" onClick={clearFilters} className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 text-sm font-black text-slate-600 sm:col-span-2 lg:col-span-1 lg:col-start-4"><X size={17} /> Limpar filtros</button> : null}
-            </div>
-          ) : null}
+            )}
+          </div>
         </div>
-
-        <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.2em]" style={{ color: primaryColor }}>Estoque do evento</p>
-            <h2 className="mt-2 text-3xl font-black tracking-[-0.04em] sm:text-4xl">Veículos disponíveis</h2>
-          </div>
-          <p className="text-sm font-bold text-slate-500">{filtered.length} {filtered.length === 1 ? 'veículo encontrado' : 'veículos encontrados'}</p>
-        </div>
-
-        {filtered.length ? (
-          <div ref={showcaseRef} className="campaign-discovery-showcase mt-8">
-            <CampaignVehicleShowcase vehicles={filtered} primaryColor={primaryColor} onOpenSimulator={onOpenSimulator} />
-          </div>
-        ) : (
-          <div className="mt-8 rounded-[28px] border border-dashed border-slate-300 bg-white p-12 text-center">
-            <SlidersHorizontal size={42} className="mx-auto text-slate-300" />
-            <h3 className="mt-4 text-2xl font-black">Nenhum veículo encontrado</h3>
-            <p className="mt-2 text-sm text-slate-500">Tente remover alguns filtros ou buscar por outro modelo.</p>
-            <button type="button" onClick={clearFilters} className="mt-5 rounded-2xl px-5 py-3 text-sm font-black text-white" style={{ backgroundColor: primaryColor }}>Limpar filtros</button>
-          </div>
-        )}
       </div>
 
       <style jsx global>{`
@@ -315,6 +359,10 @@ export function CampaignVehicleDiscovery({ vehicles, primaryColor, onOpenSimulat
         }
         .campaign-discovery-showcase > section > div > .mt-8 {
           margin-top: 0 !important;
+        }
+        .campaign-filter-field option {
+          background: #ffffff;
+          color: #0f172a;
         }
       `}</style>
     </section>
