@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cleanText, getAdminClient, requireMaster } from '@/lib/server/masterApi';
+import { normalizeVehicleYears, vehicleYearNumbers } from '@/lib/vehicleYears';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -69,6 +70,7 @@ export async function GET(request: Request) {
       {
         vehicles: (vehicleResult.data || []).map((vehicle: any) => ({
           ...vehicle,
+          ...normalizeVehicleYears(vehicle),
           owner_store: vehicle.store_id ? storeMap.get(vehicle.store_id) || null : null
         })),
         stores,
@@ -132,9 +134,13 @@ export async function POST(request: Request) {
     const storeId = cleanText(body.store_id, 80);
     const brand = cleanText(body.brand, 100);
     const model = cleanText(body.model, 120);
+    const years = vehicleYearNumbers(body);
 
     if (!storeId || !brand || !model) {
       return NextResponse.json({ error: 'Loja proprietária, marca e modelo são obrigatórios.' }, { status: 400 });
+    }
+    if (!years.manufacture_year || !years.model_year) {
+      return NextResponse.json({ error: 'Ano de fabricação e ano do modelo são obrigatórios.' }, { status: 400 });
     }
 
     const { data: store } = await supabase
@@ -181,7 +187,9 @@ export async function POST(request: Request) {
       brand,
       model,
       version: cleanText(body.version, 180) || null,
-      year: cleanText(body.year, 30) || null,
+      manufacture_year: years.manufacture_year,
+      model_year: years.model_year,
+      year: years.year,
       mileage: cleanText(body.mileage, 60) || null,
       color: cleanText(body.color, 80) || null,
       transmission: cleanText(body.transmission, 80) || null,
@@ -218,7 +226,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      vehicle: result.data,
+      vehicle: { ...result.data, ...normalizeVehicleYears(result.data) },
       message: existing ? 'Veículo atualizado no catálogo permanente.' : 'Veículo cadastrado no catálogo permanente.'
     });
   } catch (error: any) {
