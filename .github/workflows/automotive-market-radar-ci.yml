@@ -9,6 +9,8 @@ on:
       - 'src/lib/server/automotive-market-radar/**'
       - 'src/components/AutomotiveMarketRadarPanel.tsx'
       - 'src/app/master/automotive-brain/page.tsx'
+      - 'tests/automotive-market-radar/**'
+      - 'tsconfig.radar-tests.json'
       - 'supabase/migrations/*automotive_market_radar.sql'
       - '.github/workflows/automotive-market-radar-ci.yml'
   workflow_dispatch:
@@ -33,6 +35,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Radar tests
+        run: |
+          rm -rf .radar-test-dist
+          npx tsc -p tsconfig.radar-tests.json
+          node --test .radar-test-dist/tests/automotive-market-radar/aggregate.test.js
 
       - name: Typecheck
         run: npm run typecheck
