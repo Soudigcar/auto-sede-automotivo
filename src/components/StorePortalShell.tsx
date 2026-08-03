@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import {
   BarChart3,
@@ -11,8 +11,10 @@ import {
   LayoutDashboard,
   LogOut,
   MessageCircle,
+  Moon,
   Package,
   Store,
+  Sun,
   UsersRound,
   type LucideIcon
 } from 'lucide-react';
@@ -52,7 +54,15 @@ export type StorePortalClientContext = {
   scope_label: string;
 };
 
-const PortalContext = createContext<StorePortalClientContext | null>(null);
+export type StorePortalTheme = 'light' | 'dark';
+
+type StorePortalContextValue = StorePortalClientContext & {
+  theme: StorePortalTheme;
+  toggleTheme: () => void;
+};
+
+const PortalContext = createContext<StorePortalContextValue | null>(null);
+const THEME_STORAGE_KEY = 'auto-controle-store-portal-theme';
 
 const menuIcons: Record<string, LucideIcon> = {
   dashboard: LayoutDashboard,
@@ -80,13 +90,14 @@ function currentSegment(pathname: string, slug: string) {
 
 function desktopMenuClass(active: boolean) {
   return active
-    ? 'flex items-center gap-3 rounded-2xl bg-red-600 px-4 py-4 font-bold text-white shadow-lg shadow-red-600/20'
-    : 'flex items-center gap-3 rounded-2xl px-4 py-4 font-bold text-zinc-400 transition hover:bg-white/5 hover:text-white';
+    ? 'flex w-full items-center gap-3 rounded-2xl bg-red-600 px-4 py-4 text-left font-bold text-white shadow-lg shadow-red-600/20'
+    : 'flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left font-bold text-zinc-400 transition hover:bg-white/5 hover:text-white';
 }
 
-function mobileMenuClass(active: boolean) {
-  return active
-    ? 'inline-flex shrink-0 items-center gap-2 rounded-xl bg-red-600 px-3 py-2 text-xs font-black text-white'
+function mobileMenuClass(active: boolean, dark: boolean) {
+  if (active) return 'inline-flex shrink-0 items-center gap-2 rounded-xl bg-red-600 px-3 py-2 text-xs font-black text-white';
+  return dark
+    ? 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-black text-zinc-300'
     : 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-black text-zinc-600';
 }
 
@@ -103,6 +114,23 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
   const slug = String(params?.slug || '');
   const [context, setContext] = useState<StorePortalClientContext | null>(null);
   const [message, setMessage] = useState('Validando acesso ao Portal da Loja...');
+  const [theme, setTheme] = useState<StorePortalTheme>('light');
+  const [themeReady, setThemeReady] = useState(false);
+
+  useEffect(() => {
+    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+    setTheme(storedTheme === 'dark' ? 'dark' : 'light');
+    setThemeReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!themeReady) return;
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme, themeReady]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((current) => current === 'dark' ? 'light' : 'dark');
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,7 +169,12 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
     if (!allowed) router.replace(`/loja/${context.store.slug}`);
   }, [context, router, segment]);
 
-  if (!context) {
+  const portalValue = useMemo<StorePortalContextValue | null>(() => {
+    if (!context) return null;
+    return { ...context, theme, toggleTheme };
+  }, [context, theme, toggleTheme]);
+
+  if (!context || !portalValue) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#071020] p-6 text-center text-white">
         <div>
@@ -152,11 +185,16 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
     );
   }
 
+  const dark = theme === 'dark';
+  const ThemeIcon = dark ? Sun : Moon;
+  const themeLabel = dark ? 'Usar tema claro' : 'Usar tema escuro';
+  const pipelinePage = segment === 'pipeline';
+
   return (
-    <PortalContext.Provider value={context}>
-      <main className="premium-page">
-        <section className="premium-shell flex min-h-screen">
-          <aside className="hidden w-72 shrink-0 bg-[#071020] px-6 py-7 text-white lg:flex lg:flex-col">
+    <PortalContext.Provider value={portalValue}>
+      <main className={`premium-page store-portal-theme store-theme-${theme}`}>
+        <section className="premium-shell flex min-h-screen items-stretch">
+          <aside className="hidden w-72 shrink-0 bg-[#071020] px-6 py-7 text-white lg:sticky lg:top-6 lg:flex lg:h-[calc(100vh-48px)] lg:self-start lg:flex-col lg:overflow-y-auto">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-red-600/15 text-red-500"><Car size={22} /></div>
               <div><p className="text-sm font-black tracking-wide">AUTO CONTROLE</p><p className="text-[10px] uppercase tracking-[0.35em] text-zinc-500">Automotivo</p></div>
@@ -184,38 +222,87 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
               })}
             </nav>
 
-            <div className="mt-auto pt-7">
+            <div className="mt-auto space-y-1 pt-7">
+              <button type="button" onClick={toggleTheme} className={desktopMenuClass(false)} aria-label={themeLabel}><ThemeIcon size={18} /> {themeLabel}</button>
               <Link href="/logout" className={desktopMenuClass(false)}><LogOut size={18} /> Sair</Link>
             </div>
           </aside>
 
-          <div className="premium-canvas min-w-0 flex-1 overflow-x-hidden">
-            <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white/95 px-4 py-3 backdrop-blur-lg lg:hidden">
+          <div className="premium-canvas min-w-0 flex-1 overflow-x-clip">
+            <header className={`store-mobile-header sticky top-0 z-40 px-4 py-3 backdrop-blur-lg lg:hidden ${dark ? 'border-b border-white/10 bg-[#0d1725]/95' : 'border-b border-zinc-200 bg-white/95'}`}>
               <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0"><p className="truncate text-sm font-black text-zinc-950">{context.store.store_name}</p><p className="truncate text-[11px] font-bold text-red-600">{context.profile.full_name} · {context.profile.role_label}</p></div>
-                <Link href="/logout" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-zinc-200 text-zinc-600" aria-label="Sair"><LogOut size={18} /></Link>
+                <div className="min-w-0"><p className={`truncate text-sm font-black ${dark ? 'text-white' : 'text-zinc-950'}`}>{context.store.store_name}</p><p className="truncate text-[11px] font-bold text-red-600">{context.profile.full_name} · {context.profile.role_label}</p></div>
+                <div className="flex shrink-0 gap-2">
+                  <button type="button" onClick={toggleTheme} className={`flex h-10 w-10 items-center justify-center rounded-xl border ${dark ? 'border-white/10 text-zinc-300' : 'border-zinc-200 text-zinc-600'}`} aria-label={themeLabel}><ThemeIcon size={18} /></button>
+                  <Link href="/logout" className={`flex h-10 w-10 items-center justify-center rounded-xl border ${dark ? 'border-white/10 text-zinc-300' : 'border-zinc-200 text-zinc-600'}`} aria-label="Sair"><LogOut size={18} /></Link>
+                </div>
               </div>
               <nav className="mt-3 flex gap-2 overflow-x-auto pb-1">
                 {context.menu.map((item) => {
                   const Icon = menuIcons[item.key] || LayoutDashboard;
-                  return <Link key={item.key} href={item.href} className={mobileMenuClass(segment === item.segment)}><Icon size={14} /> {item.label}</Link>;
+                  return <Link key={item.key} href={item.href} className={mobileMenuClass(segment === item.segment, dark)}><Icon size={14} /> {item.label}</Link>;
                 })}
               </nav>
             </header>
 
-            <div className="store-portal-child p-4 md:p-7">{children}</div>
+            <div className={`store-portal-child min-w-0 max-w-full overflow-x-hidden p-4 md:p-7 ${pipelinePage ? 'store-pipeline-page pb-28' : ''}`}>{children}</div>
           </div>
         </section>
       </main>
 
       <style jsx global>{`
-        .store-portal-child > main,
-        .store-portal-child > main > section,
-        .store-portal-child > main > section > div {
-          display: contents;
+        .store-portal-child > .premium-page {
+          min-height: 0;
+          max-width: 100%;
+          padding: 0;
+          background: transparent;
+          color: inherit;
         }
-        .store-portal-child > main > section > aside {
+
+        .store-portal-child > .premium-page > .premium-shell {
+          min-height: 0;
+          width: 100%;
+          max-width: none;
+          overflow: visible;
+          border: 0;
+          border-radius: 0;
+          background: transparent;
+          box-shadow: none;
+        }
+
+        .store-portal-child > .premium-page > .premium-shell > aside {
           display: none !important;
+        }
+
+        .store-portal-child > .premium-page > .premium-shell > .premium-canvas {
+          min-width: 0;
+          width: 100%;
+          padding: 0;
+          overflow: visible;
+          background: transparent;
+          color: inherit;
+        }
+
+        .store-pipeline-page > .premium-page,
+        .store-pipeline-page > .premium-page > .premium-shell,
+        .store-pipeline-page > .premium-page > .premium-shell > .premium-canvas {
+          max-width: 100%;
+        }
+
+        .store-pipeline-page .overflow-x-auto {
+          max-width: 100%;
+          overscroll-behavior-inline: contain;
+          scrollbar-gutter: stable;
+        }
+
+        .store-pipeline-page [class*='min-w-[1760px]'] {
+          padding-bottom: 8px;
+        }
+
+        @media (max-width: 1023px) {
+          .store-pipeline-page {
+            padding-bottom: 96px;
+          }
         }
       `}</style>
     </PortalContext.Provider>
