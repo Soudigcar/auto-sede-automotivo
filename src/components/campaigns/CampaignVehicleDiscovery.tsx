@@ -207,33 +207,6 @@ export function CampaignVehicleDiscovery({ vehicles, primaryColor, onOpenSimulat
           </div>
         </div>
 
-        {brandStats.length ? (
-          <div className="border-t border-slate-700 pt-5">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-sm font-black uppercase tracking-[0.14em] text-white">Marcas</h3>
-              {brand ? <button type="button" onClick={() => selectBrand(brand)} className="text-[11px] font-black" style={{ color: primaryColor }}>Ver todas</button> : null}
-            </div>
-            <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
-              {brandStats.map((item) => (
-                <button
-                  key={item.name}
-                  type="button"
-                  aria-pressed={brand === item.name}
-                  onClick={() => selectBrand(item.name)}
-                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2.5 text-left text-white transition hover:border-slate-500"
-                  style={brand === item.name ? { borderColor: primaryColor, boxShadow: `0 0 0 1px ${primaryColor}` } : undefined}
-                >
-                  <span className="flex min-w-0 items-center gap-2.5">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-black text-white" style={{ backgroundColor: brand === item.name ? primaryColor : '#475569' }}>{item.name.slice(0, 2).toUpperCase()}</span>
-                    <span className="truncate text-xs font-black">{item.name}</span>
-                  </span>
-                  <span className="shrink-0 rounded-full bg-slate-700 px-2 py-1 text-[10px] font-black text-white">{item.count}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
         <div className="space-y-3 border-t border-slate-700 pt-5">
           <h3 className="text-sm font-black uppercase tracking-[0.14em] text-white">Detalhes</h3>
 
@@ -271,6 +244,33 @@ export function CampaignVehicleDiscovery({ vehicles, primaryColor, onOpenSimulat
             <input value={maxPrice} onChange={(event) => setMaxPrice(event.target.value.replace(/\D/g, ''))} placeholder="Preço até" inputMode="numeric" className="campaign-filter-field h-12 min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-sm font-bold text-white outline-none placeholder:text-slate-400 focus:border-slate-500" />
           </div>
         </div>
+
+        {brandStats.length ? (
+          <div className="border-t border-slate-700 pt-5">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-black uppercase tracking-[0.14em] text-white">Marcas</h3>
+              {brand ? <button type="button" onClick={() => selectBrand(brand)} className="text-[11px] font-black" style={{ color: primaryColor }}>Ver todas</button> : null}
+            </div>
+            <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+              {brandStats.map((item) => (
+                <button
+                  key={item.name}
+                  type="button"
+                  aria-pressed={brand === item.name}
+                  onClick={() => selectBrand(item.name)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2.5 text-left text-white transition hover:border-slate-500"
+                  style={brand === item.name ? { borderColor: primaryColor, boxShadow: `0 0 0 1px ${primaryColor}` } : undefined}
+                >
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-black text-white" style={{ backgroundColor: brand === item.name ? primaryColor : '#475569' }}>{item.name.slice(0, 2).toUpperCase()}</span>
+                    <span className="truncate text-xs font-black">{item.name}</span>
+                  </span>
+                  <span className="shrink-0 rounded-full bg-slate-700 px-2 py-1 text-[10px] font-black text-white">{item.count}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {activeCount ? (
           <button type="button" onClick={clearFilters} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-600 bg-slate-800 px-4 text-xs font-black text-white transition hover:bg-slate-700">
