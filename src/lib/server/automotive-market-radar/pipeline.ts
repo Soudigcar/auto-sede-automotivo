@@ -15,7 +15,7 @@ const promotionalPatterns = [
 ];
 
 const auctionPatterns = [/leil[aã]o/i, /recuperado de leil[aã]o/i, /pequena monta/i, /m[eé]dia monta/i];
-const damagedPatterns = [/sinistro/i, /batid[oa]/i, /avariad[oa]/i, /dano estrutural/i];
+const damagedPatterns = [/sinistr/i, /batid[oa]/i, /avariad[oa]/i, /dano estrutural/i];
 
 function cleanText(value: unknown) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -41,6 +41,17 @@ function validPrice(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 5000 && value <= 3000000;
 }
 
+function hasCompleteCombination(raw: RawMarketListing) {
+  return Boolean(
+    cleanText(raw.brand) &&
+    cleanText(raw.model) &&
+    cleanText(raw.version) &&
+    raw.modelYear &&
+    cleanText(raw.fuel) &&
+    cleanText(raw.transmission)
+  );
+}
+
 function statusFor(raw: RawMarketListing, stateCode: RadarStateCode | null): {
   status: RadarListingStatus;
   reason: string | null;
@@ -57,6 +68,12 @@ function statusFor(raw: RawMarketListing, stateCode: RadarStateCode | null): {
   }
   if (promotionalPatterns.some((pattern) => pattern.test(searchable))) {
     return { status: 'financing_entry', reason: 'Preço aparenta ser entrada, parcela ou condição financeira.' };
+  }
+  if (!hasCompleteCombination(raw)) {
+    return {
+      status: 'version_conflict',
+      reason: 'Combinação incompleta para comparação: versão, ano-modelo, combustível ou câmbio ausente.'
+    };
   }
 
   return { status: 'valid', reason: null };
