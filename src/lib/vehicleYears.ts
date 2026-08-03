@@ -71,12 +71,12 @@ export function combineVehicleYears(
 export function normalizeVehicleYears(input: VehicleYearInput): NormalizedVehicleYears {
   let manufactureYear = normalizeVehicleYear(input.manufacture_year);
   let modelYear = normalizeVehicleYear(input.model_year);
+  const legacy = parseLegacyVehicleYear(input.year);
 
-  if (!manufactureYear && !modelYear) {
-    const legacy = parseLegacyVehicleYear(input.year);
-    manufactureYear = legacy.manufacture_year;
-    modelYear = legacy.model_year;
-  }
+  // Valores separados e explícitos sempre têm prioridade. O campo legado serve apenas
+  // para completar o lado ausente, sem substituir o que já foi confirmado.
+  if (!manufactureYear) manufactureYear = legacy.manufacture_year;
+  if (!modelYear) modelYear = legacy.model_year;
 
   return {
     manufacture_year: manufactureYear,
