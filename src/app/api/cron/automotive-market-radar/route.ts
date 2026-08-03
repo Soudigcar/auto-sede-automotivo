@@ -1,91 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { aggregateMarketListings } from '@/lib/server/automotive-market-radar/aggregate';
+import type { NormalizedMarketListing, RadarListingStatus } from '@/lib/server/automotive-market-radar/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
-
-type ListingInput = {
-  source_name: string;
-  source_url: string;
-  external_id?: string | null;
-  municipality?: string | null;
-  state_code: 'DF' | 'GO';
-  title: string;
-  brand?: string | null;
-  model?: string | null;
-  version?: string | null;
-  manufacture_year?: number | null;
-  model_year?: number | null;
-  fuel?: string | null;
-  transmission?: string | null;
-  mileage?: number | null;
-  price?: number | null;
-  fipe_price?: number | null;
-  listing_status?: string;
-  rejection_reason?: string | null;
-  normalized_key?: string | null;
-  content_hash?: string | null;
-  evidence?: Record<string, unknown>;
-  confidence?: number | null;
-  collected_at: string;
-};
-
-type SegmentInput = {
-  state_code: 'DF' | 'GO' | 'DF+GO';
-  brand: string;
-  model: string;
-  version: string;
-  manufacture_year?: number | null;
-  model_year: number;
-  fuel: string;
-  transmission: string;
-  valid_listing_count: number;
-  minimum_price?: number | null;
-  maximum_price?: number | null;
-  median_price?: number | null;
-  average_price?: number | null;
-  fipe_price?: number | null;
-  difference_to_fipe_amount?: number | null;
-  difference_to_fipe_percent?: number | null;
-  alternative_names?: string[];
-  divergences?: unknown[];
-  interpretation_rules?: unknown[];
-  evidence?: unknown[];
-  confidence?: number | null;
-};
-
-type SuggestionInput = {
-  segment_index?: number | null;
-  suggestion_type: string;
-  title: string;
-  description: string;
-  proposed_payload?: Record<string, unknown>;
-  source_evidence?: unknown[];
-  confidence: number;
-};
 
 type RadarPayload = {
   collected_at: string;
   fipe_reference_month?: string | null;
   notes?: string | null;
   metadata?: Record<string, unknown>;
-  listings: ListingInput[];
-  segments: SegmentInput[];
-  suggestions?: SuggestionInput[];
+  listings: NormalizedMarketListing[];
 };
 
-const allowedStatuses = new Set([
-  'valid',
-  'duplicate',
-  'invalid_price',
-  'promotional',
-  'auction',
-  'damaged',
-  'financing_entry',
-  'version_conflict',
-  'out_of_region',
-  'other_rejected'
+const allowedStatuses = new Set<RadarListingStatus>([
+  'valid', 'duplicate', 'invalid_price', 'promotional', 'auction', 'damaged',
+  'financing_entry', 'version_conflict', 'out_of_region', 'other_rejected'
 ]);
 
 function unauthorized() {
@@ -93,50 +25,36 @@ function unauthorized() {
 }
 
 function validatePayload(payload: RadarPayload) {
-  if (!payload || !Array.isArray(payload.listings) || !Array.isArray(payload.segments)) {
-    return 'Payload inválido: listings e segments são obrigatórios.';
-  }
-
+  if (!payload || !Array.isArray(payload.listings)) return 'Payload inválido: listings é obrigatório.';
   if (!payload.collected_at || Number.isNaN(Date.parse(payload.collected_at))) {
     return 'Payload inválido: collected_at deve ser uma data ISO válida.';
   }
+  if (payload.listings.length > 10000) return 'Payload excede o limite de 10.000 anúncios.';
 
   for (const listing of payload.listings) {
     if (!listing.source_name || !listing.source_url || !listing.title || !listing.collected_at) {
       return 'Anúncio inválido: fonte, URL, título e data são obrigatórios.';
     }
-    if (listing.state_code !== 'DF' && listing.state_code !== 'GO') {
-      return 'Anúncio fora do escopo: somente DF e GO são aceitos.';
+    if (listing.state_code !== null && listing.state_code !== 'DF' && listing.state_code !== 'GO') {
+      return 'Estado inválido: somente DF, GO ou nulo para registro rejeitado.';
     }
-    if (listing.listing_status && !allowedStatuses.has(listing.listing_status)) {
+    if (!allowedStatuses.has(listing.listing_status)) {
       return `Status de anúncio inválido: ${listing.listing_status}.`;
     }
-  }
-
-  for (const segment of payload.segments) {
-    if (!['DF', 'GO', 'DF+GO'].includes(segment.state_code)) {
-      return 'Segmento fora do escopo regional.';
-    }
-    if (!segment.brand || !segment.model || !segment.version || !segment.model_year || !segment.fuel || !segment.transmission) {
-      return 'Segmento inválido: combinação veicular incompleta.';
-    }
-    if (segment.valid_listing_count < 0) {
-      return 'Segmento inválido: quantidade não pode ser negativa.';
+    if (listing.listing_status === 'valid' && !listing.state_code) {
+      return 'Anúncio válido precisa pertencer ao DF ou a Goiás.';
     }
   }
-
   return null;
 }
 
 export async function POST(request: NextRequest) {
   const cronSecret = process.env.AUTOMOTIVE_MARKET_RADAR_SECRET || process.env.CRON_SECRET;
   const suppliedSecret = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
-
   if (!cronSecret || suppliedSecret !== cronSecret) return unauthorized();
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
   if (!supabaseUrl || !serviceRoleKey) {
     return NextResponse.json({ error: 'Conexão Supabase de servidor não configurada.' }, { status: 503 });
   }
@@ -149,18 +67,17 @@ export async function POST(request: NextRequest) {
   }
 
   const validationError = validatePayload(payload);
-  if (validationError) {
-    return NextResponse.json({ error: validationError }, { status: 422 });
-  }
+  if (validationError) return NextResponse.json({ error: validationError }, { status: 422 });
+
+  const { segments, suggestions } = aggregateMarketListings(payload.listings);
+  const validListingCount = payload.listings.filter((item) => item.listing_status === 'valid').length;
+  const duplicateCount = payload.listings.filter((item) => item.listing_status === 'duplicate').length;
+  const rejectedCount = payload.listings.length - validListingCount - duplicateCount;
+  const sourceCount = new Set(payload.listings.map((item) => item.source_name)).size;
 
   const supabase = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false }
   });
-
-  const validListingCount = payload.listings.filter((item) => (item.listing_status || 'valid') === 'valid').length;
-  const duplicateCount = payload.listings.filter((item) => item.listing_status === 'duplicate').length;
-  const rejectedCount = payload.listings.length - validListingCount - duplicateCount;
-  const sourceCount = new Set(payload.listings.map((item) => item.source_name)).size;
 
   const { data: run, error: runError } = await supabase
     .from('automotive_market_runs')
@@ -175,7 +92,7 @@ export async function POST(request: NextRequest) {
       rejected_count: rejectedCount,
       fipe_reference_month: payload.fipe_reference_month || null,
       notes: payload.notes || null,
-      metadata: payload.metadata || {}
+      metadata: { ...(payload.metadata || {}), aggregation: 'server_generated_v1' }
     })
     .select('id')
     .single();
@@ -187,48 +104,31 @@ export async function POST(request: NextRequest) {
   try {
     if (payload.listings.length) {
       const { error } = await supabase.from('automotive_market_listings').insert(
-        payload.listings.map((listing) => ({
-          ...listing,
-          run_id: run.id,
-          listing_status: listing.listing_status || 'valid',
-          evidence: listing.evidence || {}
-        }))
+        payload.listings.map((listing) => ({ ...listing, run_id: run.id, evidence: listing.evidence || {} }))
       );
       if (error) throw error;
     }
 
     let insertedSegments: { id: string }[] = [];
-    if (payload.segments.length) {
+    if (segments.length) {
       const { data, error } = await supabase
         .from('automotive_market_segments')
-        .insert(
-          payload.segments.map((segment) => ({
-            ...segment,
-            run_id: run.id,
-            alternative_names: segment.alternative_names || [],
-            divergences: segment.divergences || [],
-            interpretation_rules: segment.interpretation_rules || [],
-            evidence: segment.evidence || []
-          }))
-        )
+        .insert(segments.map((segment) => ({ ...segment, run_id: run.id })))
         .select('id');
       if (error) throw error;
       insertedSegments = data || [];
     }
 
-    if (payload.suggestions?.length) {
+    if (suggestions.length) {
       const { error } = await supabase.from('automotive_market_suggestions').insert(
-        payload.suggestions.map((suggestion) => ({
+        suggestions.map((suggestion) => ({
           run_id: run.id,
-          segment_id:
-            suggestion.segment_index === null || suggestion.segment_index === undefined
-              ? null
-              : insertedSegments[suggestion.segment_index]?.id || null,
+          segment_id: insertedSegments[suggestion.segment_index]?.id || null,
           suggestion_type: suggestion.suggestion_type,
           title: suggestion.title,
           description: suggestion.description,
-          proposed_payload: suggestion.proposed_payload || {},
-          source_evidence: suggestion.source_evidence || [],
+          proposed_payload: suggestion.proposed_payload,
+          source_evidence: suggestion.source_evidence,
           confidence: suggestion.confidence,
           status: 'pending_master'
         }))
@@ -236,8 +136,7 @@ export async function POST(request: NextRequest) {
       if (error) throw error;
     }
 
-    await supabase
-      .from('automotive_market_runs')
+    await supabase.from('automotive_market_runs')
       .update({ status: 'completed', updated_at: new Date().toISOString() })
       .eq('id', run.id);
 
@@ -250,16 +149,15 @@ export async function POST(request: NextRequest) {
       valid_listing_count: validListingCount,
       duplicate_count: duplicateCount,
       rejected_count: rejectedCount,
-      segment_count: payload.segments.length,
-      suggestion_count: payload.suggestions?.length || 0
+      segment_count: segments.length,
+      suggestion_count: suggestions.length,
+      aggregation: 'server_generated_v1'
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Erro desconhecido.';
-    await supabase
-      .from('automotive_market_runs')
+    await supabase.from('automotive_market_runs')
       .update({ status: 'failed', error_message: message, updated_at: new Date().toISOString() })
       .eq('id', run.id);
-
     return NextResponse.json({ error: 'Falha ao gravar coleta.', details: message, run_id: run.id }, { status: 500 });
   }
 }
