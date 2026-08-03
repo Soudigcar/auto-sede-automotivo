@@ -188,12 +188,13 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
   const dark = theme === 'dark';
   const ThemeIcon = dark ? Sun : Moon;
   const themeLabel = dark ? 'Usar tema claro' : 'Usar tema escuro';
+  const pipelinePage = segment === 'pipeline';
 
   return (
     <PortalContext.Provider value={portalValue}>
       <main className={`premium-page store-portal-theme store-theme-${theme}`}>
-        <section className="premium-shell flex min-h-screen">
-          <aside className="hidden w-72 shrink-0 bg-[#071020] px-6 py-7 text-white lg:flex lg:flex-col">
+        <section className="premium-shell flex min-h-screen items-stretch">
+          <aside className="hidden w-72 shrink-0 bg-[#071020] px-6 py-7 text-white lg:sticky lg:top-6 lg:flex lg:h-[calc(100vh-48px)] lg:self-start lg:flex-col lg:overflow-y-auto">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-red-600/15 text-red-500"><Car size={22} /></div>
               <div><p className="text-sm font-black tracking-wide">AUTO CONTROLE</p><p className="text-[10px] uppercase tracking-[0.35em] text-zinc-500">Automotivo</p></div>
@@ -227,7 +228,7 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
             </div>
           </aside>
 
-          <div className="premium-canvas min-w-0 flex-1 overflow-x-hidden">
+          <div className="premium-canvas min-w-0 flex-1 overflow-x-clip">
             <header className={`store-mobile-header sticky top-0 z-40 px-4 py-3 backdrop-blur-lg lg:hidden ${dark ? 'border-b border-white/10 bg-[#0d1725]/95' : 'border-b border-zinc-200 bg-white/95'}`}>
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0"><p className={`truncate text-sm font-black ${dark ? 'text-white' : 'text-zinc-950'}`}>{context.store.store_name}</p><p className="truncate text-[11px] font-bold text-red-600">{context.profile.full_name} · {context.profile.role_label}</p></div>
@@ -244,19 +245,64 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
               </nav>
             </header>
 
-            <div className="store-portal-child p-4 md:p-7">{children}</div>
+            <div className={`store-portal-child min-w-0 max-w-full overflow-x-hidden p-4 md:p-7 ${pipelinePage ? 'store-pipeline-page pb-28' : ''}`}>{children}</div>
           </div>
         </section>
       </main>
 
       <style jsx global>{`
-        .store-portal-child > main,
-        .store-portal-child > main > section,
-        .store-portal-child > main > section > div {
-          display: contents;
+        .store-portal-child > .premium-page {
+          min-height: 0;
+          max-width: 100%;
+          padding: 0;
+          background: transparent;
+          color: inherit;
         }
-        .store-portal-child > main > section > aside {
+
+        .store-portal-child > .premium-page > .premium-shell {
+          min-height: 0;
+          width: 100%;
+          max-width: none;
+          overflow: visible;
+          border: 0;
+          border-radius: 0;
+          background: transparent;
+          box-shadow: none;
+        }
+
+        .store-portal-child > .premium-page > .premium-shell > aside {
           display: none !important;
+        }
+
+        .store-portal-child > .premium-page > .premium-shell > .premium-canvas {
+          min-width: 0;
+          width: 100%;
+          padding: 0;
+          overflow: visible;
+          background: transparent;
+          color: inherit;
+        }
+
+        .store-pipeline-page > .premium-page,
+        .store-pipeline-page > .premium-page > .premium-shell,
+        .store-pipeline-page > .premium-page > .premium-shell > .premium-canvas {
+          max-width: 100%;
+        }
+
+        .store-pipeline-page .overflow-x-auto {
+          max-width: 100%;
+          overscroll-behavior-inline: contain;
+          scrollbar-gutter: stable;
+        }
+
+        .store-pipeline-page [class*='min-w-[1760px]'] {
+          padding-bottom: 8px;
+        }
+
+        @media (max-width: 1023px) {
+          .store-pipeline-page {
+            padding-bottom: 96px;
+          }
         }
       `}</style>
     </PortalContext.Provider>
