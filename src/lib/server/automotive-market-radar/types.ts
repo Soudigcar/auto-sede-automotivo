@@ -40,7 +40,7 @@ export type NormalizedMarketListing = {
   source_url: string;
   external_id: string | null;
   municipality: string | null;
-  state_code: RadarStateCode;
+  state_code: RadarStateCode | null;
   title: string;
   brand: string | null;
   model: string | null;
