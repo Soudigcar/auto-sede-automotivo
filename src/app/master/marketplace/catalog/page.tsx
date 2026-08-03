@@ -17,7 +17,6 @@ import {
   Save,
   Search,
   Star,
-  Store,
   Trash2,
   Upload,
   X
@@ -25,6 +24,7 @@ import {
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { absolutePortalUrl, publicVehiclePath } from '@/lib/publicRoutes';
 import { createClient } from '@/lib/supabase';
+import { combineVehicleYears, normalizeVehicleYears } from '@/lib/vehicleYears';
 
 const emptyForm: any = {
   id: '',
@@ -33,6 +33,8 @@ const emptyForm: any = {
   brand: '',
   model: '',
   version: '',
+  manufacture_year: '',
+  model_year: '',
   year: '',
   mileage: '',
   color: '',
@@ -77,8 +79,12 @@ function dateTime(value: unknown) {
     : date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 }
 
+function displayYear(vehicle: any) {
+  return combineVehicleYears(vehicle?.manufacture_year, vehicle?.model_year, vehicle?.year);
+}
+
 function vehicleName(vehicle: any) {
-  return [vehicle.brand, vehicle.model, vehicle.version, vehicle.year].filter(Boolean).join(' ') || 'Veículo sem identificação';
+  return [vehicle.brand, vehicle.model, vehicle.version, displayYear(vehicle)].filter(Boolean).join(' ') || 'Veículo sem identificação';
 }
 
 function vehicleImages(vehicle: any) {
@@ -86,6 +92,18 @@ function vehicleImages(vehicle: any) {
     ...(Array.isArray(vehicle?.image_urls) ? vehicle.image_urls : []),
     vehicle?.image_url
   ].filter(Boolean))) as string[];
+}
+
+function updateYearField(form: any, field: 'manufacture_year' | 'model_year', value: string) {
+  const next = { ...form, [field]: value };
+  return {
+    ...next,
+    ...normalizeVehicleYears({
+      manufacture_year: next.manufacture_year,
+      model_year: next.model_year,
+      year: ''
+    })
+  };
 }
 
 function StatusBadge({ value }: { value: string }) {
@@ -138,7 +156,7 @@ export default function MarketplaceCatalogPage() {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'Não foi possível carregar o catálogo.');
 
-      setVehicles(result.vehicles || []);
+      setVehicles((result.vehicles || []).map((vehicle: any) => ({ ...vehicle, ...normalizeVehicleYears(vehicle) })));
       setStores(result.stores || []);
       setSubmissions(result.submissions || []);
       setStockImports(result.stock_imports || []);
@@ -166,6 +184,8 @@ export default function MarketplaceCatalogPage() {
         vehicle.brand,
         vehicle.model,
         vehicle.version,
+        vehicle.manufacture_year,
+        vehicle.model_year,
         vehicle.year,
         vehicle.store_name,
         vehicle.color,
@@ -195,6 +215,7 @@ export default function MarketplaceCatalogPage() {
     setForm({
       ...emptyForm,
       ...vehicle,
+      ...normalizeVehicleYears(vehicle),
       price: String(vehicle.price || ''),
       image_urls: vehicleImages(vehicle)
     });
@@ -210,6 +231,7 @@ export default function MarketplaceCatalogPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error('Sua sessão expirou.');
+      const normalized = { ...form, ...normalizeVehicleYears(form) };
 
       const response = await fetch('/api/master/marketplace/catalog', {
         method: 'POST',
@@ -217,7 +239,7 @@ export default function MarketplaceCatalogPage() {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ action: 'save_vehicle', ...form })
+        body: JSON.stringify({ action: 'save_vehicle', ...normalized })
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'Não foi possível salvar o veículo.');
@@ -413,7 +435,9 @@ export default function MarketplaceCatalogPage() {
                 <Field label="Marca *" value={form.brand} onChange={(value) => setForm({ ...form, brand: value })} required />
                 <Field label="Modelo *" value={form.model} onChange={(value) => setForm({ ...form, model: value })} required />
                 <Field label="Versão" value={form.version} onChange={(value) => setForm({ ...form, version: value })} />
-                <Field label="Ano" value={form.year} onChange={(value) => setForm({ ...form, year: value })} />
+                <Field label="Ano de fabricação *" value={form.manufacture_year} onChange={(value) => setForm(updateYearField(form, 'manufacture_year', value))} type="number" required />
+                <Field label="Ano do modelo *" value={form.model_year} onChange={(value) => setForm(updateYearField(form, 'model_year', value))} type="number" required />
+                <div className="rounded-2xl bg-zinc-50 p-4 text-xs font-black uppercase text-zinc-500 sm:col-span-2">Exibição pública: <span className="ml-2 text-sm text-zinc-950">{displayYear(form) || 'aguardando os anos'}</span></div>
                 <Field label="Quilometragem" value={form.mileage} onChange={(value) => setForm({ ...form, mileage: value })} />
                 <Field label="Cor" value={form.color} onChange={(value) => setForm({ ...form, color: value })} />
                 <Field label="Câmbio" value={form.transmission} onChange={(value) => setForm({ ...form, transmission: value })} />
@@ -452,5 +476,7 @@ function QueueCard({ title, description, icon, count, children }: { title: strin
 }
 
 function Field({ label, value, onChange, type = 'text', required = false }: { label: string; value: string; onChange: (value: string) => void; type?: string; required?: boolean }) {
-  return <label className="text-xs font-black uppercase text-zinc-500">{label}<input className="premium-input mt-2" type={type} min={type === 'number' ? '0' : undefined} value={value || ''} onChange={(event) => onChange(event.target.value)} required={required} /></label>;
+  const min = type === 'number' ? (label.toLowerCase().includes('ano') ? '1886' : '0') : undefined;
+  const max = type === 'number' && label.toLowerCase().includes('ano') ? '2200' : undefined;
+  return <label className="text-xs font-black uppercase text-zinc-500">{label}<input className="premium-input mt-2" type={type} min={min} max={max} value={value || ''} onChange={(event) => onChange(event.target.value)} required={required} /></label>;
 }
