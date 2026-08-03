@@ -54,8 +54,8 @@ test('calcula mínimo, máximo, mediana, média e diferença FIPE', () => {
 
   const { segments } = aggregateMarketListings(normalized);
   const df = segments.find((segment) => segment.state_code === 'DF');
+  if (!df) throw new Error('Segmento DF não encontrado.');
 
-  assert.ok(df);
   assert.equal(df.valid_listing_count, 3);
   assert.equal(df.minimum_price, 50000);
   assert.equal(df.maximum_price, 80000);
