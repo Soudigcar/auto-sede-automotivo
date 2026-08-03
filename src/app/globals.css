@@ -281,6 +281,67 @@ textarea {
   color: #667085 !important;
 }
 
+/* Pipeline: o modal precisa dominar toda a viewport e ficar acima de topbars e ações flutuantes. */
+body:has(.store-pipeline-page [role='dialog']) {
+  overflow: hidden;
+}
+
+.store-pipeline-page [role='dialog'] {
+  z-index: 2147483000 !important;
+  align-items: flex-start !important;
+  overflow-y: auto;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)) !important;
+  background: rgba(0, 0, 0, 0.78) !important;
+  backdrop-filter: blur(4px);
+}
+
+.store-pipeline-page [role='dialog'] > div {
+  display: flex;
+  max-height: calc(100dvh - 32px) !important;
+  flex-direction: column;
+  overflow: hidden !important;
+  padding: 0 !important;
+}
+
+.store-pipeline-page [role='dialog'] > div > div:first-child {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex: 0 0 auto;
+  margin: 0 !important;
+  border-bottom: 1px solid #E4E7EC;
+  background: #FFFFFF;
+  padding: 18px 22px;
+}
+
+.store-pipeline-page [role='dialog'] > div > div:not(:first-child) {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 22px;
+}
+
+.store-theme-dark .store-pipeline-page [role='dialog'] > div > div:first-child {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: var(--store-surface);
+}
+
+@media (max-width: 640px) {
+  .store-pipeline-page [role='dialog'] {
+    padding: 8px !important;
+  }
+
+  .store-pipeline-page [role='dialog'] > div {
+    max-height: calc(100dvh - 16px) !important;
+    border-radius: 20px !important;
+  }
+
+  .store-pipeline-page [role='dialog'] > div > div:first-child,
+  .store-pipeline-page [role='dialog'] > div > div:not(:first-child) {
+    padding: 16px;
+  }
+}
+
 @media (min-width: 768px) {
   .premium-page {
     padding: 24px;
