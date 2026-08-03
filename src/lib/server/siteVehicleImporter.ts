@@ -1,12 +1,17 @@
 import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
-import { uniqueVehicleImages } from '@/lib/vehicleCatalogOptions';
+import { normalizeVehicleOption, uniqueVehicleImages } from '@/lib/vehicleCatalogOptions';
 
 export type ImportedVehiclePage = {
   title: string;
+  description: string;
   price: number;
   images: string[];
+  evidence: {
+    description_source: string;
+    fields: Record<string, string>;
+  };
   vehicle: {
     brand: string;
     model: string;
@@ -16,6 +21,7 @@ export type ImportedVehiclePage = {
     color: string;
     transmission: string;
     fuel: string;
+    description: string;
     source_url: string;
   };
 };
@@ -29,6 +35,11 @@ type DownloadedImage = {
   width: number;
   height: number;
   order: number;
+};
+
+type DescriptionResult = {
+  text: string;
+  source: string;
 };
 
 function decodeHtml(value: string) {
@@ -126,6 +137,105 @@ function extractJsonLd(html: string) {
     }
   }
   return result;
+}
+
+function isUsefulDescription(value: unknown) {
+  const text = cleanText(value);
+  if (text.length < 30) return false;
+  const normalized = fold(text);
+  if (/^(home|estoque|contato|financiamento|empresa)$/.test(normalized)) return false;
+  if (/whatsapp|telefone|politica de privacidade|todos os direitos reservados/.test(normalized) && text.length < 120) return false;
+  return true;
+}
+
+function extractSectionDescription(lines: string[]) {
+  const headings = [
+    'detalhes do veiculo',
+    'descricao do veiculo',
+    'descricao',
+    'observacoes',
+    'informacoes do veiculo',
+    'sobre o veiculo'
+  ];
+  const stops = [
+    'veiculos relacionados',
+    'opcionais do veiculo',
+    'fale conosco',
+    'entrar em contato',
+    'simular financiamento',
+    'avalie seu veiculo',
+    'dados da loja',
+    'formas de pagamento'
+  ];
+  const candidates: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const normalized = fold(lines[index]);
+    if (!headings.some((heading) => normalized === heading || normalized.startsWith(`${heading}:`))) continue;
+
+    const collected: string[] = [];
+    for (let next = index + 1; next < Math.min(lines.length, index + 18); next += 1) {
+      const line = cleanText(lines[next]);
+      const foldedLine = fold(line);
+      if (!line) continue;
+      if (stops.some((stop) => foldedLine === stop || foldedLine.startsWith(stop))) break;
+      if (headings.some((heading) => foldedLine === heading)) continue;
+      if (/^(home|estoque|empresa|contato|financiamento|avaliacao)$/.test(foldedLine)) continue;
+      collected.push(line);
+      if (collected.join(' ').length >= 4000) break;
+    }
+
+    const candidate = cleanText(collected.join(' '));
+    if (isUsefulDescription(candidate)) candidates.push(candidate);
+  }
+
+  return candidates.sort((left, right) => right.length - left.length)[0] || '';
+}
+
+function extractVehicleDescription(html: string, lines: string[]): DescriptionResult {
+  const section = extractSectionDescription(lines);
+  if (section) return { text: section.slice(0, 12000), source: 'detalhes_do_veiculo' };
+
+  const jsonDescriptions = extractJsonLd(html)
+    .flatMap((item: any) => [item?.description, item?.itemOffered?.description, item?.vehicleConfiguration?.description])
+    .map(cleanText)
+    .filter(isUsefulDescription)
+    .sort((left: string, right: string) => right.length - left.length);
+  if (jsonDescriptions[0]) return { text: jsonDescriptions[0].slice(0, 12000), source: 'json_ld' };
+
+  const metaDescriptions = [extractMeta(html, 'description'), extractMeta(html, 'og:description')]
+    .map(cleanText)
+    .filter(isUsefulDescription)
+    .sort((left, right) => right.length - left.length);
+  if (metaDescriptions[0]) return { text: metaDescriptions[0].slice(0, 12000), source: 'meta_description' };
+
+  return { text: '', source: '' };
+}
+
+function extractDescriptionAttributes(description: string) {
+  const text = fold(description);
+
+  const colorMatch = text.match(/(?:\bcor\b|\bpintura\b)(?:\s+do\s+veiculo)?\s*[:=.-]?\s*(amarel[oa]|azul|bege|branc[oa]|bronze|cinza|dourad[oa]|laranja|marrom|prata|pret[oa]|rox[oa]|verde|vermelh[oa]|vinho)\b/i);
+  const rawColor = colorMatch?.[1] || '';
+
+  const transmissionMatch = text.match(/(?:\bcambio\b|\btransmissao\b)\s*[:=.-]?\s*(manual|mecanic[oa]|automatic[oa]|automatizad[oa]|dualogic|cvt|semi[- ]automatic[oa]|semi[- ]automatizad[oa])\b/i);
+  const rawTransmission = transmissionMatch?.[1] || '';
+  const transmission = /dualogic/i.test(rawTransmission)
+    ? 'Automatizado'
+    : normalizeVehicleOption('transmission', rawTransmission);
+
+  const fuelMatch = text.match(/(?:\bcombustivel\b|\bmotor(?:\s+\d+(?:[.,]\d+)?)?\b)\s*[:=.-]?\s*(flex|gasolina|diesel|etanol|alcool|gnv|hibrid[oa]|eletric[oa])\b/i)
+    || text.match(/\b\d+(?:[.,]\d+)?\s+(flex|gasolina|diesel|etanol|alcool|gnv|hibrid[oa]|eletric[oa])\b/i);
+  const rawFuel = fuelMatch?.[1] || '';
+
+  const year = description.match(/\b(?:19|20)\d{2}\b/)?.[0] || '';
+
+  return {
+    color: normalizeVehicleOption('color', rawColor),
+    transmission,
+    fuel: normalizeVehicleOption('fuel', rawFuel),
+    year
+  };
 }
 
 function parsePrice(value: unknown) {
@@ -299,16 +409,20 @@ function extractFromUrl(url: string) {
   }
 }
 
-function parseVehicle(title: string, url: string, html: string, lines: string[]) {
+function parseVehicle(title: string, url: string, html: string, lines: string[], description: string) {
   const fromUrl = extractFromUrl(url);
+  const descriptionAttributes = extractDescriptionAttributes(description);
   const anoFab = extractField(lines, ['Ano Fab.', 'Ano Fab', 'Ano Fabricação', 'Ano Fabricacao']);
   const anoMod = extractField(lines, ['Ano Mod.', 'Ano Mod', 'Ano Modelo']);
   const fabYear = anoFab.match(/\b(?:19|20)\d{2}\b/)?.[0] || '';
   const modYear = anoMod.match(/\b(?:19|20)\d{2}\b/)?.[0] || '';
 
-  const fuel = extractField(lines, ['Combustível', 'Combustivel']);
-  const color = extractField(lines, ['Cor']);
-  const transmission = extractField(lines, ['Câmbio', 'Cambio', 'Transmissão', 'Transmissao']);
+  const rawFuel = extractField(lines, ['Combustível', 'Combustivel']);
+  const rawColor = extractField(lines, ['Cor']);
+  const rawTransmission = extractField(lines, ['Câmbio', 'Cambio', 'Transmissão', 'Transmissao']);
+  const technicalFuel = normalizeVehicleOption('fuel', cleanText(rawFuel).replace(/\b(flex|gasolina|diesel|etanol|alcool|álcool|hibrido|híbrido|eletrico|elétrico)\b.*/i, '$1'));
+  const technicalColor = normalizeVehicleOption('color', rawColor);
+  const technicalTransmission = normalizeVehicleOption('transmission', rawTransmission);
 
   let brand = fromUrl.brand;
   let model = fromUrl.model;
@@ -323,16 +437,33 @@ function parseVehicle(title: string, url: string, html: string, lines: string[])
     version ||= titleParts.slice(2).join(' ');
   }
 
+  const year = fabYear && modYear && fabYear !== modYear
+    ? `${fabYear}/${modYear}`
+    : fabYear || modYear || fromUrl.year || descriptionAttributes.year;
+  const color = technicalColor || descriptionAttributes.color;
+  const transmission = technicalTransmission || descriptionAttributes.transmission;
+  const fuel = technicalFuel || descriptionAttributes.fuel;
+
   return {
-    brand: cleanText(brand).toUpperCase(),
-    model: cleanText(model).toUpperCase(),
-    version: cleanText(version).replace(/\b(?:19|20)\d{2}\b/g, '').replace(/\bflex\b/gi, '').toUpperCase(),
-    year: fabYear && modYear && fabYear !== modYear ? `${fabYear}/${modYear}` : fabYear || modYear || fromUrl.year,
-    mileage: extractMileage(html, lines),
-    color: cleanText(color).toUpperCase(),
-    transmission: cleanText(transmission).toUpperCase(),
-    fuel: cleanText(fuel).replace(/\b(flex|gasolina|diesel|etanol|alcool|álcool|hibrido|híbrido|eletrico|elétrico)\b.*/i, '$1').toUpperCase(),
-    source_url: url
+    vehicle: {
+      brand: cleanText(brand).toUpperCase(),
+      model: cleanText(model).toUpperCase(),
+      version: cleanText(version).replace(/\b(?:19|20)\d{2}\b/g, '').replace(/\bflex\b/gi, '').toUpperCase(),
+      year,
+      mileage: extractMileage(html, lines),
+      color,
+      transmission,
+      fuel,
+      description,
+      source_url: url
+    },
+    fields: {
+      year: fabYear || modYear ? 'quadro_tecnico' : fromUrl.year ? 'titulo_ou_url' : descriptionAttributes.year ? 'descricao' : '',
+      mileage: extractMileage(html, lines) ? 'pagina_do_anuncio' : '',
+      color: technicalColor ? 'quadro_tecnico' : descriptionAttributes.color ? 'descricao' : '',
+      transmission: technicalTransmission ? 'quadro_tecnico' : descriptionAttributes.transmission ? 'descricao' : '',
+      fuel: technicalFuel ? 'quadro_tecnico' : descriptionAttributes.fuel ? 'descricao' : ''
+    }
   };
 }
 
@@ -485,11 +616,19 @@ export async function inspectVehiclePage(url: string): Promise<ImportedVehiclePa
   const mainHtml = getMainVehicleHtml(html) || html;
   const lines = visibleLines(mainHtml);
   const title = extractTitle(mainHtml || html);
+  const descriptionResult = extractVehicleDescription(mainHtml, lines);
+  const parsed = parseVehicle(title, url, mainHtml, lines, descriptionResult.text);
+
   return {
     title,
+    description: descriptionResult.text,
     price: extractPrice(mainHtml, lines),
     images: extractImages(mainHtml, url),
-    vehicle: parseVehicle(title, url, mainHtml, lines)
+    evidence: {
+      description_source: descriptionResult.source,
+      fields: parsed.fields
+    },
+    vehicle: parsed.vehicle
   };
 }
 
