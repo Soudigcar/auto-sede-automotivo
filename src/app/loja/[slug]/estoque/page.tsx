@@ -85,7 +85,29 @@ export default function StoreStockPage() {
   }
   function startEdit(item: any) { setEditingId(item.id); setEditForm(buildFormFromItem(item)); }
   function cancelEdit() { setEditingId(''); setEditForm(emptyEditForm); }
-  async function importItem(item: any) { setImportingId(item.id); setMessageTone('info'); setMessage('Importando novamente fotos e dados...'); try { const result = await apiRequest({ action: item.status === 'error' ? 'retry-import' : 'import-data', link_id: item.id, vehicle_url: item.vehicle_url }); if (!result) return; setEditingId(item.id); setEditForm(buildFormFromItem(item, result.imported)); await loadData(); } catch (error: any) { setMessageTone('error'); setMessage(error?.message || 'Não foi possível importar.'); } finally { setImportingId(''); } }
+  async function importItem(item: any) {
+    setImportingId(item.id);
+    setMessageTone('info');
+    setMessage('Importando novamente fotos e dados...');
+    try {
+      const result = await apiRequest({ action: item.status === 'error' ? 'retry-import' : 'import-data', link_id: item.id, vehicle_url: item.vehicle_url });
+      if (!result) return;
+      const refreshed = await loadData();
+      const refreshedItem = refreshed?.items?.find((entry: any) => entry.id === item.id) || {
+        ...item,
+        metadata: { ...(item.metadata || {}), ai_review: result.ai || item?.metadata?.ai_review }
+      };
+      setEditingId(item.id);
+      setEditForm(buildFormFromItem(refreshedItem, result.imported));
+      setMessageTone(result.ai?.applied ? 'success' : 'info');
+      setMessage(result.ai?.applied ? 'Importação concluída e revisada por IA.' : 'Importação concluída. Confira os dados antes de publicar.');
+    } catch (error: any) {
+      setMessageTone('error');
+      setMessage(error?.message || 'Não foi possível importar.');
+    } finally {
+      setImportingId('');
+    }
+  }
   async function saveManualDraft() { setSaving(true); try { if (editForm.mode === 'link') await apiRequest({ action: 'update-link', link_id: editForm.link_id, vehicle_url: editForm.source_url || editForm.vehicle_url }); else await apiRequest({ action: 'save-draft', ...editForm, image_urls: uniqueVehicleImages(editForm.image_urls || []) }); setMessageTone('success'); setMessage('Rascunho salvo.'); await loadData(); } catch (error: any) { setMessageTone('error'); setMessage(error?.message || 'Não foi possível salvar.'); } finally { setSaving(false); } }
   async function publishVehicle(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); if (!canPublish) return; setSaving(true); try { await apiRequest({ action: 'publish-vehicle', ...editForm, image_urls: uniqueVehicleImages(editForm.image_urls || []) }); setMessageTone('success'); setMessage('Veículo publicado com sucesso.'); cancelEdit(); await loadData(); } catch (error: any) { setMessageTone('error'); setMessage(error?.message || 'Não foi possível publicar.'); } finally { setSaving(false); } }
   async function deleteItem(item: any) { if (!window.confirm(item.vehicle ? 'Deseja retirar este veículo do portal?' : 'Deseja excluir este link?')) return; setSaving(true); try { await apiRequest({ action: 'delete-item', link_id: item.id }); await loadData(); } finally { setSaving(false); } }
