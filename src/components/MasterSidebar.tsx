@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Activity, BarChart3, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, Globe2, Inbox, Landmark, LogOut, Megaphone, MessageCircle, Plug, ShoppingBag, Store, UserCog } from 'lucide-react';
+import { Activity, BarChart3, BrainCircuit, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, Globe2, Inbox, Landmark, LogOut, Megaphone, MessageCircle, Plug, ShoppingBag, Store, UserCog } from 'lucide-react';
 import { MasterOlxImportBridge } from '@/components/marketplace/MasterOlxImportBridge';
 
 const masterMenu = [
@@ -20,6 +20,7 @@ const masterMenu = [
   { label: 'Integração', href: '/master/integrations', icon: Plug },
   { label: 'Inbox WhatsApp', href: '/master/whatsapp/inbox', icon: Inbox },
   { label: 'WhatsApp Oficial', href: '/master/integrations/whatsapp', icon: MessageCircle },
+  { label: 'Cérebro Automotivo', href: '/master/automotive-brain', icon: BrainCircuit },
   { label: 'Sair', href: '/logout', icon: LogOut }
 ];
 
