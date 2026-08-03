@@ -26,7 +26,7 @@ create table if not exists public.automotive_market_listings (
   source_url text not null,
   external_id text,
   municipality text,
-  state_code text not null check (state_code in ('DF','GO')),
+  state_code text check (state_code is null or state_code in ('DF','GO')),
   title text not null,
   brand text,
   model text,
@@ -45,8 +45,7 @@ create table if not exists public.automotive_market_listings (
   evidence jsonb not null default '{}'::jsonb,
   confidence numeric(5,2) check (confidence is null or (confidence >= 0 and confidence <= 100)),
   collected_at timestamptz not null,
-  created_at timestamptz not null default now(),
-  unique (run_id, source_name, source_url)
+  created_at timestamptz not null default now()
 );
 
 create table if not exists public.automotive_market_segments (
@@ -74,7 +73,7 @@ create table if not exists public.automotive_market_segments (
   evidence jsonb not null default '[]'::jsonb,
   confidence numeric(5,2) check (confidence is null or (confidence >= 0 and confidence <= 100)),
   created_at timestamptz not null default now(),
-  unique (run_id, state_code, brand, model, version, model_year, fuel, transmission)
+  unique nulls not distinct (run_id, state_code, brand, model, version, manufacture_year, model_year, fuel, transmission)
 );
 
 create table if not exists public.automotive_market_suggestions (
@@ -97,7 +96,8 @@ create table if not exists public.automotive_market_suggestions (
 
 create index if not exists automotive_market_runs_collected_at_idx on public.automotive_market_runs(collected_at desc);
 create index if not exists automotive_market_listings_run_idx on public.automotive_market_listings(run_id);
-create index if not exists automotive_market_listings_segment_idx on public.automotive_market_listings(state_code, brand, model, version, model_year, fuel, transmission);
+create index if not exists automotive_market_listings_source_url_idx on public.automotive_market_listings(run_id, source_name, source_url);
+create index if not exists automotive_market_listings_segment_idx on public.automotive_market_listings(state_code, brand, model, version, manufacture_year, model_year, fuel, transmission);
 create index if not exists automotive_market_listings_hash_idx on public.automotive_market_listings(content_hash);
 create index if not exists automotive_market_segments_run_idx on public.automotive_market_segments(run_id, state_code);
 create index if not exists automotive_market_suggestions_status_idx on public.automotive_market_suggestions(status, created_at desc);
