@@ -61,30 +61,49 @@ export function normalizeVehicleOption(
   return allowed.find((option) => fold(option) === fold(raw)) || '';
 }
 
+function normalizeImagePathname(pathname: string) {
+  const segments = pathname
+    .split('/')
+    .filter(Boolean)
+    .filter((segment) => !/^(thumbs?|thumbnails?|mini|small|medium|large|zoom|original|resized?|cache)$/i.test(segment));
+
+  const filename = segments.pop() || '';
+  const normalizedFilename = filename
+    .replace(/^(thumb|thumbnail|mini|small|medium|large|zoom|original)[-_]/i, '')
+    .replace(/[-_](thumb|thumbnail|mini|small|medium|large|zoom|original)(?=\.[a-z0-9]+$)/i, '')
+    .replace(/[-_]\d{2,4}x\d{2,4}(?=\.[a-z0-9]+$)/i, '')
+    .replace(/[-_](?:w|h)\d{2,4}(?=\.[a-z0-9]+$)/i, '')
+    .replace(/[-_]\d{2,4}(?=\.[a-z0-9]+$)/i, '');
+
+  return `/${[...segments, normalizedFilename].filter(Boolean).join('/')}`;
+}
+
 export function canonicalImageKey(value: unknown) {
   const raw = clean(value);
   if (!raw) return '';
+
   try {
     const url = new URL(raw);
     url.hash = '';
+
     for (const key of [...url.searchParams.keys()]) {
-      if (/^(w|h|width|height|size|quality|q|fit|crop|format|fm|auto|dpr|t|v)$/i.test(key)) {
+      if (/^(w|h|width|height|size|quality|q|fit|crop|format|fm|auto|dpr|t|v|resize|thumb|thumbnail)$/i.test(key)) {
         url.searchParams.delete(key);
       }
     }
-    url.pathname = url.pathname
-      .replace(/[-_](thumb|thumbnail|small|medium|large|original)(?=\.[a-z0-9]+$)/i, '')
-      .replace(/[-_]\d{2,4}x\d{2,4}(?=\.[a-z0-9]+$)/i, '');
+
+    url.pathname = normalizeImagePathname(url.pathname);
     url.searchParams.sort();
     return url.toString().toLowerCase();
   } catch {
-    return raw.split('?')[0].split('#')[0].toLowerCase();
+    return normalizeImagePathname(raw.split('?')[0].split('#')[0]).toLowerCase();
   }
 }
 
 export function uniqueVehicleImages(values: unknown[], limit = 12) {
   const result: string[] = [];
   const seen = new Set<string>();
+
   for (const value of values) {
     const url = clean(value);
     const key = canonicalImageKey(url);
@@ -93,6 +112,7 @@ export function uniqueVehicleImages(values: unknown[], limit = 12) {
     result.push(url);
     if (result.length >= limit) break;
   }
+
   return result;
 }
 
