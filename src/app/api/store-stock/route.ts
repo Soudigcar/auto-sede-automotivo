@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { mergeImportedVehicle, reviewVehicleImportWithOpenAI } from '@/lib/server/vehicleImportAi';
+import { normalizeVehicleYears, vehicleYearNumbers } from '@/lib/vehicleYears';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -57,6 +58,15 @@ function cleanImages(value: unknown, cover?: unknown) {
   return Array.from(new Set([coverUrl, ...images].filter(Boolean))).slice(0, 12);
 }
 
+function withNormalizedYears<T extends Record<string, any>>(payload: T) {
+  const years = normalizeVehicleYears({
+    manufacture_year: payload.manufacture_year,
+    model_year: payload.model_year,
+    year: payload.year
+  });
+  return { ...payload, ...years };
+}
+
 function requiredMissing(payload: any, imageCount: number) {
   const missing: string[] = [];
 
@@ -64,7 +74,8 @@ function requiredMissing(payload: any, imageCount: number) {
   if (!cleanText(payload.brand, 100)) missing.push('marca');
   if (!cleanText(payload.model, 140)) missing.push('modelo');
   if (!cleanText(payload.version, 220)) missing.push('versão');
-  if (!cleanText(payload.year, 40)) missing.push('ano');
+  if (!cleanText(payload.manufacture_year, 10)) missing.push('ano de fabricação');
+  if (!cleanText(payload.model_year, 10)) missing.push('ano do modelo');
   if (!cleanText(payload.mileage, 80)) missing.push('km');
   if (!cleanText(payload.fuel, 80)) missing.push('combustível');
   if (!cleanText(payload.transmission, 80)) missing.push('câmbio');
@@ -196,13 +207,15 @@ function buildImportedForm(importResult: any, sourceUrl: string) {
   const fallbackImages = Array.isArray(importResult.images) ? importResult.images.filter(Boolean) : [];
   const images = uploadedImages.length ? uploadedImages : fallbackImages;
 
-  return {
+  return withNormalizedYears({
     source_url: sourceUrl,
     title: cleanText(importResult.title || vehicle.title, 500),
     description: cleanText(importResult.description || vehicle.description, 12000),
     brand: cleanText(vehicle.brand, 100),
     model: cleanText(vehicle.model, 140),
     version: cleanText(vehicle.version, 220),
+    manufacture_year: cleanText(vehicle.manufacture_year, 10),
+    model_year: cleanText(vehicle.model_year, 10),
     year: cleanText(vehicle.year, 40),
     mileage: cleanText(vehicle.mileage, 80),
     color: cleanText(vehicle.color, 80),
@@ -211,20 +224,22 @@ function buildImportedForm(importResult: any, sourceUrl: string) {
     price: parsePrice(importResult.price || vehicle.price),
     image_url: images[0] || '',
     image_urls: images.slice(0, 12)
-  };
+  });
 }
 
 function draftFromBody(body: any, link: any) {
   const sourceUrl = normalizeUrl(cleanText(body.source_url || body.vehicle_url || link.vehicle_url, 2200));
   const images = cleanImages(body.image_urls, body.image_url);
 
-  return {
+  return withNormalizedYears({
     source_url: sourceUrl,
     title: cleanText(body.title, 500),
     description: cleanText(body.description, 12000),
     brand: cleanText(body.brand, 100),
     model: cleanText(body.model, 140),
     version: cleanText(body.version, 220),
+    manufacture_year: cleanText(body.manufacture_year, 10),
+    model_year: cleanText(body.model_year, 10),
     year: cleanText(body.year, 40),
     mileage: cleanText(body.mileage, 80),
     color: cleanText(body.color, 80),
@@ -236,7 +251,7 @@ function draftFromBody(body: any, link: any) {
     status: cleanText(body.status, 40) || 'disponivel',
     show_on_landing: body.show_on_landing !== false,
     is_featured: body.is_featured === true
-  };
+  });
 }
 
 async function importLinkDraft(request: Request, supabase: any, store: any, profile: any, link: any, sourceUrl: string) {
@@ -264,15 +279,19 @@ async function importLinkDraft(request: Request, supabase: any, store: any, prof
   try {
     const importResult = await callImporter(request, sourceUrl);
     const technicalDraft = buildImportedForm(importResult, sourceUrl);
-    const aiReview = await reviewVehicleImportWithOpenAI(technicalDraft, 'site público da loja');
+    const aiReview = await reviewVehicleImportWithOpenAI(
+      technicalDraft,
+      'site público da loja',
+      { source_evidence: importResult.evidence || null }
+    );
     const merged = mergeImportedVehicle(technicalDraft, aiReview.vehicle);
-    const importedForm = {
+    const importedForm = withNormalizedYears({
       ...technicalDraft,
       ...merged,
       description: aiReview.optimized_description || merged.description || technicalDraft.description || '',
       image_url: technicalDraft.image_url,
       image_urls: technicalDraft.image_urls
-    };
+    });
     const missing = requiredMissing(importedForm, importedForm.image_urls.length);
     const finishedAt = new Date().toISOString();
 
@@ -390,7 +409,7 @@ export async function GET(request: Request) {
         .in('id', vehicleIds);
 
       if (vehiclesError) return NextResponse.json({ error: vehiclesError.message }, { status: 400 });
-      vehiclesById = Object.fromEntries((vehicles || []).map((vehicle: any) => [vehicle.id, vehicle]));
+      vehiclesById = Object.fromEntries((vehicles || []).map((vehicle: any) => [vehicle.id, withNormalizedYears(vehicle)]));
     }
 
     const items = links.map((link: any) => ({
@@ -625,6 +644,7 @@ export async function POST(request: Request) {
         }, { status: 400 });
       }
 
+      const years = vehicleYearNumbers(draft);
       const campaign = await getActiveCampaign(supabase);
       const vehiclePayload: any = {
         campaign_id: campaign?.id || null,
@@ -632,7 +652,9 @@ export async function POST(request: Request) {
         brand: draft.brand.toUpperCase(),
         model: draft.model.toUpperCase(),
         version: draft.version,
-        year: draft.year,
+        manufacture_year: years.manufacture_year,
+        model_year: years.model_year,
+        year: years.year,
         mileage: draft.mileage,
         color: draft.color,
         transmission: draft.transmission,
