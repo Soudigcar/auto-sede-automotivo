@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePathname } from 'next/navigation';
 import { CheckCircle2, Loader2, Plus, UserPlus, X } from 'lucide-react';
@@ -44,10 +44,68 @@ function activeRoute(pathname: string) {
   return pathname === '/master/dashboard/live' || pathname === '/master/lead-monitoring';
 }
 
+function isStorePipeline(pathname: string) {
+  return /^\/loja\/[^/]+\/pipeline\/?$/.test(pathname);
+}
+
+function buttonText(button: HTMLButtonElement) {
+  return String(button.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function findPipelineUpdateButton() {
+  return Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((button) => buttonText(button).includes('atualizar pipeline')) || null;
+}
+
+function decorateStorePipeline() {
+  const updateButton = findPipelineUpdateButton();
+  const actionHost = updateButton?.parentElement as HTMLElement | null;
+  actionHost?.classList.add('pipeline-ux-header-actions');
+  updateButton?.setAttribute('data-pipeline-action', 'refresh');
+
+  const pageHeader = updateButton?.closest('header');
+  pageHeader?.classList.add('pipeline-ux-page-header');
+
+  const board = Array.from(document.querySelectorAll<HTMLElement>('div.grid')).find((element) => {
+    return element.className.includes('min-w-[1760px]') && element.children.length === 8;
+  }) || null;
+
+  board?.classList.add('pipeline-ux-board');
+  board?.parentElement?.classList.add('pipeline-ux-board-scroll');
+
+  const canvas = updateButton?.closest('.premium-canvas');
+  const kpiSection = canvas
+    ? Array.from(canvas.querySelectorAll<HTMLElement>('section')).find((section) => section.querySelectorAll(':scope > .premium-card').length === 5)
+    : null;
+  kpiSection?.classList.add('pipeline-ux-kpis');
+
+  document.querySelectorAll<HTMLElement>('[data-lead-id]').forEach((card) => {
+    card.classList.add('pipeline-ux-card');
+    card.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
+      const label = buttonText(button);
+      button.removeAttribute('data-pipeline-hidden-action');
+
+      if (label === 'editar' || label === 'perda') {
+        button.setAttribute('data-pipeline-hidden-action', 'true');
+        return;
+      }
+
+      if (label.includes('whatsapp') || label === 'atender') {
+        button.setAttribute('data-pipeline-card-action', 'primary');
+      } else if (label === 'tarefa' || label === 'transferir') {
+        button.setAttribute('data-pipeline-card-action', 'secondary');
+      } else {
+        button.setAttribute('data-pipeline-card-action', 'stage');
+      }
+    });
+  });
+
+  return actionHost;
+}
+
 function refreshVisiblePipeline() {
   const labels = ['atualizar pipeline', 'atualizar dashboard', 'atualizar monitoramento'];
   const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((item) => {
-    const text = String(item.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const text = buttonText(item);
     return labels.some((label) => text.includes(label));
   });
   button?.click();
@@ -56,6 +114,7 @@ function refreshVisiblePipeline() {
 export function PipelineAddLead() {
   const pathname = usePathname() || '';
   const active = activeRoute(pathname);
+  const storePipeline = isStorePipeline(pathname);
   const supabase = useMemo(() => createClient(), []);
 
   const [open, setOpen] = useState(false);
@@ -65,6 +124,35 @@ export function PipelineAddLead() {
   const [message, setMessage] = useState('');
   const [success, setSuccess] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [buttonHost, setButtonHost] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!active || !storePipeline || typeof document === 'undefined') {
+      setButtonHost(null);
+      return;
+    }
+
+    let animationFrame = 0;
+    const enhance = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => {
+        const host = decorateStorePipeline();
+        setButtonHost((current) => current === host ? current : host);
+      });
+    };
+
+    enhance();
+    const observer = new MutationObserver(enhance);
+    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('resize', enhance);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', enhance);
+      window.cancelAnimationFrame(animationFrame);
+      setButtonHost(null);
+    };
+  }, [active, pathname, storePipeline]);
 
   async function token() {
     const { data } = await supabase.auth.getSession();
@@ -154,12 +242,20 @@ export function PipelineAddLead() {
 
   if (!active) return null;
 
+  const addLeadButton = (
+    <button
+      type="button"
+      className={`pipeline-add-lead-button ${storePipeline ? 'is-inline' : 'is-floating'}`}
+      onClick={() => void openModal()}
+    >
+      <Plus size={18} /> <span>Adicionar Lead</span>
+    </button>
+  );
+
   return (
     <>
       <style>{styles}</style>
-      <button type="button" className="pipeline-add-lead-button" onClick={() => void openModal()}>
-        <Plus size={18} /> <span>Adicionar Lead</span>
-      </button>
+      {storePipeline ? (buttonHost ? createPortal(addLeadButton, buttonHost) : null) : addLeadButton}
 
       {open && typeof document !== 'undefined' ? createPortal(
         <div className="pipeline-add-lead-overlay" role="dialog" aria-modal="true" aria-label="Adicionar lead" onMouseDown={closeModal}>
@@ -281,10 +377,6 @@ export function PipelineAddLead() {
 
 const styles = `
   .pipeline-add-lead-button {
-    position: fixed;
-    z-index: 45;
-    right: 22px;
-    top: 20px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -297,10 +389,171 @@ const styles = `
     color: white;
     font-size: 13px;
     font-weight: 900;
-    box-shadow: 0 16px 35px rgba(220,38,38,.28);
-    transition: transform .18s ease, background .18s ease;
+    box-shadow: 0 16px 35px rgba(220,38,38,.24);
+    transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
+    white-space: nowrap;
   }
-  .pipeline-add-lead-button:hover { background: #b91c1c; transform: translateY(-1px); }
+  .pipeline-add-lead-button:hover { background: #b91c1c; transform: translateY(-1px); box-shadow: 0 18px 38px rgba(220,38,38,.3); }
+  .pipeline-add-lead-button.is-floating { position: fixed; z-index: 45; right: 22px; top: 20px; }
+  .pipeline-add-lead-button.is-inline { position: relative; z-index: 1; min-height: 54px; padding: 0 22px; }
+
+  .pipeline-ux-header-actions { align-items: center !important; }
+  .pipeline-ux-header-actions [data-pipeline-action='refresh'] {
+    background: #111827 !important;
+    box-shadow: 0 14px 30px rgba(17,24,39,.16) !important;
+  }
+  .pipeline-ux-page-header { padding-right: 0 !important; }
+
+  .pipeline-ux-kpis { gap: 10px !important; }
+  .pipeline-ux-kpis > .premium-card {
+    padding: 14px 16px !important;
+    border: 1px solid #e4e4e7 !important;
+    box-shadow: 0 8px 24px rgba(15,23,42,.04) !important;
+  }
+  .pipeline-ux-kpis > .premium-card strong { font-size: 24px !important; line-height: 1 !important; }
+
+  .pipeline-ux-board-scroll {
+    margin-top: 22px !important;
+    padding: 4px 2px 18px !important;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+  .pipeline-ux-board-scroll::-webkit-scrollbar { height: 9px; }
+  .pipeline-ux-board-scroll::-webkit-scrollbar-thumb { border-radius: 999px; background: #cbd5e1; }
+  .pipeline-ux-board {
+    display: flex !important;
+    min-width: max-content !important;
+    grid-template-columns: none !important;
+    align-items: flex-start !important;
+    gap: 14px !important;
+  }
+  .pipeline-ux-board > div {
+    width: 304px !important;
+    min-height: 445px !important;
+    flex: 0 0 304px !important;
+    padding: 10px !important;
+    border-radius: 22px !important;
+    scroll-snap-align: start;
+    box-shadow: 0 10px 28px rgba(15,23,42,.045) !important;
+  }
+  .pipeline-ux-board > div > div:first-child {
+    margin-bottom: 9px !important;
+    padding: 10px 12px !important;
+    border-radius: 15px !important;
+  }
+  .pipeline-ux-board > div > div:first-child h2 {
+    max-width: 206px;
+    font-size: 13px !important;
+    line-height: 1.18 !important;
+  }
+  .pipeline-ux-board > div > div:first-child span:last-child {
+    padding: 4px 9px !important;
+    font-size: 10px !important;
+  }
+  .pipeline-ux-board > div > div:nth-child(2) > div:only-child {
+    padding: 14px !important;
+  }
+
+  .pipeline-ux-card {
+    position: relative;
+    overflow: hidden;
+    padding: 12px 12px 11px 14px !important;
+    border-color: #e4e4e7 !important;
+    border-radius: 18px !important;
+    box-shadow: 0 7px 20px rgba(15,23,42,.055) !important;
+  }
+  .pipeline-ux-card::before {
+    content: '';
+    position: absolute;
+    inset: 11px auto 11px 0;
+    width: 3px;
+    border-radius: 0 999px 999px 0;
+    background: linear-gradient(180deg, #ef4444, #b91c1c);
+  }
+  .pipeline-ux-card:hover {
+    transform: translateY(-2px) !important;
+    border-color: #fecaca !important;
+    box-shadow: 0 14px 30px rgba(15,23,42,.09) !important;
+  }
+  .pipeline-ux-card > div:first-child { align-items: center !important; gap: 8px !important; }
+  .pipeline-ux-card > div:first-child > div { min-width: 0 !important; }
+  .pipeline-ux-card > div:first-child h3 {
+    overflow: hidden;
+    margin: 0 !important;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px !important;
+    line-height: 1.25 !important;
+  }
+  .pipeline-ux-card > div:first-child p {
+    overflow: hidden;
+    margin-top: 3px !important;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10px !important;
+    line-height: 1.25 !important;
+  }
+  .pipeline-ux-card > div:first-child > span { display: none !important; }
+  .pipeline-ux-card > div:nth-child(2) {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 5px !important;
+    margin-top: 8px !important;
+    overflow: hidden;
+  }
+  .pipeline-ux-card > div:nth-child(2) > * {
+    min-width: 0;
+    overflow: hidden;
+    padding: 5px 7px !important;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 9px !important;
+  }
+  .pipeline-ux-card > div:nth-child(2) > button { flex: 1 1 auto; text-align: left; }
+  .pipeline-ux-card > div:nth-child(2) > span { flex: 0 1 auto; }
+  .pipeline-ux-card > div:not(:first-child):not(:nth-child(2)):not(:last-child) {
+    margin-top: 8px !important;
+    padding: 8px !important;
+    border-radius: 11px !important;
+    font-size: 10px !important;
+    line-height: 1.3 !important;
+  }
+  .pipeline-ux-card > div:not(:first-child):not(:nth-child(2)):not(:last-child) p:last-child {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .pipeline-ux-card > div:last-child {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px !important;
+    margin-top: 9px !important;
+  }
+  .pipeline-ux-card > div:last-child button {
+    min-width: 0;
+    min-height: 34px;
+    justify-content: center;
+    overflow: hidden;
+    padding: 0 7px !important;
+    border-radius: 10px !important;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 9px !important;
+    line-height: 1 !important;
+  }
+  .pipeline-ux-card [data-pipeline-hidden-action='true'] { display: none !important; }
+  .pipeline-ux-card [data-pipeline-card-action='secondary'] {
+    border-color: #e4e4e7 !important;
+    background: #f8fafc !important;
+    color: #475569 !important;
+  }
+  .pipeline-ux-card [data-pipeline-card-action='primary'] {
+    box-shadow: 0 7px 15px rgba(5,150,105,.16);
+  }
+
   .pipeline-add-lead-overlay { position: fixed; inset: 0; z-index: 120; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(3,7,18,.76); backdrop-filter: blur(8px); }
   .pipeline-add-lead-modal { width: min(840px, 100%); max-height: 94vh; overflow: auto; border-radius: 28px; background: white; color: #18181b; box-shadow: 0 30px 100px rgba(0,0,0,.46); }
   .pipeline-add-lead-modal > header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 22px; border-bottom: 1px solid #e4e4e7; background: rgba(255,255,255,.97); backdrop-filter: blur(12px); }
@@ -328,8 +581,16 @@ const styles = `
   .pipeline-add-lead-save:disabled, .pipeline-add-lead-cancel:disabled { cursor: not-allowed; opacity: .6; }
   .pipeline-add-lead-loading, .pipeline-add-lead-error { display: flex; min-height: 300px; flex-direction: column; align-items: center; justify-content: center; gap: 13px; padding: 30px; color: #71717a; text-align: center; font-weight: 750; }
   .pipeline-add-lead-error button { border: 0; border-radius: 13px; background: #dc2626; padding: 11px 16px; color: white; font-weight: 900; }
+
+  @media (max-width: 1279px) {
+    .pipeline-ux-board > div { width: 292px !important; flex-basis: 292px !important; }
+  }
   @media (max-width: 1023px) {
-    .pipeline-add-lead-button { top: auto; right: 14px; bottom: 86px; min-height: 48px; border-radius: 999px; padding: 0 17px; }
+    .pipeline-add-lead-button.is-floating { top: auto; right: 14px; bottom: 86px; min-height: 48px; border-radius: 999px; padding: 0 17px; }
+    .pipeline-add-lead-button.is-inline { min-height: 50px; flex: 1 1 180px; padding: 0 16px; }
+    .pipeline-ux-header-actions { width: 100%; }
+    .pipeline-ux-header-actions > * { flex: 1 1 180px; }
+    .pipeline-ux-board > div { width: min(86vw, 314px) !important; flex-basis: min(86vw, 314px) !important; }
   }
   @media (max-width: 640px) {
     .pipeline-add-lead-overlay { align-items: flex-end; padding: 0; }
@@ -338,5 +599,8 @@ const styles = `
     .pipeline-add-lead-full { grid-column: auto; }
     .pipeline-add-lead-modal footer { padding: 13px 18px max(13px, env(safe-area-inset-bottom)); }
     .pipeline-add-lead-cancel, .pipeline-add-lead-save { flex: 1; padding: 0 12px; }
+    .pipeline-ux-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+    .pipeline-ux-kpis > .premium-card:last-child { grid-column: 1 / -1; }
+    .pipeline-ux-card > div:last-child { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 `;
