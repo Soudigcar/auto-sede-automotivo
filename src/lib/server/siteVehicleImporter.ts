@@ -2,6 +2,11 @@ import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
 import { normalizeVehicleOption, uniqueVehicleImages } from '@/lib/vehicleCatalogOptions';
+import {
+  combineVehicleYears,
+  normalizeVehicleYear,
+  normalizeVehicleYears
+} from '@/lib/vehicleYears';
 
 export type ImportedVehiclePage = {
   title: string;
@@ -16,6 +21,8 @@ export type ImportedVehiclePage = {
     brand: string;
     model: string;
     version: string;
+    manufacture_year: string;
+    model_year: string;
     year: string;
     mileage: string;
     color: string;
@@ -227,14 +234,15 @@ function extractDescriptionAttributes(description: string) {
   const fuelMatch = text.match(/(?:\bcombustivel\b|\bmotor(?:\s+\d+(?:[.,]\d+)?)?\b)\s*[:=.-]?\s*(flex|gasolina|diesel|etanol|alcool|gnv|hibrid[oa]|eletric[oa])\b/i)
     || text.match(/\b\d+(?:[.,]\d+)?\s+(flex|gasolina|diesel|etanol|alcool|gnv|hibrid[oa]|eletric[oa])\b/i);
   const rawFuel = fuelMatch?.[1] || '';
-
-  const year = description.match(/\b(?:19|20)\d{2}\b/)?.[0] || '';
+  const years = normalizeVehicleYears({ year: description });
 
   return {
     color: normalizeVehicleOption('color', rawColor),
     transmission,
     fuel: normalizeVehicleOption('fuel', rawFuel),
-    year
+    manufacture_year: years.manufacture_year,
+    model_year: years.model_year,
+    year: years.year
   };
 }
 
@@ -389,33 +397,49 @@ function removeLocationNoise(value: string) {
 
 function extractFromUrl(url: string) {
   try {
-    const segments = new URL(url).pathname.split('/').filter(Boolean).map(cleanSegment);
+    const parsedUrl = new URL(url);
+    const rawPath = decodeURIComponent(parsedUrl.pathname);
+    const urlYears = normalizeVehicleYears({ year: rawPath });
+    const segments = parsedUrl.pathname.split('/').filter(Boolean).map(cleanSegment);
     const index = segments.findIndex((segment) => fold(segment) === 'carros');
-    if (index < 0) return { brand: '', model: '', version: '', year: '' };
+    if (index < 0) {
+      return {
+        brand: '', model: '', version: '',
+        manufacture_year: urlYears.manufacture_year,
+        model_year: urlYears.model_year,
+        year: urlYears.year
+      };
+    }
     const brand = segments[index + 1] || '';
     let model = segments[index + 2] || '';
     let version = segments[index + 3] || '';
-    const slug = removeLocationNoise(segments[index + 4] || '');
-    const year = slug.match(/\b(?:19|20)\d{2}\b/)?.[0] || version.match(/\b(?:19|20)\d{2}\b/)?.[0] || '';
     version = version.replace(/\b(?:19|20)\d{2}\b/g, '').trim();
     const versionParts = version.split(' ').filter(Boolean);
     if (fold(model) === 'onix' && fold(versionParts[0]) === 'plus') {
       model = `${model} Plus`;
       version = versionParts.slice(1).join(' ');
     }
-    return { brand, model, version, year };
+    return {
+      brand,
+      model,
+      version,
+      manufacture_year: urlYears.manufacture_year,
+      model_year: urlYears.model_year,
+      year: urlYears.year
+    };
   } catch {
-    return { brand: '', model: '', version: '', year: '' };
+    return { brand: '', model: '', version: '', manufacture_year: '', model_year: '', year: '' };
   }
 }
 
 function parseVehicle(title: string, url: string, html: string, lines: string[], description: string) {
   const fromUrl = extractFromUrl(url);
+  const titleYears = normalizeVehicleYears({ year: title });
   const descriptionAttributes = extractDescriptionAttributes(description);
   const anoFab = extractField(lines, ['Ano Fab.', 'Ano Fab', 'Ano Fabricação', 'Ano Fabricacao']);
   const anoMod = extractField(lines, ['Ano Mod.', 'Ano Mod', 'Ano Modelo']);
-  const fabYear = anoFab.match(/\b(?:19|20)\d{2}\b/)?.[0] || '';
-  const modYear = anoMod.match(/\b(?:19|20)\d{2}\b/)?.[0] || '';
+  const fabYear = normalizeVehicleYear(anoFab);
+  const modYear = normalizeVehicleYear(anoMod);
 
   const rawFuel = extractField(lines, ['Combustível', 'Combustivel']);
   const rawColor = extractField(lines, ['Cor']);
@@ -437,9 +461,16 @@ function parseVehicle(title: string, url: string, html: string, lines: string[],
     version ||= titleParts.slice(2).join(' ');
   }
 
-  const year = fabYear && modYear && fabYear !== modYear
-    ? `${fabYear}/${modYear}`
-    : fabYear || modYear || fromUrl.year || descriptionAttributes.year;
+  const manufactureYear = fabYear
+    || descriptionAttributes.manufacture_year
+    || titleYears.manufacture_year
+    || fromUrl.manufacture_year;
+  const modelYear = modYear
+    || descriptionAttributes.model_year
+    || titleYears.model_year
+    || fromUrl.model_year;
+  const year = combineVehicleYears(manufactureYear, modelYear, fromUrl.year || titleYears.year || descriptionAttributes.year);
+  const mileage = extractMileage(html, lines);
   const color = technicalColor || descriptionAttributes.color;
   const transmission = technicalTransmission || descriptionAttributes.transmission;
   const fuel = technicalFuel || descriptionAttributes.fuel;
@@ -449,8 +480,10 @@ function parseVehicle(title: string, url: string, html: string, lines: string[],
       brand: cleanText(brand).toUpperCase(),
       model: cleanText(model).toUpperCase(),
       version: cleanText(version).replace(/\b(?:19|20)\d{2}\b/g, '').replace(/\bflex\b/gi, '').toUpperCase(),
+      manufacture_year: manufactureYear,
+      model_year: modelYear,
       year,
-      mileage: extractMileage(html, lines),
+      mileage,
       color,
       transmission,
       fuel,
@@ -458,8 +491,26 @@ function parseVehicle(title: string, url: string, html: string, lines: string[],
       source_url: url
     },
     fields: {
-      year: fabYear || modYear ? 'quadro_tecnico' : fromUrl.year ? 'titulo_ou_url' : descriptionAttributes.year ? 'descricao' : '',
-      mileage: extractMileage(html, lines) ? 'pagina_do_anuncio' : '',
+      manufacture_year: fabYear
+        ? 'quadro_tecnico'
+        : descriptionAttributes.manufacture_year
+          ? 'descricao'
+          : titleYears.manufacture_year
+            ? 'titulo'
+            : fromUrl.manufacture_year
+              ? 'url'
+              : '',
+      model_year: modYear
+        ? 'quadro_tecnico'
+        : descriptionAttributes.model_year
+          ? 'descricao'
+          : titleYears.model_year
+            ? 'titulo'
+            : fromUrl.model_year
+              ? 'url'
+              : '',
+      year: manufactureYear || modelYear ? 'campos_separados' : '',
+      mileage: mileage ? 'pagina_do_anuncio' : '',
       color: technicalColor ? 'quadro_tecnico' : descriptionAttributes.color ? 'descricao' : '',
       transmission: technicalTransmission ? 'quadro_tecnico' : descriptionAttributes.transmission ? 'descricao' : '',
       fuel: technicalFuel ? 'quadro_tecnico' : descriptionAttributes.fuel ? 'descricao' : ''
