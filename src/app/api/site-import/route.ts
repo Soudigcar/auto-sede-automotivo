@@ -37,6 +37,8 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         title: page.title,
+        description: page.description,
+        evidence: page.evidence,
         price: page.price,
         images: page.images,
         uploadedImages: imageResult.uploadedImages,
@@ -46,6 +48,7 @@ export async function POST(request: Request) {
         },
         vehicle: {
           ...page.vehicle,
+          description: page.description,
           image_url: imageResult.uploadedImages[0] || page.images[0] || ''
         }
       });
