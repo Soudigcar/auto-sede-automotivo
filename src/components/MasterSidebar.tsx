@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Activity, BarChart3, BrainCircuit, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, Globe2, Inbox, Landmark, LogOut, Megaphone, MessageCircle, Plug, ShoppingBag, Store, UserCog, Webhook } from 'lucide-react';
+import { Activity, BarChart3, BrainCircuit, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, Globe2, Inbox, Landmark, LogOut, Megaphone, Plug, ShoppingBag, Store, UserCog } from 'lucide-react';
 import { MasterOlxImportBridge } from '@/components/marketplace/MasterOlxImportBridge';
 
 const masterMenu = [
@@ -17,10 +17,8 @@ const masterMenu = [
   { label: 'Marketplace', href: '/master/marketplace', icon: ShoppingBag },
   { label: 'Campanhas e Landings', href: '/master/campaigns', icon: Megaphone },
   { label: 'Base', href: '/master/base', icon: Database },
-  { label: 'Integração', href: '/master/integrations', icon: Plug },
-  { label: 'Umbler Talk', href: '/master/integrations/umbler-talk', icon: Webhook },
+  { label: 'Integrações', href: '/master/integrations', icon: Plug },
   { label: 'Inbox WhatsApp', href: '/master/whatsapp/inbox', icon: Inbox },
-  { label: 'WhatsApp Oficial', href: '/master/integrations/whatsapp', icon: MessageCircle },
   { label: 'Cérebro Automotivo', href: '/master/automotive-brain', icon: BrainCircuit },
   { label: 'Sair', href: '/logout', icon: LogOut }
 ];
@@ -83,7 +81,7 @@ export function MasterSidebar({ active }: { active: string }) {
       <nav className="mt-8 space-y-3 text-sm">
         {masterMenu.map((item) => {
           const Icon = item.icon;
-          const isActive = active === item.href || active === item.label;
+          const isActive = active === item.href || active === item.label || (item.href === '/master/integrations' && active.startsWith('/master/integrations'));
           const base = collapsed ? 'flex items-center justify-center rounded-2xl px-0 py-4' : 'flex items-center gap-3 rounded-2xl px-4 py-4';
           const state = isActive ? 'bg-red-600 font-bold shadow-lg shadow-red-600/20' : 'text-zinc-400 hover:bg-white/5 hover:text-white';
 
