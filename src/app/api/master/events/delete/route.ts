@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireMaster } from '@/lib/require-master';
 
 export async function POST(request: Request) {
+  const authorization = await requireMaster();
+  if (!authorization.ok) return authorization.response;
+
   const { eventId, confirmation } = await request.json();
 
   if (!eventId || confirmation !== 'EXCLUIR') {
@@ -40,7 +44,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `Erro ao preservar histórico das lojas: ${storeHistoryError.message}` }, { status: 500 });
     }
   }
-const deleteSteps = [
+
+  const deleteSteps = [
     ['lead_activities', 'event_id'],
     ['appointments', 'event_id'],
     ['losses', 'event_id'],
@@ -59,11 +64,19 @@ const deleteSteps = [
       return NextResponse.json({ error: `Erro ao excluir ${table}: ${error.message}` }, { status: 500 });
     }
   }
-const { error: eventError } = await supabase.from('events').delete().eq('id', eventId);
+
+  const { error: eventError } = await supabase.from('events').delete().eq('id', eventId);
 
   if (eventError) {
     return NextResponse.json({ error: `Erro ao excluir evento: ${eventError.message}` }, { status: 500 });
   }
+
+  console.info('master_event_deleted', {
+    actorUserId: authorization.userId,
+    eventId,
+    eventName: eventData?.event_name || null,
+    deletedAt: new Date().toISOString()
+  });
 
   return NextResponse.json({ ok: true });
 }
