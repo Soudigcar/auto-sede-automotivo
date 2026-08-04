@@ -1,9 +1,11 @@
+import { MasterGoalPerformance3D } from '@/components/MasterGoalPerformance3D';
 import { MasterRealDashboardPolished } from '@/components/MasterRealDashboardPolished';
 
 export default function MasterLiveDashboardPage() {
   return (
     <div className="master-dashboard-filter-first">
       <MasterRealDashboardPolished />
+      <MasterGoalPerformance3D />
 
       <style>{`
         .master-dashboard-filter-first > main > div > div:last-child {
