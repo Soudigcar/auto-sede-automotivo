@@ -71,5 +71,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Erro ao excluir evento: ${eventError.message}` }, { status: 500 });
   }
 
+  console.info('master_event_deleted', {
+    actorUserId: authorization.userId,
+    eventId,
+    eventName: eventData?.event_name || null,
+    deletedAt: new Date().toISOString()
+  });
+
   return NextResponse.json({ ok: true });
 }
