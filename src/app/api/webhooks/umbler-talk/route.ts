@@ -21,6 +21,10 @@ function digits(value: unknown) {
   return cleanText(value).replace(/\D/g, '');
 }
 
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -88,8 +92,15 @@ function extractToken(request: Request, url: URL) {
   return cleanText(url.searchParams.get('token') || request.headers.get('x-webhook-token') || request.headers.get('x-umbler-token') || request.headers.get('x-auto-controle-token') || authorization.replace(/^Bearer\s+/i, ''));
 }
 
-async function updateIntegrationStatus(supabase: any, current: any, patch: Record<string, unknown>) {
-  await supabase.from('marketing_integrations').update({ settings: { ...(current?.settings || {}), ...patch }, updated_at: new Date().toISOString() }).eq('integration_type', 'umbler_talk');
+async function updateIntegrationStatus(supabase: any, current: any, patch: Record<string, unknown>, deactivate = false) {
+  await supabase
+    .from('marketing_integrations')
+    .update({
+      ...(deactivate ? { is_active: false } : {}),
+      settings: { ...(current?.settings || {}), ...patch },
+      updated_at: new Date().toISOString()
+    })
+    .eq('integration_type', 'umbler_talk');
 }
 
 async function claimLock(supabase: any, key: string) {
@@ -105,8 +116,20 @@ async function pickNextStore(supabase: any, eventId: string) {
 }
 
 async function validateEvent(supabase: any, eventId: string) {
-  const { data, error } = await supabase.from('events').select('id, event_name, status').eq('id', eventId).maybeSingle();
-  if (error || !data || data.status !== 'active') throw new Error('O evento configurado na Umbler Talk não está ativo.');
+  const { data, error } = await supabase
+    .from('events')
+    .select('id, event_name, status, start_date, end_date')
+    .eq('id', eventId)
+    .maybeSingle();
+
+  if (error || !data || data.status !== 'active') {
+    throw new Error('O evento configurado na Umbler Talk não está ativo.');
+  }
+
+  if (data.end_date && data.end_date < todayIsoDate()) {
+    throw new Error('O evento configurado na Umbler Talk já foi encerrado.');
+  }
+
   return data;
 }
 
@@ -115,8 +138,8 @@ async function findExistingLead(supabase: any, phone: string, eventId: string) {
     .from('leads_base')
     .select('id, routed_lead_id, assigned_store_id, assigned_store_name, metadata, notes')
     .eq('phone', phone)
-    .eq('source', 'Umbler Talk / WhatsApp')
-    .contains('metadata', { event_id: eventId })
+    .eq('source', defaultSettings.source_name)
+    .contains('metadata', { source: 'umbler_talk', event_id: eventId })
     .order('created_at', { ascending: false })
     .limit(1);
   return data?.[0] || null;
@@ -167,6 +190,7 @@ async function createLead(supabase: any, lead: ReturnType<typeof extractLead>, p
   };
 
   const { data: baseLead, error: baseError } = await supabase.from('leads_base').insert({
+    event_id: event.id,
     name: lead.name || lead.phone,
     phone: lead.phone,
     cpf: '', email: '', source: sourceName,
@@ -183,7 +207,11 @@ async function createLead(supabase: any, lead: ReturnType<typeof extractLead>, p
     created_at: assignedAt,
     updated_at: assignedAt
   }).select('id').single();
-  if (baseError) throw new Error(`Erro ao criar lead na Base: ${baseError.message}`);
+
+  if (baseError) {
+    if (routedLeadId) await supabase.from('leads').delete().eq('id', routedLeadId);
+    throw new Error(`Erro ao criar lead na Base: ${baseError.message}`);
+  }
 
   return { status: 'inserted', id: baseLead?.id || null, routed_lead_id: routedLeadId, event_id: event.id, event_name: event.event_name, assigned_store_id: selectedStore.store_id, assigned_store_name: selectedStore.store_name };
 }
@@ -199,8 +227,18 @@ export async function POST(request: Request) {
     if (!receivedToken || !expectedToken || receivedToken !== expectedToken) return NextResponse.json({ error: 'Token inválido.' }, { status: 401 });
 
     const configuredEventId = cleanText(integration.settings.event_id);
-    if (!configuredEventId) throw new Error('Nenhum evento de destino foi configurado na integração Umbler Talk.');
-    const event = await validateEvent(supabase, configuredEventId);
+    if (!configuredEventId) {
+      await updateIntegrationStatus(supabase, integration, { last_webhook_at: new Date().toISOString(), last_error: 'Nenhum evento de destino foi configurado na integração Umbler Talk.' }, true);
+      return NextResponse.json({ error: 'Nenhum evento de destino foi configurado na integração Umbler Talk. A integração foi desativada.' }, { status: 409 });
+    }
+
+    let event: any;
+    try {
+      event = await validateEvent(supabase, configuredEventId);
+    } catch (error: any) {
+      await updateIntegrationStatus(supabase, integration, { last_webhook_at: new Date().toISOString(), last_error: error?.message || 'Evento inválido.' }, true);
+      return NextResponse.json({ error: `${error?.message || 'Evento inválido.'} A integração foi desativada.` }, { status: 409 });
+    }
 
     const payload = await request.json();
     const lead = extractLead(payload);
