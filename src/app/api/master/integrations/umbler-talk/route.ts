@@ -7,6 +7,8 @@ const defaultSettings = {
   verify_token: '',
   source_name: 'Umbler Talk / WhatsApp',
   routing_mode: 'round_robin',
+  event_id: '',
+  event_name: '',
   last_webhook_at: '',
   last_error: '',
   last_lead_phone: '',
@@ -15,6 +17,10 @@ const defaultSettings = {
 
 function cleanText(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function getAdminClient() {
@@ -90,6 +96,39 @@ function normalizeIntegration(integration: any) {
   };
 }
 
+async function listActiveEvents(supabase: any) {
+  const today = todayIsoDate();
+  const { data: events, error } = await supabase
+    .from('events')
+    .select('id, event_name, start_date, end_date, status')
+    .eq('status', 'active')
+    .or(`end_date.is.null,end_date.gte.${today}`)
+    .order('start_date', { ascending: true });
+
+  if (error) throw error;
+
+  const eventIds = (events || []).map((event: any) => event.id);
+  if (!eventIds.length) return [];
+
+  const { data: stores } = await supabase
+    .from('stores')
+    .select('event_id')
+    .in('event_id', eventIds)
+    .eq('status', 'active')
+    .eq('portal_enabled', true);
+
+  const counts = new Map<string, number>();
+  for (const store of stores || []) {
+    if (!store.event_id) continue;
+    counts.set(store.event_id, (counts.get(store.event_id) || 0) + 1);
+  }
+
+  return (events || []).map((event: any) => ({
+    ...event,
+    active_store_count: counts.get(event.id) || 0
+  }));
+}
+
 export async function GET(request: Request) {
   try {
     const supabase = getAdminClient();
@@ -102,8 +141,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Apenas usuário Master pode acessar integrações.' }, { status: 403 });
     }
 
-    const integration = await getOrCreateIntegration(supabase);
-    return NextResponse.json({ success: true, integration: normalizeIntegration(integration) });
+    const [integration, events] = await Promise.all([
+      getOrCreateIntegration(supabase),
+      listActiveEvents(supabase)
+    ]);
+
+    return NextResponse.json({
+      success: true,
+      integration: normalizeIntegration(integration),
+      events
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Erro ao carregar Umbler Talk.' }, { status: 500 });
   }
@@ -144,12 +191,53 @@ export async function POST(request: Request) {
     const isActive = Boolean(body.is_active);
     const verifyToken = cleanText(body.verify_token);
     const sourceName = cleanText(body.source_name) || defaultSettings.source_name;
+    const eventId = cleanText(body.event_id);
 
     if (isActive && verifyToken.length < 16) {
       return NextResponse.json(
         { error: 'Crie um token de segurança com pelo menos 16 caracteres antes de ativar.' },
         { status: 400 }
       );
+    }
+
+    if (isActive && !eventId) {
+      return NextResponse.json(
+        { error: 'Selecione um evento ativo antes de ativar a integração.' },
+        { status: 400 }
+      );
+    }
+
+    let selectedEvent: any = null;
+    if (eventId) {
+      const { data: event, error: eventError } = await supabase
+        .from('events')
+        .select('id, event_name, status, start_date, end_date')
+        .eq('id', eventId)
+        .maybeSingle();
+
+      if (eventError || !event || event.status !== 'active') {
+        return NextResponse.json({ error: 'O evento selecionado não está ativo.' }, { status: 400 });
+      }
+
+      if (event.end_date && event.end_date < todayIsoDate()) {
+        return NextResponse.json({ error: 'O evento selecionado já foi encerrado.' }, { status: 400 });
+      }
+
+      const { count } = await supabase
+        .from('stores')
+        .select('id', { count: 'exact', head: true })
+        .eq('event_id', eventId)
+        .eq('status', 'active')
+        .eq('portal_enabled', true);
+
+      if (isActive && !count) {
+        return NextResponse.json(
+          { error: 'O evento selecionado não possui lojas ativas habilitadas para receber leads.' },
+          { status: 400 }
+        );
+      }
+
+      selectedEvent = event;
     }
 
     const payload = {
@@ -161,7 +249,9 @@ export async function POST(request: Request) {
         ...currentSettings,
         verify_token: verifyToken,
         source_name: sourceName,
-        routing_mode: 'round_robin'
+        routing_mode: 'round_robin_event',
+        event_id: selectedEvent?.id || '',
+        event_name: selectedEvent?.event_name || ''
       },
       updated_by: masterProfile.id,
       updated_at: new Date().toISOString()
