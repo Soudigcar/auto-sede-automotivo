@@ -61,13 +61,13 @@ async function listEvents(supabase: any) {
   const today = new Date().toISOString().slice(0, 10);
   const { data, error } = await supabase
     .from('events')
-    .select('id, name, status, start_date, end_date')
+    .select('id, event_name, status, start_date, end_date')
     .eq('status', 'active')
     .or(`end_date.is.null,end_date.gte.${today}`)
     .order('start_date', { ascending: false });
 
   if (error) throw error;
-  return data || [];
+  return (data || []).map((event: any) => ({ ...event, name: event.event_name }));
 }
 
 async function getIntegration(supabase: any) {
@@ -140,7 +140,7 @@ export async function POST(request: Request) {
     if (eventIds.length) {
       const { data, error } = await supabase
         .from('events')
-        .select('id, name, status, end_date')
+        .select('id, event_name, status, end_date')
         .in('id', eventIds);
       if (error) throw error;
       validEvents = data || [];
@@ -152,7 +152,7 @@ export async function POST(request: Request) {
       if (!event || event.status !== 'active' || (event.end_date && event.end_date < today)) {
         return NextResponse.json({ error: `O evento selecionado para o formulário ${mapping.form_id} não está ativo.` }, { status: 400 });
       }
-      mapping.event_name = event.name;
+      mapping.event_name = event.event_name;
     }
 
     const integration = await getIntegration(supabase);
