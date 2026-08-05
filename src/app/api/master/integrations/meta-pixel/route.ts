@@ -93,12 +93,27 @@ function normalizeIntegration(integration: any) {
     settings: {
       ...(integration?.settings || {}),
       additional_pixel_ids: additionalPixelIds,
+      campaign_id: cleanText(integration?.settings?.campaign_id),
+      campaign_name: cleanText(integration?.settings?.campaign_name),
+      campaign_slug: cleanText(integration?.settings?.campaign_slug),
       events: {
         ...defaultEvents,
         ...(integration?.settings?.events || {})
       }
     }
   };
+}
+
+async function listPublishedLandings(supabase: any) {
+  const { data, error } = await supabase
+    .from('site_campaigns')
+    .select('id, name, slug, title, is_active, published_at, event_id')
+    .eq('is_active', true)
+    .not('published_at', 'is', null)
+    .order('published_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
 }
 
 async function getOrCreateIntegration(supabase: any) {
@@ -119,6 +134,9 @@ async function getOrCreateIntegration(supabase: any) {
       is_active: false,
       settings: {
         additional_pixel_ids: [],
+        campaign_id: '',
+        campaign_name: '',
+        campaign_slug: '',
         events: defaultEvents
       }
     })
@@ -146,11 +164,15 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Apenas usuário Master pode acessar integrações.' }, { status: 403 });
     }
 
-    const integration = await getOrCreateIntegration(supabase);
+    const [integration, landings] = await Promise.all([
+      getOrCreateIntegration(supabase),
+      listPublishedLandings(supabase)
+    ]);
 
     return NextResponse.json({
       success: true,
-      integration: normalizeIntegration(integration)
+      integration: normalizeIntegration(integration),
+      landings
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -182,6 +204,7 @@ export async function POST(request: Request) {
     const pixelIds = Array.from(new Set([primaryPixelId, ...additionalPixelIds].filter(Boolean)));
     const isActive = Boolean(body.is_active);
     const name = cleanText(body.name) || 'Pixel do Facebook / Meta';
+    const campaignId = cleanText(body.campaign_id);
     const events = {
       ...defaultEvents,
       ...(body.events || {})
@@ -194,6 +217,24 @@ export async function POST(request: Request) {
       );
     }
 
+    let selectedCampaign: any = null;
+    if (campaignId) {
+      const { data, error } = await supabase
+        .from('site_campaigns')
+        .select('id, name, slug, title, is_active, published_at')
+        .eq('id', campaignId)
+        .maybeSingle();
+
+      if (error || !data || !data.is_active || !data.published_at || !data.slug) {
+        return NextResponse.json(
+          { error: 'A landing selecionada não está ativa ou publicada.' },
+          { status: 400 }
+        );
+      }
+
+      selectedCampaign = data;
+    }
+
     const payload = {
       integration_type: 'meta_pixel',
       name,
@@ -201,6 +242,9 @@ export async function POST(request: Request) {
       is_active: isActive,
       settings: {
         additional_pixel_ids: additionalPixelIds,
+        campaign_id: selectedCampaign?.id || '',
+        campaign_name: selectedCampaign?.name || '',
+        campaign_slug: selectedCampaign?.slug || '',
         events
       },
       updated_by: masterProfile.id,

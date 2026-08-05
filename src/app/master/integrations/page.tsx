@@ -56,6 +56,13 @@ const defaultWatiLeads = {
   last_error: ''
 };
 
+type LandingOption = {
+  id: string;
+  name: string;
+  slug: string;
+  title?: string;
+};
+
 function parsePixelIds(value: string) {
   return Array.from(
     new Set(
@@ -95,11 +102,13 @@ export default function MasterIntegrationsPage() {
   const [metaLeadsDiagnostic, setMetaLeadsDiagnostic] = useState<any>(null);
   const [message, setMessage] = useState('');
   const [origin, setOrigin] = useState('');
+  const [landings, setLandings] = useState<LandingOption[]>([]);
 
   const [pixelForm, setPixelForm] = useState({
     name: 'Pixel do Facebook / Meta',
     pixel_id: '',
     additional_pixel_ids: '',
+    campaign_id: '',
     is_active: false,
     events: defaultEvents
   });
@@ -124,6 +133,13 @@ export default function MasterIntegrationsPage() {
       ].filter(Boolean))
     );
   }, [pixelForm.pixel_id, pixelForm.additional_pixel_ids]);
+
+  const selectedLanding = useMemo(
+    () => landings.find((landing) => landing.id === pixelForm.campaign_id) || null,
+    [landings, pixelForm.campaign_id]
+  );
+
+  const selectedLandingHref = selectedLanding?.slug ? `/campanha/${selectedLanding.slug}` : '';
 
   async function getAuthToken() {
     const { data } = await supabase.auth.getSession();
@@ -152,10 +168,12 @@ export default function MasterIntegrationsPage() {
       ? integration.settings.additional_pixel_ids
       : [];
 
+    setLandings(Array.isArray(result.landings) ? result.landings : []);
     setPixelForm({
       name: integration.name || 'Pixel do Facebook / Meta',
       pixel_id: integration.pixel_id || '',
       additional_pixel_ids: additionalIds.join('\n'),
+      campaign_id: integration?.settings?.campaign_id || '',
       is_active: Boolean(integration.is_active),
       events: {
         ...defaultEvents,
@@ -273,7 +291,7 @@ export default function MasterIntegrationsPage() {
         return;
       }
 
-      setMessage('Pixels salvos com sucesso.');
+      setMessage('Pixels e landing vinculada salvos com sucesso.');
       await loadPixel();
     } catch {
       setMessage('Erro ao salvar Pixels.');
@@ -678,6 +696,19 @@ export default function MasterIntegrationsPage() {
                 <FormInput label="ID do Pixel principal" value={pixelForm.pixel_id} onChange={(value) => setPixelForm({ ...pixelForm, pixel_id: value.replace(/\D/g, '') })} placeholder="Ex: 889787523792519" />
 
                 <label className="grid gap-2">
+                  <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Landing page vinculada</span>
+                  <select className="premium-input" value={pixelForm.campaign_id} onChange={(event) => setPixelForm({ ...pixelForm, campaign_id: event.target.value })}>
+                    <option value="">Selecione uma landing ativa e publicada</option>
+                    {landings.map((landing) => (
+                      <option key={landing.id} value={landing.id}>{landing.name}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs font-bold text-zinc-400">
+                    O botão de teste abrirá exatamente a landing selecionada aqui.
+                  </span>
+                </label>
+
+                <label className="grid gap-2">
                   <span className="text-xs font-black uppercase tracking-wide text-zinc-500">IDs adicionais de Pixel</span>
                   <textarea className="premium-input min-h-32" value={pixelForm.additional_pixel_ids} onChange={(event) => setPixelForm({ ...pixelForm, additional_pixel_ids: event.target.value })} placeholder={`Um por linha ou separados por vírgula\n123456789012345\n987654321098765`} />
                   <span className="text-xs font-bold text-zinc-400">IDs válidos detectados: {allPixelIds.length}</span>
@@ -719,9 +750,15 @@ export default function MasterIntegrationsPage() {
                   <Save size={18} /> {savingPixel ? 'Salvando...' : 'Salvar Pixels'}
                 </button>
 
-                <a className="premium-button-secondary justify-center" href="/campanha/festival-seu-carro-agora" target="_blank">
-                  <CheckCircle2 size={18} /> Abrir landing para testar
-                </a>
+                {selectedLandingHref ? (
+                  <a className="premium-button-secondary justify-center" href={selectedLandingHref} target="_blank" rel="noreferrer">
+                    <CheckCircle2 size={18} /> Abrir landing selecionada
+                  </a>
+                ) : (
+                  <button className="premium-button-secondary justify-center opacity-50" type="button" disabled>
+                    <CheckCircle2 size={18} /> Selecione uma landing para testar
+                  </button>
+                )}
               </div>
             </section>
           </form>
