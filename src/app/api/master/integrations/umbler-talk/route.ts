@@ -19,6 +19,10 @@ function cleanText(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -93,10 +97,12 @@ function normalizeIntegration(integration: any) {
 }
 
 async function listActiveEvents(supabase: any) {
+  const today = todayIsoDate();
   const { data: events, error } = await supabase
     .from('events')
     .select('id, event_name, start_date, end_date, status')
     .eq('status', 'active')
+    .or(`end_date.is.null,end_date.gte.${today}`)
     .order('start_date', { ascending: true });
 
   if (error) throw error;
@@ -205,12 +211,16 @@ export async function POST(request: Request) {
     if (eventId) {
       const { data: event, error: eventError } = await supabase
         .from('events')
-        .select('id, event_name, status')
+        .select('id, event_name, status, start_date, end_date')
         .eq('id', eventId)
         .maybeSingle();
 
       if (eventError || !event || event.status !== 'active') {
         return NextResponse.json({ error: 'O evento selecionado não está ativo.' }, { status: 400 });
+      }
+
+      if (event.end_date && event.end_date < todayIsoDate()) {
+        return NextResponse.json({ error: 'O evento selecionado já foi encerrado.' }, { status: 400 });
       }
 
       const { count } = await supabase
