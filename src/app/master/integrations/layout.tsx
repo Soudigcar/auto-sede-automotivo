@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { MessageCircle, Plug, ShieldCheck, Webhook } from 'lucide-react';
+import { ListPlus, MessageCircle, Plug, ShieldCheck, Webhook } from 'lucide-react';
 
 const integrationSections = [
   {
@@ -7,6 +7,12 @@ const integrationSections = [
     label: 'Central de Integrações',
     description: 'Meta, WATI, Pixel e conexões técnicas',
     icon: Plug
+  },
+  {
+    href: '/master/integrations/meta-lead-forms',
+    label: 'Formulários Meta',
+    description: 'Vincular Form IDs aos eventos',
+    icon: ListPlus
   },
   {
     href: '/master/integrations/umbler-talk',
@@ -37,7 +43,7 @@ export default function MasterIntegrationsLayout({ children }: { children: React
             </div>
           </div>
 
-          <nav className="grid gap-2 md:grid-cols-3">
+          <nav className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
             {integrationSections.map((item) => {
               const Icon = item.icon;
               return (
