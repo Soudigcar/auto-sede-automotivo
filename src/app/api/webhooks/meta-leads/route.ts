@@ -393,7 +393,7 @@ export async function POST(request: Request) {
         }
 
         const inserted = await insertLeadBase(supabase, event, metaLead, mapping, eventRecord);
-        results.push({ leadgen_id: event.leadgen_id, form_id: mapping.form_id, event_id: eventRecord.id, ...inserted });
+        results.push({ leadgen_id: event.leadgen_id, ...inserted, form_id: mapping.form_id, event_id: eventRecord.id });
       } catch (error: any) {
         results.push({ leadgen_id: event.leadgen_id, status: 'error', error: error?.message || 'Erro ao processar lead.' });
       }
