@@ -45,6 +45,9 @@ function generateToken() {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+const fieldClassName = 'mt-2 w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-black placeholder:text-zinc-500 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-500/20';
+const compactFieldClassName = 'min-w-0 flex-1 rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-black placeholder:text-zinc-500 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-500/20';
+
 export default function UmblerTalkIntegrationPage() {
   const supabase = createClient();
   const [origin, setOrigin] = useState('');
@@ -218,7 +221,7 @@ export default function UmblerTalkIntegrationPage() {
                       const next = events.find((item) => item.id === event.target.value);
                       setForm((current) => ({ ...current, event_id: event.target.value, event_name: next?.event_name || '' }));
                     }}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-[#080d16] px-4 py-3 outline-none focus:border-red-500"
+                    className={`${fieldClassName} cursor-pointer appearance-auto`}
                   >
                     <option value="">Selecione um evento ativo</option>
                     {events.map((event) => (
@@ -241,13 +244,13 @@ export default function UmblerTalkIntegrationPage() {
 
                 <label>
                   <span className="text-sm font-bold text-zinc-300">Nome da origem</span>
-                  <input value={form.source_name} onChange={(event) => setForm((current) => ({ ...current, source_name: event.target.value }))} className="mt-2 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 outline-none focus:border-red-500" />
+                  <input value={form.source_name} onChange={(event) => setForm((current) => ({ ...current, source_name: event.target.value }))} className={fieldClassName} />
                 </label>
 
                 <label>
                   <span className="text-sm font-bold text-zinc-300">Token de segurança</span>
                   <div className="mt-2 flex gap-2">
-                    <input value={form.verify_token} onChange={(event) => setForm((current) => ({ ...current, verify_token: event.target.value }))} placeholder="Gere um token antes de ativar" className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 font-mono text-sm outline-none focus:border-red-500" />
+                    <input value={form.verify_token} onChange={(event) => setForm((current) => ({ ...current, verify_token: event.target.value }))} placeholder="Gere um token antes de ativar" className={`${compactFieldClassName} font-mono text-sm`} />
                     <button type="button" onClick={() => setForm((current) => ({ ...current, verify_token: generateToken() }))} className="rounded-2xl border border-white/10 bg-white/5 px-4 hover:bg-white/10" title="Gerar token"><KeyRound size={18} /></button>
                   </div>
                 </label>
@@ -255,7 +258,7 @@ export default function UmblerTalkIntegrationPage() {
                 <div>
                   <span className="text-sm font-bold text-zinc-300">URL para cadastrar na Umbler Talk</span>
                   <div className="mt-2 flex gap-2">
-                    <input readOnly value={webhookUrl} className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 font-mono text-xs text-zinc-300" />
+                    <input readOnly value={webhookUrl} className={`${compactFieldClassName} font-mono text-xs`} />
                     <button type="button" onClick={() => copy(webhookUrl)} className="rounded-2xl bg-red-600 px-4 hover:bg-red-500" title="Copiar URL"><Copy size={18} /></button>
                   </div>
                 </div>
