@@ -1,4 +1,8 @@
+'use client';
+
 import Link from 'next/link';
+import { useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 import { MessageCircle, Plug, ShieldCheck, Webhook } from 'lucide-react';
 
 const integrationSections = [
@@ -23,6 +27,38 @@ const integrationSections = [
 ];
 
 export default function MasterIntegrationsLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+
+  useEffect(() => {
+    if (pathname !== '/master/integrations') return;
+
+    const insertShortcut = () => {
+      const forms = Array.from(document.querySelectorAll('form'));
+      const metaForm = forms.find((form) => form.textContent?.includes('Facebook Lead Forms'));
+      if (!metaForm || metaForm.querySelector('[data-meta-form-mappings-link]')) return Boolean(metaForm);
+
+      const saveButton = Array.from(metaForm.querySelectorAll('button')).find((button) =>
+        button.textContent?.includes('Salvar Facebook Lead Forms')
+      );
+      if (!saveButton?.parentElement) return false;
+
+      const link = document.createElement('a');
+      link.href = '/master/integrations/meta-lead-forms';
+      link.dataset.metaFormMappingsLink = 'true';
+      link.className = 'premium-button-secondary justify-center';
+      link.textContent = 'Gerenciar formulários por evento';
+      saveButton.insertAdjacentElement('afterend', link);
+      return true;
+    };
+
+    if (insertShortcut()) return;
+    const observer = new MutationObserver(() => {
+      if (insertShortcut()) observer.disconnect();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [pathname]);
+
   return (
     <>
       <div className="border-b border-white/10 bg-[#071020] px-4 py-3 text-white md:px-7">
