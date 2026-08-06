@@ -21,7 +21,9 @@ import {
   Wrench
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import { OlxVehicleImportModal, type OlxImportInitial } from '@/components/marketplace/OlxVehicleImportModal';
 import { SiteVehicleImportModal, type SiteImportInitial } from '@/components/marketplace/SiteVehicleImportModal';
+import { StorePendingReviewDrawer } from '@/components/events/StorePendingReviewDrawer';
 
 type TabKey = 'overview' | 'vehicles' | 'pending' | 'problems' | 'stores' | 'leads';
 
@@ -171,6 +173,10 @@ export function EventWorkspace({ eventId }: { eventId: string }) {
   const [leadFilter, setLeadFilter] = useState('all');
   const [siteModalOpen, setSiteModalOpen] = useState(false);
   const [siteInitial, setSiteInitial] = useState<SiteImportInitial | null>(null);
+  const [olxModalOpen, setOlxModalOpen] = useState(false);
+  const [olxInitial, setOlxInitial] = useState<OlxImportInitial | null>(null);
+  const [reviewStore, setReviewStore] = useState<any | null>(null);
+  const [reviewDrawerOpen, setReviewDrawerOpen] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -227,9 +233,34 @@ export function EventWorkspace({ eventId }: { eventId: string }) {
     return matchesOrigin && matchesSearch;
   });
 
-  function openSiteReview(item: any) {
-    setSiteInitial({ submissionId: item.id, storeId: item.store?.id || '', url: item.url || '' });
-    setSiteModalOpen(true);
+  function openStoreReview(item: any) {
+    if (!item.store?.id) {
+      setMessage('Esta pendência ainda não está vinculada a uma loja.');
+      return;
+    }
+    setReviewStore(item.store);
+    setReviewDrawerOpen(true);
+  }
+
+  function openPendingEditor(item: any) {
+    if (item.source === 'olx') {
+      setOlxInitial({ submissionId: item.id, storeId: item.store?.id || '', url: item.url || '' });
+      setOlxModalOpen(true);
+      return;
+    }
+    if (item.source === 'website') {
+      setSiteInitial({ submissionId: item.id, storeId: item.store?.id || '', url: item.url || '' });
+      setSiteModalOpen(true);
+      return;
+    }
+    if (item.url) window.open(item.url, '_blank', 'noopener,noreferrer');
+  }
+
+  function completeReview() {
+    setSiteModalOpen(false);
+    setOlxModalOpen(false);
+    setReviewDrawerOpen(false);
+    void loadData();
   }
 
   if (loading && !data.event) {
@@ -242,6 +273,7 @@ export function EventWorkspace({ eventId }: { eventId: string }) {
 
   const event = data.event;
   const canOperate = !event.historical_mode;
+  const importStores = data.stores.map((store) => ({ id: store.id, name: store.name }));
 
   return <>
     <header className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
@@ -296,20 +328,38 @@ export function EventWorkspace({ eventId }: { eventId: string }) {
     <section className="mt-6">
       {activeTab === 'overview' ? <Overview data={data} onTab={setActiveTab} /> : null}
       {activeTab === 'vehicles' ? <Vehicles items={filteredVehicles} /> : null}
-      {activeTab === 'pending' ? <Pending items={filteredPending} canOperate={canOperate} onSiteReview={openSiteReview} /> : null}
+      {activeTab === 'pending' ? <Pending items={filteredPending} canOperate={canOperate} onConferir={openStoreReview} /> : null}
       {activeTab === 'problems' ? <Problems items={filteredProblems} /> : null}
       {activeTab === 'stores' ? <Stores items={filteredStores} /> : null}
       {activeTab === 'leads' ? <Leads items={filteredLeads} eventName={event.name} /> : null}
     </section>
 
+    <StorePendingReviewDrawer
+      open={reviewDrawerOpen}
+      store={reviewStore}
+      pending={data.pending}
+      vehicles={data.vehicles}
+      canOperate={canOperate}
+      onClose={() => setReviewDrawerOpen(false)}
+      onReview={openPendingEditor}
+    />
+
     <SiteVehicleImportModal
       open={siteModalOpen}
       eventId={event.id}
       eventName={event.name}
-      stores={data.stores.map((store) => ({ id: store.id, name: store.name }))}
+      stores={importStores}
       initial={siteInitial}
       onClose={() => setSiteModalOpen(false)}
-      onComplete={() => { setSiteModalOpen(false); void loadData(); }}
+      onComplete={completeReview}
+    />
+
+    <OlxVehicleImportModal
+      open={olxModalOpen}
+      stores={importStores}
+      initial={olxInitial}
+      onClose={() => setOlxModalOpen(false)}
+      onComplete={completeReview}
     />
   </>;
 }
@@ -328,9 +378,9 @@ function Vehicles({ items }: { items: any[] }) {
   return <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{items.map((item) => <article key={item.id} className="premium-card overflow-hidden"><div className="aspect-[16/9] bg-zinc-100">{item.image_url ? <img src={item.image_url} alt={item.name} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-zinc-400"><Car size={38} /></div>}</div><div className="p-5"><div className="flex flex-wrap gap-2"><StatusBadge value={item.status} /><span className={`rounded-full px-3 py-1 text-[11px] font-black ${item.portal_visible ? 'bg-blue-50 text-blue-700' : 'bg-zinc-100 text-zinc-600'}`}>{item.portal_visible ? 'EVENTO + PORTAL' : 'SOMENTE EVENTO'}</span></div><h3 className="mt-4 text-lg font-black text-zinc-950">{item.name}</h3><p className="mt-1 text-sm font-bold text-zinc-500">{item.store?.name || 'Loja não identificada'}</p><strong className="mt-4 block text-xl font-black text-zinc-950">{money(item.price)}</strong>{item.missing_fields?.length ? <p className="mt-3 text-xs font-bold text-amber-700">Pendências: {item.missing_fields.join(', ')}</p> : null}</div></article>)}</div>;
 }
 
-function Pending({ items, canOperate, onSiteReview }: { items: any[]; canOperate: boolean; onSiteReview: (item: any) => void }) {
+function Pending({ items, canOperate, onConferir }: { items: any[]; canOperate: boolean; onConferir: (item: any) => void }) {
   if (!items.length) return <EmptyState>Nenhuma pendência encontrada com esses filtros.</EmptyState>;
-  return <div className="space-y-4">{items.map((item) => <article key={`${item.kind}-${item.id}`} className="premium-card p-5"><div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><OriginBadge source={item.source} label={item.source_label} /><StatusBadge value={item.status} /></div><h3 className="mt-3 break-words text-lg font-black text-zinc-950">{item.title}</h3><p className="mt-2 text-sm font-bold text-zinc-500">Loja: {item.store?.name || 'Não identificada'} • Enviado por: {item.submitter || 'Não identificado'} • {dateText(item.created_at)}</p><div className="mt-3 flex flex-wrap gap-3 text-xs font-bold text-zinc-500"><span>{item.photos || 0} fotos encontradas</span>{item.missing_fields?.length ? <span className="text-amber-700">Faltando: {item.missing_fields.join(', ')}</span> : null}{item.error ? <span className="text-red-700">Erro: {item.error}</span> : null}</div></div><div className="flex flex-wrap gap-2">{item.source === 'website' ? <button type="button" className="premium-button-primary text-xs" disabled={!canOperate} onClick={() => onSiteReview(item)}><Globe2 size={15} /> Conferir site</button> : null}{item.source === 'olx' && item.url ? <a href={item.url} target="_blank" rel="noreferrer" className="premium-button-primary text-xs"><ExternalLink size={15} /> Abrir na OLX</a> : null}{item.source === 'file' && item.url ? <a href={item.url} target="_blank" rel="noreferrer" className="premium-button-secondary text-xs"><FileSpreadsheet size={15} /> Abrir arquivo</a> : null}</div></div>{item.source === 'olx' ? <p className="mt-4 rounded-2xl bg-violet-50 p-3 text-xs font-bold text-violet-700">Abra o anúncio no Chrome e use a extensão “Auto Controle — Importador OLX”. Os dados voltarão para o mesmo modal de revisão.</p> : null}</article>)}</div>;
+  return <div className="space-y-4">{items.map((item) => <article key={`${item.kind}-${item.id}`} className="premium-card p-5"><div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><OriginBadge source={item.source} label={item.source_label} /><StatusBadge value={item.status} /></div><h3 className="mt-3 break-words text-lg font-black text-zinc-950">{item.title}</h3><p className="mt-2 text-sm font-bold text-zinc-500">Loja: {item.store?.name || 'Não identificada'} • Enviado por: {item.submitter || 'Não identificado'} • {dateText(item.created_at)}</p><div className="mt-3 flex flex-wrap gap-3 text-xs font-bold text-zinc-500"><span>{item.photos || 0} fotos encontradas</span>{item.missing_fields?.length ? <span className="text-amber-700">Faltando: {item.missing_fields.join(', ')}</span> : null}{item.error ? <span className="text-red-700">Erro: {item.error}</span> : null}</div></div><div className="flex flex-wrap gap-2">{['website', 'olx'].includes(item.source) ? <button type="button" className="premium-button-primary text-xs" disabled={!canOperate || !item.store?.id} onClick={() => onConferir(item)}><FileClock size={15} /> Conferir</button> : null}{item.source === 'olx' && item.url ? <a href={item.url} target="_blank" rel="noreferrer" className="premium-button-secondary text-xs"><ExternalLink size={15} /> Abrir na OLX</a> : null}{item.source === 'file' && item.url ? <a href={item.url} target="_blank" rel="noreferrer" className="premium-button-secondary text-xs"><FileSpreadsheet size={15} /> Abrir arquivo</a> : null}</div></div>{item.source === 'olx' ? <p className="mt-4 rounded-2xl bg-violet-50 p-3 text-xs font-bold text-violet-700">O botão Conferir tenta ler o anúncio e abre a revisão completa. Se a OLX bloquear a leitura pelo servidor, use a extensão do Chrome para trazer dados e fotos.</p> : null}</article>)}</div>;
 }
 
 function Problems({ items }: { items: any[] }) {
