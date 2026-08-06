@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { BrainCircuit, Check, ImagePlus, Loader2, MessageCircle, Save, Send, Sparkles, UploadCloud, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { extractCanonicalOlxUrl } from '@/lib/olxSharedUrl';
+import { OlxBrowserImporterButton } from '@/components/marketplace/OlxBrowserImporterButton';
 
 export type OlxImportStore = { id: string; name?: string; store_name?: string };
 export type OlxImportInitial = { submissionId?: string; storeId?: string; url?: string };
@@ -340,16 +341,25 @@ export function OlxVehicleImportModal({ open, stores, initial, fixedStoreId, bro
       <div className="p-5 sm:p-7">
         {message ? <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-bold text-blue-800">{message}</div> : null}
 
-        <section className="grid gap-3 lg:grid-cols-[280px_1fr_auto]">
+        <section className="grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)_auto_auto]">
           <select className="premium-input" value={storeId} disabled={Boolean(fixedStoreId)} onChange={(event) => setStoreId(event.target.value)}>
             <option value="">Selecione a loja</option>
             {stores.map((store) => <option key={store.id} value={store.id}>{storeLabel(store)}</option>)}
           </select>
           <input className="premium-input" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="Cole o link ou use a extensão no anúncio aberto" aria-label="Link do anúncio OLX" readOnly={Boolean(browserPayload)} />
-          <button type="button" className="premium-button-primary justify-center" onClick={() => void importData()} disabled={loading || Boolean(action)}>
+          <button type="button" className="premium-button-primary justify-center whitespace-nowrap" onClick={() => void importData()} disabled={loading || Boolean(action)}>
             {loading ? <Loader2 className="animate-spin" size={17} /> : <UploadCloud size={17} />} {browserPayload ? 'Carregar dados do navegador' : 'Importar dados'}
           </button>
+          {!browserPayload ? <OlxBrowserImporterButton
+            storeId={storeId}
+            submissionId={submissionId}
+            sourceUrl={url}
+            disabled={loading || Boolean(action)}
+            onError={setMessage}
+          /> : null}
         </section>
+
+        {!browserPayload ? <p className="mt-3 text-xs font-bold text-zinc-500">Se a OLX bloquear a leitura automática com erro 403, use <strong>Importador OLX</strong>. Ele abre o fluxo pelo Chrome e preserva esta loja e esta pendência.</p> : null}
 
         {submissionId ? <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_430px]">
           <section className="grid gap-4 sm:grid-cols-2">
