@@ -22,9 +22,19 @@ function isValidUuid(value: string) {
 
 function isValidBirthDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) return false;
-  const min = new Date('1900-01-01T00:00:00Z');
+
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return false;
+  }
+
+  const min = new Date(Date.UTC(1900, 0, 1));
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   return date >= min && date <= today;
@@ -87,7 +97,7 @@ export async function POST(request: Request) {
     const name = clean(body.name, 160);
     const phone = clean(body.phone, 40);
     const cpf = clean(body.cpf, 30);
-    const birthDate = clean(body.birth_date, 10);
+    const birthDate = typeof body.birth_date === 'string' ? body.birth_date.trim() : '';
     const email = clean(body.email, 180).toLowerCase();
     const campaignId = clean(body.campaign_id, 80);
     const vehicleId = clean(body.vehicle_id, 80);
@@ -216,9 +226,20 @@ export async function POST(request: Request) {
         updated_at: new Date().toISOString()
       };
 
-      await supabase
+      const { error: commercialDetailsError } = await supabase
         .from('lead_commercial_details')
         .upsert(commercialDetails, { onConflict: 'lead_id' });
+
+      if (commercialDetailsError) {
+        console.error('Failed to persist lead commercial details', {
+          lead_id: routedLeadId,
+          code: commercialDetailsError.code
+        });
+        return NextResponse.json(
+          { error: 'Não foi possível salvar os dados comerciais da simulação.' },
+          { status: 500 }
+        );
+      }
     }
 
     return NextResponse.json({
