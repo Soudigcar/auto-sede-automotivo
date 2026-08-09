@@ -1,0 +1,2 @@
+drop policy if exists event_vehicle_assignments_public_select on public.event_vehicle_assignments;
+
