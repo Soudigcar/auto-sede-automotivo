@@ -20,6 +20,26 @@ function isValidUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
+function isValidBirthDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return false;
+  }
+
+  const min = new Date(Date.UTC(1900, 0, 1));
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  return date >= min && date <= today;
+}
+
 function metadataValue(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
@@ -77,6 +97,7 @@ export async function POST(request: Request) {
     const name = clean(body.name, 160);
     const phone = clean(body.phone, 40);
     const cpf = clean(body.cpf, 30);
+    const birthDate = typeof body.birth_date === 'string' ? body.birth_date.trim() : '';
     const email = clean(body.email, 180).toLowerCase();
     const campaignId = clean(body.campaign_id, 80);
     const vehicleId = clean(body.vehicle_id, 80);
@@ -86,6 +107,10 @@ export async function POST(request: Request) {
 
     if (name.length < 3 || !phone) {
       return NextResponse.json({ error: 'Nome e telefone são obrigatórios.' }, { status: 400 });
+    }
+
+    if (!isValidBirthDate(birthDate)) {
+      return NextResponse.json({ error: 'Informe uma data de nascimento válida.' }, { status: 400 });
     }
 
     if (!isValidUuid(campaignId) || !isValidUuid(vehicleId)) {
@@ -171,6 +196,7 @@ export async function POST(request: Request) {
       p_notes: clean(body.notes, 1_500),
       p_metadata: {
         ...metadataValue(body.metadata),
+        birth_date: birthDate,
         source: 'event_landing_simulator'
       }
     });
@@ -181,15 +207,49 @@ export async function POST(request: Request) {
     }
 
     const result = data && typeof data === 'object' ? data as Record<string, unknown> : {};
+    const routedLeadId = clean(result.routed_lead_id, 80);
+    const assignedStoreId = clean(result.assigned_store_id, 80);
+
+    if (isValidUuid(routedLeadId) && isValidUuid(assignedStoreId)) {
+      const commercialDetails = {
+        lead_id: routedLeadId,
+        store_id: assignedStoreId,
+        cpf: cpf.replace(/\D/g, '').slice(0, 11) || null,
+        birth_date: birthDate,
+        payment_type: 'financed',
+        negotiated_value: simulation.vehiclePrice,
+        installment_count: installments,
+        has_down_payment: simulation.downPayment > 0,
+        down_payment_value: simulation.downPayment,
+        financed_amount: simulation.financedAmount,
+        installment_value: simulation.estimatedInstallment,
+        updated_at: new Date().toISOString()
+      };
+
+      const { error: commercialDetailsError } = await supabase
+        .from('lead_commercial_details')
+        .upsert(commercialDetails, { onConflict: 'lead_id' });
+
+      if (commercialDetailsError) {
+        console.error('Failed to persist lead commercial details', {
+          lead_id: routedLeadId,
+          code: commercialDetailsError.code
+        });
+        return NextResponse.json(
+          { error: 'Não foi possível salvar os dados comerciais da simulação.' },
+          { status: 500 }
+        );
+      }
+    }
 
     return NextResponse.json({
       success: result.success === true,
       duplicate: result.duplicate === true,
       queued_for_manual_assignment: result.queued_for_manual_assignment === true,
       event_id: clean(result.event_id, 80) || null,
-      assigned_store_id: clean(result.assigned_store_id, 80) || null,
+      assigned_store_id: assignedStoreId || null,
       assigned_store_name: clean(result.assigned_store_name, 180),
-      routed_lead_id: clean(result.routed_lead_id, 80) || null,
+      routed_lead_id: routedLeadId || null,
       routing_strategy: clean(result.routing_strategy, 80) || 'event_round_robin',
       simulation
     });
