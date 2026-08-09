@@ -28,6 +28,14 @@ function formatCpf(value?: string) {
   return value;
 }
 
+function formatBirthDate(value?: unknown) {
+  if (typeof value !== 'string') return '-';
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return '-';
+  const [, year, month, day] = match;
+  return `${day}/${month}/${year}`;
+}
+
 function assignedStoreName(lead: any) {
   return lead.assigned_store_name || lead.metadata?.routing?.assigned_store_name || '';
 }
@@ -351,6 +359,7 @@ export default function MasterBasePage() {
                         <Info label="Evento" value={leadEvent?.event_name || 'Sem evento / campanha geral'} />
                         <Info label="Campanha" value={lead.campaign_name || '-'} />
                         <Info label="CPF completo" value={formatCpf(lead.cpf)} />
+                        <Info label="Data de nascimento" value={formatBirthDate(lead.metadata?.birth_date)} />
                         <Info label="Loja enviada" value={storeName || 'Não enviado'} />
                         <Info label="Valor veículo" value={money(lead.vehicle_price)} />
                         <Info label="Entrada" value={money(lead.down_payment)} />
