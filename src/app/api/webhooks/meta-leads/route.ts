@@ -160,7 +160,7 @@ async function ingest(supabase: any, settings: any, event: any) {
 
   const { data: base, error: baseError } = await supabase.from('leads_base').insert({
     event_id: eventRecord.id, name: lead.name, phone, cpf: digits(lead.cpf), email: lead.email,
-    source: 'Facebook Lead Ads', campaign_id: metaLead.campaign_id || event.campaign_id || null,
+    source: 'Facebook Lead Ads', campaign_id: null,
     campaign_name: metaLead.campaign_name || mapping.name || 'Facebook Lead Form', vehicle_id: null, vehicle_name: lead.vehicle,
     vehicle_price: 0, down_payment: 0, financed_amount: 0, installments: 0, estimated_installment: 0, interest_rate: 1.89,
     status: 'Novo lead', assigned_store_id: store.store_id, assigned_store_name: store.store_name || null, assigned_at: assignedAt,
