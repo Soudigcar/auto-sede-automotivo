@@ -4,149 +4,92 @@ import { createClient } from '@supabase/supabase-js';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-const defaultSettings = {
-  app_id: '',
+const defaults = {
   page_id: '',
-  form_id: '',
-  form_mappings: [],
   page_access_token: '',
   verify_token: 'auto-controle-meta-leads-2026',
   graph_version: 'v20.0',
-  routing_mode: 'round_robin'
+  form_mappings: [] as any[]
 };
 
-function cleanText(value: unknown) {
-  return String(value || '').replace(/\s+/g, ' ').trim();
-}
+const clean = (value: unknown) => String(value || '').replace(/\s+/g, ' ').trim();
+const digits = (value: unknown) => clean(value).replace(/\D/g, '');
+const today = () => new Date().toISOString().slice(0, 10);
 
-function digits(value: unknown) {
-  return cleanText(value).replace(/\D/g, '');
-}
-
-function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-  if (!supabaseUrl || !serviceKey) throw new Error('Supabase Service Role não configurada no servidor.');
-
-  return createClient(supabaseUrl, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
+function admin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!url || !key) throw new Error('Supabase Service Role não configurada no servidor.');
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
 function normalizeKey(value: unknown) {
-  return cleanText(value)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_|_$/g, '');
+  return clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 }
 
-async function getIntegration(supabase: any) {
-  const { data } = await supabase
-    .from('marketing_integrations')
-    .select('*')
-    .eq('integration_type', 'meta_leads')
-    .maybeSingle();
-
-  return {
-    ...(data || {}),
-    settings: { ...defaultSettings, ...(data?.settings || {}) }
-  };
+async function integration(supabase: any) {
+  const { data } = await supabase.from('marketing_integrations').select('*').eq('integration_type', 'meta_leads').maybeSingle();
+  return { ...(data || {}), settings: { ...defaults, ...(data?.settings || {}) } };
 }
 
-function normalizeMappings(value: unknown) {
-  if (!Array.isArray(value)) return [];
-  return value.map((item: any) => ({
-    name: cleanText(item?.name),
-    form_id: digits(item?.form_id),
-    event_id: cleanText(item?.event_id),
-    event_name: cleanText(item?.event_name),
-    is_active: Boolean(item?.is_active)
+function mappings(settings: any) {
+  if (!Array.isArray(settings?.form_mappings)) return [];
+  return settings.form_mappings.map((item: any) => ({
+    name: clean(item?.name), form_id: digits(item?.form_id), event_id: clean(item?.event_id), event_name: clean(item?.event_name), is_active: Boolean(item?.is_active)
   })).filter((item: any) => item.form_id);
 }
 
-function findMapping(settings: any, event: any, metaLead?: any) {
+function mappingFor(settings: any, event: any, metaLead?: any) {
   const formId = digits(event?.form_id || metaLead?.form_id);
-  const mappings = normalizeMappings(settings?.form_mappings);
-  return mappings.find((item: any) => item.is_active && item.form_id === formId) || null;
+  return mappings(settings).find((item: any) => item.is_active && item.form_id === formId) || null;
 }
 
-async function validateEvent(supabase: any, eventId: string) {
+async function validEvent(supabase: any, eventId: string) {
   if (!eventId) return null;
-  const { data, error } = await supabase
-    .from('events')
-    .select('id, name, status, start_date, end_date')
-    .eq('id', eventId)
-    .maybeSingle();
-
-  if (error || !data) return null;
-  if (data.status !== 'active') return null;
-  if (data.end_date && data.end_date < todayIsoDate()) return null;
-  return data;
+  const { data, error } = await supabase.from('events').select('id,event_name,status,start_date,end_date').eq('id', eventId).maybeSingle();
+  if (error || !data || data.status !== 'active' || (data.end_date && data.end_date < today())) return null;
+  return { ...data, name: data.event_name };
 }
 
-function getFieldMap(metaLead: any) {
+function extract(metaLead: any) {
   const map: Record<string, string> = {};
-  const fields = Array.isArray(metaLead?.field_data) ? metaLead.field_data : [];
-  fields.forEach((field: any) => {
+  for (const field of Array.isArray(metaLead?.field_data) ? metaLead.field_data : []) {
     const key = normalizeKey(field?.name);
-    const values = Array.isArray(field?.values) ? field.values : [];
-    const value = cleanText(values[0]);
+    const value = clean(Array.isArray(field?.values) ? field.values[0] : '');
     if (key && value) map[key] = value;
-  });
-  return map;
-}
-
-function pickField(fieldMap: Record<string, string>, candidates: string[]) {
-  for (const candidate of candidates) {
-    const key = normalizeKey(candidate);
-    if (fieldMap[key]) return fieldMap[key];
   }
-  return '';
+  const pick = (keys: string[]) => keys.map(normalizeKey).map((key) => map[key]).find(Boolean) || '';
+  const first = pick(['first_name', 'primeiro_nome']);
+  const last = pick(['last_name', 'sobrenome']);
+  return {
+    name: pick(['full_name','fullname','nome_completo','nome','name']) || [first,last].filter(Boolean).join(' ') || 'Lead Facebook',
+    phone: pick(['phone_number','phone','telefone','celular','whatsapp','whatsapp_number','numero_do_whatsapp','numero_whatsapp','numero_de_telefone']),
+    email: pick(['email','e_mail','e-mail']),
+    cpf: pick(['cpf','numero_do_cpf']),
+    vehicle: pick(['vehicle','veiculo','carro','modelo','modelo_de_interesse','veiculo_de_interesse','carro_de_interesse']),
+    city: pick(['city','cidade']),
+    fieldMap: map
+  };
 }
 
-function extractLead(metaLead: any) {
-  const fieldMap = getFieldMap(metaLead);
-  const firstName = pickField(fieldMap, ['first_name', 'primeiro_nome']);
-  const lastName = pickField(fieldMap, ['last_name', 'sobrenome']);
-  const name = pickField(fieldMap, ['full_name', 'fullname', 'nome_completo', 'nome', 'name']) || [firstName, lastName].filter(Boolean).join(' ') || 'Lead Facebook';
-  const phone = pickField(fieldMap, ['phone_number', 'phone', 'telefone', 'celular', 'whatsapp', 'whatsapp_number', 'numero_do_whatsapp', 'numero_whatsapp', 'numero_de_telefone']);
-  const email = pickField(fieldMap, ['email', 'e_mail', 'e-mail']);
-  const cpf = pickField(fieldMap, ['cpf', 'numero_do_cpf']);
-  const vehicle = pickField(fieldMap, ['vehicle', 'veiculo', 'carro', 'modelo', 'modelo_de_interesse', 'veiculo_de_interesse', 'carro_de_interesse']);
-  const city = pickField(fieldMap, ['city', 'cidade']);
-  return { name, phone, email, cpf, vehicle, city, fieldMap };
-}
-
-async function graphGetWithToken(path: string, token: string, graphVersion: string, params: Record<string, string> = {}) {
-  const url = new URL(`https://graph.facebook.com/${graphVersion}/${path.replace(/^\//, '')}`);
-  url.searchParams.set('access_token', token);
-  Object.entries(params).forEach(([key, value]) => { if (value) url.searchParams.set(key, value); });
+async function pageToken(settings: any) {
+  const version = clean(settings.graph_version) || defaults.graph_version;
+  const saved = clean(settings.page_access_token);
+  const pageId = clean(settings.page_id);
+  if (!saved || !pageId) return saved;
+  const url = new URL(`https://graph.facebook.com/${version}/${pageId}`);
+  url.searchParams.set('fields', 'id,name,access_token');
+  url.searchParams.set('access_token', saved);
   const response = await fetch(url.toString(), { cache: 'no-store' });
-  return { ok: response.ok, data: await response.json() };
+  const data = await response.json();
+  return response.ok && data?.access_token ? clean(data.access_token) : saved;
 }
 
-async function resolvePageAccessToken(settings: any) {
-  const graphVersion = cleanText(settings.graph_version) || defaultSettings.graph_version;
-  const savedToken = cleanText(settings.page_access_token);
-  const pageId = cleanText(settings.page_id);
-  if (!savedToken || !pageId) return savedToken;
-
-  const pageCheck = await graphGetWithToken(`/${pageId}`, savedToken, graphVersion, { fields: 'id,name,access_token' });
-  return pageCheck.ok && pageCheck.data?.access_token ? cleanText(pageCheck.data.access_token) : savedToken;
-}
-
-async function fetchMetaLead(leadgenId: string, settings: any) {
-  const graphVersion = cleanText(settings.graph_version) || defaultSettings.graph_version;
-  const token = await resolvePageAccessToken(settings);
+async function fetchLead(id: string, settings: any) {
+  const token = await pageToken(settings);
   if (!token) throw new Error('Page Access Token não configurado.');
-
-  const url = new URL(`https://graph.facebook.com/${graphVersion}/${leadgenId}`);
+  const version = clean(settings.graph_version) || defaults.graph_version;
+  const url = new URL(`https://graph.facebook.com/${version}/${id}`);
   url.searchParams.set('fields', 'created_time,id,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,form_id,field_data');
   url.searchParams.set('access_token', token);
   const response = await fetch(url.toString(), { cache: 'no-store' });
@@ -155,200 +98,95 @@ async function fetchMetaLead(leadgenId: string, settings: any) {
   return data;
 }
 
-function extractLeadgenEvents(body: any) {
+function webhookEvents(body: any) {
   const events: any[] = [];
-  const entries = Array.isArray(body?.entry) ? body.entry : [];
-  entries.forEach((entry: any) => {
-    const changes = Array.isArray(entry?.changes) ? entry.changes : [];
-    changes.forEach((change: any) => {
-      if (change?.field !== 'leadgen') return;
+  for (const entry of Array.isArray(body?.entry) ? body.entry : []) {
+    for (const change of Array.isArray(entry?.changes) ? entry.changes : []) {
+      if (change?.field !== 'leadgen') continue;
       const value = change?.value || {};
-      const leadgenId = cleanText(value.leadgen_id || value.lead_id || value.id);
-      if (!leadgenId) return;
-      events.push({
-        leadgen_id: leadgenId,
-        page_id: cleanText(value.page_id || entry.id),
-        form_id: digits(value.form_id),
-        ad_id: cleanText(value.ad_id),
-        campaign_id: cleanText(value.campaign_id),
-        created_time: value.created_time || null,
-        raw_change: change,
-        raw_entry: entry
-      });
-    });
-  });
+      const leadgenId = clean(value.leadgen_id || value.lead_id || value.id);
+      if (!leadgenId) continue;
+      events.push({ leadgen_id: leadgenId, page_id: clean(value.page_id || entry.id), form_id: digits(value.form_id), ad_id: clean(value.ad_id), campaign_id: clean(value.campaign_id), created_time: value.created_time || null });
+    }
+  }
   return events;
 }
 
-async function pickNextStoreByEvent(supabase: any, eventId: string, formId: string) {
-  const { data, error } = await supabase.rpc('pick_next_lead_store_by_event', {
-    p_event_id: eventId,
-    p_routing_key: `facebook_lead_form:${formId}`
-  });
-  if (error) throw new Error(`Erro ao escolher loja do evento: ${error.message}`);
-  return Array.isArray(data) && data.length ? data[0] : null;
-}
+async function ingest(supabase: any, settings: any, event: any) {
+  let mapping = mappingFor(settings, event);
+  if (!mapping) return { leadgen_id: event.leadgen_id, form_id: event.form_id || null, status: 'ignored_form_not_mapped' };
+  const eventRecord = await validEvent(supabase, mapping.event_id);
+  if (!eventRecord) return { leadgen_id: event.leadgen_id, form_id: mapping.form_id, status: 'ignored_event_inactive' };
 
-async function routeLeadToStore(supabase: any, eventRecord: any, mapping: any, metaLead: any, extracted: any, normalizedPhone: string) {
-  const selectedStore = await pickNextStoreByEvent(supabase, eventRecord.id, mapping.form_id);
-  if (!selectedStore?.store_id) {
-    return { routedLeadId: null, assignedStoreId: null, assignedStoreName: '', assignedAt: null, routingStrategy: 'facebook_event_unassigned_no_store' };
-  }
+  const duplicateMetadata = { meta_leadgen_id: event.leadgen_id };
+  const { data: existing } = await supabase.from('leads_base').select('id,routed_lead_id,assigned_store_id').contains('metadata', duplicateMetadata).limit(1);
+  if (existing?.length) return { leadgen_id: event.leadgen_id, id: existing[0].id, status: 'duplicate' };
+
+  const metaLead = await fetchLead(event.leadgen_id, settings);
+  mapping = mappingFor(settings, event, metaLead);
+  if (!mapping) return { leadgen_id: event.leadgen_id, status: 'ignored_form_not_mapped' };
+  const lead = extract(metaLead);
+  const phone = digits(lead.phone);
+  const { data: picked, error: pickError } = await supabase.rpc('pick_next_lead_store_by_event', { p_event_id: eventRecord.id, p_routing_key: `facebook_lead_form:${mapping.form_id}` });
+  if (pickError) throw new Error(`Erro ao escolher loja do evento: ${pickError.message}`);
+  const store = Array.isArray(picked) && picked.length ? picked[0] : null;
+  if (!store?.store_id) throw new Error('Nenhuma loja ativa disponível para o evento.');
 
   const assignedAt = new Date().toISOString();
-  const { data: routedLead, error } = await supabase
-    .from('leads')
-    .insert({
-      event_id: eventRecord.id,
-      customer_name: extracted.name,
-      customer_phone: normalizedPhone,
-      customer_bank: '',
-      interested_vehicle: extracted.vehicle || '',
-      vehicle_category_interest: '',
-      origin: 'Facebook Lead Ads',
-      assigned_store_id: selectedStore.store_id,
-      status: 'new_lead',
-      notes: [
-        'Lead criado automaticamente pelo formulário do Facebook/Instagram.',
-        `Formulário: ${mapping.name || mapping.form_id}.`,
-        `Evento: ${eventRecord.name}.`,
-        metaLead.campaign_name ? `Campanha Meta: ${metaLead.campaign_name}.` : '',
-        extracted.vehicle ? `Interesse informado: ${extracted.vehicle}.` : '',
-        extracted.city ? `Cidade: ${extracted.city}.` : ''
-      ].filter(Boolean).join(' ')
-    })
-    .select('id')
-    .single();
+  const { data: routed, error: routeError } = await supabase.from('leads').insert({
+    event_id: eventRecord.id,
+    customer_name: lead.name,
+    customer_phone: phone,
+    customer_bank: '',
+    interested_vehicle: lead.vehicle || '',
+    vehicle_category_interest: '',
+    origin: 'Facebook Lead Ads',
+    assigned_store_id: store.store_id,
+    status: 'new_lead',
+    notes: ['Lead criado automaticamente pelo formulário do Facebook/Instagram.', `Formulário: ${mapping.name || mapping.form_id}.`, `Evento: ${eventRecord.name}.`, metaLead.campaign_name ? `Campanha Meta: ${metaLead.campaign_name}.` : '', lead.vehicle ? `Interesse informado: ${lead.vehicle}.` : '', lead.city ? `Cidade: ${lead.city}.` : ''].filter(Boolean).join(' ')
+  }).select('id').single();
+  if (routeError) throw new Error(`Erro ao criar lead no pipeline da loja: ${routeError.message}`);
 
-  if (error) throw new Error(`Erro ao criar lead no pipeline da loja: ${error.message}`);
-  return {
-    routedLeadId: routedLead?.id || null,
-    assignedStoreId: selectedStore.store_id,
-    assignedStoreName: selectedStore.store_name || '',
-    assignedAt,
-    routingStrategy: 'facebook_event_round_robin'
-  };
-}
-
-async function insertLeadBase(supabase: any, event: any, metaLead: any, mapping: any, eventRecord: any) {
-  const extracted = extractLead(metaLead);
-  const normalizedPhone = digits(extracted.phone);
-  const duplicateMetadata = { meta_leadgen_id: event.leadgen_id };
-
-  const { data: existing } = await supabase
-    .from('leads_base')
-    .select('id, phone, event_id, assigned_store_id, assigned_store_name, routed_lead_id, metadata')
-    .contains('metadata', duplicateMetadata)
-    .limit(1);
-
-  if (existing?.length) {
-    const current = existing[0];
-    return {
-      status: 'duplicate',
-      id: current.id,
-      phone: current.phone || normalizedPhone || null,
-      event_id: current.event_id || eventRecord.id,
-      assigned_store_id: current.assigned_store_id || null,
-      routed_lead_id: current.routed_lead_id || null
-    };
-  }
-
-  const route = await routeLeadToStore(supabase, eventRecord, mapping, metaLead, extracted, normalizedPhone);
   const metadata = {
-    source: 'facebook_lead_ads',
-    event_id: eventRecord.id,
-    event_name: eventRecord.name,
-    form_mapping_name: mapping.name || null,
-    meta_leadgen_id: event.leadgen_id,
-    meta_page_id: event.page_id || metaLead.page_id || null,
-    meta_form_id: mapping.form_id,
-    meta_ad_id: event.ad_id || metaLead.ad_id || null,
-    meta_ad_name: metaLead.ad_name || null,
-    meta_adset_id: metaLead.adset_id || null,
-    meta_adset_name: metaLead.adset_name || null,
-    meta_campaign_id: event.campaign_id || metaLead.campaign_id || null,
-    meta_campaign_name: metaLead.campaign_name || null,
-    meta_created_time: metaLead.created_time || event.created_time || null,
-    city: extracted.city || null,
-    field_map: extracted.fieldMap,
-    routing: {
-      strategy: route.routingStrategy,
-      assigned_store_id: route.assignedStoreId,
-      assigned_store_name: route.assignedStoreName,
-      assigned_at: route.assignedAt,
-      routed_lead_id: route.routedLeadId
-    },
-    raw_meta_lead: metaLead,
-    raw_webhook_event: event
+    source: 'facebook_lead_ads', event_id: eventRecord.id, event_name: eventRecord.name, form_mapping_name: mapping.name || null,
+    meta_leadgen_id: event.leadgen_id, meta_page_id: event.page_id || null, meta_form_id: mapping.form_id,
+    meta_ad_id: event.ad_id || metaLead.ad_id || null, meta_ad_name: metaLead.ad_name || null,
+    meta_adset_id: metaLead.adset_id || null, meta_adset_name: metaLead.adset_name || null,
+    meta_campaign_id: event.campaign_id || metaLead.campaign_id || null, meta_campaign_name: metaLead.campaign_name || null,
+    meta_created_time: metaLead.created_time || event.created_time || null, city: lead.city || null, field_map: lead.fieldMap,
+    routing: { strategy: 'facebook_event_round_robin', assigned_store_id: store.store_id, assigned_store_name: store.store_name, assigned_at: assignedAt, routed_lead_id: routed?.id || null },
+    raw_meta_lead: metaLead
   };
 
-  const payload = {
-    event_id: eventRecord.id,
-    name: extracted.name,
-    phone: normalizedPhone,
-    cpf: digits(extracted.cpf),
-    email: extracted.email,
-    source: 'Facebook Lead Ads',
-    campaign_id: metaLead.campaign_id || event.campaign_id || null,
-    campaign_name: metaLead.campaign_name || mapping.name || 'Facebook Lead Form',
-    vehicle_id: null,
-    vehicle_name: extracted.vehicle,
-    vehicle_price: 0,
-    down_payment: 0,
-    financed_amount: 0,
-    installments: 0,
-    estimated_installment: 0,
-    interest_rate: 1.89,
-    status: 'Novo lead',
-    assigned_store_id: route.assignedStoreId,
-    assigned_store_name: route.assignedStoreName || null,
-    assigned_at: route.assignedAt,
-    routed_lead_id: route.routedLeadId,
-    routing_strategy: route.routingStrategy,
-    notes: [
-      'Lead recebido automaticamente pelo formulário do Facebook/Instagram.',
-      `Formulário: ${mapping.name || mapping.form_id}.`,
-      `Evento: ${eventRecord.name}.`,
-      extracted.vehicle ? `Interesse informado: ${extracted.vehicle}.` : '',
-      extracted.city ? `Cidade: ${extracted.city}.` : ''
-    ].filter(Boolean).join(' '),
-    metadata,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  };
+  const { data: base, error: baseError } = await supabase.from('leads_base').insert({
+    event_id: eventRecord.id, name: lead.name, phone, cpf: digits(lead.cpf), email: lead.email,
+    source: 'Facebook Lead Ads', campaign_id: metaLead.campaign_id || event.campaign_id || null,
+    campaign_name: metaLead.campaign_name || mapping.name || 'Facebook Lead Form', vehicle_id: null, vehicle_name: lead.vehicle,
+    vehicle_price: 0, down_payment: 0, financed_amount: 0, installments: 0, estimated_installment: 0, interest_rate: 1.89,
+    status: 'Novo lead', assigned_store_id: store.store_id, assigned_store_name: store.store_name || null, assigned_at: assignedAt,
+    routed_lead_id: routed?.id || null, routing_strategy: 'facebook_event_round_robin',
+    notes: ['Lead recebido automaticamente pelo formulário do Facebook/Instagram.', `Formulário: ${mapping.name || mapping.form_id}.`, `Evento: ${eventRecord.name}.`, lead.vehicle ? `Interesse informado: ${lead.vehicle}.` : '', lead.city ? `Cidade: ${lead.city}.` : ''].filter(Boolean).join(' '),
+    metadata, created_at: assignedAt, updated_at: assignedAt
+  }).select('id').single();
 
-  const { data, error } = await supabase.from('leads_base').insert(payload).select('id').single();
-  if (error) {
-    if (route.routedLeadId) await supabase.from('leads').delete().eq('id', route.routedLeadId);
-    throw error;
+  if (baseError) {
+    if (routed?.id) await supabase.from('leads').delete().eq('id', routed.id);
+    throw baseError;
   }
-
-  return {
-    status: 'inserted',
-    id: data?.id || null,
-    phone: normalizedPhone || null,
-    event_id: eventRecord.id,
-    assigned_store_id: route.assignedStoreId,
-    assigned_store_name: route.assignedStoreName,
-    routed_lead_id: route.routedLeadId,
-    routing_strategy: route.routingStrategy
-  };
+  return { leadgen_id: event.leadgen_id, id: base?.id || null, status: 'inserted', form_id: mapping.form_id, event_id: eventRecord.id, assigned_store_id: store.store_id, routed_lead_id: routed?.id || null };
 }
 
 export async function GET(request: Request) {
   try {
-    const supabase = getAdminClient();
-    const integration = await getIntegration(supabase);
-    const settings = integration.settings || {};
+    const supabase = admin();
+    const current = await integration(supabase);
+    const settings = current.settings || {};
     const url = new URL(request.url);
     const mode = url.searchParams.get('hub.mode');
     const token = url.searchParams.get('hub.verify_token');
     const challenge = url.searchParams.get('hub.challenge');
-    const verifyToken = cleanText(settings.verify_token) || cleanText(process.env.META_LEADS_VERIFY_TOKEN) || defaultSettings.verify_token;
-
-    if (mode === 'subscribe' && token === verifyToken && challenge) {
-      return new Response(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
-    }
+    const verify = clean(settings.verify_token) || clean(process.env.META_LEADS_VERIFY_TOKEN) || defaults.verify_token;
+    if (mode === 'subscribe' && token === verify && challenge) return new Response(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
     return NextResponse.json({ error: 'Token de verificação inválido.' }, { status: 403 });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Erro ao verificar webhook.' }, { status: 500 });
@@ -357,48 +195,23 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const supabase = getAdminClient();
-    const integration = await getIntegration(supabase);
-    if (!integration?.is_active) return NextResponse.json({ success: true, ignored: true, reason: 'integration_inactive' });
-
-    const settings = integration.settings || {};
-    const body = await request.json();
-    const events = extractLeadgenEvents(body);
+    const supabase = admin();
+    const current = await integration(supabase);
+    if (!current?.is_active) return NextResponse.json({ success: true, ignored: true, reason: 'integration_inactive' });
+    const settings = current.settings || {};
+    const events = webhookEvents(await request.json());
     const results: any[] = [];
-
     for (const event of events) {
       try {
         if (settings.page_id && event.page_id && settings.page_id !== event.page_id) {
           results.push({ leadgen_id: event.leadgen_id, status: 'ignored_page' });
           continue;
         }
-
-        let mapping = findMapping(settings, event);
-        if (!mapping) {
-          results.push({ leadgen_id: event.leadgen_id, form_id: event.form_id || null, status: 'ignored_form_not_mapped' });
-          continue;
-        }
-
-        const eventRecord = await validateEvent(supabase, mapping.event_id);
-        if (!eventRecord) {
-          results.push({ leadgen_id: event.leadgen_id, form_id: mapping.form_id, status: 'ignored_event_inactive' });
-          continue;
-        }
-
-        const metaLead = await fetchMetaLead(event.leadgen_id, settings);
-        mapping = findMapping(settings, event, metaLead);
-        if (!mapping) {
-          results.push({ leadgen_id: event.leadgen_id, status: 'ignored_form_not_mapped' });
-          continue;
-        }
-
-        const inserted = await insertLeadBase(supabase, event, metaLead, mapping, eventRecord);
-        results.push({ leadgen_id: event.leadgen_id, ...inserted, form_id: mapping.form_id, event_id: eventRecord.id });
+        results.push(await ingest(supabase, settings, event));
       } catch (error: any) {
         results.push({ leadgen_id: event.leadgen_id, status: 'error', error: error?.message || 'Erro ao processar lead.' });
       }
     }
-
     return NextResponse.json({ success: true, processed: results.length, results });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Erro ao processar webhook da Meta.' }, { status: 500 });
