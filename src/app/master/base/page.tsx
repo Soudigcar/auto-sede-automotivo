@@ -278,7 +278,35 @@ export default function MasterBasePage() {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <section className="premium-card mt-3 p-3 md:p-4">
+            <div className="grid gap-2 lg:grid-cols-2 2xl:grid-cols-[minmax(260px,1.45fr)_minmax(180px,1fr)_minmax(150px,0.75fr)_minmax(150px,0.75fr)_minmax(180px,0.9fr)]">
+              <label className="relative min-w-0">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
+                <input className="premium-input min-h-10 py-2 pl-9 text-sm" placeholder="Buscar nome, telefone, CPF, evento, campanha, veículo ou loja" value={query} onChange={(event) => setQuery(event.target.value)} />
+              </label>
+
+              <div className="min-w-0 [&_select]:min-h-10 [&_select]:py-2 [&_select]:text-sm">
+                <EventScopeSelect events={events} value={eventFilter} onChange={changeEventScope} allLabel="Todos os leads" />
+              </div>
+
+              <select className="premium-input min-h-10 py-2 text-sm" value={status} onChange={(event) => setStatus(event.target.value)}>
+                <option value="all">Todos os status</option>
+                {statuses.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+
+              <select className="premium-input min-h-10 py-2 text-sm" value={source} onChange={(event) => setSource(event.target.value)}>
+                <option value="all">Todas as origens</option>
+                {sources.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+
+              <select className="premium-input min-h-10 py-2 text-sm" value={storeFilter} onChange={(event) => setStoreFilter(event.target.value)}>
+                <option value="all">Todas as lojas do escopo</option>
+                {assignedStores.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+            </div>
+          </section>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
             <Mini label="Total" value={summary.total} />
             <Mini label="Novos" value={summary.novos} />
             <Mini label="Em atendimento" value={summary.atendimento} />
@@ -286,32 +314,6 @@ export default function MasterBasePage() {
             <Mini label="Vendas" value={summary.vendidos} />
             <Mini label="Perdidos" value={summary.perdidos} />
           </div>
-
-          <section className="premium-card mt-6 p-5">
-            <div className="grid gap-3 2xl:grid-cols-[1.25fr_1fr_0.75fr_0.75fr_0.75fr]">
-              <label className="relative min-w-0">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
-                <input className="premium-input pl-11" placeholder="Buscar nome, telefone, CPF, evento, campanha, veículo ou loja" value={query} onChange={(event) => setQuery(event.target.value)} />
-              </label>
-
-              <EventScopeSelect events={events} value={eventFilter} onChange={changeEventScope} allLabel="Todos os leads" />
-
-              <select className="premium-input" value={status} onChange={(event) => setStatus(event.target.value)}>
-                <option value="all">Todos os status</option>
-                {statuses.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-
-              <select className="premium-input" value={source} onChange={(event) => setSource(event.target.value)}>
-                <option value="all">Todas as origens</option>
-                {sources.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-
-              <select className="premium-input" value={storeFilter} onChange={(event) => setStoreFilter(event.target.value)}>
-                <option value="all">Todas as lojas do escopo</option>
-                {assignedStores.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-            </div>
-          </section>
 
           <section className="mt-5 space-y-4">
             {filtered.map((lead) => {
