@@ -80,34 +80,43 @@ async function ensureCrmNumber(supabase: any, integration: any) {
       .from('whatsapp_numbers')
       .select('*')
       .eq('id', integration.crm_number_id)
-      .eq('store_id', integration.store_id)
       .maybeSingle();
 
     if (error) throw error;
     if (data) return data;
   }
 
-  const { data: store, error: storeError } = await supabase
-    .from('stores')
-    .select('store_name')
-    .eq('id', integration.store_id)
-    .single();
+  let store: any = null;
+  if (integration.scope === 'store') {
+    const { data, error } = await supabase
+      .from('stores')
+      .select('store_name')
+      .eq('id', integration.store_id)
+      .single();
 
-  if (storeError) throw storeError;
+    if (error) throw error;
+    store = data;
+  }
 
   const { data: number, error: numberError } = await supabase
     .from('whatsapp_numbers')
     .upsert({
       store_id: integration.store_id,
-      label: `${store.store_name} · WhatsApp Evolution`,
+      label: integration.scope === 'master'
+        ? 'Master · WhatsApp Evolution'
+        : `${store.store_name} · WhatsApp Evolution`,
       phone_number: integration.phone_number,
       phone_number_id: `evolution:${integration.instance_name}`,
       verify_token: `managed:${integration.instance_name}`,
       graph_version: 'evolution-2.3.7',
-      routing_mode: 'store_pipeline',
+      routing_mode: integration.scope === 'master' ? 'master_base' : 'store_pipeline',
       is_active: integration.status === 'connected',
       status: integration.status,
-      settings: { provider: 'evolution', instance_name: integration.instance_name }
+      settings: {
+        provider: 'evolution',
+        instance_name: integration.instance_name,
+        scope: integration.scope
+      }
     }, { onConflict: 'phone_number_id' })
     .select('*')
     .single();
@@ -124,6 +133,65 @@ async function ensureCrmNumber(supabase: any, integration: any) {
 }
 
 async function findOrCreateLead(supabase: any, integration: any, contactName: string, phone: string, firstMessage: string) {
+  const leadPhone = localPhone(phone);
+  const phoneCandidates = Array.from(new Set([phone, leadPhone, `+${phone}`, `+55${leadPhone}`]));
+
+  if (integration.scope === 'master') {
+    const { data: exactBase, error: exactBaseError } = await supabase
+      .from('leads_base')
+      .select('id, phone, routed_lead_id')
+      .is('assigned_store_id', null)
+      .in('phone', phoneCandidates)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (exactBaseError) throw exactBaseError;
+    if (exactBase?.id) {
+      return { leadId: exactBase.routed_lead_id || null, baseLeadId: exactBase.id };
+    }
+
+    const { data: candidates, error: candidateError } = await supabase
+      .from('leads_base')
+      .select('id, phone, routed_lead_id')
+      .is('assigned_store_id', null)
+      .not('phone', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(2_000);
+
+    if (candidateError) throw candidateError;
+    const existing = candidates?.find((candidate: any) => localPhone(candidate.phone) === leadPhone);
+    if (existing?.id) {
+      return { leadId: existing.routed_lead_id || null, baseLeadId: existing.id };
+    }
+
+    const { data: baseLead, error: baseError } = await supabase
+      .from('leads_base')
+      .insert({
+        name: contactName || phone,
+        phone: leadPhone,
+        source: 'WhatsApp Evolution',
+        campaign_name: 'WhatsApp central da Master',
+        status: 'Novo lead',
+        routing_strategy: 'whatsapp_evolution_master',
+        notes: firstMessage
+          ? `Primeira mensagem: ${firstMessage}`
+          : 'Lead criado pelo WhatsApp central da Master.',
+        metadata: {
+          whatsapp: {
+            provider: 'evolution',
+            instance_name: integration.instance_name,
+            scope: 'master'
+          }
+        }
+      })
+      .select('id')
+      .single();
+
+    if (baseError) throw baseError;
+    return { leadId: null, baseLeadId: baseLead?.id || null };
+  }
+
   const { data: store, error: storeError } = await supabase
     .from('stores')
     .select('id, store_name, event_id')
@@ -132,12 +200,11 @@ async function findOrCreateLead(supabase: any, integration: any, contactName: st
 
   if (storeError) throw storeError;
 
-  const leadPhone = localPhone(phone);
   const { data: exactLead, error: exactLeadError } = await supabase
     .from('leads')
     .select('id, customer_phone')
     .eq('assigned_store_id', integration.store_id)
-    .in('customer_phone', Array.from(new Set([phone, leadPhone, `+${phone}`, `+55${leadPhone}`])))
+    .in('customer_phone', phoneCandidates)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -186,7 +253,7 @@ async function findOrCreateLead(supabase: any, integration: any, contactName: st
   const { data: exactBase, error: exactBaseError } = await supabase
     .from('leads_base')
     .select('id, phone')
-    .in('phone', Array.from(new Set([phone, leadPhone, `+${phone}`, `+55${leadPhone}`])))
+    .in('phone', phoneCandidates)
     .eq('assigned_store_id', integration.store_id)
     .order('created_at', { ascending: false })
     .limit(1)
@@ -404,8 +471,7 @@ export async function POST(request: Request) {
         await supabase
           .from('whatsapp_numbers')
           .update({ status, is_active: status === 'connected', updated_at: now })
-          .eq('id', integration.crm_number_id)
-          .eq('store_id', integration.store_id);
+          .eq('id', integration.crm_number_id);
       }
 
       return NextResponse.json({ success: true, event, status });

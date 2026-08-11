@@ -8,6 +8,7 @@ import {
   Copy,
   Database,
   Globe,
+  MessageCircle,
   MousePointerClick,
   Plug,
   RefreshCcw,
@@ -527,6 +528,9 @@ export default function MasterIntegrationsPage() {
           ) : null}
 
           <section className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+            <Link href="/master/integrations/whatsapp" className="block">
+              <IntegrationCard title="WhatsApp central" status="Abrir QR e números" active icon={<MessageCircle size={22} />} />
+            </Link>
             <IntegrationCard title="Facebook Lead Forms" status={metaLeadsForm.is_active ? 'Ativo' : 'Configurar'} active={metaLeadsForm.is_active} icon={<ShieldCheck size={22} />} />
             <IntegrationCard title="WATI Leads" status={watiLeadsForm.is_active ? 'Ativo' : 'Configurar'} active={watiLeadsForm.is_active} icon={<Plug size={22} />} />
             <IntegrationCard title="Pixel do Facebook" status={pixelForm.is_active ? `${allPixelIds.length} ID(s) ativo(s)` : 'Inativo'} active={pixelForm.is_active} icon={<MousePointerClick size={22} />} />

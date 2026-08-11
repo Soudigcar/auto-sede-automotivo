@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { ArrowLeft, Copy, MessageCircle, Save, Trash2 } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
+import { WhatsappEvolutionPanel } from '@/components/WhatsappEvolutionPanel';
 import { createClient } from '@/lib/supabase';
 
 const defaultVerifyToken = 'auto-controle-whatsapp-2026';
@@ -241,10 +242,10 @@ export default function MasterWhatsappIntegrationPage() {
         <div className="premium-canvas min-w-0 flex-1 p-4 md:p-7">
           <header className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
-              <p className="premium-eyebrow">Meta / WhatsApp Oficial</p>
-              <h1 className="premium-title mt-2 text-4xl md:text-5xl">WhatsApp Oficial</h1>
+              <p className="premium-eyebrow">WhatsApp central e por loja</p>
+              <h1 className="premium-title mt-2 text-4xl md:text-5xl">Integrações WhatsApp</h1>
               <p className="premium-muted mt-3 max-w-3xl text-sm">
-                Cadastre números oficiais por loja. Quando uma mensagem chegar, o AUTO CONTROLE identifica o Phone Number ID e cria o lead automaticamente na loja vinculada.
+                Conecte o número central da Master por QR Code ou administre números oficiais da Meta por loja, sem misturar os dois provedores.
               </p>
             </div>
 
@@ -258,6 +259,10 @@ export default function MasterWhatsappIntegrationPage() {
               {message}
             </div>
           ) : null}
+
+          <div className="mt-7">
+            <WhatsappEvolutionPanel scope="master" />
+          </div>
 
           <section className="mt-7 grid gap-5 xl:grid-cols-[1fr_420px]">
             <form onSubmit={saveNumber} className="premium-card p-6">

@@ -111,8 +111,7 @@ export async function POST(request: Request) {
     if (provider === 'evolution') {
       const { data: integration, error: integrationError } = await supabase
         .from('store_whatsapp_integrations')
-        .select('instance_name, status')
-        .eq('store_id', conversation.store_id)
+        .select('instance_name, status, scope')
         .eq('crm_number_id', conversation.whatsapp_number_id)
         .maybeSingle();
 
@@ -121,7 +120,8 @@ export async function POST(request: Request) {
       }
 
       if (!integration || integration.status !== 'connected') {
-        return NextResponse.json({ error: 'WhatsApp da loja está desconectado. Reconecte em Integrações.' }, { status: 409 });
+        const owner = integration?.scope === 'master' ? 'central da Master' : 'da loja';
+        return NextResponse.json({ error: `WhatsApp ${owner} está desconectado. Reconecte em Integrações.` }, { status: 409 });
       }
 
       const recipient = normalizePhone(contact?.phone || contact?.wa_id);

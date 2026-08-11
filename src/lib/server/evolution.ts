@@ -72,9 +72,9 @@ export async function evolutionRequest(path: string, options: EvolutionRequestOp
   return result;
 }
 
-export function evolutionInstanceName(storeId: string) {
-  const normalized = storeId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-  if (!normalized) throw new Error('Loja inválida para criar a instância WhatsApp.');
+export function evolutionInstanceName(scopeKey: string) {
+  const normalized = scopeKey.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  if (!normalized) throw new Error('Escopo inválido para criar a instância WhatsApp.');
   return `auto_controle_${normalized}`;
 }
 
