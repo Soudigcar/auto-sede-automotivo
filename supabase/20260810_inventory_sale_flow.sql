@@ -5,7 +5,9 @@
 begin;
 
 alter table public.sales
-  add column if not exists sale_channel text;
+  add column if not exists sale_channel text,
+  add column if not exists sale_responsible_user_id uuid,
+  add column if not exists sale_responsible_role text;
 
 alter table public.sales
   drop constraint if exists sales_sale_channel_check;
@@ -14,8 +16,19 @@ alter table public.sales
   add constraint sales_sale_channel_check
   check (sale_channel is null or sale_channel in ('door', 'internet', 'event'));
 
+alter table public.sales
+  drop constraint if exists sales_sale_responsible_role_check;
+
+alter table public.sales
+  add constraint sales_sale_responsible_role_check
+  check (sale_responsible_role is null or sale_responsible_role in ('store', 'pre_sales', 'seller', 'prospector'));
+
 create index if not exists idx_sales_store_channel_confirmed_at
   on public.sales (store_id, sale_channel, confirmed_at desc);
+
+create index if not exists idx_sales_responsible_user_id
+  on public.sales (sale_responsible_user_id, confirmed_at desc)
+  where sale_responsible_user_id is not null;
 
 create or replace function public.store_confirm_inventory_sale_transaction(
   p_vehicle_id uuid,
@@ -177,7 +190,7 @@ begin
       raise exception 'Lead não encontrado nesta loja.';
     end if;
 
-    if v_lead.status in ('sale_confirmed', 'deleted') then
+    if v_lead.status in ('sale_confirmed', 'lost', 'deleted') then
       raise exception 'O estado atual do lead não permite registrar esta venda.';
     end if;
 
@@ -187,6 +200,16 @@ begin
 
     v_customer_name := coalesce(nullif(btrim(v_lead.customer_name), ''), v_customer_name);
     v_customer_phone := coalesce(nullif(btrim(v_lead.customer_phone), ''), v_customer_phone);
+
+    select
+      coalesce(v_customer_email, nullif(lower(btrim(coalesce(lb.email, ''))), '')),
+      coalesce(v_customer_cpf, nullif(regexp_replace(coalesce(lb.cpf, ''), '[^0-9]', '', 'g'), ''))
+    into v_customer_email, v_customer_cpf
+    from public.leads_base lb
+    where lb.routed_lead_id = v_lead.id
+      and lb.assigned_store_id = p_store_id
+    order by lb.created_at desc
+    limit 1;
   elsif v_detailed_sale then
     if v_customer_name is null or length(v_customer_name) < 3 then
       raise exception 'Informe o nome do cliente.';
@@ -400,7 +423,9 @@ begin
     confirmed_by,
     confirmed_at,
     status,
-    sale_channel
+    sale_channel,
+    sale_responsible_user_id,
+    sale_responsible_role
   ) values (
     v_effective_event_id,
     case when v_lead.id is not null then v_lead.id else null end,
@@ -420,8 +445,34 @@ begin
     v_actor.id,
     v_now,
     'confirmed',
-    p_sale_channel
+    p_sale_channel,
+    case when v_detailed_sale then v_responsible.id else v_actor.id end,
+    case when v_detailed_sale then v_responsible.role else v_actor.role end
   )
+  on conflict (lead_id) do update set
+    event_id = excluded.event_id,
+    store_id = excluded.store_id,
+    vehicle_id = excluded.vehicle_id,
+    seller_name = excluded.seller_name,
+    seller_user_id = excluded.seller_user_id,
+    pre_sales_user_id = excluded.pre_sales_user_id,
+    captured_by_user_id = excluded.captured_by_user_id,
+    customer_bank = excluded.customer_bank,
+    financing_bank = excluded.financing_bank,
+    payment_type = excluded.payment_type,
+    sale_value = excluded.sale_value,
+    vehicle_category = excluded.vehicle_category,
+    sale_vehicle_name = excluded.sale_vehicle_name,
+    has_trade_in = excluded.has_trade_in,
+    confirmed_by = excluded.confirmed_by,
+    confirmed_at = excluded.confirmed_at,
+    status = 'confirmed',
+    cancelled_at = null,
+    cancelled_by = null,
+    cancellation_reason = null,
+    sale_channel = excluded.sale_channel,
+    sale_responsible_user_id = excluded.sale_responsible_user_id,
+    sale_responsible_role = excluded.sale_responsible_role
   returning * into v_sale;
 
   if v_lead.id is not null and v_detailed_sale then
@@ -502,7 +553,13 @@ begin
       v_lead.customer_phone,
       v_vehicle_name,
       'Canal da venda: ' || p_sale_channel || '.',
-      jsonb_build_object('sale_id', v_sale.id, 'sale_channel', p_sale_channel, 'event_id', v_effective_event_id)
+      jsonb_build_object(
+        'sale_id', v_sale.id,
+        'sale_channel', p_sale_channel,
+        'event_id', v_effective_event_id,
+        'responsible_user_id', case when v_detailed_sale then v_responsible.id else v_actor.id end,
+        'responsible_role', case when v_detailed_sale then v_responsible.role else v_actor.role end
+      )
     );
 
     insert into public.lead_activities (
@@ -545,6 +602,8 @@ begin
       'lead_id', case when v_lead.id is not null then v_lead.id else null end,
       'sale_channel', p_sale_channel,
       'event_id', v_effective_event_id,
+      'responsible_user_id', case when v_detailed_sale then v_responsible.id else v_actor.id end,
+      'responsible_role', case when v_detailed_sale then v_responsible.role else v_actor.role end,
       'confirmed_at', v_now
     )
   );
