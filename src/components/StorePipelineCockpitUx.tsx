@@ -278,13 +278,13 @@ const styles = `
   .pipeline-cockpit-primary { border:1px solid #ef2d34; background:#ef2d34; color:white; box-shadow:0 8px 20px rgba(239,45,52,.2)!important; }
   body.pipeline-aura-active .pipeline-aura-kpis { display:none!important; }
   body.pipeline-aura-active .aura-hero-actions { display:none!important; }
-  body.pipeline-aura-active .pipeline-aura-board-scroll { margin-top:6px!important; padding-top:0!important; }
+  body.pipeline-aura-active .pipeline-aura-board-scroll { margin-top:4px!important; padding-top:0!important; }
   body.pipeline-aura-active .pipeline-aura-board > div > div:first-child { top:0!important; }
   body.pipeline-aura-active .pipeline-aura-board > div { min-height:500px!important; }
   .pipeline-cockpit-stagebar { display:none!important; }
 
   @media (min-width:1024px) {
-    body.pipeline-aura-active .pipeline-aura-canvas { padding-top:14px!important; }
+    body.pipeline-aura-active .pipeline-cockpit-host { margin-top:-76px!important; }
   }
 
   @container pipelineHeader (max-width:1260px) {
