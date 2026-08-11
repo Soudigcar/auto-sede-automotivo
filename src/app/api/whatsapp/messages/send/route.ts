@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { sendEvolutionText } from '@/lib/server/evolution';
 
 export const runtime = 'nodejs';
 
@@ -59,6 +60,10 @@ function canAccessConversation(profile: any, conversation: any) {
   return profile.store_id && profile.store_id === conversation.store_id;
 }
 
+function normalizePhone(value: unknown) {
+  return String(value || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = getAdminClient();
@@ -99,40 +104,69 @@ export async function POST(request: Request) {
 
     const number = conversation.whatsapp_numbers;
     const contact = conversation.whatsapp_contacts;
+    const provider = String(number?.settings?.provider || 'meta_cloud');
+    let result: any = null;
+    let waMessageId: string | null = null;
 
-    if (!number?.access_token || !number?.phone_number_id) {
-      return NextResponse.json({ error: 'Número WhatsApp sem token ou Phone Number ID.' }, { status: 400 });
+    if (provider === 'evolution') {
+      const { data: integration, error: integrationError } = await supabase
+        .from('store_whatsapp_integrations')
+        .select('instance_name, status')
+        .eq('store_id', conversation.store_id)
+        .eq('crm_number_id', conversation.whatsapp_number_id)
+        .maybeSingle();
+
+      if (integrationError) {
+        return NextResponse.json({ error: integrationError.message }, { status: 400 });
+      }
+
+      if (!integration || integration.status !== 'connected') {
+        return NextResponse.json({ error: 'WhatsApp da loja está desconectado. Reconecte em Integrações.' }, { status: 409 });
+      }
+
+      const recipient = normalizePhone(contact?.phone || contact?.wa_id);
+      if (!recipient) {
+        return NextResponse.json({ error: 'Contato sem telefone válido para envio.' }, { status: 400 });
+      }
+
+      result = await sendEvolutionText(integration.instance_name, recipient, messageBody);
+      waMessageId = result?.key?.id || result?.message?.key?.id || result?.id || null;
+    } else {
+      if (!number?.access_token || !number?.phone_number_id) {
+        return NextResponse.json({ error: 'Número WhatsApp sem token ou Phone Number ID.' }, { status: 400 });
+      }
+
+      const graphVersion = number.graph_version || 'v20.0';
+      const response = await fetch(`https://graph.facebook.com/${graphVersion}/${number.phone_number_id}/messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${number.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: contact.wa_id || contact.phone,
+          type: 'text',
+          text: {
+            preview_url: false,
+            body: messageBody
+          }
+        })
+      });
+
+      result = await response.json();
+
+      if (!response.ok) {
+        return NextResponse.json(
+          { error: result?.error?.message || 'Erro ao enviar mensagem pelo WhatsApp.', meta_error: result?.error || result },
+          { status: 400 }
+        );
+      }
+
+      waMessageId = result?.messages?.[0]?.id || null;
     }
 
-    const graphVersion = number.graph_version || 'v20.0';
-    const response = await fetch(`https://graph.facebook.com/${graphVersion}/${number.phone_number_id}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${number.access_token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to: contact.wa_id || contact.phone,
-        type: 'text',
-        text: {
-          preview_url: false,
-          body: messageBody
-        }
-      })
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: result?.error?.message || 'Erro ao enviar mensagem pelo WhatsApp.', meta_error: result?.error || result },
-        { status: 400 }
-      );
-    }
-
-    const waMessageId = result?.messages?.[0]?.id || null;
     const sentAt = new Date().toISOString();
 
     const { data: savedMessage, error: saveError } = await supabase
