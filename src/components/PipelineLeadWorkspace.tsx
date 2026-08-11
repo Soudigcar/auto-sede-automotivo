@@ -61,14 +61,18 @@ export function PipelineLeadWorkspace() {
   async function loadWorkspace(id: string) {
     setLoading(true); setMessage('');
     try {
-      const [details, transferData, stock] = await Promise.all([
+      const [details, transferData, stock, phoneView] = await Promise.all([
         request(`/api/store/portal/pipeline/lead?slug=${encodeURIComponent(slug)}&lead_id=${encodeURIComponent(id)}`),
         request(`/api/store/lead-transfer?lead_id=${encodeURIComponent(id)}`),
-        request(`/api/store/portal/pipeline/lead-interest?slug=${encodeURIComponent(slug)}&lead_id=${encodeURIComponent(id)}`)
+        request(`/api/store/portal/pipeline/lead-interest?slug=${encodeURIComponent(slug)}&lead_id=${encodeURIComponent(id)}`),
+        request('/api/store/portal/pipeline/actions', {
+          method:'POST',
+          body:JSON.stringify({ command:'reveal_phone', slug, lead_id:id })
+        }).catch(() => ({ phone:'' }))
       ]);
       const currentLead = details.lead as Lead;
       setLead(currentLead); setTransfer(transferData); setVehicles(stock.vehicles || []);
-      setName(currentLead.customer_name || ''); setPhone(currentLead.customer_phone || ''); setNotes(currentLead.notes || ''); setAppointmentNotes(currentLead.appointment_notes || ''); setVehicleId(currentLead.interested_vehicle_id || ''); setResponsibleId(transferData.current_responsible_id || '');
+      setName(currentLead.customer_name || ''); setPhone(phoneView.phone || currentLead.customer_phone || ''); setNotes(currentLead.notes || ''); setAppointmentNotes(currentLead.appointment_notes || ''); setVehicleId(currentLead.interested_vehicle_id || ''); setResponsibleId(transferData.current_responsible_id || '');
       setTaskDate(taskSlot.date); setTaskTime(taskSlot.time); setTaskDescription('');
       try {
         const commercial = await request(`/api/store/portal/pipeline/lead-commercial?slug=${encodeURIComponent(slug)}&lead_id=${encodeURIComponent(id)}`);
@@ -88,9 +92,11 @@ export function PipelineLeadWorkspace() {
     if (!pathname.includes('/pipeline')) return;
     const handler = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      if (target.closest('button,a,input,textarea,select,label')) return;
       const card = target.closest<HTMLElement>('[data-lead-id]');
       if (!card?.dataset.leadId) return;
+      const button = target.closest<HTMLButtonElement>('button');
+      const isEditButton = button?.textContent?.trim() === 'Editar';
+      if (target.closest('a,input,textarea,select,label') || (button && !isEditButton)) return;
       event.preventDefault(); event.stopPropagation(); setLeadId(card.dataset.leadId); void loadWorkspace(card.dataset.leadId);
     };
     document.addEventListener('click', handler, true); return () => document.removeEventListener('click', handler, true);
