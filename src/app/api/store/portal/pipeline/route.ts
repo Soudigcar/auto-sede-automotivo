@@ -14,6 +14,21 @@ function maskPhone(value: unknown) {
   return ddd ? `(${ddd}) •••••-${tail}` : `••••-${tail}`;
 }
 
+function saoPauloDayRange() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+  const read = (type: string) => parts.find((part) => part.type === type)?.value || '';
+  const date = `${read('year')}-${read('month')}-${read('day')}`;
+  return {
+    start: new Date(`${date}T00:00:00-03:00`).toISOString(),
+    end: new Date(`${date}T23:59:59.999-03:00`).toISOString()
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const slug = cleanText(new URL(request.url).searchParams.get('slug'), 120);
@@ -55,6 +70,26 @@ export async function GET(request: Request) {
       lost: leads.filter((lead: any) => lead.status === 'lost').length
     };
 
+    const day = saoPauloDayRange();
+    let tasksQuery = context.supabase
+      .from('store_calendar_tasks')
+      .select('id,lead_id,title,starts_at,ends_at,status,created_by')
+      .eq('store_id', context.store.id)
+      .gte('starts_at', day.start)
+      .lte('starts_at', day.end)
+      .order('starts_at', { ascending: true })
+      .limit(100);
+
+    if (context.role !== 'master' && context.role !== 'store') {
+      tasksQuery = tasksQuery.eq('created_by', context.profile.id);
+    }
+
+    const { data: tasks, error: tasksError } = await tasksQuery;
+    if (tasksError) throw tasksError;
+
+    const activeTasks = (tasks || []).filter((task: any) => !['completed', 'cancelled', 'done'].includes(String(task.status || '').toLowerCase()));
+    const nextTask = activeTasks.find((task: any) => new Date(task.starts_at).getTime() >= Date.now()) || activeTasks[0] || null;
+
     return NextResponse.json({
       store: context.store,
       profile: {
@@ -69,6 +104,16 @@ export async function GET(request: Request) {
         can_confirm_sale: context.role !== 'prospector'
       },
       metrics,
+      calendar_summary: {
+        today_tasks: activeTasks.length,
+        next_task: nextTask ? {
+          id: nextTask.id,
+          lead_id: nextTask.lead_id,
+          title: nextTask.title,
+          starts_at: nextTask.starts_at,
+          status: nextTask.status
+        } : null
+      },
       leads
     });
   } catch (error: any) {
