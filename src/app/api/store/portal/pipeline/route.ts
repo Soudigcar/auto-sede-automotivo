@@ -29,7 +29,8 @@ export async function GET(request: Request) {
         'interested_vehicle_id', 'interested_vehicle_price', 'vehicle_category_interest',
         'origin', 'status', 'notes', 'scheduled_at', 'appointment_notes',
         'appointment_cancelled_at', 'appointment_cancelled_reason', 'lost_reason',
-        'created_at', 'updated_at', 'last_activity_at', 'last_activity_label', 'last_activity_by_name'
+        'created_at', 'updated_at', 'first_viewed_at', 'first_phone_viewed_at',
+        'first_whatsapp_clicked_at', 'last_activity_at', 'last_activity_label', 'last_activity_by_name'
       ].join(','))
       .eq('assigned_store_id', context.store.id)
       .neq('status', 'deleted')
