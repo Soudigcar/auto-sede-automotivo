@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarDays, Check, Plus, Settings2, UserRound, UsersRound, X } from 'lucide-react';
+import { CalendarClock, CircleCheckBig, Headphones, Timer, UserRound, UserRoundCheck } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 
@@ -13,6 +13,10 @@ type PipelineLead = {
   pre_sales_user_id?: string | null;
   captured_by_user_id?: string | null;
   status?: string | null;
+  created_at?: string | null;
+  first_viewed_at?: string | null;
+  first_phone_viewed_at?: string | null;
+  first_whatsapp_clicked_at?: string | null;
 };
 
 type TeamMember = {
@@ -23,24 +27,9 @@ type TeamMember = {
 };
 
 type PipelineSummary = {
-  store?: { store_name?: string | null };
-  profile?: { id?: string | null; full_name?: string | null; role?: string | null };
   team?: TeamMember[];
   leads?: PipelineLead[];
 };
-
-const stages = [
-  ['new_lead', 'Novo Lead'],
-  ['in_service', 'Em Atendimento'],
-  ['scheduled', 'Agendado'],
-  ['appointment_cancelled', 'Cancelou Agendamento'],
-  ['no_show', 'Não Compareceu'],
-  ['showed_up', 'Compareceu'],
-  ['sale_confirmed', 'Venda Confirmada'],
-  ['lost', 'Perdido']
-] as const;
-
-const STORAGE_KEY = 'auto-controle-pipeline-visible-stages';
 
 function isPipeline(pathname: string) {
   return /^\/loja\/[^/]+\/pipeline\/?$/.test(pathname);
@@ -50,37 +39,50 @@ function slugFrom(pathname: string) {
   return pathname.match(/^\/loja\/([^/]+)\/pipeline\/?$/)?.[1] || '';
 }
 
-function normalize(value: string) {
-  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-}
-
-function clickNativeButton(label: string) {
-  const needle = normalize(label);
-  const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((item) =>
-    normalize(String(item.textContent || '').replace(/\s+/g, ' ').trim()).includes(needle)
-  );
-  button?.click();
-}
-
-function clickNativeLink(label: string) {
-  const needle = normalize(label);
-  const link = Array.from(document.querySelectorAll<HTMLAnchorElement>('a')).find((item) =>
-    normalize(String(item.textContent || '').replace(/\s+/g, ' ').trim()).includes(needle)
-  );
-  link?.click();
-}
-
-function roleLabel(role?: string | null) {
-  if (role === 'store') return 'Gestor da loja';
-  if (role === 'master') return 'Master';
-  if (role === 'seller') return 'Vendedor';
-  if (role === 'pre_sales') return 'Pré-vendas';
-  if (role === 'prospector') return 'Prospectador';
-  return 'Responsável';
-}
-
 function responsibleId(lead: PipelineLead) {
   return lead.assigned_user_id || lead.seller_user_id || lead.pre_sales_user_id || lead.captured_by_user_id || '';
+}
+
+function percentage(value: number, total: number) {
+  if (!total) return 0;
+  return Math.round((value / total) * 100);
+}
+
+function firstResponseAt(lead: PipelineLead) {
+  const candidates = [lead.first_whatsapp_clicked_at, lead.first_phone_viewed_at, lead.first_viewed_at]
+    .filter(Boolean)
+    .map((value) => new Date(String(value)).getTime())
+    .filter((value) => Number.isFinite(value));
+  return candidates.length ? Math.min(...candidates) : null;
+}
+
+function averageResponseMinutes(leads: PipelineLead[]) {
+  const samples = leads.flatMap((lead) => {
+    const createdAt = lead.created_at ? new Date(lead.created_at).getTime() : NaN;
+    const responseAt = firstResponseAt(lead);
+    if (!Number.isFinite(createdAt) || responseAt === null || responseAt < createdAt) return [];
+    return [(responseAt - createdAt) / 60_000];
+  });
+
+  if (!samples.length) return { minutes: null as number | null, measured: 0 };
+  return {
+    minutes: samples.reduce((sum, value) => sum + value, 0) / samples.length,
+    measured: samples.length
+  };
+}
+
+function formatResponseTime(minutes: number | null) {
+  if (minutes === null) return '—';
+  if (minutes < 1) return '< 1 min';
+  if (minutes < 60) return `${Math.round(minutes)} min`;
+  if (minutes < 1440) {
+    const hours = Math.floor(minutes / 60);
+    const rest = Math.round(minutes % 60);
+    return rest ? `${hours}h ${rest}m` : `${hours}h`;
+  }
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.round((minutes % 1440) / 60);
+  return hours ? `${days}d ${hours}h` : `${days}d`;
 }
 
 export function StorePipelineCockpitUx() {
@@ -91,22 +93,11 @@ export function StorePipelineCockpitUx() {
   const [summary, setSummary] = useState<PipelineSummary | null>(null);
   const [heroHost, setHeroHost] = useState<HTMLElement | null>(null);
   const [selectedResponsible, setSelectedResponsible] = useState('all');
-  const [customizeOpen, setCustomizeOpen] = useState(false);
-  const [visibleStages, setVisibleStages] = useState<string[]>(stages.map(([key]) => key));
-
-  useEffect(() => {
-    if (!active) return;
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (!stored) return;
-    try {
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length) setVisibleStages(parsed.filter((item) => stages.some(([key]) => key === item)));
-    } catch {}
-  }, [active]);
 
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
+
     async function load() {
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
@@ -118,9 +109,13 @@ export function StorePipelineCockpitUx() {
       const payload = await response.json().catch(() => null);
       if (!cancelled && response.ok) setSummary(payload);
     }
+
     void load();
     const interval = window.setInterval(() => void load(), 30_000);
-    return () => { cancelled = true; window.clearInterval(interval); };
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, [active, slug, supabase]);
 
   useEffect(() => {
@@ -137,11 +132,37 @@ export function StorePipelineCockpitUx() {
         board?.classList.add('pipeline-cockpit-board');
       });
     };
+
     decorate();
     const observer = new MutationObserver(decorate);
     observer.observe(document.body, { childList: true, subtree: true });
-    return () => { observer.disconnect(); cancelAnimationFrame(raf); };
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(raf);
+    };
   }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
+
+    const onResponsibleChange = (event: Event) => {
+      const value = (event as CustomEvent<{ value?: string }>).detail?.value || 'all';
+      setSelectedResponsible(value);
+    };
+
+    window.addEventListener('pipeline-responsible-change', onResponsibleChange as EventListener);
+    return () => window.removeEventListener('pipeline-responsible-change', onResponsibleChange as EventListener);
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
+    window.dispatchEvent(new CustomEvent('pipeline-responsible-options', {
+      detail: {
+        team: (summary?.team || []).filter((member) => member.role !== 'store'),
+        selected: selectedResponsible
+      }
+    }));
+  }, [active, selectedResponsible, summary]);
 
   useEffect(() => {
     if (!active) return;
@@ -151,80 +172,50 @@ export function StorePipelineCockpitUx() {
       const matchesResponsible = selectedResponsible === 'all' || responsibleId(lead || { id: '' }) === selectedResponsible;
       card.style.display = matchesResponsible ? '' : 'none';
     });
-
-    const board = document.querySelector<HTMLElement>('.pipeline-cockpit-board');
-    if (board) {
-      Array.from(board.children).forEach((column, index) => {
-        const key = stages[index]?.[0];
-        (column as HTMLElement).style.display = key && visibleStages.includes(key) ? '' : 'none';
-      });
-    }
-  }, [active, selectedResponsible, summary, visibleStages]);
+  }, [active, selectedResponsible, summary]);
 
   if (!active) return null;
 
-  const team = (summary?.team || []).filter((member) => member.role !== 'store');
-  const ownerName = summary?.profile?.full_name || summary?.store?.store_name || 'Carteira geral da loja';
-  const ownerRole = summary?.profile?.role === 'store' ? 'Gestor da loja' : roleLabel(summary?.profile?.role);
+  const visibleLeads = (summary?.leads || []).filter((lead) => selectedResponsible === 'all' || responsibleId(lead) === selectedResponsible);
+  const total = visibleLeads.length;
+  const newLeads = visibleLeads.filter((lead) => lead.status === 'new_lead').length;
+  const inService = visibleLeads.filter((lead) => lead.status === 'in_service').length;
+  const scheduled = visibleLeads.filter((lead) => lead.status === 'scheduled').length;
+  const showedUp = visibleLeads.filter((lead) => lead.status === 'showed_up').length;
+  const closed = visibleLeads.filter((lead) => lead.status === 'sale_confirmed' || lead.status === 'lost').length;
+  const response = averageResponseMinutes(visibleLeads);
 
-  function toggleStage(key: string) {
-    setVisibleStages((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
-  }
+  const indicators = [
+    { label: 'Novos', value: String(newLeads), detail: `${percentage(newLeads, total)}% do total`, icon: UserRound, tone: 'coral' },
+    { label: 'Em atendimento', value: String(inService), detail: `${percentage(inService, total)}% do total`, icon: Headphones, tone: 'orange' },
+    { label: 'Agendados', value: String(scheduled), detail: `${percentage(scheduled, total)}% do total`, icon: CalendarClock, tone: 'amber' },
+    { label: 'Compareceram', value: String(showedUp), detail: `${percentage(showedUp, total)}% do total`, icon: UserRoundCheck, tone: 'cyan' },
+    { label: 'Fechados', value: String(closed), detail: `${percentage(closed, total)}% do total`, icon: CircleCheckBig, tone: 'green' },
+    { label: 'Tempo de resposta', value: formatResponseTime(response.minutes), detail: response.measured ? `média de ${response.measured} lead${response.measured === 1 ? '' : 's'}` : 'sem resposta medida', icon: Timer, tone: 'blue' }
+  ];
 
-  function saveCustomization() {
-    const safe = visibleStages.length ? visibleStages : stages.map(([key]) => key);
-    setVisibleStages(safe);
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(safe));
-    setCustomizeOpen(false);
-  }
-
-  function resetCustomization() {
-    const all = stages.map(([key]) => key);
-    setVisibleStages(all);
-    window.localStorage.removeItem(STORAGE_KEY);
-  }
-
-  const header = (
-    <div className="pipeline-cockpit-shell">
-      <div className="pipeline-cockpit-title-row">
-        <div className="pipeline-cockpit-heading">
-          <h1>Pipeline da Loja</h1>
-          <div className="pipeline-cockpit-owner"><span className="pipeline-cockpit-live" /> Sincronizado <span className="pipeline-cockpit-sep">·</span><UsersRound size={13} /> <strong>{ownerName}</strong> <span className="pipeline-cockpit-role">· {ownerRole}</span></div>
-        </div>
-        <div className="pipeline-cockpit-actions">
-          <button type="button" className="pipeline-cockpit-secondary pipeline-cockpit-calendar" onClick={() => clickNativeLink('calendário')}><CalendarDays size={15} /> Calendário</button>
-          <label className="pipeline-cockpit-responsible-select">
-            <UserRound size={14} />
-            <select value={selectedResponsible} onChange={(event) => setSelectedResponsible(event.target.value)} aria-label="Visualizar pipeline por responsável">
-              <option value="all">Toda a loja</option>
-              {team.map((member) => <option key={member.id} value={member.id}>{member.full_name} · {member.role_label}</option>)}
-            </select>
-          </label>
-          <button type="button" className="pipeline-cockpit-secondary pipeline-cockpit-customize" onClick={() => setCustomizeOpen(true)}><Settings2 size={15} /> Personalizar pipeline</button>
-          <button type="button" className="pipeline-cockpit-primary" onClick={() => clickNativeButton('adicionar lead')}><Plus size={16} /> Novo Lead</button>
-        </div>
-      </div>
+  const dashboard = (
+    <div className="pipeline-kpi-strip" aria-label="Indicadores da pipeline">
+      {indicators.map((indicator) => {
+        const Icon = indicator.icon;
+        return (
+          <div key={indicator.label} className="pipeline-kpi-item">
+            <span className={`pipeline-kpi-icon tone-${indicator.tone}`}><Icon size={22} /></span>
+            <div className="pipeline-kpi-copy">
+              <span className="pipeline-kpi-label">{indicator.label}</span>
+              <strong className="pipeline-kpi-value">{indicator.value}</strong>
+              <small className="pipeline-kpi-detail">{indicator.detail}</small>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 
   return (
     <>
       <style>{styles}</style>
-      {heroHost ? createPortal(header, heroHost) : null}
-      {customizeOpen && typeof document !== 'undefined' ? createPortal(
-        <div className="pipeline-customize-overlay" role="dialog" aria-modal="true" aria-label="Personalizar pipeline" onMouseDown={() => setCustomizeOpen(false)}>
-          <section className="pipeline-customize-modal" onMouseDown={(event) => event.stopPropagation()}>
-            <header><div><p>Configuração visual</p><h2>Personalizar pipeline</h2><span>Escolha quais etapas aparecem no quadro desta tela.</span></div><button type="button" onClick={() => setCustomizeOpen(false)} aria-label="Fechar"><X size={20} /></button></header>
-            <div className="pipeline-customize-list">
-              {stages.map(([key, label]) => {
-                const checked = visibleStages.includes(key);
-                return <button key={key} type="button" className={checked ? 'is-checked' : ''} onClick={() => toggleStage(key)}><span>{checked ? <Check size={16} /> : null}</span><strong>{label}</strong></button>;
-              })}
-            </div>
-            <footer><button type="button" className="pipeline-customize-reset" onClick={resetCustomization}>Restaurar padrão</button><button type="button" className="pipeline-customize-save" onClick={saveCustomization}>Salvar personalização</button></footer>
-          </section>
-        </div>, document.body
-      ) : null}
+      {heroHost ? createPortal(dashboard, heroHost) : null}
     </>
   );
 }
@@ -242,93 +233,85 @@ const styles = `
     background:transparent!important;
     box-shadow:none!important;
   }
-  body.pipeline-aura-active .pipeline-cockpit-host > :not(.pipeline-cockpit-shell) { display:none!important; }
-  .pipeline-cockpit-shell {
-    position:static!important;
-    width:100%;
-    margin:0;
-    padding:0;
-    color:var(--aura-text);
-    container-type:inline-size;
-    container-name:pipelineHeader;
-  }
-  .pipeline-cockpit-title-row { position:static!important; display:flex; width:100%; min-width:0; align-items:center; gap:14px; }
-  .pipeline-cockpit-heading { display:flex; min-width:280px; flex:0 1 380px; align-items:center; gap:12px; }
-  body.pipeline-aura-active .pipeline-cockpit-host .pipeline-cockpit-heading h1 {
-    flex:0 0 auto;
-    margin:0!important;
-    color:var(--aura-text)!important;
-    font-size:22px!important;
-    line-height:1!important;
-    font-weight:950!important;
-    letter-spacing:-.025em!important;
-    white-space:nowrap!important;
-  }
-  .pipeline-cockpit-owner { display:flex; min-width:0; align-items:center; gap:5px; overflow:hidden; color:var(--aura-muted); font-size:10px; font-weight:700; white-space:nowrap; }
-  .pipeline-cockpit-owner strong { max-width:145px; overflow:hidden; color:var(--aura-soft); text-overflow:ellipsis; }
-  .pipeline-cockpit-role { overflow:hidden; text-overflow:ellipsis; }
-  .pipeline-cockpit-live { flex:0 0 auto; width:6px; height:6px; border-radius:50%; background:#22c55e; box-shadow:0 0 9px rgba(34,197,94,.55); }
-  .pipeline-cockpit-sep { color:var(--aura-muted); }
-  .pipeline-cockpit-actions { position:static!important; display:flex; min-width:620px; max-width:820px; flex:1 1 720px; align-items:center; justify-content:stretch; gap:8px; margin-left:auto; }
-  .pipeline-cockpit-actions button, .pipeline-cockpit-responsible-select { position:static!important; display:inline-flex; height:36px; min-height:36px; align-items:center; justify-content:center; gap:6px; border-radius:10px; padding:0 12px; font-size:10px; font-weight:900; line-height:1; white-space:nowrap; box-shadow:none; }
-  .pipeline-cockpit-secondary, .pipeline-cockpit-responsible-select { border:1px solid var(--aura-border); background:var(--aura-surface-2); color:var(--aura-soft); }
-  .pipeline-cockpit-calendar { flex:0.9 1 120px; }
-  .pipeline-cockpit-responsible-select { flex:1.35 1 190px; max-width:none; }
-  .pipeline-cockpit-responsible-select select { width:100%; min-width:0; max-width:none; border:0; outline:0; background:transparent; color:var(--aura-soft); font:inherit; cursor:pointer; text-overflow:ellipsis; }
-  .pipeline-cockpit-responsible-select option { background:#11151c; color:#f8fafc; }
-  .pipeline-cockpit-customize { flex:1.25 1 180px; }
-  .pipeline-cockpit-primary { flex:0.85 1 125px; border:1px solid #ef2d34; background:#ef2d34; color:white; box-shadow:0 8px 20px rgba(239,45,52,.2)!important; }
-  body.pipeline-aura-active .pipeline-aura-kpis { display:none!important; }
+  body.pipeline-aura-active .pipeline-cockpit-host > :not(.pipeline-kpi-strip) { display:none!important; }
+  body.pipeline-aura-active .pipeline-aura-kpis,
   body.pipeline-aura-active .aura-hero-actions { display:none!important; }
-  body.pipeline-aura-active .pipeline-aura-board-scroll { margin-top:4px!important; padding-top:0!important; }
+
+  .pipeline-kpi-strip {
+    display:grid;
+    grid-template-columns:repeat(6,minmax(0,1fr));
+    width:100%;
+    min-height:82px;
+    align-items:center;
+    overflow:hidden;
+    border:1px solid var(--aura-border);
+    border-radius:16px;
+    background:color-mix(in srgb,var(--aura-surface) 72%,transparent);
+    color:var(--aura-text);
+  }
+  .pipeline-kpi-item {
+    position:relative;
+    display:flex;
+    min-width:0;
+    align-items:center;
+    gap:11px;
+    padding:11px 16px;
+  }
+  .pipeline-kpi-item:not(:last-child)::after {
+    content:'';
+    position:absolute;
+    top:14px;
+    right:0;
+    bottom:14px;
+    width:1px;
+    background:var(--aura-border);
+  }
+  .pipeline-kpi-icon {
+    display:flex;
+    width:46px;
+    height:46px;
+    flex:0 0 46px;
+    align-items:center;
+    justify-content:center;
+    border-radius:13px;
+    background:var(--aura-surface-2);
+  }
+  .tone-coral { color:#fb7185; }
+  .tone-orange { color:#fb923c; }
+  .tone-amber { color:#fbbf24; }
+  .tone-cyan { color:#22d3ee; }
+  .tone-green { color:#34d399; }
+  .tone-blue { color:#60a5fa; }
+  .pipeline-kpi-copy { display:grid; min-width:0; line-height:1; }
+  .pipeline-kpi-label { overflow:hidden; color:var(--aura-soft); font-size:11px; font-weight:900; text-overflow:ellipsis; white-space:nowrap; }
+  .pipeline-kpi-value { margin-top:5px; overflow:hidden; color:var(--aura-text); font-size:24px; font-weight:950; letter-spacing:-.035em; text-overflow:ellipsis; white-space:nowrap; }
+  .pipeline-kpi-detail { margin-top:5px; overflow:hidden; color:var(--aura-muted); font-size:9px; font-weight:750; text-overflow:ellipsis; white-space:nowrap; }
+
+  body.pipeline-aura-active .pipeline-aura-board-scroll { margin-top:7px!important; padding-top:0!important; }
   body.pipeline-aura-active .pipeline-aura-board > div > div:first-child { top:0!important; }
   body.pipeline-aura-active .pipeline-aura-board > div { min-height:500px!important; }
-  .pipeline-cockpit-stagebar { display:none!important; }
 
   @media (min-width:1024px) {
     body.pipeline-aura-active .pipeline-cockpit-host { margin-top:-58px!important; }
   }
-
-  @container pipelineHeader (max-width:1040px) {
-    .pipeline-cockpit-title-row { display:grid; grid-template-columns:minmax(0,1fr); gap:7px; }
-    .pipeline-cockpit-heading { min-width:0; min-height:28px; }
-    .pipeline-cockpit-actions { width:100%; min-width:0; max-width:none; margin-left:0; justify-content:flex-start; }
+  @media (max-width:1320px) {
+    .pipeline-kpi-strip { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .pipeline-kpi-item:nth-child(3)::after { display:none; }
+    .pipeline-kpi-item:nth-child(-n+3) { border-bottom:1px solid var(--aura-border); }
   }
-
-  @container pipelineHeader (max-width:760px) {
-    .pipeline-cockpit-owner { display:none; }
-    .pipeline-cockpit-actions { overflow-x:auto; padding-bottom:2px; scrollbar-width:none; }
-    .pipeline-cockpit-actions::-webkit-scrollbar { display:none; }
-    .pipeline-cockpit-actions button, .pipeline-cockpit-responsible-select { height:34px; min-height:34px; padding:0 9px; }
-    .pipeline-cockpit-calendar { flex:0 0 112px; }
-    .pipeline-cockpit-responsible-select { flex:0 0 165px; }
-    .pipeline-cockpit-customize { flex:0 0 165px; }
-    .pipeline-cockpit-primary { flex:0 0 115px; }
-  }
-
-  .pipeline-customize-overlay { position:fixed; inset:0; z-index:180; display:flex; align-items:center; justify-content:center; padding:18px; background:rgba(3,7,18,.78); backdrop-filter:blur(8px); }
-  .pipeline-customize-modal { width:min(560px,100%); border:1px solid var(--aura-border); border-radius:22px; background:var(--aura-surface); color:var(--aura-text); box-shadow:0 28px 90px rgba(0,0,0,.45); overflow:hidden; }
-  .pipeline-customize-modal header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:22px; border-bottom:1px solid var(--aura-border); }
-  .pipeline-customize-modal header p { margin:0; color:#ef2d34; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.16em; }
-  .pipeline-customize-modal header h2 { margin:4px 0 0; font-size:23px; font-weight:950; }
-  .pipeline-customize-modal header span { display:block; margin-top:5px; color:var(--aura-muted); font-size:11px; }
-  .pipeline-customize-modal header button { display:flex; width:38px; height:38px; align-items:center; justify-content:center; border:1px solid var(--aura-border); border-radius:12px; background:var(--aura-surface-2); color:var(--aura-soft); }
-  .pipeline-customize-list { display:grid; gap:8px; padding:18px 22px; }
-  .pipeline-customize-list button { display:flex; align-items:center; gap:11px; min-height:48px; border:1px solid var(--aura-border); border-radius:13px; background:var(--aura-surface-2); padding:0 14px; color:var(--aura-soft); text-align:left; }
-  .pipeline-customize-list button > span { display:flex; width:22px; height:22px; align-items:center; justify-content:center; border:1px solid var(--aura-border); border-radius:7px; }
-  .pipeline-customize-list button.is-checked > span { border-color:#ef2d34; background:#ef2d34; color:white; }
-  .pipeline-customize-list strong { font-size:12px; }
-  .pipeline-customize-modal footer { display:flex; justify-content:space-between; gap:12px; padding:18px 22px 22px; border-top:1px solid var(--aura-border); }
-  .pipeline-customize-modal footer button { min-height:44px; border-radius:12px; padding:0 16px; font-size:12px; font-weight:900; }
-  .pipeline-customize-reset { border:1px solid var(--aura-border); background:transparent; color:var(--aura-muted); }
-  .pipeline-customize-save { border:1px solid #ef2d34; background:#ef2d34; color:white; }
-
   @media (max-width:1023px) {
     body.pipeline-aura-active .pipeline-aura-canvas { padding-top:88px!important; }
+    .pipeline-kpi-strip { display:flex; overflow-x:auto; scrollbar-width:none; }
+    .pipeline-kpi-strip::-webkit-scrollbar { display:none; }
+    .pipeline-kpi-item { min-width:190px; }
+    .pipeline-kpi-item:nth-child(-n+3) { border-bottom:0; }
+    .pipeline-kpi-item:nth-child(3)::after { display:block; }
   }
   @media (max-width:760px) {
-    body.pipeline-aura-active .pipeline-cockpit-host .pipeline-cockpit-heading h1 { font-size:20px!important; }
-    .pipeline-cockpit-customize { display:none!important; }
     body.pipeline-aura-active .pipeline-aura-canvas { padding-top:82px!important; }
+    .pipeline-kpi-strip { min-height:74px; }
+    .pipeline-kpi-item { min-width:174px; padding:9px 12px; }
+    .pipeline-kpi-icon { width:40px; height:40px; flex-basis:40px; }
+    .pipeline-kpi-value { font-size:21px; }
   }
 `;
