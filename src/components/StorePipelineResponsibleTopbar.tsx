@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { UserRound } from 'lucide-react';
 import { usePathname } from 'next/navigation';
+import { createClient } from '@/lib/supabase';
 
 type TeamMember = {
   id: string;
@@ -12,16 +13,65 @@ type TeamMember = {
   role_label: string;
 };
 
+type PipelineProfile = {
+  id: string;
+  full_name: string;
+  role: string;
+};
+
 function isStorePipeline(pathname: string) {
   return /^\/loja\/[^/]+\/pipeline\/?$/.test(pathname);
+}
+
+function slugFrom(pathname: string) {
+  return pathname.match(/^\/loja\/([^/]+)\/pipeline\/?$/)?.[1] || '';
+}
+
+function roleLabel(role?: string | null) {
+  if (role === 'store') return 'Gestor da loja';
+  if (role === 'master') return 'Master';
+  if (role === 'seller') return 'Vendedor';
+  if (role === 'pre_sales') return 'Pré-vendas';
+  if (role === 'prospector') return 'Prospectador';
+  return 'Responsável';
+}
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'R';
+  return `${parts[0]?.[0] || ''}${parts.length > 1 ? parts[parts.length - 1]?.[0] || '' : ''}`.toUpperCase();
 }
 
 export function StorePipelineResponsibleTopbar() {
   const pathname = usePathname() || '';
   const active = isStorePipeline(pathname);
+  const slug = slugFrom(pathname);
+  const supabase = useMemo(() => createClient(), []);
   const [host, setHost] = useState<HTMLElement | null>(null);
+  const [profileHost, setProfileHost] = useState<HTMLElement | null>(null);
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [selected, setSelected] = useState('all');
+  const [profile, setProfile] = useState<PipelineProfile | null>(null);
+
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+
+    async function loadProfile() {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token || !slug) return;
+      const response = await fetch(`/api/store/portal/pipeline?slug=${encodeURIComponent(slug)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store'
+      });
+      const payload = await response.json().catch(() => null);
+      if (!cancelled && response.ok && payload?.profile) setProfile(payload.profile);
+    }
+
+    void loadProfile();
+    return () => { cancelled = true; };
+  }, [active, slug, supabase]);
 
   useEffect(() => {
     if (!active) return;
@@ -32,15 +82,37 @@ export function StorePipelineResponsibleTopbar() {
       raf = requestAnimationFrame(() => {
         const actions = document.querySelector<HTMLElement>('.aura-top-actions');
         const bell = actions?.querySelector<HTMLElement>('button[aria-label="Notificações"]');
-        if (!actions || !bell) return;
-
-        let target = actions.querySelector<HTMLElement>('[data-pipeline-responsible-host]');
-        if (!target) {
-          target = document.createElement('span');
-          target.dataset.pipelineResponsibleHost = 'true';
-          bell.insertAdjacentElement('afterend', target);
+        if (actions && bell) {
+          let target = actions.querySelector<HTMLElement>('[data-pipeline-responsible-host]');
+          if (!target) {
+            target = document.createElement('span');
+            target.dataset.pipelineResponsibleHost = 'true';
+            bell.insertAdjacentElement('afterend', target);
+          }
+          setHost((current) => current === target ? current : target);
         }
-        setHost(target);
+
+        const cockpit = document.querySelector<HTMLElement>('.pipeline-cockpit-host');
+        if (cockpit) {
+          cockpit.classList.add('pipeline-tight-host');
+          cockpit.parentElement?.classList.add('pipeline-tight-canvas');
+        }
+
+        const board = document.querySelector<HTMLElement>('.pipeline-cockpit-board');
+        board?.parentElement?.classList.add('pipeline-tight-board-scroll');
+
+        const strip = document.querySelector<HTMLElement>('.pipeline-kpi-strip');
+        if (strip) {
+          let target = strip.querySelector<HTMLElement>('[data-pipeline-owner-host]');
+          if (!target) {
+            target = document.createElement('span');
+            target.dataset.pipelineOwnerHost = 'true';
+            const customize = strip.querySelector<HTMLElement>('.pipeline-customize-trigger');
+            if (customize) strip.insertBefore(target, customize);
+            else strip.appendChild(target);
+          }
+          setProfileHost((current) => current === target ? current : target);
+        }
       });
     };
 
@@ -51,6 +123,10 @@ export function StorePipelineResponsibleTopbar() {
       observer.disconnect();
       cancelAnimationFrame(raf);
       document.querySelector('[data-pipeline-responsible-host]')?.remove();
+      document.querySelector('[data-pipeline-owner-host]')?.remove();
+      document.querySelector('.pipeline-tight-host')?.classList.remove('pipeline-tight-host');
+      document.querySelector('.pipeline-tight-canvas')?.classList.remove('pipeline-tight-canvas');
+      document.querySelector('.pipeline-tight-board-scroll')?.classList.remove('pipeline-tight-board-scroll');
     };
   }, [active]);
 
@@ -65,30 +141,51 @@ export function StorePipelineResponsibleTopbar() {
     return () => window.removeEventListener('pipeline-responsible-options', onOptions as EventListener);
   }, [active]);
 
-  if (!active || !host) return null;
+  if (!active) return null;
 
-  return createPortal(
+  const selectedMember = selected === 'all' ? null : team.find((member) => member.id === selected) || null;
+  const ownerName = selectedMember?.full_name || profile?.full_name || 'Responsável da loja';
+  const ownerRole = selectedMember?.role_label || roleLabel(profile?.role);
+
+  const filter = host ? createPortal(
+    <label className="aura-responsible-filter" title="Filtrar pipeline por responsável">
+      <UserRound size={15} />
+      <select
+        value={selected}
+        onChange={(event) => {
+          const value = event.target.value;
+          setSelected(value);
+          window.dispatchEvent(new CustomEvent('pipeline-responsible-change', { detail: { value } }));
+        }}
+        aria-label="Visualizar pipeline por responsável"
+      >
+        <option value="all">Toda a loja</option>
+        {team.map((member) => (
+          <option key={member.id} value={member.id}>{member.full_name} · {member.role_label}</option>
+        ))}
+      </select>
+    </label>,
+    host
+  ) : null;
+
+  const owner = profileHost ? createPortal(
+    <div className="pipeline-owner-card" title={`${ownerName} · ${ownerRole}`}>
+      <span className="pipeline-owner-avatar">{initials(ownerName)}</span>
+      <span className="pipeline-owner-copy">
+        <small>Responsável</small>
+        <strong>{ownerName}</strong>
+        <em>{ownerRole}</em>
+      </span>
+    </div>,
+    profileHost
+  ) : null;
+
+  return (
     <>
       <style>{styles}</style>
-      <label className="aura-responsible-filter" title="Filtrar pipeline por responsável">
-        <UserRound size={15} />
-        <select
-          value={selected}
-          onChange={(event) => {
-            const value = event.target.value;
-            setSelected(value);
-            window.dispatchEvent(new CustomEvent('pipeline-responsible-change', { detail: { value } }));
-          }}
-          aria-label="Visualizar pipeline por responsável"
-        >
-          <option value="all">Toda a loja</option>
-          {team.map((member) => (
-            <option key={member.id} value={member.id}>{member.full_name} · {member.role_label}</option>
-          ))}
-        </select>
-      </label>
-    </>,
-    host
+      {filter}
+      {owner}
+    </>
   );
 }
 
@@ -120,11 +217,152 @@ const styles = `
     text-overflow:ellipsis;
   }
   .aura-responsible-filter option { background:#11151c; color:#f8fafc; }
+
+  body.pipeline-aura-active .pipeline-cockpit-host.pipeline-tight-host {
+    margin-top:0!important;
+    margin-bottom:0!important;
+    overflow:visible!important;
+  }
+  body.pipeline-aura-active .pipeline-tight-canvas {
+    padding-top:8px!important;
+    padding-right:10px!important;
+    padding-bottom:0!important;
+    padding-left:10px!important;
+  }
+  body.pipeline-aura-active .pipeline-tight-board-scroll {
+    margin-top:6px!important;
+    padding-top:0!important;
+  }
+  body.pipeline-aura-active .pipeline-kpi-strip-shell {
+    width:100%!important;
+    max-width:none!important;
+    margin:0!important;
+    padding:0!important;
+    overflow-x:auto!important;
+    overflow-y:visible!important;
+  }
+  body.pipeline-aura-active .pipeline-kpi-strip {
+    display:grid!important;
+    grid-template-columns:repeat(6,minmax(112px,1fr)) minmax(150px,1.15fr) minmax(165px,1.2fr)!important;
+    width:100%!important;
+    min-width:1030px!important;
+    min-height:76px!important;
+    height:auto!important;
+    align-items:stretch!important;
+    overflow:visible!important;
+    border-radius:12px!important;
+  }
+  body.pipeline-aura-active .pipeline-kpi-item {
+    min-width:0!important;
+    width:auto!important;
+    padding:9px 10px!important;
+    gap:9px!important;
+    overflow:visible!important;
+  }
+  body.pipeline-aura-active .pipeline-kpi-icon {
+    width:39px!important;
+    height:39px!important;
+    flex:0 0 39px!important;
+    border-radius:11px!important;
+  }
+  body.pipeline-aura-active .pipeline-kpi-copy {
+    display:grid!important;
+    min-width:0!important;
+    align-content:center!important;
+    overflow:visible!important;
+    line-height:1!important;
+  }
+  body.pipeline-aura-active .pipeline-kpi-label {
+    display:block!important;
+    position:static!important;
+    height:auto!important;
+    min-height:11px!important;
+    margin:0 0 4px!important;
+    overflow:visible!important;
+    visibility:visible!important;
+    opacity:1!important;
+    color:var(--aura-soft)!important;
+    font-size:9px!important;
+    font-weight:900!important;
+    line-height:1.1!important;
+    white-space:nowrap!important;
+  }
+  body.pipeline-aura-active .pipeline-kpi-value {
+    margin:0!important;
+    font-size:22px!important;
+    line-height:1!important;
+  }
+  body.pipeline-aura-active .pipeline-kpi-detail {
+    display:block!important;
+    margin-top:4px!important;
+    font-size:8px!important;
+    line-height:1.05!important;
+    white-space:nowrap!important;
+  }
+
+  [data-pipeline-owner-host] {
+    display:flex!important;
+    min-width:0;
+    border-left:1px solid var(--aura-border);
+  }
+  .pipeline-owner-card {
+    display:flex;
+    width:100%;
+    min-width:0;
+    align-items:center;
+    gap:8px;
+    padding:9px 10px;
+    background:color-mix(in srgb,var(--aura-surface-2) 72%,transparent);
+  }
+  .pipeline-owner-avatar {
+    display:flex;
+    width:36px;
+    height:36px;
+    flex:0 0 36px;
+    align-items:center;
+    justify-content:center;
+    border:1px solid color-mix(in srgb,#ef2d34 38%,var(--aura-border));
+    border-radius:11px;
+    background:color-mix(in srgb,#ef2d34 13%,var(--aura-surface));
+    color:#ff6b70;
+    font-size:11px;
+    font-weight:950;
+    letter-spacing:.02em;
+  }
+  .pipeline-owner-copy { display:grid; min-width:0; line-height:1; }
+  .pipeline-owner-copy small { color:var(--aura-muted); font-size:7px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; }
+  .pipeline-owner-copy strong { margin-top:4px; overflow:hidden; color:var(--aura-text); font-size:10px; font-weight:950; text-overflow:ellipsis; white-space:nowrap; }
+  .pipeline-owner-copy em { margin-top:4px; overflow:hidden; color:var(--aura-muted); font-size:8px; font-style:normal; font-weight:800; text-overflow:ellipsis; white-space:nowrap; }
+
+  body.pipeline-aura-active .pipeline-customize-trigger {
+    display:flex!important;
+    width:auto!important;
+    min-width:0!important;
+    height:auto!important;
+    min-height:76px!important;
+    flex:initial!important;
+    padding:9px 12px!important;
+    border-left:1px solid var(--aura-border)!important;
+    border-radius:0!important;
+    visibility:visible!important;
+    opacity:1!important;
+    overflow:visible!important;
+  }
+  body.pipeline-aura-active .pipeline-customize-trigger > span { display:grid!important; min-width:0!important; }
+  body.pipeline-aura-active .pipeline-customize-trigger strong { display:block!important; font-size:10px!important; white-space:nowrap!important; }
+  body.pipeline-aura-active .pipeline-customize-trigger small { display:block!important; margin-top:4px!important; font-size:8px!important; white-space:nowrap!important; }
+
   @media (max-width:1180px) {
     .aura-responsible-filter { min-width:135px; max-width:165px; }
+    body.pipeline-aura-active .pipeline-kpi-strip {
+      grid-template-columns:repeat(6,minmax(108px,1fr)) minmax(145px,1.1fr) minmax(160px,1.1fr)!important;
+      min-width:1000px!important;
+    }
   }
   @media (max-width:760px) {
     .aura-responsible-filter { min-width:118px; max-width:145px; height:38px; padding:0 8px; }
     .aura-responsible-filter select { font-size:9px; }
+    body.pipeline-aura-active .pipeline-tight-canvas { padding:6px 8px 0!important; }
+    body.pipeline-aura-active .pipeline-kpi-strip { min-width:1010px!important; }
   }
 `;
