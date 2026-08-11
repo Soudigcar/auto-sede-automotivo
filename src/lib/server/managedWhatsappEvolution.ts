@@ -1,11 +1,14 @@
 import {
+  configureManagedEvolutionWebhook,
   connectEvolutionInstance,
   createEvolutionInstance,
   deleteEvolutionInstance,
   evolutionInstanceName,
   getEvolutionConnectionState,
   getEvolutionInstance,
-  logoutEvolutionInstance
+  getEvolutionWebhook,
+  logoutEvolutionInstance,
+  restoreEvolutionWebhook
 } from '@/lib/server/evolution';
 import { cleanText } from '@/lib/server/storeTeam';
 
@@ -26,6 +29,8 @@ export type ManagedEvolutionContext = {
   numberLabel: string;
   routingMode: 'master_base' | 'store_pipeline';
 };
+
+export const MASTER_PILOT_INSTANCE_NAME = 'auto_controle_piloto';
 
 export function evolutionConnectionStatus(value: unknown): EvolutionIntegrationStatus {
   const state = cleanText(value, 40).toLowerCase();
@@ -262,6 +267,142 @@ export async function disconnectManagedEvolutionIntegration(context: ManagedEvol
   }
 
   return updateManagedEvolutionDetails(context, row, 'disconnected');
+}
+
+export async function adoptMasterPilotEvolutionIntegration(
+  context: ManagedEvolutionContext,
+  row: any
+) {
+  if (context.scope !== 'master' || context.storeId !== null || row?.scope !== 'master' || row?.store_id !== null) {
+    throw new Error('A instância piloto só pode ser reaproveitada no escopo Master.');
+  }
+
+  const { data: conflictingIntegration, error: conflictingIntegrationError } = await context.supabase
+    .from('store_whatsapp_integrations')
+    .select('id')
+    .eq('instance_name', MASTER_PILOT_INSTANCE_NAME)
+    .neq('id', row.id)
+    .maybeSingle();
+
+  if (conflictingIntegrationError) throw conflictingIntegrationError;
+  if (conflictingIntegration) {
+    throw new Error('A instância piloto já está vinculada a outra integração.');
+  }
+
+  const stateResult = await getEvolutionConnectionState(MASTER_PILOT_INSTANCE_NAME);
+  const status = evolutionConnectionStatus(stateResult?.instance?.state);
+  if (status !== 'connected') {
+    throw new Error('A instância auto_controle_piloto não está conectada na Evolution API.');
+  }
+
+  const details = instanceDetails(await getEvolutionInstance(MASTER_PILOT_INSTANCE_NAME));
+  const now = new Date().toISOString();
+  const previousIntegration = {
+    instance_name: row.instance_name,
+    status: row.status,
+    phone_number: row.phone_number,
+    profile_name: row.profile_name,
+    profile_picture_url: row.profile_picture_url,
+    last_connected_at: row.last_connected_at,
+    last_error: row.last_error,
+    settings: row.settings,
+    updated_by: row.updated_by,
+    updated_at: row.updated_at
+  };
+
+  let previousNumber: any = null;
+  if (row.crm_number_id) {
+    const { data, error } = await context.supabase
+      .from('whatsapp_numbers')
+      .select('*')
+      .eq('id', row.crm_number_id)
+      .single();
+
+    if (error) throw error;
+    previousNumber = data;
+  }
+
+  const previousWebhook = await getEvolutionWebhook(MASTER_PILOT_INSTANCE_NAME).catch(() => null);
+
+  const integrationPayload = {
+    instance_name: MASTER_PILOT_INSTANCE_NAME,
+    status: 'connected' as const,
+    phone_number: details.phoneNumber || row.phone_number || null,
+    profile_name: details.profileName || row.profile_name || null,
+    profile_picture_url: details.profilePictureUrl || row.profile_picture_url || null,
+    last_connected_at: now,
+    last_error: null,
+    settings: {
+      ...(row.settings || {}),
+      integration: 'WHATSAPP-BAILEYS',
+      managed_by: 'auto-controle',
+      scope: 'master',
+      adopted_instance: true
+    },
+    updated_by: context.profileId,
+    updated_at: now
+  };
+
+  let integrationUpdated = false;
+
+  try {
+    await configureManagedEvolutionWebhook(MASTER_PILOT_INSTANCE_NAME);
+
+    const { data: integration, error: integrationError } = await context.supabase
+      .from('store_whatsapp_integrations')
+      .update(integrationPayload)
+      .eq('id', row.id)
+      .eq('scope', 'master')
+      .is('store_id', null)
+      .select('*')
+      .single();
+
+    if (integrationError) throw integrationError;
+    integrationUpdated = true;
+
+    if (previousNumber) {
+      const numberPayload = {
+        store_id: null,
+        label: context.numberLabel,
+        phone_number: integrationPayload.phone_number,
+        phone_number_id: `evolution:${MASTER_PILOT_INSTANCE_NAME}`,
+        verify_token: `managed:${MASTER_PILOT_INSTANCE_NAME}`,
+        graph_version: 'evolution-2.3.7',
+        routing_mode: context.routingMode,
+        is_active: true,
+        status: 'connected',
+        settings: {
+          ...(previousNumber.settings || {}),
+          provider: 'evolution',
+          instance_name: MASTER_PILOT_INSTANCE_NAME,
+          scope: 'master'
+        },
+        updated_at: now
+      };
+
+      const { error: numberError } = await context.supabase
+        .from('whatsapp_numbers')
+        .update(numberPayload)
+        .eq('id', previousNumber.id)
+        .is('store_id', null);
+
+      if (numberError) throw numberError;
+    }
+
+    return integration;
+  } catch (error) {
+    if (integrationUpdated) {
+      await context.supabase
+        .from('store_whatsapp_integrations')
+        .update(previousIntegration)
+        .eq('id', row.id)
+        .eq('scope', 'master')
+        .is('store_id', null);
+    }
+
+    await restoreEvolutionWebhook(MASTER_PILOT_INSTANCE_NAME, previousWebhook).catch(() => null);
+    throw error;
+  }
 }
 
 export async function markManagedEvolutionError(context: ManagedEvolutionContext, row: any, error: unknown) {

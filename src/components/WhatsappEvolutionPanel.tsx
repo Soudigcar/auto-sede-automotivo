@@ -135,12 +135,22 @@ export function WhatsappEvolutionPanel({ scope, storeName, storeSlug }: Whatsapp
     return () => window.clearInterval(timer);
   }, [hasIntegration, loadIntegration, status]);
 
-  async function runAction(action: 'connect' | 'refresh-qr' | 'reconnect' | 'disconnect') {
+  async function runAction(action: 'connect' | 'refresh-qr' | 'reconnect' | 'disconnect' | 'adopt-pilot') {
     const ownerLabel = isMaster ? 'da Master' : 'desta loja';
     if (action === 'disconnect' && !window.confirm(`Deseja desconectar o WhatsApp ${ownerLabel}?`)) return;
+    if (
+      action === 'adopt-pilot' &&
+      !window.confirm('Reaproveitar o número piloto já conectado como WhatsApp central da Master? O número não será desconectado.')
+    ) return;
 
     setBusy(action);
-    setMessage(action === 'disconnect' ? 'Desconectando WhatsApp...' : 'Preparando conexão segura...');
+    setMessage(
+      action === 'disconnect'
+        ? 'Desconectando WhatsApp...'
+        : action === 'adopt-pilot'
+          ? 'Validando e vinculando o número piloto com segurança...'
+          : 'Preparando conexão segura...'
+    );
 
     try {
       const token = await getToken();
@@ -160,6 +170,8 @@ export function WhatsappEvolutionPanel({ scope, storeName, storeSlug }: Whatsapp
       setMessage(
         action === 'disconnect'
           ? 'WhatsApp desconectado com segurança.'
+          : action === 'adopt-pilot'
+            ? 'Número piloto conectado à Master e webhook assinado configurado.'
           : result.integration?.status === 'connected'
             ? 'WhatsApp conectado e pronto para uso.'
             : 'Leia o QR Code no WhatsApp do celular.'
@@ -272,6 +284,11 @@ export function WhatsappEvolutionPanel({ scope, storeName, storeSlug }: Whatsapp
                 <button type="button" onClick={() => void loadIntegration()} disabled={Boolean(busy)} className="premium-button-secondary disabled:opacity-50">
                   <RefreshCw size={17} /> Atualizar status
                 </button>
+                {isMaster ? (
+                  <button type="button" onClick={() => void runAction('adopt-pilot')} disabled={Boolean(busy)} className="premium-button-secondary disabled:opacity-50">
+                    {busy === 'adopt-pilot' ? <Loader2 size={17} className="animate-spin" /> : <Smartphone size={17} />} Usar número piloto conectado
+                  </button>
+                ) : null}
               </>
             )}
           </div>

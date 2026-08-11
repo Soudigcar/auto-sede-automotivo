@@ -8,6 +8,15 @@ type EvolutionRequestOptions = {
   body?: unknown;
 };
 
+export type EvolutionWebhookConfig = {
+  enabled: boolean;
+  url: string;
+  headers?: Record<string, string>;
+  byEvents: boolean;
+  base64: boolean;
+  events: string[];
+};
+
 function requiredEnvironment(name: string) {
   const value = String(process.env[name] || '').trim();
   if (!value) throw new Error(`Variável privada ${name} não configurada no servidor.`);
@@ -95,6 +104,82 @@ export function evolutionWebhookSignatureHeader() {
   return WEBHOOK_SIGNATURE_HEADER;
 }
 
+function managedEvolutionWebhook(instanceName: string): EvolutionWebhookConfig {
+  return {
+    enabled: true,
+    url: evolutionWebhookUrl(),
+    byEvents: false,
+    base64: false,
+    events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
+    headers: {
+      [WEBHOOK_SIGNATURE_HEADER]: evolutionWebhookSignature(instanceName)
+    }
+  };
+}
+
+export function getEvolutionWebhook(instanceName: string) {
+  return evolutionRequest(`/webhook/find/${encodeURIComponent(instanceName)}`);
+}
+
+export function setEvolutionWebhook(instanceName: string, webhook: EvolutionWebhookConfig) {
+  return evolutionRequest(`/webhook/set/${encodeURIComponent(instanceName)}`, {
+    method: 'POST',
+    body: { webhook }
+  });
+}
+
+export function storedEvolutionWebhook(result: any): EvolutionWebhookConfig {
+  const stored = result?.webhook || result || {};
+
+  return {
+    enabled: stored.enabled === true,
+    url: cleanWebhookUrl(stored.url),
+    byEvents: stored.webhookByEvents === true || stored.byEvents === true,
+    base64: stored.webhookBase64 === true || stored.base64 === true,
+    events: Array.isArray(stored.events) ? stored.events.map(String) : [],
+    headers: stored.headers && typeof stored.headers === 'object' ? stored.headers : {}
+  };
+}
+
+function cleanWebhookUrl(value: unknown) {
+  const url = String(value || '').trim();
+  return url || evolutionWebhookUrl();
+}
+
+export async function restoreEvolutionWebhook(instanceName: string, previous: any) {
+  if (!previous) {
+    return setEvolutionWebhook(instanceName, {
+      enabled: false,
+      url: evolutionWebhookUrl(),
+      byEvents: false,
+      base64: false,
+      events: [],
+      headers: {}
+    });
+  }
+
+  return setEvolutionWebhook(instanceName, storedEvolutionWebhook(previous));
+}
+
+export async function configureManagedEvolutionWebhook(instanceName: string) {
+  const expected = managedEvolutionWebhook(instanceName);
+  await setEvolutionWebhook(instanceName, expected);
+
+  const result = await getEvolutionWebhook(instanceName);
+  const configured = result?.webhook || result || {};
+  const headers = configured?.headers || {};
+
+  if (
+    configured.enabled !== true ||
+    configured.url !== expected.url ||
+    headers[WEBHOOK_SIGNATURE_HEADER] !== expected.headers?.[WEBHOOK_SIGNATURE_HEADER]
+  ) {
+    throw new Error('A Evolution API não confirmou o webhook assinado da instância piloto.');
+  }
+
+  return result;
+}
+
 export async function createEvolutionInstance(instanceName: string) {
   const instanceToken = randomUUID().replace(/-/g, '');
 
@@ -111,16 +196,7 @@ export async function createEvolutionInstance(instanceName: string) {
       readMessages: false,
       readStatus: false,
       syncFullHistory: false,
-      webhook: {
-        enabled: true,
-        url: evolutionWebhookUrl(),
-        byEvents: false,
-        base64: false,
-        events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
-        headers: {
-          [WEBHOOK_SIGNATURE_HEADER]: evolutionWebhookSignature(instanceName)
-        }
-      }
+      webhook: managedEvolutionWebhook(instanceName)
     }
   });
 }

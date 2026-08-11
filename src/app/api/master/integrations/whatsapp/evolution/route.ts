@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import {
+  adoptMasterPilotEvolutionIntegration,
   connectManagedEvolutionIntegration,
   createManagedEvolutionIntegration,
   disconnectManagedEvolutionIntegration,
@@ -68,13 +69,14 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   let context: ManagedEvolutionContext | null = null;
   let row: any = null;
+  let action = '';
 
   try {
     const authorization = await authorizeMaster(request);
     if ('error' in authorization) return authorization.error;
 
     const body = await request.json();
-    const action = cleanText(body.action, 40).toLowerCase();
+    action = cleanText(body.action, 40).toLowerCase();
     context = managedContext(authorization.supabase, authorization.profile);
     row = await loadManagedEvolutionIntegration(context);
 
@@ -106,9 +108,24 @@ export async function POST(request: Request) {
       });
     }
 
+    if (action === 'adopt-pilot') {
+      if (!row) {
+        return NextResponse.json(
+          { error: 'Crie primeiro o vínculo central da Master antes de reaproveitar a instância piloto.' },
+          { status: 409 }
+        );
+      }
+
+      const integration = await adoptMasterPilotEvolutionIntegration(context, row);
+      return NextResponse.json({
+        success: true,
+        integration: publicEvolutionIntegration(integration)
+      });
+    }
+
     return NextResponse.json({ error: 'Ação de integração inválida.' }, { status: 400 });
   } catch (error: any) {
-    if (context && row?.id) {
+    if (context && row?.id && action !== 'adopt-pilot') {
       await markManagedEvolutionError(context, row, error);
     }
 
