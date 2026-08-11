@@ -243,9 +243,17 @@ const styles = `
     box-shadow:none!important;
   }
   body.pipeline-aura-active .pipeline-cockpit-host > :not(.pipeline-cockpit-shell) { display:none!important; }
-  .pipeline-cockpit-shell { position:static!important; width:100%; margin:0; padding:0; color:var(--aura-text); }
+  .pipeline-cockpit-shell {
+    position:static!important;
+    width:100%;
+    margin:0;
+    padding:0;
+    color:var(--aura-text);
+    container-type:inline-size;
+    container-name:pipelineHeader;
+  }
   .pipeline-cockpit-title-row { position:static!important; display:flex; width:100%; min-width:0; align-items:center; gap:14px; }
-  .pipeline-cockpit-heading { display:flex; min-width:0; flex:1 1 auto; align-items:center; gap:12px; }
+  .pipeline-cockpit-heading { display:flex; min-width:320px; flex:1 1 380px; align-items:center; gap:12px; }
   body.pipeline-aura-active .pipeline-cockpit-host .pipeline-cockpit-heading h1 {
     flex:0 0 auto;
     margin:0!important;
@@ -270,11 +278,29 @@ const styles = `
   .pipeline-cockpit-primary { border:1px solid #ef2d34; background:#ef2d34; color:white; box-shadow:0 8px 20px rgba(239,45,52,.2)!important; }
   body.pipeline-aura-active .pipeline-aura-kpis { display:none!important; }
   body.pipeline-aura-active .aura-hero-actions { display:none!important; }
-  body.pipeline-aura-active .pipeline-aura-canvas { padding-top:92px!important; }
-  body.pipeline-aura-active .pipeline-aura-board-scroll { margin-top:8px!important; padding-top:0!important; }
+  body.pipeline-aura-active .pipeline-aura-board-scroll { margin-top:6px!important; padding-top:0!important; }
   body.pipeline-aura-active .pipeline-aura-board > div > div:first-child { top:0!important; }
   body.pipeline-aura-active .pipeline-aura-board > div { min-height:500px!important; }
   .pipeline-cockpit-stagebar { display:none!important; }
+
+  @media (min-width:1024px) {
+    body.pipeline-aura-active .pipeline-aura-canvas { padding-top:14px!important; }
+  }
+
+  @container pipelineHeader (max-width:1260px) {
+    .pipeline-cockpit-title-row { display:grid; grid-template-columns:minmax(0,1fr); gap:7px; }
+    .pipeline-cockpit-heading { min-width:0; min-height:28px; }
+    .pipeline-cockpit-actions { width:100%; margin-left:0; justify-content:flex-start; }
+  }
+
+  @container pipelineHeader (max-width:760px) {
+    .pipeline-cockpit-owner { display:none; }
+    .pipeline-cockpit-actions { overflow-x:auto; padding-bottom:2px; scrollbar-width:none; }
+    .pipeline-cockpit-actions::-webkit-scrollbar { display:none; }
+    .pipeline-cockpit-actions button, .pipeline-cockpit-responsible-select { height:34px; min-height:34px; padding:0 9px; }
+    .pipeline-cockpit-responsible-select { max-width:165px; }
+    .pipeline-cockpit-responsible-select select { width:125px; max-width:125px; }
+  }
 
   .pipeline-customize-overlay { position:fixed; inset:0; z-index:180; display:flex; align-items:center; justify-content:center; padding:18px; background:rgba(3,7,18,.78); backdrop-filter:blur(8px); }
   .pipeline-customize-modal { width:min(560px,100%); border:1px solid var(--aura-border); border-radius:22px; background:var(--aura-surface); color:var(--aura-text); box-shadow:0 28px 90px rgba(0,0,0,.45); overflow:hidden; }
@@ -293,20 +319,11 @@ const styles = `
   .pipeline-customize-reset { border:1px solid var(--aura-border); background:transparent; color:var(--aura-muted); }
   .pipeline-customize-save { border:1px solid #ef2d34; background:#ef2d34; color:white; }
 
-  @media (max-width:1280px) {
-    .pipeline-cockpit-owner { display:none; }
-    .pipeline-cockpit-actions button, .pipeline-cockpit-responsible-select { padding:0 9px; }
-    .pipeline-cockpit-responsible-select { max-width:165px; }
-    .pipeline-cockpit-responsible-select select { width:125px; max-width:125px; }
-  }
-  @media (max-width:1040px) {
-    .pipeline-cockpit-title-row { align-items:flex-start; flex-wrap:wrap; }
-    .pipeline-cockpit-heading { min-height:30px; }
-    .pipeline-cockpit-actions { width:100%; justify-content:flex-start; margin-left:0; overflow-x:auto; padding-bottom:2px; }
+  @media (max-width:1023px) {
+    body.pipeline-aura-active .pipeline-aura-canvas { padding-top:88px!important; }
   }
   @media (max-width:760px) {
     body.pipeline-aura-active .pipeline-cockpit-host .pipeline-cockpit-heading h1 { font-size:20px!important; }
-    .pipeline-cockpit-actions button, .pipeline-cockpit-responsible-select { height:34px; min-height:34px; }
     .pipeline-cockpit-customize { display:none!important; }
     body.pipeline-aura-active .pipeline-aura-canvas { padding-top:82px!important; }
   }
