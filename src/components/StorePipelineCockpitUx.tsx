@@ -2,31 +2,45 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarDays, CheckCircle2, Clock3, Plus, Settings2, UsersRound } from 'lucide-react';
+import { CalendarDays, Check, Plus, Settings2, UserRound, UsersRound, X } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 
-type PipelineSummary = {
-  store?: { store_name?: string | null };
-  profile?: { full_name?: string | null; role?: string | null };
-  metrics?: { total?: number; scheduled?: number; cancelled?: number; sold?: number; lost?: number };
-  calendar_summary?: {
-    today_tasks?: number;
-    next_task?: { title?: string | null; starts_at?: string | null } | null;
-  };
-  leads?: Array<{ status?: string | null }>;
+type PipelineLead = {
+  id: string;
+  assigned_user_id?: string | null;
+  seller_user_id?: string | null;
+  pre_sales_user_id?: string | null;
+  captured_by_user_id?: string | null;
+  status?: string | null;
 };
 
-const stageMeta = [
+type TeamMember = {
+  id: string;
+  full_name: string;
+  role: string;
+  role_label: string;
+};
+
+type PipelineSummary = {
+  store?: { store_name?: string | null };
+  profile?: { id?: string | null; full_name?: string | null; role?: string | null };
+  team?: TeamMember[];
+  leads?: PipelineLead[];
+};
+
+const stages = [
   ['new_lead', 'Novo Lead'],
   ['in_service', 'Em Atendimento'],
   ['scheduled', 'Agendado'],
   ['appointment_cancelled', 'Cancelou Agendamento'],
   ['no_show', 'Não Compareceu'],
   ['showed_up', 'Compareceu'],
-  ['sale_confirmed', 'Venda'],
+  ['sale_confirmed', 'Venda Confirmada'],
   ['lost', 'Perdido']
 ] as const;
+
+const STORAGE_KEY = 'auto-controle-pipeline-visible-stages';
 
 function isPipeline(pathname: string) {
   return /^\/loja\/[^/]+\/pipeline\/?$/.test(pathname);
@@ -65,11 +79,8 @@ function roleLabel(role?: string | null) {
   return 'Responsável';
 }
 
-function shortTime(value?: string | null) {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+function responsibleId(lead: PipelineLead) {
+  return lead.assigned_user_id || lead.seller_user_id || lead.pre_sales_user_id || lead.captured_by_user_id || '';
 }
 
 export function StorePipelineCockpitUx() {
@@ -79,7 +90,19 @@ export function StorePipelineCockpitUx() {
   const supabase = useMemo(() => createClient(), []);
   const [summary, setSummary] = useState<PipelineSummary | null>(null);
   const [heroHost, setHeroHost] = useState<HTMLElement | null>(null);
-  const [stageHost, setStageHost] = useState<HTMLElement | null>(null);
+  const [selectedResponsible, setSelectedResponsible] = useState('all');
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [visibleStages, setVisibleStages] = useState<string[]>(stages.map(([key]) => key));
+
+  useEffect(() => {
+    if (!active) return;
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length) setVisibleStages(parsed.filter((item) => stages.some(([key]) => key === item)));
+    } catch {}
+  }, [active]);
 
   useEffect(() => {
     if (!active) return;
@@ -110,7 +133,6 @@ export function StorePipelineCockpitUx() {
         const hero = pageMain ? Array.from(pageMain.querySelectorAll<HTMLElement>('header')).find((item) => item.querySelector('h1')?.textContent?.includes('Pipeline da Loja')) || null : null;
         const board = Array.from(document.querySelectorAll<HTMLElement>('div.grid')).find((element) => element.className.includes('grid-cols-8') && element.children.length >= 6) || null;
         setHeroHost((current) => current === hero ? current : hero);
-        setStageHost((current) => current === board?.parentElement ? current : board?.parentElement || null);
         hero?.classList.add('pipeline-cockpit-host');
         board?.classList.add('pipeline-cockpit-board');
       });
@@ -121,56 +143,70 @@ export function StorePipelineCockpitUx() {
     return () => { observer.disconnect(); cancelAnimationFrame(raf); };
   }, [active]);
 
+  useEffect(() => {
+    if (!active) return;
+    const leadMap = new Map((summary?.leads || []).map((lead) => [lead.id, lead]));
+    document.querySelectorAll<HTMLElement>('[data-lead-id]').forEach((card) => {
+      const lead = leadMap.get(card.dataset.leadId || '');
+      const matchesResponsible = selectedResponsible === 'all' || responsibleId(lead || { id: '' }) === selectedResponsible;
+      card.style.display = matchesResponsible ? '' : 'none';
+    });
+
+    const board = document.querySelector<HTMLElement>('.pipeline-cockpit-board');
+    if (board) {
+      Array.from(board.children).forEach((column, index) => {
+        const key = stages[index]?.[0];
+        (column as HTMLElement).style.display = key && visibleStages.includes(key) ? '' : 'none';
+      });
+    }
+  }, [active, selectedResponsible, summary, visibleStages]);
+
   if (!active) return null;
 
-  const metrics = summary?.metrics || {};
-  const stageCounts = new Map<string, number>();
-  for (const lead of summary?.leads || []) {
-    const key = String(lead.status || '');
-    stageCounts.set(key, (stageCounts.get(key) || 0) + 1);
-  }
+  const team = summary?.team || [];
   const ownerName = summary?.profile?.full_name || summary?.store?.store_name || 'Carteira geral da loja';
   const ownerRole = summary?.profile?.role === 'store' ? 'Gestor da loja' : roleLabel(summary?.profile?.role);
-  const nextTask = summary?.calendar_summary?.next_task;
+  const selectedMember = team.find((member) => member.id === selectedResponsible) || null;
+  const viewLabel = selectedMember ? `${selectedMember.full_name} · ${selectedMember.role_label}` : 'Toda a loja';
+
+  function toggleStage(key: string) {
+    setVisibleStages((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
+  }
+
+  function saveCustomization() {
+    const safe = visibleStages.length ? visibleStages : stages.map(([key]) => key);
+    setVisibleStages(safe);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(safe));
+    setCustomizeOpen(false);
+  }
+
+  function resetCustomization() {
+    const all = stages.map(([key]) => key);
+    setVisibleStages(all);
+    window.localStorage.removeItem(STORAGE_KEY);
+  }
 
   const header = (
     <div className="pipeline-cockpit-shell">
       <div className="pipeline-cockpit-title-row">
         <div className="pipeline-cockpit-heading">
           <h1>Pipeline da Loja</h1>
-          <div className="pipeline-cockpit-owner"><span className="pipeline-cockpit-live" /> Sincronizado agora <span className="pipeline-cockpit-sep">|</span><UsersRound size={14} /> Responsável pela pipeline: <strong>{ownerName}</strong> · {ownerRole}</div>
+          <div className="pipeline-cockpit-owner"><span className="pipeline-cockpit-live" /> Sincronizado agora <span className="pipeline-cockpit-sep">|</span><UsersRound size={14} /> Responsável: <strong>{ownerName}</strong> · {ownerRole}</div>
         </div>
         <div className="pipeline-cockpit-actions">
           <button type="button" className="pipeline-cockpit-secondary" onClick={() => clickNativeLink('calendário')}><CalendarDays size={17} /> Calendário</button>
-          <button type="button" className="pipeline-cockpit-secondary" onClick={() => clickNativeButton('personalizar pipeline')}><Settings2 size={17} /> Personalizar pipeline</button>
+          <label className="pipeline-cockpit-responsible-select">
+            <UserRound size={16} />
+            <select value={selectedResponsible} onChange={(event) => setSelectedResponsible(event.target.value)} aria-label="Visualizar pipeline por responsável">
+              <option value="all">Toda a loja</option>
+              {team.map((member) => <option key={member.id} value={member.id}>{member.full_name} · {member.role_label}</option>)}
+            </select>
+          </label>
+          <button type="button" className="pipeline-cockpit-secondary" onClick={() => setCustomizeOpen(true)}><Settings2 size={17} /> Personalizar pipeline</button>
           <button type="button" className="pipeline-cockpit-primary" onClick={() => clickNativeButton('adicionar lead')}><Plus size={18} /> Novo Lead</button>
         </div>
       </div>
-      <div className="pipeline-cockpit-metrics">
-        <Metric label="Leads" value={metrics.total || 0} />
-        <Metric label="Agendados" value={metrics.scheduled || 0} />
-        <Metric label="Cancelados" value={metrics.cancelled || 0} />
-        <Metric label="Vendas" value={metrics.sold || 0} />
-        <Metric label="Perdas" value={metrics.lost || 0} />
-        <button type="button" className="pipeline-cockpit-task" onClick={() => clickNativeLink('calendário')}>
-          <span><Clock3 size={17} /> Tarefas de hoje</span><strong>{summary?.calendar_summary?.today_tasks || 0}</strong>
-          <small>{nextTask ? `Próxima ${shortTime(nextTask.starts_at)} · ${nextTask.title || 'Tarefa'}` : 'Nenhuma tarefa pendente hoje'}</small>
-        </button>
-      </div>
-    </div>
-  );
-
-  const stages = (
-    <div className="pipeline-cockpit-stagebar">
-      {stageMeta.map(([key, label], index) => (
-        <button key={key} type="button" className={index === 0 ? 'is-active' : ''} onClick={() => {
-          const board = document.querySelector<HTMLElement>('.pipeline-cockpit-board');
-          const column = board?.children.item(index) as HTMLElement | null;
-          column?.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
-        }}>
-          <span className={`stage-dot stage-${key}`} /> {label}<b>{stageCounts.get(key) || 0}</b>
-        </button>
-      ))}
+      <div className="pipeline-cockpit-view-label">Visualizando: <strong>{viewLabel}</strong></div>
     </div>
   );
 
@@ -178,70 +214,75 @@ export function StorePipelineCockpitUx() {
     <>
       <style>{styles}</style>
       {heroHost ? createPortal(header, heroHost) : null}
-      {stageHost ? createPortal(stages, stageHost) : null}
+      {customizeOpen && typeof document !== 'undefined' ? createPortal(
+        <div className="pipeline-customize-overlay" role="dialog" aria-modal="true" aria-label="Personalizar pipeline" onMouseDown={() => setCustomizeOpen(false)}>
+          <section className="pipeline-customize-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <header><div><p>Configuração visual</p><h2>Personalizar pipeline</h2><span>Escolha quais etapas aparecem no quadro desta tela.</span></div><button type="button" onClick={() => setCustomizeOpen(false)} aria-label="Fechar"><X size={20} /></button></header>
+            <div className="pipeline-customize-list">
+              {stages.map(([key, label]) => {
+                const checked = visibleStages.includes(key);
+                return <button key={key} type="button" className={checked ? 'is-checked' : ''} onClick={() => toggleStage(key)}><span>{checked ? <Check size={16} /> : null}</span><strong>{label}</strong></button>;
+              })}
+            </div>
+            <footer><button type="button" className="pipeline-customize-reset" onClick={resetCustomization}>Restaurar padrão</button><button type="button" className="pipeline-customize-save" onClick={saveCustomization}>Salvar personalização</button></footer>
+          </section>
+        </div>, document.body
+      ) : null}
     </>
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
-  return <div className="pipeline-cockpit-metric"><span>{label}</span><strong>{value}</strong></div>;
-}
-
 const styles = `
-  body.pipeline-aura-active .pipeline-cockpit-host {
-    min-height: 0 !important;
-    padding: 0 !important;
-    border: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-  }
-  body.pipeline-aura-active .pipeline-cockpit-host > :not(.pipeline-cockpit-shell) { display: none !important; }
-  .pipeline-cockpit-shell { width: 100%; color: var(--aura-text); }
+  body.pipeline-aura-active .pipeline-cockpit-host { min-height:0!important; padding:0!important; border:0!important; background:transparent!important; box-shadow:none!important; }
+  body.pipeline-aura-active .pipeline-cockpit-host > :not(.pipeline-cockpit-shell) { display:none!important; }
+  .pipeline-cockpit-shell { width:100%; color:var(--aura-text); }
   .pipeline-cockpit-title-row { display:flex; align-items:center; justify-content:space-between; gap:18px; }
   .pipeline-cockpit-heading h1 { margin:0; color:var(--aura-text); font-size:30px; font-weight:950; letter-spacing:-.035em; }
   .pipeline-cockpit-owner { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-top:7px; color:var(--aura-muted); font-size:11px; font-weight:650; }
   .pipeline-cockpit-owner strong { color:var(--aura-soft); }
   .pipeline-cockpit-live { width:7px; height:7px; border-radius:50%; background:#22c55e; box-shadow:0 0 12px rgba(34,197,94,.65); }
   .pipeline-cockpit-sep { color:var(--aura-border); margin:0 4px; }
-  .pipeline-cockpit-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
-  .pipeline-cockpit-actions button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:46px; border-radius:13px; padding:0 17px; font-size:12px; font-weight:900; white-space:nowrap; }
-  .pipeline-cockpit-secondary { border:1px solid var(--aura-border); background:var(--aura-surface-2); color:var(--aura-soft); }
+  .pipeline-cockpit-actions { display:flex; align-items:center; gap:9px; flex-wrap:wrap; justify-content:flex-end; }
+  .pipeline-cockpit-actions button, .pipeline-cockpit-responsible-select { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; border-radius:13px; padding:0 15px; font-size:12px; font-weight:900; white-space:nowrap; }
+  .pipeline-cockpit-secondary, .pipeline-cockpit-responsible-select { border:1px solid var(--aura-border); background:var(--aura-surface-2); color:var(--aura-soft); }
+  .pipeline-cockpit-responsible-select select { max-width:210px; border:0; outline:0; background:transparent; color:var(--aura-soft); font:inherit; cursor:pointer; }
+  .pipeline-cockpit-responsible-select option { background:#11151c; color:#f8fafc; }
   .pipeline-cockpit-primary { border:1px solid #ef2d34; background:#ef2d34; color:white; box-shadow:0 12px 30px rgba(239,45,52,.24); }
-  .pipeline-cockpit-metrics { display:grid; grid-template-columns:repeat(5,minmax(105px,1fr)) minmax(220px,1.35fr); gap:9px; margin-top:14px; }
-  .pipeline-cockpit-metric, .pipeline-cockpit-task { min-height:70px; border:1px solid var(--aura-border); border-radius:13px; background:linear-gradient(145deg,var(--aura-surface),var(--aura-surface-2)); padding:12px 14px; color:var(--aura-text); box-shadow:0 10px 26px var(--aura-shadow); }
-  .pipeline-cockpit-metric span { display:block; color:var(--aura-muted); font-size:11px; font-weight:750; }
-  .pipeline-cockpit-metric strong { display:block; margin-top:3px; font-size:23px; line-height:1; }
-  .pipeline-cockpit-task { text-align:left; }
-  .pipeline-cockpit-task span { display:flex; align-items:center; gap:7px; color:var(--aura-muted); font-size:11px; font-weight:800; }
-  .pipeline-cockpit-task strong { display:block; margin-top:2px; font-size:22px; }
-  .pipeline-cockpit-task small { display:block; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--aura-muted); font-size:9px; }
-  body.pipeline-aura-active .pipeline-aura-kpis { display:none !important; }
-  body.pipeline-aura-active .aura-hero-actions { display:none !important; }
-  body.pipeline-aura-active .pipeline-aura-canvas { padding-top:96px !important; }
-  body.pipeline-aura-active .pipeline-aura-board-scroll { position:relative; margin-top:14px !important; padding-top:58px !important; }
-  .pipeline-cockpit-stagebar { position:absolute; top:0; left:0; right:0; z-index:8; display:flex; gap:8px; overflow-x:auto; padding:2px 0 9px; background:linear-gradient(180deg,var(--aura-bg) 78%,transparent); scrollbar-width:none; }
-  .pipeline-cockpit-stagebar::-webkit-scrollbar { display:none; }
-  .pipeline-cockpit-stagebar button { display:inline-flex; align-items:center; gap:7px; flex:0 0 auto; min-height:42px; border:1px solid var(--aura-border); border-radius:12px; background:var(--aura-surface); padding:0 12px; color:var(--aura-soft); font-size:11px; font-weight:900; }
-  .pipeline-cockpit-stagebar button.is-active { border-color:#2563eb; box-shadow:inset 0 -2px 0 #2563eb; }
-  .pipeline-cockpit-stagebar b { display:inline-flex; min-width:22px; height:22px; align-items:center; justify-content:center; border-radius:999px; background:var(--aura-surface-2); color:var(--aura-soft); font-size:10px; }
-  .stage-dot { width:8px; height:8px; border-radius:50%; background:#64748b; }
-  .stage-new_lead { background:#3b82f6; }.stage-in_service { background:#8b5cf6; }.stage-scheduled { background:#f59e0b; }.stage-appointment_cancelled { background:#f97316; }.stage-no_show { background:#71717a; }.stage-showed_up { background:#10b981; }.stage-sale_confirmed { background:#22c55e; }.stage-lost { background:#ef4444; }
-  body.pipeline-aura-active .pipeline-aura-board > div > div:first-child { top:54px !important; }
-  body.pipeline-aura-active .pipeline-aura-board > div { min-height:500px !important; }
+  .pipeline-cockpit-view-label { margin-top:8px; color:var(--aura-muted); font-size:10px; font-weight:700; }
+  .pipeline-cockpit-view-label strong { color:var(--aura-soft); }
+  body.pipeline-aura-active .pipeline-aura-kpis { display:none!important; }
+  body.pipeline-aura-active .aura-hero-actions { display:none!important; }
+  body.pipeline-aura-active .pipeline-aura-canvas { padding-top:96px!important; }
+  body.pipeline-aura-active .pipeline-aura-board-scroll { margin-top:10px!important; padding-top:0!important; }
+  body.pipeline-aura-active .pipeline-aura-board > div > div:first-child { top:0!important; }
+  body.pipeline-aura-active .pipeline-aura-board > div { min-height:500px!important; }
+  .pipeline-cockpit-stagebar { display:none!important; }
 
-  @media (max-width:1200px) {
-    .pipeline-cockpit-title-row { align-items:flex-start; }
-    .pipeline-cockpit-metrics { grid-template-columns:repeat(3,minmax(120px,1fr)); }
-  }
+  .pipeline-customize-overlay { position:fixed; inset:0; z-index:180; display:flex; align-items:center; justify-content:center; padding:18px; background:rgba(3,7,18,.78); backdrop-filter:blur(8px); }
+  .pipeline-customize-modal { width:min(560px,100%); border:1px solid var(--aura-border); border-radius:22px; background:var(--aura-surface); color:var(--aura-text); box-shadow:0 28px 90px rgba(0,0,0,.45); overflow:hidden; }
+  .pipeline-customize-modal header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:22px; border-bottom:1px solid var(--aura-border); }
+  .pipeline-customize-modal header p { margin:0; color:#ef2d34; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.16em; }
+  .pipeline-customize-modal header h2 { margin:4px 0 0; font-size:23px; font-weight:950; }
+  .pipeline-customize-modal header span { display:block; margin-top:5px; color:var(--aura-muted); font-size:11px; }
+  .pipeline-customize-modal header button { display:flex; width:38px; height:38px; align-items:center; justify-content:center; border:1px solid var(--aura-border); border-radius:12px; background:var(--aura-surface-2); color:var(--aura-soft); }
+  .pipeline-customize-list { display:grid; gap:8px; padding:18px 22px; }
+  .pipeline-customize-list button { display:flex; align-items:center; gap:11px; min-height:48px; border:1px solid var(--aura-border); border-radius:13px; background:var(--aura-surface-2); padding:0 14px; color:var(--aura-soft); text-align:left; }
+  .pipeline-customize-list button > span { display:flex; width:22px; height:22px; align-items:center; justify-content:center; border:1px solid var(--aura-border); border-radius:7px; }
+  .pipeline-customize-list button.is-checked > span { border-color:#ef2d34; background:#ef2d34; color:white; }
+  .pipeline-customize-list strong { font-size:12px; }
+  .pipeline-customize-modal footer { display:flex; justify-content:space-between; gap:12px; padding:18px 22px 22px; border-top:1px solid var(--aura-border); }
+  .pipeline-customize-modal footer button { min-height:44px; border-radius:12px; padding:0 16px; font-size:12px; font-weight:900; }
+  .pipeline-customize-reset { border:1px solid var(--aura-border); background:transparent; color:var(--aura-muted); }
+  .pipeline-customize-save { border:1px solid #ef2d34; background:#ef2d34; color:white; }
+
+  @media (max-width:1100px) { .pipeline-cockpit-title-row { align-items:flex-start; } .pipeline-cockpit-actions { max-width:620px; } }
   @media (max-width:760px) {
     .pipeline-cockpit-title-row { display:grid; }
-    .pipeline-cockpit-actions { justify-content:flex-start; overflow-x:auto; flex-wrap:nowrap; }
-    .pipeline-cockpit-actions button { min-height:42px; padding:0 12px; }
+    .pipeline-cockpit-actions { justify-content:flex-start; overflow-x:auto; flex-wrap:nowrap; max-width:100%; padding-bottom:2px; }
+    .pipeline-cockpit-actions button, .pipeline-cockpit-responsible-select { min-height:41px; padding:0 11px; }
     .pipeline-cockpit-heading h1 { font-size:25px; }
     .pipeline-cockpit-owner { font-size:10px; }
-    .pipeline-cockpit-metrics { display:flex; overflow-x:auto; }
-    .pipeline-cockpit-metric { min-width:115px; }
-    .pipeline-cockpit-task { min-width:220px; }
-    body.pipeline-aura-active .pipeline-aura-canvas { padding-top:84px !important; }
+    .pipeline-cockpit-responsible-select select { max-width:150px; }
+    body.pipeline-aura-active .pipeline-aura-canvas { padding-top:88px!important; }
   }
 `;
