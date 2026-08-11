@@ -163,11 +163,9 @@ export function StorePipelineCockpitUx() {
 
   if (!active) return null;
 
-  const team = summary?.team || [];
+  const team = (summary?.team || []).filter((member) => member.role !== 'store');
   const ownerName = summary?.profile?.full_name || summary?.store?.store_name || 'Carteira geral da loja';
   const ownerRole = summary?.profile?.role === 'store' ? 'Gestor da loja' : roleLabel(summary?.profile?.role);
-  const selectedMember = team.find((member) => member.id === selectedResponsible) || null;
-  const viewLabel = selectedMember ? `${selectedMember.full_name} · ${selectedMember.role_label}` : 'Toda a loja';
 
   function toggleStage(key: string) {
     setVisibleStages((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
@@ -191,22 +189,21 @@ export function StorePipelineCockpitUx() {
       <div className="pipeline-cockpit-title-row">
         <div className="pipeline-cockpit-heading">
           <h1>Pipeline da Loja</h1>
-          <div className="pipeline-cockpit-owner"><span className="pipeline-cockpit-live" /> Sincronizado agora <span className="pipeline-cockpit-sep">|</span><UsersRound size={14} /> Responsável: <strong>{ownerName}</strong> · {ownerRole}</div>
+          <div className="pipeline-cockpit-owner"><span className="pipeline-cockpit-live" /> Sincronizado <span className="pipeline-cockpit-sep">·</span><UsersRound size={13} /> <strong>{ownerName}</strong> <span className="pipeline-cockpit-role">· {ownerRole}</span></div>
         </div>
         <div className="pipeline-cockpit-actions">
-          <button type="button" className="pipeline-cockpit-secondary" onClick={() => clickNativeLink('calendário')}><CalendarDays size={17} /> Calendário</button>
+          <button type="button" className="pipeline-cockpit-secondary" onClick={() => clickNativeLink('calendário')}><CalendarDays size={15} /> Calendário</button>
           <label className="pipeline-cockpit-responsible-select">
-            <UserRound size={16} />
+            <UserRound size={14} />
             <select value={selectedResponsible} onChange={(event) => setSelectedResponsible(event.target.value)} aria-label="Visualizar pipeline por responsável">
               <option value="all">Toda a loja</option>
               {team.map((member) => <option key={member.id} value={member.id}>{member.full_name} · {member.role_label}</option>)}
             </select>
           </label>
-          <button type="button" className="pipeline-cockpit-secondary" onClick={() => setCustomizeOpen(true)}><Settings2 size={17} /> Personalizar pipeline</button>
-          <button type="button" className="pipeline-cockpit-primary" onClick={() => clickNativeButton('adicionar lead')}><Plus size={18} /> Novo Lead</button>
+          <button type="button" className="pipeline-cockpit-secondary pipeline-cockpit-customize" onClick={() => setCustomizeOpen(true)}><Settings2 size={15} /> Personalizar pipeline</button>
+          <button type="button" className="pipeline-cockpit-primary" onClick={() => clickNativeButton('adicionar lead')}><Plus size={16} /> Novo Lead</button>
         </div>
       </div>
-      <div className="pipeline-cockpit-view-label">Visualizando: <strong>{viewLabel}</strong></div>
     </div>
   );
 
@@ -233,27 +230,48 @@ export function StorePipelineCockpitUx() {
 }
 
 const styles = `
-  body.pipeline-aura-active .pipeline-cockpit-host { min-height:0!important; padding:0!important; border:0!important; background:transparent!important; box-shadow:none!important; }
+  body.pipeline-aura-active .pipeline-cockpit-host {
+    position:static!important;
+    min-height:0!important;
+    height:auto!important;
+    width:100%!important;
+    max-width:none!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+    background:transparent!important;
+    box-shadow:none!important;
+  }
   body.pipeline-aura-active .pipeline-cockpit-host > :not(.pipeline-cockpit-shell) { display:none!important; }
-  .pipeline-cockpit-shell { width:100%; color:var(--aura-text); }
-  .pipeline-cockpit-title-row { display:flex; align-items:center; justify-content:space-between; gap:18px; }
-  .pipeline-cockpit-heading h1 { margin:0; color:var(--aura-text); font-size:30px; font-weight:950; letter-spacing:-.035em; }
-  .pipeline-cockpit-owner { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-top:7px; color:var(--aura-muted); font-size:11px; font-weight:650; }
-  .pipeline-cockpit-owner strong { color:var(--aura-soft); }
-  .pipeline-cockpit-live { width:7px; height:7px; border-radius:50%; background:#22c55e; box-shadow:0 0 12px rgba(34,197,94,.65); }
-  .pipeline-cockpit-sep { color:var(--aura-border); margin:0 4px; }
-  .pipeline-cockpit-actions { display:flex; align-items:center; gap:9px; flex-wrap:wrap; justify-content:flex-end; }
-  .pipeline-cockpit-actions button, .pipeline-cockpit-responsible-select { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; border-radius:13px; padding:0 15px; font-size:12px; font-weight:900; white-space:nowrap; }
+  .pipeline-cockpit-shell { position:static!important; width:100%; margin:0; padding:0; color:var(--aura-text); }
+  .pipeline-cockpit-title-row { position:static!important; display:flex; width:100%; min-width:0; align-items:center; gap:14px; }
+  .pipeline-cockpit-heading { display:flex; min-width:0; flex:1 1 auto; align-items:center; gap:12px; }
+  body.pipeline-aura-active .pipeline-cockpit-host .pipeline-cockpit-heading h1 {
+    flex:0 0 auto;
+    margin:0!important;
+    color:var(--aura-text)!important;
+    font-size:22px!important;
+    line-height:1!important;
+    font-weight:950!important;
+    letter-spacing:-.025em!important;
+    white-space:nowrap!important;
+  }
+  .pipeline-cockpit-owner { display:flex; min-width:0; align-items:center; gap:5px; overflow:hidden; color:var(--aura-muted); font-size:10px; font-weight:700; white-space:nowrap; }
+  .pipeline-cockpit-owner strong { max-width:155px; overflow:hidden; color:var(--aura-soft); text-overflow:ellipsis; }
+  .pipeline-cockpit-role { overflow:hidden; text-overflow:ellipsis; }
+  .pipeline-cockpit-live { flex:0 0 auto; width:6px; height:6px; border-radius:50%; background:#22c55e; box-shadow:0 0 9px rgba(34,197,94,.55); }
+  .pipeline-cockpit-sep { color:var(--aura-muted); }
+  .pipeline-cockpit-actions { position:static!important; display:flex; flex:0 0 auto; align-items:center; justify-content:flex-end; gap:7px; margin-left:auto; }
+  .pipeline-cockpit-actions button, .pipeline-cockpit-responsible-select { position:static!important; display:inline-flex; height:36px; min-height:36px; align-items:center; justify-content:center; gap:6px; border-radius:10px; padding:0 11px; font-size:10px; font-weight:900; line-height:1; white-space:nowrap; box-shadow:none; }
   .pipeline-cockpit-secondary, .pipeline-cockpit-responsible-select { border:1px solid var(--aura-border); background:var(--aura-surface-2); color:var(--aura-soft); }
-  .pipeline-cockpit-responsible-select select { max-width:210px; border:0; outline:0; background:transparent; color:var(--aura-soft); font:inherit; cursor:pointer; }
+  .pipeline-cockpit-responsible-select { max-width:190px; }
+  .pipeline-cockpit-responsible-select select { width:150px; max-width:150px; border:0; outline:0; background:transparent; color:var(--aura-soft); font:inherit; cursor:pointer; text-overflow:ellipsis; }
   .pipeline-cockpit-responsible-select option { background:#11151c; color:#f8fafc; }
-  .pipeline-cockpit-primary { border:1px solid #ef2d34; background:#ef2d34; color:white; box-shadow:0 12px 30px rgba(239,45,52,.24); }
-  .pipeline-cockpit-view-label { margin-top:8px; color:var(--aura-muted); font-size:10px; font-weight:700; }
-  .pipeline-cockpit-view-label strong { color:var(--aura-soft); }
+  .pipeline-cockpit-primary { border:1px solid #ef2d34; background:#ef2d34; color:white; box-shadow:0 8px 20px rgba(239,45,52,.2)!important; }
   body.pipeline-aura-active .pipeline-aura-kpis { display:none!important; }
   body.pipeline-aura-active .aura-hero-actions { display:none!important; }
-  body.pipeline-aura-active .pipeline-aura-canvas { padding-top:96px!important; }
-  body.pipeline-aura-active .pipeline-aura-board-scroll { margin-top:10px!important; padding-top:0!important; }
+  body.pipeline-aura-active .pipeline-aura-canvas { padding-top:92px!important; }
+  body.pipeline-aura-active .pipeline-aura-board-scroll { margin-top:8px!important; padding-top:0!important; }
   body.pipeline-aura-active .pipeline-aura-board > div > div:first-child { top:0!important; }
   body.pipeline-aura-active .pipeline-aura-board > div { min-height:500px!important; }
   .pipeline-cockpit-stagebar { display:none!important; }
@@ -275,14 +293,21 @@ const styles = `
   .pipeline-customize-reset { border:1px solid var(--aura-border); background:transparent; color:var(--aura-muted); }
   .pipeline-customize-save { border:1px solid #ef2d34; background:#ef2d34; color:white; }
 
-  @media (max-width:1100px) { .pipeline-cockpit-title-row { align-items:flex-start; } .pipeline-cockpit-actions { max-width:620px; } }
+  @media (max-width:1280px) {
+    .pipeline-cockpit-owner { display:none; }
+    .pipeline-cockpit-actions button, .pipeline-cockpit-responsible-select { padding:0 9px; }
+    .pipeline-cockpit-responsible-select { max-width:165px; }
+    .pipeline-cockpit-responsible-select select { width:125px; max-width:125px; }
+  }
+  @media (max-width:1040px) {
+    .pipeline-cockpit-title-row { align-items:flex-start; flex-wrap:wrap; }
+    .pipeline-cockpit-heading { min-height:30px; }
+    .pipeline-cockpit-actions { width:100%; justify-content:flex-start; margin-left:0; overflow-x:auto; padding-bottom:2px; }
+  }
   @media (max-width:760px) {
-    .pipeline-cockpit-title-row { display:grid; }
-    .pipeline-cockpit-actions { justify-content:flex-start; overflow-x:auto; flex-wrap:nowrap; max-width:100%; padding-bottom:2px; }
-    .pipeline-cockpit-actions button, .pipeline-cockpit-responsible-select { min-height:41px; padding:0 11px; }
-    .pipeline-cockpit-heading h1 { font-size:25px; }
-    .pipeline-cockpit-owner { font-size:10px; }
-    .pipeline-cockpit-responsible-select select { max-width:150px; }
-    body.pipeline-aura-active .pipeline-aura-canvas { padding-top:88px!important; }
+    body.pipeline-aura-active .pipeline-cockpit-host .pipeline-cockpit-heading h1 { font-size:20px!important; }
+    .pipeline-cockpit-actions button, .pipeline-cockpit-responsible-select { height:34px; min-height:34px; }
+    .pipeline-cockpit-customize { display:none!important; }
+    body.pipeline-aura-active .pipeline-aura-canvas { padding-top:82px!important; }
   }
 `;
