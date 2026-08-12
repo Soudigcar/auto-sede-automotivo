@@ -269,6 +269,29 @@ export async function disconnectManagedEvolutionIntegration(context: ManagedEvol
   return updateManagedEvolutionDetails(context, row, 'disconnected');
 }
 
+export async function refreshMasterPilotEvolutionWebhook(
+  context: ManagedEvolutionContext,
+  row: any
+) {
+  if (
+    context.scope !== 'master' ||
+    context.storeId !== null ||
+    row?.scope !== 'master' ||
+    row?.store_id !== null ||
+    row?.instance_name !== MASTER_PILOT_INSTANCE_NAME
+  ) {
+    throw new Error('Somente o webhook da instância piloto vinculada à Master pode ser reconfigurado.');
+  }
+
+  const stateResult = await getEvolutionConnectionState(MASTER_PILOT_INSTANCE_NAME);
+  if (evolutionConnectionStatus(stateResult?.instance?.state) !== 'connected') {
+    throw new Error('A instância auto_controle_piloto precisa estar conectada para atualizar o webhook.');
+  }
+
+  await configureManagedEvolutionWebhook(MASTER_PILOT_INSTANCE_NAME);
+  return row;
+}
+
 export async function adoptMasterPilotEvolutionIntegration(
   context: ManagedEvolutionContext,
   row: any

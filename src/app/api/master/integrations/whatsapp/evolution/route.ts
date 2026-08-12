@@ -8,6 +8,7 @@ import {
   markManagedEvolutionError,
   publicEvolutionIntegration,
   readManagedEvolutionState,
+  refreshMasterPilotEvolutionWebhook,
   type ManagedEvolutionContext
 } from '@/lib/server/managedWhatsappEvolution';
 import { cleanText, getAdminClient, requireMaster } from '@/lib/server/masterApi';
@@ -123,9 +124,24 @@ export async function POST(request: Request) {
       });
     }
 
+    if (action === 'refresh-webhook') {
+      if (!row) {
+        return NextResponse.json(
+          { error: 'Nenhuma conexão WhatsApp central foi configurada.' },
+          { status: 404 }
+        );
+      }
+
+      const integration = await refreshMasterPilotEvolutionWebhook(context, row);
+      return NextResponse.json({
+        success: true,
+        integration: publicEvolutionIntegration(integration)
+      });
+    }
+
     return NextResponse.json({ error: 'Ação de integração inválida.' }, { status: 400 });
   } catch (error: any) {
-    if (context && row?.id && action !== 'adopt-pilot') {
+    if (context && row?.id && action !== 'adopt-pilot' && action !== 'refresh-webhook') {
       await markManagedEvolutionError(context, row, error);
     }
 

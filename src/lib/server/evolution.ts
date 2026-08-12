@@ -2,6 +2,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 
 const EVOLUTION_TIMEOUT_MS = 20_000;
 const WEBHOOK_SIGNATURE_HEADER = 'x-auto-controle-evolution-signature';
+const VERCEL_PROTECTION_BYPASS_HEADER = 'x-vercel-protection-bypass';
 
 type EvolutionRequestOptions = {
   method?: 'GET' | 'POST' | 'DELETE';
@@ -33,6 +34,11 @@ function evolutionApiKey() {
 
 function webhookSecret() {
   return requiredEnvironment('EVOLUTION_WEBHOOK_SECRET');
+}
+
+function vercelProtectionBypassSecret() {
+  if (process.env.VERCEL_ENV !== 'preview') return '';
+  return requiredEnvironment('VERCEL_AUTOMATION_BYPASS_SECRET');
 }
 
 export function evolutionWebhookUrl() {
@@ -105,15 +111,22 @@ export function evolutionWebhookSignatureHeader() {
 }
 
 function managedEvolutionWebhook(instanceName: string): EvolutionWebhookConfig {
+  const headers: Record<string, string> = {
+    [WEBHOOK_SIGNATURE_HEADER]: evolutionWebhookSignature(instanceName)
+  };
+  const protectionBypassSecret = vercelProtectionBypassSecret();
+
+  if (protectionBypassSecret) {
+    headers[VERCEL_PROTECTION_BYPASS_HEADER] = protectionBypassSecret;
+  }
+
   return {
     enabled: true,
     url: evolutionWebhookUrl(),
     byEvents: false,
     base64: false,
     events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
-    headers: {
-      [WEBHOOK_SIGNATURE_HEADER]: evolutionWebhookSignature(instanceName)
-    }
+    headers
   };
 }
 
@@ -168,13 +181,16 @@ export async function configureManagedEvolutionWebhook(instanceName: string) {
   const result = await getEvolutionWebhook(instanceName);
   const configured = result?.webhook || result || {};
   const headers = configured?.headers || {};
+  const expectedHeaders = expected.headers || {};
+  const headersConfirmed = Object.entries(expectedHeaders)
+    .every(([name, value]) => headers[name] === value);
 
   if (
     configured.enabled !== true ||
     configured.url !== expected.url ||
-    headers[WEBHOOK_SIGNATURE_HEADER] !== expected.headers?.[WEBHOOK_SIGNATURE_HEADER]
+    !headersConfirmed
   ) {
-    throw new Error('A Evolution API não confirmou o webhook assinado da instância piloto.');
+    throw new Error('A Evolution API não confirmou todos os cabeçalhos protegidos do webhook.');
   }
 
   return result;

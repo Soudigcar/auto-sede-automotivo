@@ -135,7 +135,7 @@ export function WhatsappEvolutionPanel({ scope, storeName, storeSlug }: Whatsapp
     return () => window.clearInterval(timer);
   }, [hasIntegration, loadIntegration, status]);
 
-  async function runAction(action: 'connect' | 'refresh-qr' | 'reconnect' | 'disconnect' | 'adopt-pilot') {
+  async function runAction(action: 'connect' | 'refresh-qr' | 'reconnect' | 'disconnect' | 'adopt-pilot' | 'refresh-webhook') {
     const ownerLabel = isMaster ? 'da Master' : 'desta loja';
     if (action === 'disconnect' && !window.confirm(`Deseja desconectar o WhatsApp ${ownerLabel}?`)) return;
     if (
@@ -149,6 +149,8 @@ export function WhatsappEvolutionPanel({ scope, storeName, storeSlug }: Whatsapp
         ? 'Desconectando WhatsApp...'
         : action === 'adopt-pilot'
           ? 'Validando e vinculando o número piloto com segurança...'
+          : action === 'refresh-webhook'
+            ? 'Atualizando o webhook protegido...'
           : 'Preparando conexão segura...'
     );
 
@@ -172,6 +174,8 @@ export function WhatsappEvolutionPanel({ scope, storeName, storeSlug }: Whatsapp
           ? 'WhatsApp desconectado com segurança.'
           : action === 'adopt-pilot'
             ? 'Número piloto conectado à Master e webhook assinado configurado.'
+            : action === 'refresh-webhook'
+              ? 'Webhook protegido atualizado sem desconectar o número.'
           : result.integration?.status === 'connected'
             ? 'WhatsApp conectado e pronto para uso.'
             : 'Leia o QR Code no WhatsApp do celular.'
@@ -272,6 +276,11 @@ export function WhatsappEvolutionPanel({ scope, storeName, storeSlug }: Whatsapp
                 <button type="button" onClick={() => void loadIntegration()} disabled={Boolean(busy)} className="premium-button-secondary disabled:opacity-50">
                   <RefreshCw size={17} /> Atualizar status
                 </button>
+                {isMaster ? (
+                  <button type="button" onClick={() => void runAction('refresh-webhook')} disabled={Boolean(busy)} className="premium-button-secondary disabled:opacity-50">
+                    {busy === 'refresh-webhook' ? <Loader2 size={17} className="animate-spin" /> : <ShieldCheck size={17} />} Reconfigurar webhook
+                  </button>
+                ) : null}
                 <button type="button" onClick={() => void runAction('disconnect')} disabled={Boolean(busy)} className="premium-button-secondary text-red-600 disabled:opacity-50">
                   {busy === 'disconnect' ? <Loader2 size={17} className="animate-spin" /> : <Unplug size={17} />} Desconectar
                 </button>
