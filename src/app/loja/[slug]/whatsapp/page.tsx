@@ -30,6 +30,7 @@ import {
   X
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import { WhatsappMediaMessage } from '@/components/WhatsappMediaMessage';
 
 const pipelineStages = [
   { key: 'new_lead', label: 'Novo Lead Recebido', secureFlow: false },
@@ -140,9 +141,9 @@ export default function StoreWhatsappPage() {
   async function fetchInbox(conversationId?: string) {
     const token = await getAuthToken();
     if (!token) return null;
-    const params = new URLSearchParams({ slug });
-    if (conversationId) params.set('conversation_id', conversationId);
-    const response = await fetch(`/api/store-whatsapp?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+    const query = new URLSearchParams({ slug });
+    if (conversationId) query.set('conversation_id', conversationId);
+    const response = await fetch(`/api/store-whatsapp?${query.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Não foi possível carregar WhatsApp.');
     return result;
@@ -354,7 +355,7 @@ export default function StoreWhatsappPage() {
           {statusMessage ? <div className="mt-3 flex items-center gap-2 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-black text-red-700"><CircleAlert size={17} className="shrink-0" /><span>{statusMessage}</span></div> : null}
 
           <section className="relative mt-3 overflow-hidden rounded-[26px] border border-zinc-200 bg-white shadow-sm">
-            <div className="grid min-h-[720px] xl:h-[calc(100vh-210px)] xl:min-h-[680px] xl:grid-cols-[360px_minmax(620px,1fr)] 2xl:grid-cols-[390px_minmax(760px,1fr)]">
+            <div className="grid h-[calc(100dvh-190px)] min-h-[580px] max-h-[900px] xl:h-[calc(100dvh-210px)] xl:min-h-[560px] xl:grid-cols-[360px_minmax(620px,1fr)] 2xl:grid-cols-[390px_minmax(760px,1fr)]">
               <aside className="flex min-h-0 flex-col border-r border-zinc-200 bg-white">
                 <div className="border-b border-zinc-200 p-4">
                   <div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[0.15em] text-zinc-400">Fila de atendimento</p><h2 className="mt-1 text-lg font-black text-zinc-950">Conversas</h2></div><span className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-black text-zinc-600">{filteredConversations.length}</span></div>
@@ -395,10 +396,10 @@ export default function StoreWhatsappPage() {
                 </div>
               </aside>
 
-              <section className="flex min-h-0 flex-col bg-[#f5f6f8]">
+              <section className="flex min-h-0 flex-col overflow-hidden bg-[#f5f6f8]">
                 {selectedConversation ? (
                   <>
-                    <div className="border-b border-zinc-200 bg-white px-4 py-3">
+                    <div className="shrink-0 border-b border-zinc-200 bg-white px-4 py-3">
                       <div className="flex flex-col gap-2.5">
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                           <button
@@ -435,19 +436,26 @@ export default function StoreWhatsappPage() {
                       </div>
                     </div>
 
-                    <div className="flex-1 space-y-3 overflow-auto bg-[#f2f4f7] p-4 md:p-5">
+                    <div className="min-h-0 flex-1 space-y-3 overflow-auto bg-[#f2f4f7] p-4 md:p-5">
                       <div className="mx-auto mb-4 w-fit rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase text-zinc-400 shadow-sm">Histórico da conversa</div>
                       {messages.map((message) => {
                         const outbound = message.direction === 'outbound';
-                        return <div key={message.id} className={`flex ${outbound ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[82%] rounded-2xl px-4 py-3 shadow-sm md:max-w-[72%] ${outbound ? 'rounded-br-md bg-red-600 text-white' : 'rounded-bl-md border border-zinc-200 bg-white text-zinc-900'}`}><p className="whitespace-pre-wrap text-sm font-semibold leading-relaxed">{message.body || '[Mensagem sem texto]'}</p><div className={`mt-2 flex items-center justify-end gap-2 text-[9px] font-black uppercase ${outbound ? 'text-white/70' : 'text-zinc-400'}`}><span>{formatDateTime(message.sent_at || message.created_at)}</span><span>{message.status}</span></div></div></div>;
+                        return (
+                          <div key={message.id} className={`flex ${outbound ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[86%] rounded-2xl px-4 py-3 shadow-sm md:max-w-[76%] ${outbound ? 'rounded-br-md bg-red-600 text-white' : 'rounded-bl-md border border-zinc-200 bg-white text-zinc-900'}`}>
+                              <WhatsappMediaMessage message={message} outbound={outbound} />
+                              <div className={`mt-2 flex items-center justify-end gap-2 text-[9px] font-black uppercase ${outbound ? 'text-white/70' : 'text-zinc-400'}`}><span>{formatDateTime(message.sent_at || message.created_at)}</span><span>{message.status}</span></div>
+                            </div>
+                          </div>
+                        );
                       })}
                       {!messages.length ? <div className="flex h-full min-h-80 items-center justify-center p-8 text-center"><div><MessageCircle size={42} className="mx-auto text-zinc-300" /><p className="mt-3 text-sm font-black text-zinc-700">Nenhuma mensagem carregada</p><p className="mt-1 text-xs font-bold text-zinc-400">O histórico da conversa aparecerá aqui.</p></div></div> : null}
                     </div>
 
-                    <form onSubmit={sendMessage} className="border-t border-zinc-200 bg-white p-3.5">
+                    <form onSubmit={sendMessage} className="shrink-0 border-t border-zinc-200 bg-white p-3.5">
                       <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-2 transition focus-within:border-red-300 focus-within:bg-white">
-                        <textarea className="min-h-20 w-full resize-none bg-transparent px-2 py-2 text-sm font-semibold text-zinc-800 outline-none placeholder:text-zinc-400" placeholder="Digite sua mensagem..." value={messageText} onChange={(event) => setMessageText(event.target.value)} disabled={sending} />
-                        <div className="flex flex-col gap-2 border-t border-zinc-200 pt-2 sm:flex-row sm:items-center sm:justify-between"><p className="px-2 text-[10px] font-bold leading-relaxed text-zinc-400">Janela de 24h: fora dela, a Meta pode exigir template aprovado.</p><button className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50" type="submit" disabled={sending || !messageText.trim()}><Send size={16} /> {sending ? 'Enviando...' : 'Enviar'}</button></div>
+                        <textarea className="min-h-16 w-full resize-none bg-transparent px-2 py-2 text-sm font-semibold text-zinc-800 outline-none placeholder:text-zinc-400" placeholder="Digite sua mensagem..." value={messageText} onChange={(event) => setMessageText(event.target.value)} disabled={sending} />
+                        <div className="flex flex-col gap-2 border-t border-zinc-200 pt-2 sm:flex-row sm:items-center sm:justify-between"><p className="px-2 text-[10px] font-bold leading-relaxed text-zinc-400">Envio de texto ativo. Anexos serão habilitados na próxima etapa após validação deste Preview.</p><button className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50" type="submit" disabled={sending || !messageText.trim()}><Send size={16} /> {sending ? 'Enviando...' : 'Enviar'}</button></div>
                       </div>
                     </form>
                   </>
