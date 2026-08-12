@@ -28,6 +28,17 @@ type QueueFilter = 'all' | 'unread' | 'priority' | 'leads' | 'urgent';
 type AttendantFilter = 'all' | 'assigned' | 'unassigned';
 type SortMode = 'recent' | 'oldest';
 
+const pipelineStages = [
+  { key: 'new_lead', label: 'Novo Lead Recebido', secureFlow: false },
+  { key: 'in_service', label: 'Em Atendimento', secureFlow: false },
+  { key: 'scheduled', label: 'Agendado', secureFlow: true },
+  { key: 'appointment_cancelled', label: 'Cancelou Agendamento', secureFlow: true },
+  { key: 'no_show', label: 'Não Compareceu', secureFlow: false },
+  { key: 'showed_up', label: 'Compareceu', secureFlow: false },
+  { key: 'sale_confirmed', label: 'Venda Confirmada', secureFlow: true },
+  { key: 'lost', label: 'Perdido', secureFlow: true }
+] as const;
+
 function formatDateTime(value: any) {
   if (!value) return 'Sem horário';
 
@@ -132,6 +143,14 @@ function pipelineHref(conversation: any) {
   return `/loja/${slug}/pipeline`;
 }
 
+function pipelineLeadId(conversation: any) {
+  return conversation?.lead?.id || conversation?.base_lead?.routed_lead_id || '';
+}
+
+function pipelineStageValue(conversation: any) {
+  return String(conversation?.lead?.status || conversation?.base_lead?.status || '').trim();
+}
+
 function isEvolutionConversation(conversation: any) {
   return conversation?.number?.provider === 'evolution';
 }
@@ -184,17 +203,9 @@ function conversationPriority(conversation: any) {
 }
 
 function leadStageLabel(conversation: any) {
-  const status = String(conversation?.lead?.status || conversation?.base_lead?.status || '').trim();
-  const labels: Record<string, string> = {
-    new_lead: 'Novo Lead',
-    in_service: 'Em atendimento',
-    scheduled: 'Agendado',
-    showed_up: 'Compareceu',
-    sale_confirmed: 'Fechado',
-    lost: 'Perdido'
-  };
-
-  return labels[status] || (conversation?.lead?.id || conversation?.base_lead?.id ? 'Lead' : '');
+  const status = pipelineStageValue(conversation);
+  const stage = pipelineStages.find((item) => item.key === status);
+  return stage?.label || (conversation?.lead?.id || conversation?.base_lead?.id ? 'Lead' : '');
 }
 
 function ContactAvatar({ conversation, selected = false, size = 'md' }: { conversation: any; selected?: boolean; size?: 'sm' | 'md' | 'lg' }) {
@@ -237,6 +248,7 @@ export default function MasterWhatsappInboxPage() {
   const [statusMessage, setStatusMessage] = useState('Carregando Inbox WhatsApp...');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [stageUpdating, setStageUpdating] = useState(false);
 
   async function getAuthToken() {
     const { data } = await supabase.auth.getSession();
@@ -325,6 +337,63 @@ export default function MasterWhatsappInboxPage() {
     }
 
     await loadData(conversationId);
+  }
+
+  async function changePipelineStage(targetStatus: string) {
+    if (!selectedConversation || !targetStatus) return;
+
+    const currentStatus = pipelineStageValue(selectedConversation);
+    if (currentStatus === targetStatus) return;
+
+    const targetStage = pipelineStages.find((item) => item.key === targetStatus);
+    if (!targetStage) return;
+
+    const leadId = pipelineLeadId(selectedConversation);
+    const storeSlug = String(selectedConversation?.store?.slug || '').trim();
+
+    if (!leadId || !storeSlug) {
+      setStatusMessage('Este contato ainda não possui um lead direcionado a uma loja para alterar a etapa da Pipeline.');
+      return;
+    }
+
+    if (targetStage.secureFlow) {
+      setStatusMessage(`A etapa “${targetStage.label}” usa um fluxo seguro com informações adicionais. Abra a Pipeline da loja para concluir essa movimentação.`);
+      return;
+    }
+
+    setStageUpdating(true);
+    setStatusMessage(`Movendo lead para ${targetStage.label}...`);
+
+    try {
+      const token = await getAuthToken();
+      if (!token) return;
+
+      const response = await fetch('/api/store/portal/pipeline/actions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          command: 'change_stage',
+          slug: storeSlug,
+          lead_id: leadId,
+          target_status: targetStatus
+        })
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Não foi possível alterar a etapa da Pipeline.');
+      }
+
+      setStatusMessage(result.message || `Lead movido para ${targetStage.label}.`);
+      await loadData(selectedId);
+    } catch (error: any) {
+      setStatusMessage(error?.message || 'Erro ao alterar a etapa da Pipeline.');
+    } finally {
+      setStageUpdating(false);
+    }
   }
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
@@ -623,31 +692,61 @@ export default function MasterWhatsappInboxPage() {
               <section className="flex min-h-0 flex-col bg-[#f5f6f8]">
                 {selectedConversation ? (
                   <>
-                    <div className="border-b border-zinc-200 bg-white px-4 py-3.5">
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <ContactAvatar conversation={selectedConversation} />
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h2 className="truncate text-lg font-black text-zinc-950">{conversationName(selectedConversation)}</h2>
-                              {selectedConversation.lead?.id || selectedConversation.base_lead?.id ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead</span> : null}
-                            </div>
-                            <p className="mt-0.5 text-xs font-bold text-zinc-500">{formatPhone(conversationPhone(selectedConversation))}</p>
-                            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold text-zinc-400">
-                              <span>{conversationOrigin(selectedConversation)}</span>
-                              <span>•</span>
-                              <span>{assignedStoreName(selectedConversation)}</span>
+                    <div className="border-b border-zinc-200 bg-white px-4 py-3">
+                      <div className="flex flex-col gap-3">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <ContactAvatar conversation={selectedConversation} />
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h2 className="truncate text-lg font-black text-zinc-950">{conversationName(selectedConversation)}</h2>
+                                {selectedConversation.lead?.id || selectedConversation.base_lead?.id ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead</span> : null}
+                              </div>
+                              <p className="mt-0.5 text-xs font-bold text-zinc-500">{formatPhone(conversationPhone(selectedConversation))}</p>
+                              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold text-zinc-400">
+                                <span>{conversationOrigin(selectedConversation)}</span>
+                                <span>•</span>
+                                <span>{assignedStoreName(selectedConversation)}</span>
+                                <span>•</span>
+                                <span>{pipelineLeadId(selectedConversation) ? leadStageLabel(selectedConversation) : 'Sem etapa na Pipeline'}</span>
+                              </div>
                             </div>
                           </div>
+
+                          <span className={`inline-flex w-fit items-center gap-2 rounded-xl px-3 py-2.5 text-[10px] font-black uppercase ${isEvolutionConversation(selectedConversation) && selectedConversation.number?.integration_status === 'connected' ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`}>
+                            <ShieldCheck size={14} /> {channelStatus(selectedConversation)}
+                          </span>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3">
                           <button className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-[10px] font-black uppercase text-zinc-600 transition hover:border-red-200 hover:text-red-600" type="button" onClick={() => markRead()}>
                             <CheckCircle2 size={14} /> Marcar como lida
                           </button>
-                          <span className={`inline-flex items-center gap-2 rounded-xl px-3 py-2.5 text-[10px] font-black uppercase ${isEvolutionConversation(selectedConversation) && selectedConversation.number?.integration_status === 'connected' ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`}>
-                            <ShieldCheck size={14} /> {channelStatus(selectedConversation)}
-                          </span>
+
+                          <label className="relative inline-flex min-w-[220px] items-center rounded-xl border border-zinc-200 bg-white">
+                            <span className="pointer-events-none absolute left-3 text-[9px] font-black uppercase tracking-wide text-zinc-400">Etapa</span>
+                            <select
+                              className="h-10 w-full appearance-none rounded-xl bg-transparent pl-14 pr-8 text-[10px] font-black uppercase text-zinc-700 outline-none transition focus:ring-2 focus:ring-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                              value={pipelineStageValue(selectedConversation)}
+                              onChange={(event) => void changePipelineStage(event.target.value)}
+                              disabled={stageUpdating || !pipelineLeadId(selectedConversation) || !selectedConversation?.store?.slug}
+                              aria-label="Alterar etapa da Pipeline"
+                            >
+                              {!pipelineStageValue(selectedConversation) ? <option value="">Sem etapa</option> : null}
+                              {pipelineStages.map((stage) => (
+                                <option key={stage.key} value={stage.key}>
+                                  {stage.label}{stage.secureFlow ? ' • fluxo seguro' : ''}
+                                </option>
+                              ))}
+                            </select>
+                            <ArrowDownUp className="pointer-events-none absolute right-3 text-zinc-400" size={13} />
+                          </label>
+
+                          {pipelineHref(selectedConversation) ? (
+                            <Link href={pipelineHref(selectedConversation)} className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-[10px] font-black uppercase text-zinc-600 transition hover:border-red-200 hover:text-red-600">
+                              <ExternalLink size={14} /> Abrir Pipeline
+                            </Link>
+                          ) : null}
                         </div>
                       </div>
                     </div>
