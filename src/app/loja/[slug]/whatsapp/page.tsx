@@ -9,22 +9,22 @@ import {
   CalendarDays,
   Car,
   CheckCircle2,
+  CircleAlert,
   ClipboardList,
-  Clock3,
   Filter,
   Inbox,
   LogOut,
   MessageCircle,
+  MessagesSquare,
   MoreHorizontal,
   Package,
   Phone,
   RefreshCw,
   Search,
   Send,
-  Star,
   Store,
-  Tag,
-  UserCircle2
+  UserCircle2,
+  UsersRound
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
@@ -321,122 +321,135 @@ export default function StoreWhatsappPage() {
             </div>
           </div>
 
-          <div className="mt-10 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <p className="text-xs text-zinc-500">Área operacional</p>
-            <p className="mt-1 font-bold">{store?.store_name || 'Loja'}</p>
+          <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">Área operacional</p>
+            <p className="mt-2 font-bold">{store?.store_name || 'Loja'}</p>
             <span className="mt-2 inline-flex rounded-lg bg-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-300">Store</span>
           </div>
 
-          <nav className="mt-8 space-y-3 text-sm">
-            <Link href={`/loja/${slug}`} className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><Store size={18} /> Início</Link>
-            <Link href={`/loja/${slug}/minha-loja`} className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><Store size={18} /> Minha Loja</Link>
-            <Link href={`/loja/${slug}/pipeline`} className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><BarChart3 size={18} /> Pipeline</Link>
-            <Link href={`/loja/${slug}/whatsapp`} className="flex items-center gap-3 rounded-2xl bg-red-600 px-4 py-4 font-bold shadow-lg shadow-red-600/20"><MessageCircle size={18} /> WhatsApp CRM</Link>
-            <Link href={`/loja/${slug}/calendario`} className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><CalendarDays size={18} /> Calendário</Link>
-            <Link href={`/loja/${slug}/estoque`} className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><Package size={18} /> Estoque</Link>
-            <Link href={`/loja/${slug}/operacao`} className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><ClipboardList size={18} /> Operação</Link>
-            <Link href="/logout" className="flex items-center gap-3 rounded-2xl px-4 py-4 text-zinc-400 hover:bg-white/5 hover:text-white"><LogOut size={18} /> Sair</Link>
+          <nav className="mt-7 space-y-2 text-sm">
+            <Link href={`/loja/${slug}`} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white"><Store size={18} /> Início</Link>
+            <Link href={`/loja/${slug}/minha-loja`} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white"><Store size={18} /> Minha Loja</Link>
+            <Link href={`/loja/${slug}/pipeline`} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white"><BarChart3 size={18} /> Pipeline</Link>
+            <Link href={`/loja/${slug}/whatsapp`} className="flex items-center gap-3 rounded-2xl bg-red-600 px-4 py-3.5 font-bold shadow-lg shadow-red-600/20"><MessageCircle size={18} /> WhatsApp CRM</Link>
+            <Link href={`/loja/${slug}/calendario`} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white"><CalendarDays size={18} /> Calendário</Link>
+            <Link href={`/loja/${slug}/estoque`} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white"><Package size={18} /> Estoque</Link>
+            <Link href={`/loja/${slug}/operacao`} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white"><ClipboardList size={18} /> Operação</Link>
+            <Link href="/logout" className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white"><LogOut size={18} /> Sair</Link>
           </nav>
         </aside>
 
-        <div className="premium-canvas min-w-0 flex-1 p-4 md:p-7">
-          <header className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div>
-              <p className="premium-eyebrow">Atendimento da Loja</p>
-              <h1 className="premium-title mt-2 text-4xl md:text-5xl">Inbox WhatsApp</h1>
-              <p className="premium-muted mt-3 max-w-3xl text-sm">
-                Caixa de entrada em formato CRM: conversas, atendimento e dados do lead em uma única tela.
-              </p>
-            </div>
+        <div className="premium-canvas min-w-0 flex-1 p-3 md:p-5 xl:p-6">
+          <header className="rounded-[26px] border border-zinc-200 bg-white px-4 py-4 shadow-sm md:px-5">
+            <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-center 2xl:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+                  <MessageCircle size={23} />
+                </span>
+                <div className="min-w-0">
+                  <p className="premium-eyebrow">Atendimento da Loja</p>
+                  <h1 className="mt-1 text-2xl font-black tracking-tight text-zinc-950 md:text-3xl">Inbox WhatsApp</h1>
+                  <p className="mt-1 truncate text-xs font-bold text-zinc-500">{store?.store_name || 'Loja'} · conversas, atendimento e contexto comercial em uma única tela.</p>
+                </div>
+              </div>
 
-            <button className="premium-button-secondary" type="button" onClick={() => loadData(selectedId)} disabled={loading}>
-              <RefreshCw size={18} /> Atualizar
-            </button>
+              <div className="flex flex-wrap items-stretch gap-2">
+                <InboxMetric label="Conversas" value={stats.total} helper="na fila" icon={<MessagesSquare size={16} />} />
+                <InboxMetric label="Não lidas" value={stats.unread} helper="pendentes" icon={<Inbox size={16} />} accent="red" />
+                <InboxMetric label="Em atendimento" value={stats.active} helper="abertas" icon={<UsersRound size={16} />} accent="green" />
+                <InboxMetric label="Leads" value={stats.leads} helper="vinculados" icon={<UserCircle2 size={16} />} accent="blue" />
+                <button className="inline-flex min-h-[58px] items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 text-xs font-black text-white shadow-lg shadow-red-600/15 transition hover:bg-red-700 disabled:opacity-60" type="button" onClick={() => loadData(selectedId)} disabled={loading}>
+                  <RefreshCw size={17} className={loading ? 'animate-spin' : ''} /> Atualizar
+                </button>
+              </div>
+            </div>
           </header>
 
           {statusMessage ? (
-            <div className="mt-5 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-black text-red-700">
-              {statusMessage}
+            <div className="mt-3 flex items-center gap-2 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-black text-red-700">
+              <CircleAlert size={17} className="shrink-0" />
+              <span>{statusMessage}</span>
             </div>
           ) : null}
 
-          <section className="mt-6 overflow-hidden rounded-[28px] border border-zinc-200 bg-white shadow-sm">
-            <div className="flex min-w-0 items-center gap-2 overflow-x-auto border-b border-zinc-200 bg-white px-4 py-3 text-sm font-black text-zinc-600">
-              <button className="flex shrink-0 items-center gap-2 rounded-xl bg-blue-50 px-4 py-3 text-blue-700" type="button" onClick={() => setFilter('all')}>
-                Todas as mensagens
-                {stats.unread ? <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs text-white">{stats.unread}</span> : null}
-              </button>
-              <button className="shrink-0 rounded-xl px-4 py-3 hover:bg-zinc-50" type="button">Messenger</button>
-              <button className="flex shrink-0 items-center gap-2 rounded-xl px-4 py-3 hover:bg-zinc-50" type="button">
-                Instagram
-                <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs text-white">0</span>
-              </button>
-              <button className="flex shrink-0 items-center gap-2 rounded-xl px-4 py-3 text-zinc-950 hover:bg-zinc-50" type="button" onClick={() => setFilter('all')}>
-                WhatsApp
-                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">Novo</span>
-              </button>
-              <button className="shrink-0 rounded-xl px-4 py-3 hover:bg-zinc-50" type="button">Comentários do Facebook</button>
-              <button className="shrink-0 rounded-xl px-4 py-3 hover:bg-zinc-50" type="button">Comentários do Instagram</button>
-            </div>
-
-            <div className="grid min-h-[720px] xl:grid-cols-[390px_minmax(0,1fr)_360px]">
-              <aside className="border-r border-zinc-200 bg-white">
+          <section className="mt-3 overflow-hidden rounded-[26px] border border-zinc-200 bg-white shadow-sm">
+            <div className="grid min-h-[720px] xl:h-[calc(100vh-210px)] xl:min-h-[680px] xl:grid-cols-[360px_minmax(500px,1fr)_330px] 2xl:grid-cols-[390px_minmax(560px,1fr)_350px]">
+              <aside className="flex min-h-0 flex-col border-r border-zinc-200 bg-white">
                 <div className="border-b border-zinc-200 p-4">
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" size={19} />
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.15em] text-zinc-400">Fila de atendimento</p>
+                      <h2 className="mt-1 text-lg font-black text-zinc-950">Conversas</h2>
+                    </div>
+                    <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-black text-zinc-600">{filteredConversations.length}</span>
+                  </div>
+
+                  <div className="mt-4 flex min-w-0 gap-1 overflow-x-auto rounded-2xl bg-zinc-100 p-1 text-[10px] font-black">
+                    <button className={`shrink-0 rounded-xl px-3 py-2.5 transition ${filter === 'all' ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500'}`} type="button" onClick={() => setFilter('all')}>Todas</button>
+                    <button className={`shrink-0 rounded-xl px-3 py-2.5 transition ${filter === 'unread' ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500'}`} type="button" onClick={() => setFilter(filter === 'unread' ? 'all' : 'unread')}>Não lidas</button>
+                    <button className={`shrink-0 rounded-xl px-3 py-2.5 transition ${filter === 'priority' ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500'}`} type="button" onClick={() => setFilter(filter === 'priority' ? 'all' : 'priority')}>Prioridade</button>
+                    <button className={`shrink-0 rounded-xl px-3 py-2.5 transition ${filter === 'leads' ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500'}`} type="button" onClick={() => setFilter(filter === 'leads' ? 'all' : 'leads')}>Leads</button>
+                  </div>
+
+                  <div className="relative mt-3">
+                    <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
                     <input
-                      className="w-full rounded-xl border border-zinc-300 bg-white py-3 pl-12 pr-4 text-sm font-bold text-zinc-800 outline-none focus:border-red-500 focus:ring-2 focus:ring-red-100"
-                      placeholder="Pesquisar"
+                      className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 py-3 pl-10 pr-11 text-xs font-bold text-zinc-800 outline-none transition placeholder:text-zinc-400 focus:border-red-300 focus:bg-white"
+                      placeholder="Buscar conversa, telefone..."
                       value={searchTerm}
                       onChange={(event) => setSearchTerm(event.target.value)}
                     />
+                    <span className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-400"><Filter size={14} /></span>
                   </div>
 
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <button className={`rounded-xl px-3 py-2 text-xs font-black ${filter === 'unread' ? 'bg-red-600 text-white' : 'bg-zinc-100 text-zinc-600'}`} type="button" onClick={() => setFilter(filter === 'unread' ? 'all' : 'unread')}>Não lidas</button>
-                    <button className={`rounded-xl px-3 py-2 text-xs font-black ${filter === 'priority' ? 'bg-red-600 text-white' : 'bg-zinc-100 text-zinc-600'}`} type="button" onClick={() => setFilter(filter === 'priority' ? 'all' : 'priority')}>Prioridade</button>
-                    <button className={`rounded-xl px-3 py-2 text-xs font-black ${filter === 'leads' ? 'bg-red-600 text-white' : 'bg-zinc-100 text-zinc-600'}`} type="button" onClick={() => setFilter(filter === 'leads' ? 'all' : 'leads')}>Leads</button>
-                    <button className="ml-auto rounded-xl border border-zinc-200 p-2 text-zinc-500" type="button" title="Filtros"><Filter size={18} /></button>
+                  <div className="mt-3 flex items-center gap-1 overflow-x-auto text-[9px] font-black text-zinc-500">
+                    <span className="shrink-0 rounded-full bg-red-50 px-2.5 py-1.5 text-red-600">Todas as mensagens</span>
+                    <span className="shrink-0 rounded-full bg-zinc-100 px-2.5 py-1.5">Messenger</span>
+                    <span className="shrink-0 rounded-full bg-zinc-100 px-2.5 py-1.5">Instagram</span>
+                    <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1.5 text-emerald-700">WhatsApp</span>
                   </div>
                 </div>
 
-                <div className="max-h-[640px] overflow-auto">
+                <div className="min-h-0 flex-1 overflow-auto">
                   {filteredConversations.map((conversation) => {
                     const isSelected = conversation.id === selectedId;
                     const name = conversationName(conversation);
                     const phone = conversationPhone(conversation);
                     const unread = Number(conversation.unread_count || 0);
+                    const hasLead = Boolean(conversation.lead_id || conversation.base_lead_id);
 
                     return (
                       <button
                         key={conversation.id}
-                        className={`block w-full border-b border-zinc-100 p-4 text-left transition hover:bg-zinc-50 ${isSelected ? 'border-r-4 border-r-red-600 bg-zinc-50' : 'bg-white'}`}
+                        className={`group block w-full border-b border-zinc-100 px-3 py-3 text-left transition ${isSelected ? 'bg-red-50/70' : 'bg-white hover:bg-zinc-50'}`}
                         type="button"
                         onClick={() => selectConversation(conversation.id)}
                       >
-                        <div className="flex items-start gap-3">
-                          <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-sm font-black text-white">
-                            {initials(name)}
-                            <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-emerald-500 text-white">
-                              <MessageCircle size={11} />
-                            </span>
-                          </div>
-
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <h3 className="truncate text-sm font-black text-zinc-950">{name}</h3>
-                                <p className="mt-1 truncate text-xs font-bold text-zinc-500">{conversation.last_message || 'Sem mensagem'}</p>
-                              </div>
-                              <div className="flex shrink-0 flex-col items-end gap-2">
-                                <span className="text-[10px] font-bold text-zinc-400">{formatTime(conversation.last_message_at)}</span>
-                                {unread ? <span className="rounded-full bg-red-600 px-2 py-1 text-[10px] font-black text-white">{unread}</span> : null}
-                              </div>
+                        <div className={`rounded-2xl border p-3 transition ${isSelected ? 'border-red-200 bg-white shadow-sm' : 'border-transparent group-hover:border-zinc-200'}`}>
+                          <div className="flex items-start gap-3">
+                            <div className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-black ${isSelected ? 'bg-red-600 text-white' : 'bg-zinc-100 text-zinc-600'}`}>
+                              {initials(name)}
+                              <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-emerald-500 text-white"><MessageCircle size={8} /></span>
                             </div>
 
-                            <div className="mt-3 flex flex-wrap items-center gap-2">
-                              <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[10px] font-black uppercase text-zinc-500">WhatsApp</span>
-                              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase text-blue-700">{formatPhone(phone)}</span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <h3 className="truncate text-sm font-black text-zinc-950">{name}</h3>
+                                  <p className="mt-0.5 truncate text-[11px] font-bold text-zinc-500">{formatPhone(phone)}</p>
+                                </div>
+                                <span className="shrink-0 text-[10px] font-bold text-zinc-400">{formatTime(conversation.last_message_at)}</span>
+                              </div>
+
+                              <p className="mt-2 line-clamp-2 text-xs font-semibold leading-relaxed text-zinc-600">{conversation.last_message || 'Sem mensagem'}</p>
+
+                              <div className="mt-2.5 flex items-center justify-between gap-2">
+                                <div className="flex min-w-0 flex-wrap gap-1.5">
+                                  <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-black uppercase text-emerald-700">WhatsApp</span>
+                                  {hasLead ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead</span> : null}
+                                </div>
+                                {unread ? <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-black text-white">{unread}</span> : null}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -445,58 +458,59 @@ export default function StoreWhatsappPage() {
                   })}
 
                   {!filteredConversations.length ? (
-                    <div className="p-8 text-center text-sm font-bold text-zinc-500">
-                      <Inbox className="mx-auto mb-3 text-zinc-300" size={42} />
-                      Nenhuma conversa encontrada para este filtro.
+                    <div className="flex min-h-64 flex-col items-center justify-center p-6 text-center">
+                      <Inbox size={36} className="text-zinc-300" />
+                      <p className="mt-3 text-sm font-black text-zinc-700">Nenhuma conversa encontrada</p>
+                      <p className="mt-1 max-w-56 text-xs font-bold leading-relaxed text-zinc-400">Ajuste os filtros ou aguarde uma nova mensagem do WhatsApp.</p>
                     </div>
                   ) : null}
                 </div>
               </aside>
 
-              <section className="flex min-h-[720px] flex-col bg-white">
+              <section className="flex min-h-0 flex-col bg-[#f5f6f8]">
                 {selectedConversation ? (
                   <>
-                    <div className="border-b border-zinc-200 bg-white px-5 py-4">
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="flex min-w-0 items-center gap-4">
-                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-sm font-black text-white">
+                    <div className="border-b border-zinc-200 bg-white px-4 py-3.5">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-sm font-black text-zinc-700">
                             {initials(conversationName(selectedConversation))}
+                            <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" />
                           </div>
                           <div className="min-w-0">
-                            <h2 className="truncate text-xl font-black text-zinc-950">{conversationName(selectedConversation)}</h2>
-                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-bold text-zinc-500">
-                              <span>Atribuir esta conversa</span>
-                              <span className="rounded-full bg-emerald-50 px-2 py-1 text-emerald-700">{selectedConversation.number?.label || 'WhatsApp Oficial'}</span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h2 className="truncate text-lg font-black text-zinc-950">{conversationName(selectedConversation)}</h2>
+                              {selectedConversation.lead_id || selectedConversation.base_lead_id ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead</span> : null}
+                            </div>
+                            <p className="mt-0.5 text-xs font-bold text-zinc-500">{formatPhone(conversationPhone(selectedConversation))}</p>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] font-bold text-zinc-400">
+                              <span>{selectedConversation.lead?.origin || selectedConversation.base_lead?.source || 'WhatsApp'}</span>
+                              <span>•</span>
+                              <span>{store?.store_name || 'Loja'}</span>
                             </div>
                           </div>
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <button className="rounded-xl border border-zinc-200 p-3 text-zinc-500 hover:bg-zinc-50" type="button" onClick={markSelectedAsRead} title="Marcar como lida">
-                            <CheckCircle2 size={18} />
+                          <button className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-[10px] font-black uppercase text-zinc-600 transition hover:border-red-200 hover:text-red-600" type="button" onClick={markSelectedAsRead} title="Marcar como lida">
+                            <CheckCircle2 size={14} /> Marcar como lida
                           </button>
-                          <button className="rounded-xl border border-zinc-200 p-3 text-zinc-500 hover:bg-zinc-50" type="button" title="Mais opções">
-                            <MoreHorizontal size={18} />
-                          </button>
+                          <button className="rounded-xl border border-zinc-200 bg-white p-2.5 text-zinc-500 hover:bg-zinc-50" type="button" title="Mais opções"><MoreHorizontal size={16} /></button>
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex-1 space-y-4 overflow-auto bg-[#f6f7fb] p-5">
+                    <div className="flex-1 space-y-3 overflow-auto bg-[#f2f4f7] p-4 md:p-5">
+                      <div className="mx-auto mb-4 w-fit rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase text-zinc-400 shadow-sm">Histórico da conversa</div>
+
                       {messages.map((message) => {
                         const outbound = message.direction === 'outbound';
 
                         return (
-                          <div key={message.id} className={`flex items-end gap-3 ${outbound ? 'justify-end' : 'justify-start'}`}>
-                            {!outbound ? (
-                              <div className="mb-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-[10px] font-black text-white">
-                                {initials(conversationName(selectedConversation))}
-                              </div>
-                            ) : null}
-
-                            <div className={`max-w-[78%] rounded-[22px] px-5 py-3 shadow-sm ${outbound ? 'bg-red-600 text-white' : 'border border-zinc-100 bg-white text-zinc-900'}`}>
+                          <div key={message.id} className={`flex ${outbound ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[82%] rounded-2xl px-4 py-3 shadow-sm md:max-w-[72%] ${outbound ? 'rounded-br-md bg-red-600 text-white' : 'rounded-bl-md border border-zinc-200 bg-white text-zinc-900'}`}>
                               <p className="whitespace-pre-wrap text-sm font-semibold leading-relaxed">{message.body || '[Mensagem sem texto]'}</p>
-                              <div className={`mt-2 flex items-center justify-end gap-2 text-[10px] font-black uppercase ${outbound ? 'text-white/70' : 'text-zinc-400'}`}>
+                              <div className={`mt-2 flex items-center justify-end gap-2 text-[9px] font-black uppercase ${outbound ? 'text-white/70' : 'text-zinc-400'}`}>
                                 <span>{formatDateTime(message.sent_at || message.created_at)}</span>
                                 <span>{message.status}</span>
                               </div>
@@ -506,26 +520,29 @@ export default function StoreWhatsappPage() {
                       })}
 
                       {!messages.length ? (
-                        <div className="flex h-full items-center justify-center p-8 text-center text-sm font-bold text-zinc-500">
-                          Nenhuma mensagem carregada nesta conversa.
+                        <div className="flex h-full min-h-80 items-center justify-center p-8 text-center">
+                          <div>
+                            <MessageCircle size={42} className="mx-auto text-zinc-300" />
+                            <p className="mt-3 text-sm font-black text-zinc-700">Nenhuma mensagem carregada</p>
+                            <p className="mt-1 text-xs font-bold text-zinc-400">O histórico da conversa aparecerá aqui.</p>
+                          </div>
                         </div>
                       ) : null}
                     </div>
 
-                    <form onSubmit={sendMessage} className="border-t border-zinc-200 bg-white p-4">
-                      <div className="rounded-2xl border border-zinc-300 bg-white p-3 shadow-sm">
+                    <form onSubmit={sendMessage} className="border-t border-zinc-200 bg-white p-3.5">
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-2 transition focus-within:border-red-300 focus-within:bg-white">
                         <textarea
-                          className="min-h-20 w-full resize-none border-none bg-transparent px-2 py-2 text-sm font-bold text-zinc-800 outline-none placeholder:text-zinc-400"
-                          placeholder="Responda no WhatsApp..."
+                          className="min-h-20 w-full resize-none bg-transparent px-2 py-2 text-sm font-semibold text-zinc-800 outline-none placeholder:text-zinc-400"
+                          placeholder="Digite sua mensagem..."
                           value={messageText}
                           onChange={(event) => setMessageText(event.target.value)}
                           disabled={sending}
                         />
-
-                        <div className="flex items-center justify-between gap-3 border-t border-zinc-100 pt-3">
-                          <p className="text-xs font-bold text-zinc-400">Janela de 24h: fora dela, a Meta pode exigir template aprovado.</p>
-                          <button className="flex items-center gap-2 rounded-xl bg-red-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-red-600/20 disabled:opacity-50" type="submit" disabled={sending || !messageText.trim()}>
-                            <Send size={18} /> {sending ? 'Enviando...' : 'Enviar'}
+                        <div className="flex flex-col gap-2 border-t border-zinc-200 pt-2 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="px-2 text-[10px] font-bold leading-relaxed text-zinc-400">Janela de 24h: fora dela, a Meta pode exigir template aprovado.</p>
+                          <button className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50" type="submit" disabled={sending || !messageText.trim()}>
+                            <Send size={16} /> {sending ? 'Enviando...' : 'Enviar'}
                           </button>
                         </div>
                       </div>
@@ -533,87 +550,58 @@ export default function StoreWhatsappPage() {
                   </>
                 ) : (
                   <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
-                    <UserCircle2 size={56} className="text-zinc-300" />
+                    <UserCircle2 size={54} className="text-zinc-300" />
                     <h2 className="mt-4 text-2xl font-black text-zinc-950">Selecione uma conversa</h2>
-                    <p className="mt-2 max-w-md text-sm font-bold text-zinc-500">
-                      Assim que uma mensagem chegar pelo webhook oficial do WhatsApp, a conversa ficará disponível aqui.
-                    </p>
+                    <p className="mt-2 max-w-md text-sm font-bold text-zinc-500">Assim que uma mensagem chegar, a conversa e todo o contexto comercial aparecerão aqui.</p>
                   </div>
                 )}
               </section>
 
-              <aside className="border-l border-zinc-200 bg-white">
+              <aside className="min-h-0 overflow-auto border-l border-zinc-200 bg-[#fafafa] p-3.5">
                 {selectedConversation ? (
-                  <div className="max-h-[720px] overflow-auto">
-                    <div className="border-b border-zinc-200 p-5">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-900 text-base font-black text-white">
-                            {initials(selectedName)}
-                          </div>
-                          <div>
-                            <h2 className="text-lg font-black leading-tight text-zinc-950">{selectedName}</h2>
-                            <p className="mt-1 text-sm font-bold text-blue-600">Ver perfil</p>
-                          </div>
+                  <div className="space-y-3">
+                    <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                      <div className="flex items-center gap-3">
+                        <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-red-50 text-sm font-black text-red-600">
+                          {initials(selectedName)}
+                          <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" />
                         </div>
-                        <MoreHorizontal className="text-zinc-500" size={20} />
-                      </div>
-                    </div>
-
-                    <div className="border-b border-zinc-200 p-5">
-                      <h3 className="text-lg font-black text-zinc-950">Detalhes de contato</h3>
-                      <div className="mt-4 space-y-3 text-sm font-bold text-zinc-600">
-                        <p className="flex items-center gap-2"><Phone size={16} /> {formatPhone(selectedPhone)}</p>
-                        <p className="flex items-center gap-2"><MessageCircle size={16} /> {selectedConversation.number?.phone_number || selectedConversation.number?.label || 'WhatsApp Oficial'}</p>
-                        <p className="flex items-center gap-2"><Store size={16} /> {store?.store_name || 'Loja vinculada'}</p>
-                      </div>
-                    </div>
-
-                    <div className="border-b border-zinc-200 p-5">
-                      <h3 className="text-lg font-black text-zinc-950">Perfil do lead</h3>
-                      <div className="mt-4 grid gap-3">
-                        <InfoRow label="Nome" value={selectedName} />
-                        <InfoRow label="Carro de interesse" value={selectedConversation.lead?.interested_vehicle || 'Não informado'} />
-                        <InfoRow label="Origem" value={selectedConversation.lead?.origin || selectedConversation.base_lead?.source || 'WhatsApp Oficial'} />
-                        <InfoRow label="Campanha" value={selectedConversation.base_lead?.campaign_name || selectedConversation.number?.label || 'WhatsApp Oficial'} />
-                      </div>
-                    </div>
-
-                    <div className="border-b border-zinc-200 p-5">
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-lg font-black text-zinc-950">Atividade</h3>
-                        <span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-black uppercase text-zinc-600">Recomendado</span>
-                      </div>
-
-                      <div className="mt-4 grid gap-3">
-                        <div className="rounded-2xl bg-zinc-50 p-4">
-                          <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Estágio do lead</p>
-                          <p className="mt-1 text-sm font-black text-zinc-950">{leadStatusLabel(selectedConversation.lead?.status || selectedConversation.base_lead?.status)}</p>
-                        </div>
-
-                        <div className="rounded-2xl bg-zinc-50 p-4">
-                          <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Última mensagem</p>
-                          <p className="mt-1 text-sm font-black text-zinc-950">{formatDateTime(selectedConversation.last_message_at)}</p>
-                        </div>
-
-                        <div className="rounded-2xl bg-zinc-50 p-4">
-                          <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Agendamento</p>
-                          <p className="mt-1 text-sm font-black text-zinc-950">{selectedConversation.lead?.scheduled_at ? formatDateTime(selectedConversation.lead.scheduled_at) : 'Sem agendamento'}</p>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-black uppercase tracking-[0.12em] text-zinc-400">Detalhes do contato</p>
+                          <h3 className="mt-1 truncate text-base font-black text-zinc-950">{selectedName}</h3>
+                          <p className="mt-1 text-xs font-bold text-zinc-500">{formatPhone(selectedPhone)}</p>
                         </div>
                       </div>
-                    </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-black uppercase text-emerald-700">WhatsApp</span>
+                        {selectedConversation.lead_id || selectedConversation.base_lead_id ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead vinculado</span> : null}
+                      </div>
+                    </section>
 
-                    <div className="p-5">
-                      <div className="grid gap-3">
-                        <Link href={`/loja/${slug}/pipeline`} className="flex items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 py-4 text-sm font-black uppercase tracking-wide text-white shadow-lg shadow-red-600/20">
-                          Abrir Pipeline <ArrowUpRight size={16} />
+                    <DetailCard title="Contato e canal">
+                      <DetailRow label="Telefone" value={formatPhone(selectedPhone)} icon={<Phone size={14} />} />
+                      <DetailRow label="Número central" value={selectedConversation.number?.phone_number || selectedConversation.number?.label || 'WhatsApp Oficial'} icon={<MessageCircle size={14} />} />
+                      <DetailRow label="Loja" value={store?.store_name || 'Loja vinculada'} icon={<Store size={14} />} />
+                    </DetailCard>
+
+                    <DetailCard title="Lead e distribuição">
+                      <DetailRow label="Estágio atual" value={leadStatusLabel(selectedConversation.lead?.status || selectedConversation.base_lead?.status)} />
+                      <DetailRow label="Carro de interesse" value={selectedConversation.lead?.interested_vehicle || 'Não informado'} />
+                      <DetailRow label="Origem" value={selectedConversation.lead?.origin || selectedConversation.base_lead?.source || 'WhatsApp Oficial'} />
+                      <DetailRow label="Campanha" value={selectedConversation.base_lead?.campaign_name || selectedConversation.number?.label || 'WhatsApp Oficial'} />
+                      <DetailRow label="Última mensagem" value={formatDateTime(selectedConversation.last_message_at)} />
+                    </DetailCard>
+
+                    <DetailCard title="Ações rápidas">
+                      <div className="grid gap-2">
+                        <Link href={`/loja/${slug}/pipeline`} className="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700">
+                          Abrir Pipeline <ArrowUpRight size={15} />
                         </Link>
-
-                        <Link href={`/loja/${slug}/calendario`} className="flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 px-4 py-4 text-sm font-black uppercase tracking-wide text-zinc-700 hover:bg-zinc-50">
-                          Ver calendário <CalendarDays size={16} />
+                        <Link href={`/loja/${slug}/calendario`} className="flex items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-xs font-black text-zinc-700 transition hover:border-red-200 hover:text-red-600">
+                          Ver calendário <CalendarDays size={15} />
                         </Link>
                       </div>
-                    </div>
+                    </DetailCard>
                   </div>
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center p-8 text-center text-sm font-bold text-zinc-500">
@@ -630,11 +618,42 @@ export default function StoreWhatsappPage() {
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: any }) {
+function InboxMetric({ label, value, helper, icon, accent = 'zinc' }: { label: string; value: number; helper: string; icon: React.ReactNode; accent?: 'zinc' | 'red' | 'green' | 'blue' }) {
+  const tones = {
+    zinc: 'bg-zinc-50 text-zinc-500',
+    red: 'bg-red-50 text-red-600',
+    green: 'bg-emerald-50 text-emerald-600',
+    blue: 'bg-blue-50 text-blue-600'
+  };
+
   return (
-    <div className="rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
-      <p className="text-[10px] font-black uppercase tracking-wide text-zinc-400">{label}</p>
-      <p className="mt-1 break-words text-sm font-black text-zinc-800">{value || 'Não informado'}</p>
+    <div className="flex min-h-[58px] min-w-[118px] items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${tones[accent]}`}>{icon}</span>
+      <div>
+        <p className="text-[9px] font-black uppercase tracking-wide text-zinc-400">{label}</p>
+        <div className="mt-0.5 flex items-baseline gap-1.5">
+          <strong className="text-lg font-black leading-none text-zinc-950">{value}</strong>
+          <span className="text-[9px] font-bold text-zinc-400">{helper}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+      <h4 className="text-[10px] font-black uppercase tracking-[0.12em] text-zinc-400">{title}</h4>
+      <div className="mt-3 grid gap-3">{children}</div>
+    </section>
+  );
+}
+
+function DetailRow({ label, value, icon }: { label: string; value: any; icon?: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-[9px] font-black uppercase tracking-wide text-zinc-400">{label}</p>
+      <p className="mt-1 flex items-center gap-2 break-words text-xs font-black leading-relaxed text-zinc-900">{icon}{value || 'Não informado'}</p>
     </div>
   );
 }

@@ -66,7 +66,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       }
 
       if (matchesProtectedRoute(pathname, '/master') && profile.role !== 'master') {
-        router.replace('/');
+        router.replace(`/login?redirectedFrom=${encodeURIComponent(pathname)}`);
         return;
       }
 

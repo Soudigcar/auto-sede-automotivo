@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getEvolutionProfilePictureUrl } from '@/lib/server/evolution';
 
 export const runtime = 'nodejs';
 
@@ -87,6 +88,64 @@ function publicWhatsappNumber(number: any, integration: any) {
       ? integration?.instance_name || cleanText(number?.settings?.instance_name) || null
       : null
   };
+}
+
+function existingProfilePicture(contact: any) {
+  const metadata = contact?.metadata || {};
+  return cleanText(
+    contact?.profile_picture_url ||
+    contact?.profile_picture ||
+    contact?.avatar_url ||
+    contact?.photo_url ||
+    metadata?.profile_picture_url ||
+    metadata?.profilePictureUrl ||
+    metadata?.avatar_url ||
+    metadata?.photo_url
+  ) || null;
+}
+
+async function resolveEvolutionProfilePictures(conversations: any[], contactsById: Record<string, any>, numbersById: Record<string, any>) {
+  const jobs = new Map<string, { contactId: string; instanceName: string; phone: string }>();
+
+  for (const conversation of conversations || []) {
+    const contact = contactsById[conversation.contact_id];
+    const number = numbersById[conversation.whatsapp_number_id];
+
+    if (!contact || existingProfilePicture(contact)) continue;
+    if (number?.provider !== 'evolution' || number?.integration_status !== 'connected' || !number?.instance_name) continue;
+
+    const phone = cleanText(contact.phone || contact.wa_id).split('@')[0].split(':')[0].replace(/\D/g, '');
+    if (phone.length < 8) continue;
+
+    jobs.set(contact.id, {
+      contactId: contact.id,
+      instanceName: number.instance_name,
+      phone
+    });
+  }
+
+  const entries = Array.from(jobs.values()).slice(0, 80);
+  const resolved: Record<string, string> = {};
+
+  for (let index = 0; index < entries.length; index += 8) {
+    const chunk = entries.slice(index, index + 8);
+    const results = await Promise.all(
+      chunk.map(async (job) => {
+        try {
+          const url = await getEvolutionProfilePictureUrl(job.instanceName, job.phone);
+          return url ? [job.contactId, url] as const : null;
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    for (const result of results) {
+      if (result) resolved[result[0]] = result[1];
+    }
+  }
+
+  return resolved;
 }
 
 export async function GET(request: Request) {
@@ -186,6 +245,17 @@ export async function GET(request: Request) {
     const numbersById = buildMap(publicCentralNumbers);
     const leadsById = buildMap(leadsResponse.data || []);
     const baseLeadsById = buildMap(baseLeadsResponse.data || []);
+
+    const liveProfilePictures = await resolveEvolutionProfilePictures(conversations || [], contactsById, numbersById);
+
+    for (const [contactId, profilePictureUrl] of Object.entries(liveProfilePictures)) {
+      if (contactsById[contactId]) {
+        contactsById[contactId] = {
+          ...contactsById[contactId],
+          profile_picture_url: profilePictureUrl
+        };
+      }
+    }
 
     const assignedStoreIds = unique([
       ...(leadsResponse.data || []).map((lead: any) => lead.assigned_store_id),
