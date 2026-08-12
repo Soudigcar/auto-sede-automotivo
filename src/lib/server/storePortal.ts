@@ -78,27 +78,21 @@ export function storePortalMenu(role: StorePortalRole, slug: string): StorePorta
 
 export function storePortalScopeLabel(role: StorePortalRole) {
   if (role === 'master' || role === 'store') return 'Todos os leads vinculados à loja';
-  if (role === 'pre_sales') return 'Leads atribuídos ao seu atendimento de pré-vendas';
-  if (role === 'seller') return 'Leads atribuídos à sua carteira de vendedor';
-  return 'Leads captados ou atribuídos a você';
+  return 'Leads sob sua responsabilidade atual';
 }
 
 export function canAccessStoreLead(profile: any, role: StorePortalRole, lead: any) {
   if (role === 'master') return true;
   if (!profile?.store_id || profile.store_id !== lead?.assigned_store_id) return false;
   if (role === 'store') return true;
-  if (role === 'pre_sales') return lead?.pre_sales_user_id === profile.id || lead?.assigned_user_id === profile.id;
-  if (role === 'seller') return lead?.seller_user_id === profile.id || lead?.assigned_user_id === profile.id;
-  return lead?.captured_by_user_id === profile.id || lead?.assigned_user_id === profile.id;
+  return Boolean(profile?.id && lead?.assigned_user_id === profile.id);
 }
 
 export function applyStoreLeadScope(query: any, profile: any, role: StorePortalRole) {
   if (role === 'master' || role === 'store') return query;
   const userId = cleanText(profile?.id, 80);
   if (!userId) return query.eq('id', '__unauthorized__');
-  if (role === 'pre_sales') return query.or(`pre_sales_user_id.eq.${userId},assigned_user_id.eq.${userId}`);
-  if (role === 'seller') return query.or(`seller_user_id.eq.${userId},assigned_user_id.eq.${userId}`);
-  return query.or(`captured_by_user_id.eq.${userId},assigned_user_id.eq.${userId}`);
+  return query.eq('assigned_user_id', userId);
 }
 
 export async function authorizeStorePortal(request: Request, expectedSlug: string) {
