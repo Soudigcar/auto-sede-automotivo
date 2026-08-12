@@ -296,21 +296,20 @@ export default function StoreWhatsappPage() {
   return (
     <main className="premium-page">
       <section className="premium-shell flex min-h-screen">
-        <aside className={`hidden shrink-0 bg-[#071020] py-7 text-white transition-all duration-200 lg:block ${sidebarCollapsed ? 'w-[76px] px-3' : 'w-72 px-6'}`}>
-          <div className="flex items-center justify-between gap-2">
-            <div className={`flex min-w-0 items-center gap-3 ${sidebarCollapsed ? 'justify-center' : ''}`}>
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-red-600/15 text-red-500"><Car size={22} /></div>
-              {!sidebarCollapsed ? <div className="min-w-0"><p className="truncate text-sm font-black tracking-wide">AUTO CONTROLE</p><p className="text-[10px] uppercase tracking-[0.35em] text-zinc-500">Automotivo</p></div> : null}
-            </div>
-            <button
-              type="button"
-              onClick={() => setSidebarCollapsed((current) => !current)}
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-zinc-400 transition hover:bg-white/10 hover:text-white ${sidebarCollapsed ? 'absolute left-[58px] z-10' : ''}`}
-              aria-label={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
-              title={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
-            >
-              {sidebarCollapsed ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}
-            </button>
+        <aside className={`relative hidden shrink-0 bg-[#071020] py-7 text-white transition-all duration-200 lg:block ${sidebarCollapsed ? 'w-[76px] px-3' : 'w-72 px-6'}`}>
+          <button
+            type="button"
+            onClick={() => setSidebarCollapsed((current) => !current)}
+            className="absolute -right-4 top-7 z-40 flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-[#111c2e] text-zinc-300 shadow-lg transition hover:bg-[#17243a] hover:text-white"
+            aria-label={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
+            title={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
+          >
+            {sidebarCollapsed ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}
+          </button>
+
+          <div className={`flex min-w-0 items-center gap-3 ${sidebarCollapsed ? 'justify-center' : ''}`}>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-red-600/15 text-red-500"><Car size={22} /></div>
+            {!sidebarCollapsed ? <div className="min-w-0"><p className="truncate text-sm font-black tracking-wide">AUTO CONTROLE</p><p className="text-[10px] uppercase tracking-[0.35em] text-zinc-500">Automotivo</p></div> : null}
           </div>
 
           {!sidebarCollapsed ? (
@@ -352,8 +351,8 @@ export default function StoreWhatsappPage() {
 
           {statusMessage ? <div className="mt-3 flex items-center gap-2 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-black text-red-700"><CircleAlert size={17} className="shrink-0" /><span>{statusMessage}</span></div> : null}
 
-          <section className="mt-3 overflow-hidden rounded-[26px] border border-zinc-200 bg-white shadow-sm">
-            <div className={`grid min-h-[720px] xl:h-[calc(100vh-210px)] xl:min-h-[680px] ${detailsOpen ? 'xl:grid-cols-[360px_minmax(500px,1fr)_330px] 2xl:grid-cols-[390px_minmax(560px,1fr)_350px]' : 'xl:grid-cols-[360px_minmax(620px,1fr)] 2xl:grid-cols-[390px_minmax(760px,1fr)]'}`}>
+          <section className="relative mt-3 overflow-hidden rounded-[26px] border border-zinc-200 bg-white shadow-sm">
+            <div className="grid min-h-[720px] xl:h-[calc(100vh-210px)] xl:min-h-[680px] xl:grid-cols-[360px_minmax(620px,1fr)] 2xl:grid-cols-[390px_minmax(760px,1fr)]">
               <aside className="flex min-h-0 flex-col border-r border-zinc-200 bg-white">
                 <div className="border-b border-zinc-200 p-4">
                   <div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[0.15em] text-zinc-400">Fila de atendimento</p><h2 className="mt-1 text-lg font-black text-zinc-950">Conversas</h2></div><span className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-black text-zinc-600">{filteredConversations.length}</span></div>
@@ -451,25 +450,25 @@ export default function StoreWhatsappPage() {
                   </>
                 ) : <div className="flex flex-1 flex-col items-center justify-center p-8 text-center"><UserCircle2 size={54} className="text-zinc-300" /><h2 className="mt-4 text-2xl font-black text-zinc-950">Selecione uma conversa</h2><p className="mt-2 max-w-md text-sm font-bold text-zinc-500">Assim que uma mensagem chegar, a conversa e todo o contexto comercial aparecerão aqui.</p></div>}
               </section>
-
-              {detailsOpen ? (
-                <aside className="min-h-0 overflow-auto border-l border-zinc-200 bg-[#fafafa] p-3.5">
-                  {selectedConversation ? <div className="space-y-3">
-                    <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-                      <div className="flex items-start gap-3">
-                        <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-red-50 text-sm font-black text-red-600">{initials(selectedName)}<span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" /></div>
-                        <div className="min-w-0 flex-1"><p className="text-[10px] font-black uppercase tracking-[0.12em] text-zinc-400">Detalhes do contato</p><h3 className="mt-1 truncate text-base font-black text-zinc-950">{selectedName}</h3><p className="mt-1 text-xs font-bold text-zinc-500">{formatPhone(selectedPhone)}</p></div>
-                        <button type="button" onClick={() => setDetailsOpen(false)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-400 transition hover:bg-zinc-50 hover:text-zinc-700" aria-label="Fechar detalhes do lead" title="Fechar detalhes"><X size={15} /></button>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2"><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-black uppercase text-emerald-700">WhatsApp</span>{selectedConversation.lead_id || selectedConversation.base_lead_id ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead vinculado</span> : null}</div>
-                    </section>
-                    <DetailCard title="Contato e canal"><DetailRow label="Telefone" value={formatPhone(selectedPhone)} icon={<Phone size={14} />} /><DetailRow label="Número central" value={selectedConversation.number?.phone_number || selectedConversation.number?.label || 'WhatsApp Oficial'} icon={<MessageCircle size={14} />} /><DetailRow label="Loja" value={store?.store_name || 'Loja vinculada'} icon={<Store size={14} />} /></DetailCard>
-                    <DetailCard title="Lead e distribuição"><DetailRow label="Estágio atual" value={leadStatusLabel(selectedConversation.lead?.status || selectedConversation.base_lead?.status)} /><DetailRow label="Carro de interesse" value={selectedConversation.lead?.interested_vehicle || 'Não informado'} /><DetailRow label="Origem" value={selectedConversation.lead?.origin || selectedConversation.base_lead?.source || 'WhatsApp Oficial'} /><DetailRow label="Campanha" value={selectedConversation.base_lead?.campaign_name || selectedConversation.number?.label || 'WhatsApp Oficial'} /><DetailRow label="Última mensagem" value={formatDateTime(selectedConversation.last_message_at)} /></DetailCard>
-                    <DetailCard title="Ações rápidas"><div className="grid gap-2"><Link href={`/loja/${slug}/pipeline`} className="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700">Abrir Pipeline <ArrowUpRight size={15} /></Link><Link href={`/loja/${slug}/calendario`} className="flex items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-xs font-black text-zinc-700 transition hover:border-red-200 hover:text-red-600">Ver calendário <CalendarDays size={15} /></Link></div></DetailCard>
-                  </div> : null}
-                </aside>
-              ) : null}
             </div>
+
+            {detailsOpen && selectedConversation ? (
+              <aside className="absolute inset-y-0 right-0 z-30 w-[360px] max-w-[calc(100%-1rem)] overflow-auto border-l border-zinc-200 bg-[#fafafa] p-3.5 shadow-2xl">
+                <div className="space-y-3">
+                  <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-red-50 text-sm font-black text-red-600">{initials(selectedName)}<span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" /></div>
+                      <div className="min-w-0 flex-1"><p className="text-[10px] font-black uppercase tracking-[0.12em] text-zinc-400">Detalhes do contato</p><h3 className="mt-1 truncate text-base font-black text-zinc-950">{selectedName}</h3><p className="mt-1 text-xs font-bold text-zinc-500">{formatPhone(selectedPhone)}</p></div>
+                      <button type="button" onClick={() => setDetailsOpen(false)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-400 transition hover:bg-zinc-50 hover:text-zinc-700" aria-label="Fechar detalhes do lead" title="Fechar detalhes"><X size={15} /></button>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2"><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-black uppercase text-emerald-700">WhatsApp</span>{selectedConversation.lead_id || selectedConversation.base_lead_id ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead vinculado</span> : null}</div>
+                  </section>
+                  <DetailCard title="Contato e canal"><DetailRow label="Telefone" value={formatPhone(selectedPhone)} icon={<Phone size={14} />} /><DetailRow label="Número central" value={selectedConversation.number?.phone_number || selectedConversation.number?.label || 'WhatsApp Oficial'} icon={<MessageCircle size={14} />} /><DetailRow label="Loja" value={store?.store_name || 'Loja vinculada'} icon={<Store size={14} />} /></DetailCard>
+                  <DetailCard title="Lead e distribuição"><DetailRow label="Estágio atual" value={leadStatusLabel(selectedConversation.lead?.status || selectedConversation.base_lead?.status)} /><DetailRow label="Carro de interesse" value={selectedConversation.lead?.interested_vehicle || 'Não informado'} /><DetailRow label="Origem" value={selectedConversation.lead?.origin || selectedConversation.base_lead?.source || 'WhatsApp Oficial'} /><DetailRow label="Campanha" value={selectedConversation.base_lead?.campaign_name || selectedConversation.number?.label || 'WhatsApp Oficial'} /><DetailRow label="Última mensagem" value={formatDateTime(selectedConversation.last_message_at)} /></DetailCard>
+                  <DetailCard title="Ações rápidas"><div className="grid gap-2"><Link href={`/loja/${slug}/pipeline`} className="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700">Abrir Pipeline <ArrowUpRight size={15} /></Link><Link href={`/loja/${slug}/calendario`} className="flex items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-xs font-black text-zinc-700 transition hover:border-red-200 hover:text-red-600">Ver calendário <CalendarDays size={15} /></Link></div></DetailCard>
+                </div>
+              </aside>
+            ) : null}
           </section>
         </div>
       </section>
