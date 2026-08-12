@@ -3,8 +3,8 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
+  ArrowDownUp,
   CheckCircle2,
-  ChevronDown,
   CircleAlert,
   Database,
   ExternalLink,
@@ -16,12 +16,17 @@ import {
   Search,
   Send,
   ShieldCheck,
+  SlidersHorizontal,
   UserCircle2,
   UsersRound,
   Wifi
 } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { createClient } from '@/lib/supabase';
+
+type QueueFilter = 'all' | 'unread' | 'priority' | 'leads' | 'urgent';
+type AttendantFilter = 'all' | 'assigned' | 'unassigned';
+type SortMode = 'recent' | 'oldest';
 
 function formatDateTime(value: any) {
   if (!value) return 'Sem horário';
@@ -35,6 +40,40 @@ function formatDateTime(value: any) {
     }).format(new Date(value));
   } catch {
     return 'Sem horário';
+  }
+}
+
+function formatTime(value: any) {
+  if (!value) return '--:--';
+
+  try {
+    const date = new Date(value);
+    const now = new Date();
+    const sameDay = date.getFullYear() === now.getFullYear()
+      && date.getMonth() === now.getMonth()
+      && date.getDate() === now.getDate();
+
+    if (sameDay) {
+      return new Intl.DateTimeFormat('pt-BR', {
+        hour: '2-digit',
+        minute: '2-digit'
+      }).format(date);
+    }
+
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const isYesterday = date.getFullYear() === yesterday.getFullYear()
+      && date.getMonth() === yesterday.getMonth()
+      && date.getDate() === yesterday.getDate();
+
+    if (isYesterday) return 'Ontem';
+
+    return new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit',
+      month: '2-digit'
+    }).format(date);
+  } catch {
+    return '--:--';
   }
 }
 
@@ -80,7 +119,11 @@ function conversationPhone(conversation: any) {
 }
 
 function assignedStoreName(conversation: any) {
-  return conversation?.store?.store_name || conversation?.base_lead?.assigned_store_name || 'Ainda não direcionado';
+  return conversation?.store?.store_name || conversation?.base_lead?.assigned_store_name || 'MASTER';
+}
+
+function assignedStoreKey(conversation: any) {
+  return conversation?.store?.id || conversation?.base_lead?.assigned_store_id || 'master';
 }
 
 function pipelineHref(conversation: any) {
@@ -102,14 +145,94 @@ function conversationOrigin(conversation: any) {
   return conversation?.lead?.origin || conversation?.base_lead?.source || (isEvolutionConversation(conversation) ? 'WhatsApp Evolution' : 'WhatsApp Oficial');
 }
 
+function profilePhotoUrl(conversation: any) {
+  const contact = conversation?.contact || {};
+  const contactMetadata = contact?.metadata || {};
+  const conversationMetadata = conversation?.metadata || {};
+
+  return String(
+    contact?.profile_picture_url
+      || contact?.profile_picture
+      || contact?.avatar_url
+      || contact?.photo_url
+      || contactMetadata?.profile_picture_url
+      || contactMetadata?.profilePictureUrl
+      || contactMetadata?.avatar_url
+      || contactMetadata?.photo_url
+      || conversationMetadata?.profile_picture_url
+      || conversationMetadata?.profilePictureUrl
+      || ''
+  ).trim();
+}
+
+function conversationPriority(conversation: any) {
+  const metadata = conversation?.metadata || {};
+  const value = String(metadata?.priority || metadata?.urgency || '').trim().toLowerCase();
+  const tags = Array.isArray(metadata?.tags)
+    ? metadata.tags.map((tag: any) => String(tag || '').trim().toLowerCase())
+    : [];
+
+  if (['urgent', 'urgente', 'critical', 'critico', 'crítico'].includes(value) || tags.some((tag: string) => ['urgent', 'urgente', 'critical'].includes(tag))) {
+    return 'urgent';
+  }
+
+  if (['priority', 'prioridade', 'high', 'alta'].includes(value) || tags.some((tag: string) => ['priority', 'prioridade', 'high'].includes(tag))) {
+    return 'priority';
+  }
+
+  return '';
+}
+
+function leadStageLabel(conversation: any) {
+  const status = String(conversation?.lead?.status || conversation?.base_lead?.status || '').trim();
+  const labels: Record<string, string> = {
+    new_lead: 'Novo Lead',
+    in_service: 'Em atendimento',
+    scheduled: 'Agendado',
+    showed_up: 'Compareceu',
+    sale_confirmed: 'Fechado',
+    lost: 'Perdido'
+  };
+
+  return labels[status] || (conversation?.lead?.id || conversation?.base_lead?.id ? 'Lead' : '');
+}
+
+function ContactAvatar({ conversation, selected = false, size = 'md' }: { conversation: any; selected?: boolean; size?: 'sm' | 'md' | 'lg' }) {
+  const name = conversationName(conversation);
+  const photo = profilePhotoUrl(conversation);
+  const sizeClass = size === 'lg' ? 'h-14 w-14 text-base' : size === 'sm' ? 'h-10 w-10 text-xs' : 'h-12 w-12 text-sm';
+
+  return (
+    <div className={`relative flex shrink-0 items-center justify-center overflow-visible rounded-full font-black ${sizeClass} ${selected ? 'bg-red-600 text-white' : 'bg-zinc-100 text-zinc-600'}`}>
+      <span>{initials(name)}</span>
+      {photo ? (
+        <img
+          src={photo}
+          alt={`Foto de ${name}`}
+          className="absolute inset-0 h-full w-full rounded-full object-cover"
+          referrerPolicy="no-referrer"
+          onError={(event) => {
+            event.currentTarget.style.display = 'none';
+          }}
+        />
+      ) : null}
+      <span className="absolute -bottom-0.5 -right-0.5 z-10 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-emerald-500 text-white">
+        <MessageCircle size={8} />
+      </span>
+    </div>
+  );
+}
+
 export default function MasterWhatsappInboxPage() {
   const supabase = createClient();
   const [conversations, setConversations] = useState<any[]>([]);
   const [messages, setMessages] = useState<any[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [onlyUnread, setOnlyUnread] = useState(false);
-  const [onlyLeads, setOnlyLeads] = useState(false);
+  const [queueFilter, setQueueFilter] = useState<QueueFilter>('all');
+  const [storeFilter, setStoreFilter] = useState('all');
+  const [attendantFilter, setAttendantFilter] = useState<AttendantFilter>('all');
+  const [sortMode, setSortMode] = useState<SortMode>('recent');
   const [messageText, setMessageText] = useState('');
   const [statusMessage, setStatusMessage] = useState('Carregando Inbox WhatsApp...');
   const [loading, setLoading] = useState(true);
@@ -253,26 +376,25 @@ export default function MasterWhatsappInboxPage() {
     return conversations.find((conversation) => conversation.id === selectedId) || null;
   }, [conversations, selectedId]);
 
-  const filteredConversations = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
+  const storeOptions = useMemo(() => {
+    const entries = new Map<string, string>();
+    entries.set('master', 'MASTER');
 
-    return conversations.filter((conversation) => {
-      const name = conversationName(conversation).toLowerCase();
-      const phone = conversationPhone(conversation).toLowerCase();
-      const lastMessage = String(conversation.last_message || '').toLowerCase();
-      const storeName = assignedStoreName(conversation).toLowerCase();
-      const matchesTerm = !term || name.includes(term) || phone.includes(term) || lastMessage.includes(term) || storeName.includes(term);
-      const matchesUnread = !onlyUnread || Number(conversation.unread_count || 0) > 0;
-      const matchesLead = !onlyLeads || Boolean(conversation.lead?.id || conversation.base_lead?.id);
-
-      return matchesTerm && matchesUnread && matchesLead;
+    conversations.forEach((conversation) => {
+      const key = assignedStoreKey(conversation);
+      const name = assignedStoreName(conversation);
+      entries.set(key, name);
     });
-  }, [conversations, searchTerm, onlyUnread, onlyLeads]);
+
+    return Array.from(entries.entries());
+  }, [conversations]);
 
   const stats = useMemo(() => {
-    const unread = conversations.reduce((sum, item) => sum + Number(item.unread_count || 0), 0);
+    const unreadMessages = conversations.reduce((sum, item) => sum + Number(item.unread_count || 0), 0);
     const unreadConversations = conversations.filter((item) => Number(item.unread_count || 0) > 0).length;
     const withLead = conversations.filter((item) => item.lead?.id || item.base_lead?.id).length;
+    const priority = conversations.filter((item) => conversationPriority(item) === 'priority').length;
+    const urgent = conversations.filter((item) => conversationPriority(item) === 'urgent').length;
     const connectedChannels = new Set(
       conversations
         .filter((item) => !isEvolutionConversation(item) || item.number?.integration_status === 'connected')
@@ -281,12 +403,47 @@ export default function MasterWhatsappInboxPage() {
 
     return {
       total: conversations.length,
-      unread,
+      unreadMessages,
       unreadConversations,
       withLead,
+      priority,
+      urgent,
       connectedChannels
     };
   }, [conversations]);
+
+  const filteredConversations = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+
+    const filtered = conversations.filter((conversation) => {
+      const name = conversationName(conversation).toLowerCase();
+      const phone = conversationPhone(conversation).toLowerCase();
+      const lastMessage = String(conversation.last_message || '').toLowerCase();
+      const storeName = assignedStoreName(conversation).toLowerCase();
+      const matchesTerm = !term || name.includes(term) || phone.includes(term) || lastMessage.includes(term) || storeName.includes(term);
+      const hasLead = Boolean(conversation.lead?.id || conversation.base_lead?.id);
+      const priority = conversationPriority(conversation);
+
+      let matchesQueue = true;
+      if (queueFilter === 'unread') matchesQueue = Number(conversation.unread_count || 0) > 0;
+      if (queueFilter === 'leads') matchesQueue = hasLead;
+      if (queueFilter === 'priority') matchesQueue = priority === 'priority';
+      if (queueFilter === 'urgent') matchesQueue = priority === 'urgent';
+
+      const matchesStore = storeFilter === 'all' || assignedStoreKey(conversation) === storeFilter;
+      const matchesAttendant = attendantFilter === 'all'
+        || (attendantFilter === 'assigned' && Boolean(conversation.assigned_user_id))
+        || (attendantFilter === 'unassigned' && !conversation.assigned_user_id);
+
+      return matchesTerm && matchesQueue && matchesStore && matchesAttendant;
+    });
+
+    return [...filtered].sort((a, b) => {
+      const aTime = new Date(a.last_message_at || a.updated_at || a.created_at || 0).getTime();
+      const bTime = new Date(b.last_message_at || b.updated_at || b.created_at || 0).getTime();
+      return sortMode === 'recent' ? bTime - aTime : aTime - bTime;
+    });
+  }, [conversations, searchTerm, queueFilter, storeFilter, attendantFilter, sortMode]);
 
   return (
     <main className="premium-page">
@@ -311,7 +468,7 @@ export default function MasterWhatsappInboxPage() {
 
               <div className="flex flex-wrap items-stretch gap-2">
                 <InboxMetric label="Conversas" value={stats.total} helper="na caixa central" icon={<MessagesSquare size={16} />} />
-                <InboxMetric label="Não lidas" value={stats.unread} helper={`${stats.unreadConversations} conversa${stats.unreadConversations === 1 ? '' : 's'}`} icon={<Inbox size={16} />} accent="red" />
+                <InboxMetric label="Não lidas" value={stats.unreadMessages} helper={`${stats.unreadConversations} conversa${stats.unreadConversations === 1 ? '' : 's'}`} icon={<Inbox size={16} />} accent="red" />
                 <InboxMetric label="Leads" value={stats.withLead} helper="vinculados" icon={<UsersRound size={16} />} accent="green" />
                 <InboxMetric label="Canais ativos" value={stats.connectedChannels} helper="disponíveis" icon={<Wifi size={16} />} accent="blue" />
 
@@ -340,97 +497,112 @@ export default function MasterWhatsappInboxPage() {
           ) : null}
 
           <section className="mt-3 overflow-hidden rounded-[26px] border border-zinc-200 bg-white shadow-sm">
-            <div className="grid min-h-[720px] xl:h-[calc(100vh-210px)] xl:min-h-[680px] xl:grid-cols-[360px_minmax(500px,1fr)_330px] 2xl:grid-cols-[390px_minmax(560px,1fr)_350px]">
+            <div className="grid min-h-[720px] xl:h-[calc(100vh-210px)] xl:min-h-[680px] xl:grid-cols-[410px_minmax(500px,1fr)_330px] 2xl:grid-cols-[440px_minmax(560px,1fr)_350px]">
               <aside className="flex min-h-0 flex-col border-r border-zinc-200 bg-white">
-                <div className="border-b border-zinc-200 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-[0.15em] text-zinc-400">Fila de atendimento</p>
-                      <h2 className="mt-1 text-lg font-black text-zinc-950">Conversas</h2>
+                <div className="border-b border-zinc-200 bg-white">
+                  <div className="flex min-w-0 items-end gap-1 overflow-x-auto px-3 pt-2">
+                    <QueueTab label="Todas" count={stats.total} active={queueFilter === 'all'} onClick={() => setQueueFilter('all')} />
+                    <QueueTab label="Não lidas" count={stats.unreadConversations} active={queueFilter === 'unread'} onClick={() => setQueueFilter('unread')} />
+                    <QueueTab label="Prioridade" count={stats.priority} active={queueFilter === 'priority'} onClick={() => setQueueFilter('priority')} />
+                    <QueueTab label="Leads" count={stats.withLead} active={queueFilter === 'leads'} onClick={() => setQueueFilter('leads')} />
+                    <QueueTab label="Urgentes" count={stats.urgent} active={queueFilter === 'urgent'} onClick={() => setQueueFilter('urgent')} />
+                  </div>
+
+                  <div className="space-y-2.5 p-3 pt-3">
+                    <div className="flex gap-2">
+                      <div className="relative min-w-0 flex-1">
+                        <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
+                        <input
+                          className="h-11 w-full rounded-xl border border-zinc-200 bg-zinc-50 pl-10 pr-3 text-xs font-bold text-zinc-800 outline-none transition placeholder:text-zinc-400 focus:border-red-300 focus:bg-white"
+                          placeholder="Buscar conversas..."
+                          value={searchTerm}
+                          onChange={(event) => setSearchTerm(event.target.value)}
+                        />
+                      </div>
+                      <button type="button" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-500" title="Filtros da fila">
+                        <SlidersHorizontal size={16} />
+                      </button>
                     </div>
-                    <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-black text-zinc-600">{filteredConversations.length}</span>
-                  </div>
 
-                  <div className="mt-4 grid grid-cols-3 gap-1 rounded-2xl bg-zinc-100 p-1 text-[11px] font-black">
-                    <button
-                      className={`rounded-xl px-2 py-2.5 transition ${!onlyUnread && !onlyLeads ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500 hover:text-zinc-800'}`}
-                      type="button"
-                      onClick={() => { setOnlyUnread(false); setOnlyLeads(false); }}
-                    >
-                      Todas <span className="ml-1 text-[10px]">{stats.total}</span>
-                    </button>
-                    <button
-                      className={`rounded-xl px-2 py-2.5 transition ${onlyUnread ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500 hover:text-zinc-800'}`}
-                      type="button"
-                      onClick={() => setOnlyUnread((current) => !current)}
-                    >
-                      Não lidas <span className="ml-1 text-[10px]">{stats.unread}</span>
-                    </button>
-                    <button
-                      className={`rounded-xl px-2 py-2.5 transition ${onlyLeads ? 'bg-white text-emerald-700 shadow-sm' : 'text-zinc-500 hover:text-zinc-800'}`}
-                      type="button"
-                      onClick={() => setOnlyLeads((current) => !current)}
-                    >
-                      Leads <span className="ml-1 text-[10px]">{stats.withLead}</span>
-                    </button>
-                  </div>
+                    <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                      <select
+                        value={storeFilter}
+                        onChange={(event) => setStoreFilter(event.target.value)}
+                        className="h-10 min-w-0 rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[10px] font-black text-zinc-600 outline-none focus:border-red-300"
+                        aria-label="Filtrar por loja"
+                      >
+                        <option value="all">Todas as lojas</option>
+                        {storeOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}
+                      </select>
 
-                  <div className="relative mt-3">
-                    <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
-                    <input
-                      className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 py-3 pl-10 pr-4 text-xs font-bold text-zinc-800 outline-none transition placeholder:text-zinc-400 focus:border-red-300 focus:bg-white"
-                      placeholder="Buscar conversa, telefone ou loja..."
-                      value={searchTerm}
-                      onChange={(event) => setSearchTerm(event.target.value)}
-                    />
-                  </div>
+                      <select
+                        value={attendantFilter}
+                        onChange={(event) => setAttendantFilter(event.target.value as AttendantFilter)}
+                        className="h-10 min-w-0 rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[10px] font-black text-zinc-600 outline-none focus:border-red-300"
+                        aria-label="Filtrar por atendente"
+                      >
+                        <option value="all">Todos os atendentes</option>
+                        <option value="assigned">Com atendente</option>
+                        <option value="unassigned">Sem atendente</option>
+                      </select>
 
-                  <div className="mt-3 flex items-center justify-between gap-2 text-[10px] font-black text-zinc-500">
-                    <span className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2">WhatsApp Central</span>
-                    <span className="inline-flex items-center gap-1">Mais recentes <ChevronDown size={13} /></span>
+                      <button
+                        type="button"
+                        onClick={() => setSortMode((current) => current === 'recent' ? 'oldest' : 'recent')}
+                        className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 text-[10px] font-black text-zinc-500"
+                        title="Alterar ordenação"
+                      >
+                        <ArrowDownUp size={13} /> {sortMode === 'recent' ? 'Mais recentes' : 'Mais antigas'}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-auto">
+                <div className="min-h-0 flex-1 overflow-auto bg-[#fbfbfc] p-1.5">
                   {filteredConversations.map((conversation) => {
                     const isSelected = conversation.id === selectedId;
                     const name = conversationName(conversation);
                     const phone = conversationPhone(conversation);
                     const unread = Number(conversation.unread_count || 0);
-                    const hasLead = Boolean(conversation.lead?.id || conversation.base_lead?.id);
+                    const priority = conversationPriority(conversation);
+                    const stage = leadStageLabel(conversation);
 
                     return (
                       <button
                         key={conversation.id}
-                        className={`group block w-full border-b border-zinc-100 px-3 py-3 text-left transition ${isSelected ? 'bg-red-50/70' : 'bg-white hover:bg-zinc-50'}`}
+                        className={`group mb-1.5 block w-full rounded-2xl border px-3 py-3 text-left transition ${isSelected ? 'border-red-500 bg-white shadow-sm' : 'border-zinc-200/80 bg-white hover:border-zinc-300 hover:shadow-sm'}`}
                         type="button"
                         onClick={() => selectConversation(conversation.id)}
                       >
-                        <div className={`rounded-2xl border p-3 transition ${isSelected ? 'border-red-200 bg-white shadow-sm' : 'border-transparent group-hover:border-zinc-200'}`}>
-                          <div className="flex items-start gap-3">
-                            <div className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-black ${isSelected ? 'bg-red-600 text-white' : 'bg-zinc-100 text-zinc-600'}`}>
-                              {initials(name)}
-                              <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" />
+                        <div className="flex items-start gap-3">
+                          <ContactAvatar conversation={conversation} selected={isSelected} />
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                  <h3 className="truncate text-sm font-black text-zinc-950">{name}</h3>
+                                  {priority === 'urgent' ? <span className="rounded-md bg-red-50 px-1.5 py-0.5 text-[8px] font-black uppercase text-red-600">Urgente</span> : null}
+                                  {priority === 'priority' ? <span className="rounded-md bg-orange-50 px-1.5 py-0.5 text-[8px] font-black uppercase text-orange-600">Prioridade</span> : null}
+                                  {!priority && stage ? <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[8px] font-black uppercase text-violet-600">{stage}</span> : null}
+                                </div>
+                                <p className="mt-0.5 truncate text-[11px] font-bold text-zinc-500">{formatPhone(phone)}</p>
+                              </div>
+                              <span className="shrink-0 text-[10px] font-bold text-zinc-400">{formatTime(conversation.last_message_at)}</span>
                             </div>
 
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <h3 className="truncate text-sm font-black text-zinc-950">{name}</h3>
-                                  <p className="mt-0.5 truncate text-[11px] font-bold text-zinc-500">{formatPhone(phone)}</p>
-                                </div>
-                                <span className="shrink-0 text-[10px] font-bold text-zinc-400">{formatDateTime(conversation.last_message_at)}</span>
-                              </div>
+                            <div className="mt-2 flex items-start justify-between gap-2">
+                              <p className="line-clamp-1 min-w-0 flex-1 text-xs font-semibold leading-relaxed text-zinc-600">{conversation.last_message || 'Sem mensagem'}</p>
+                              {unread ? <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-black text-white">{unread}</span> : null}
+                            </div>
 
-                              <p className="mt-2 line-clamp-2 text-xs font-semibold leading-relaxed text-zinc-600">{conversation.last_message || 'Sem mensagem'}</p>
-
-                              <div className="mt-2.5 flex items-center justify-between gap-2">
-                                <div className="flex min-w-0 flex-wrap gap-1.5">
-                                  <span className="max-w-[145px] truncate rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-black uppercase text-emerald-700">{conversation.number?.label || 'WhatsApp Central'}</span>
-                                  {hasLead ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead</span> : null}
-                                </div>
-                                {unread ? <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-black text-white">{unread}</span> : null}
-                              </div>
+                            <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-1.5">
+                              <span className={`max-w-[145px] truncate rounded-full px-2.5 py-1 text-[8px] font-black uppercase ${assignedStoreKey(conversation) === 'master' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'}`}>
+                                {assignedStoreName(conversation)}
+                              </span>
+                              <span className="max-w-[160px] truncate rounded-full bg-zinc-100 px-2.5 py-1 text-[8px] font-black uppercase text-zinc-600">
+                                {isEvolutionConversation(conversation) ? 'WhatsApp Evolution' : (conversation.number?.label || 'WhatsApp')}
+                              </span>
                             </div>
                           </div>
                         </div>
@@ -439,10 +611,10 @@ export default function MasterWhatsappInboxPage() {
                   })}
 
                   {!filteredConversations.length ? (
-                    <div className="flex min-h-56 flex-col items-center justify-center p-6 text-center">
+                    <div className="flex min-h-64 flex-col items-center justify-center p-6 text-center">
                       <Inbox size={34} className="text-zinc-300" />
                       <p className="mt-3 text-sm font-black text-zinc-700">Nenhuma conversa encontrada</p>
-                      <p className="mt-1 text-xs font-bold text-zinc-400">Ajuste os filtros ou aguarde novas mensagens.</p>
+                      <p className="mt-1 max-w-60 text-xs font-bold leading-relaxed text-zinc-400">Ajuste os filtros ou aguarde novas mensagens.</p>
                     </div>
                   ) : null}
                 </div>
@@ -454,10 +626,7 @@ export default function MasterWhatsappInboxPage() {
                     <div className="border-b border-zinc-200 bg-white px-4 py-3.5">
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div className="flex min-w-0 items-center gap-3">
-                          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-sm font-black text-zinc-700">
-                            {initials(conversationName(selectedConversation))}
-                            <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" />
-                          </div>
+                          <ContactAvatar conversation={selectedConversation} />
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <h2 className="truncate text-lg font-black text-zinc-950">{conversationName(selectedConversation)}</h2>
@@ -559,10 +728,7 @@ export default function MasterWhatsappInboxPage() {
                   <div className="space-y-3">
                     <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                       <div className="flex items-center gap-3">
-                        <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-red-50 text-sm font-black text-red-600">
-                          {initials(conversationName(selectedConversation))}
-                          <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" />
-                        </div>
+                        <ContactAvatar conversation={selectedConversation} size="lg" />
                         <div className="min-w-0 flex-1">
                           <p className="text-[10px] font-black uppercase tracking-[0.12em] text-zinc-400">Detalhes do contato</p>
                           <h3 className="mt-1 truncate text-base font-black text-zinc-950">{conversationName(selectedConversation)}</h3>
@@ -618,6 +784,22 @@ export default function MasterWhatsappInboxPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function QueueTab({ label, count, active, onClick }: { label: string; count: number; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative shrink-0 px-2.5 py-3 text-[10px] font-black transition ${active ? 'text-zinc-950' : 'text-zinc-500 hover:text-zinc-800'}`}
+    >
+      <span className="inline-flex items-center gap-1.5">
+        {label}
+        <span className={`rounded-full px-1.5 py-0.5 text-[9px] ${active ? 'bg-zinc-100 text-zinc-700' : 'bg-zinc-100 text-zinc-500'}`}>{count}</span>
+      </span>
+      {active ? <span className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-red-600" /> : null}
+    </button>
   );
 }
 
