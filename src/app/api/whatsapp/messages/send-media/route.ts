@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { sendEvolutionMedia } from '@/lib/server/evolution';
+import { sendEvolutionMedia } from '@/lib/server/evolutionMedia';
 
 export const runtime = 'nodejs';
 
