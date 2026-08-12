@@ -30,6 +30,7 @@ import {
   X
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import WhatsappCommerceActions from '@/components/WhatsappCommerceActions';
 
 const pipelineStages = [
   { key: 'new_lead', label: 'Novo Lead Recebido', secureFlow: false },
@@ -384,6 +385,7 @@ export default function StoreWhatsappPage() {
                             <div className="min-w-0 flex-1">
                               <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate text-sm font-black text-zinc-950">{name}</h3><p className="mt-0.5 truncate text-[11px] font-bold text-zinc-500">{formatPhone(phone)}</p></div><span className="shrink-0 text-[10px] font-bold text-zinc-400">{formatTime(conversation.last_message_at)}</span></div>
                               <p className="mt-2 line-clamp-2 text-xs font-semibold leading-relaxed text-zinc-600">{conversation.last_message || 'Sem mensagem'}</p>
+                              {conversation.lead?.interested_vehicle ? <p className="mt-2 flex items-center gap-1.5 truncate text-[10px] font-black text-zinc-700"><Car size={12} className="shrink-0 text-red-500" /> {conversation.lead.interested_vehicle}</p> : null}
                               <div className="mt-2.5 flex items-center justify-between gap-2"><div className="flex min-w-0 flex-wrap gap-1.5"><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-black uppercase text-emerald-700">WhatsApp</span>{hasLead ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead</span> : null}{hasLead && pipelineStage ? <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[9px] font-black uppercase text-amber-700">{leadStatusLabel(pipelineStage)}</span> : null}</div>{unread ? <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-black text-white">{unread}</span> : null}</div>
                             </div>
                           </div>
@@ -447,7 +449,13 @@ export default function StoreWhatsappPage() {
                     <form onSubmit={sendMessage} className="border-t border-zinc-200 bg-white p-3.5">
                       <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-2 transition focus-within:border-red-300 focus-within:bg-white">
                         <textarea className="min-h-20 w-full resize-none bg-transparent px-2 py-2 text-sm font-semibold text-zinc-800 outline-none placeholder:text-zinc-400" placeholder="Digite sua mensagem..." value={messageText} onChange={(event) => setMessageText(event.target.value)} disabled={sending} />
-                        <div className="flex flex-col gap-2 border-t border-zinc-200 pt-2 sm:flex-row sm:items-center sm:justify-between"><p className="px-2 text-[10px] font-bold leading-relaxed text-zinc-400">Janela de 24h: fora dela, a Meta pode exigir template aprovado.</p><button className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50" type="submit" disabled={sending || !messageText.trim()}><Send size={16} /> {sending ? 'Enviando...' : 'Enviar'}</button></div>
+                        <div className="flex flex-col gap-2 border-t border-zinc-200 pt-2 lg:flex-row lg:items-center lg:justify-between">
+                          <div className="flex min-w-0 flex-1 flex-col gap-2 xl:flex-row xl:items-center">
+                            <p className="px-2 text-[10px] font-bold leading-relaxed text-zinc-400">Janela de 24h: fora dela, a Meta pode exigir template aprovado.</p>
+                            <WhatsappCommerceActions slug={slug} conversationId={selectedId} leadId={pipelineLeadId(selectedConversation)} onRefresh={() => loadData(selectedId)} onStatus={setStatusMessage} />
+                          </div>
+                          <button className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50" type="submit" disabled={sending || !messageText.trim()}><Send size={16} /> {sending ? 'Enviando...' : 'Enviar'}</button>
+                        </div>
                       </div>
                     </form>
                   </>
