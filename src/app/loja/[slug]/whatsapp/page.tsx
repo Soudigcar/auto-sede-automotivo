@@ -10,6 +10,8 @@ import {
   CalendarDays,
   Car,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   CircleAlert,
   ClipboardList,
   Filter,
@@ -24,7 +26,8 @@ import {
   Send,
   Store,
   UserCircle2,
-  UsersRound
+  UsersRound,
+  X
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
@@ -122,6 +125,8 @@ export default function StoreWhatsappPage() {
   const [stageUpdating, setStageUpdating] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filter, setFilter] = useState<'all' | 'unread' | 'leads' | 'priority'>('all');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   async function getAuthToken() {
     const { data } = await supabase.auth.getSession();
@@ -170,6 +175,7 @@ export default function StoreWhatsappPage() {
 
   async function selectConversation(conversationId: string) {
     setSelectedId(conversationId);
+    setDetailsOpen(false);
     await loadData(conversationId);
   }
 
@@ -290,25 +296,40 @@ export default function StoreWhatsappPage() {
   return (
     <main className="premium-page">
       <section className="premium-shell flex min-h-screen">
-        <aside className="hidden w-72 shrink-0 bg-[#071020] px-6 py-7 text-white lg:block">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-red-600/15 text-red-500"><Car size={22} /></div>
-            <div><p className="text-sm font-black tracking-wide">AUTO CONTROLE</p><p className="text-[10px] uppercase tracking-[0.35em] text-zinc-500">Automotivo</p></div>
+        <aside className={`hidden shrink-0 bg-[#071020] py-7 text-white transition-all duration-200 lg:block ${sidebarCollapsed ? 'w-[76px] px-3' : 'w-72 px-6'}`}>
+          <div className="flex items-center justify-between gap-2">
+            <div className={`flex min-w-0 items-center gap-3 ${sidebarCollapsed ? 'justify-center' : ''}`}>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-red-600/15 text-red-500"><Car size={22} /></div>
+              {!sidebarCollapsed ? <div className="min-w-0"><p className="truncate text-sm font-black tracking-wide">AUTO CONTROLE</p><p className="text-[10px] uppercase tracking-[0.35em] text-zinc-500">Automotivo</p></div> : null}
+            </div>
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed((current) => !current)}
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-zinc-400 transition hover:bg-white/10 hover:text-white ${sidebarCollapsed ? 'absolute left-[58px] z-10' : ''}`}
+              aria-label={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
+              title={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
+            >
+              {sidebarCollapsed ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}
+            </button>
           </div>
-          <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">Área operacional</p>
-            <p className="mt-2 font-bold">{store?.store_name || 'Loja'}</p>
-            <span className="mt-2 inline-flex rounded-lg bg-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-300">Store</span>
-          </div>
-          <nav className="mt-7 space-y-2 text-sm">
-            <Link href={`/loja/${slug}`} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white"><Store size={18} /> Início</Link>
-            <Link href={`/loja/${slug}/minha-loja`} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white"><Store size={18} /> Minha Loja</Link>
-            <Link href={`/loja/${slug}/pipeline`} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white"><BarChart3 size={18} /> Pipeline</Link>
-            <Link href={`/loja/${slug}/whatsapp`} className="flex items-center gap-3 rounded-2xl bg-red-600 px-4 py-3.5 font-bold shadow-lg shadow-red-600/20"><MessageCircle size={18} /> WhatsApp CRM</Link>
-            <Link href={`/loja/${slug}/calendario`} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white"><CalendarDays size={18} /> Calendário</Link>
-            <Link href={`/loja/${slug}/estoque`} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white"><Package size={18} /> Estoque</Link>
-            <Link href={`/loja/${slug}/operacao`} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white"><ClipboardList size={18} /> Operação</Link>
-            <Link href="/logout" className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white"><LogOut size={18} /> Sair</Link>
+
+          {!sidebarCollapsed ? (
+            <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">Área operacional</p>
+              <p className="mt-2 font-bold">{store?.store_name || 'Loja'}</p>
+              <span className="mt-2 inline-flex rounded-lg bg-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-300">Store</span>
+            </div>
+          ) : null}
+
+          <nav className={`${sidebarCollapsed ? 'mt-8' : 'mt-7'} space-y-2 text-sm`}>
+            <Link href={`/loja/${slug}`} title="Início" className={`flex items-center rounded-2xl py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white ${sidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-4'}`}><Store size={18} />{!sidebarCollapsed ? <span>Início</span> : null}</Link>
+            <Link href={`/loja/${slug}/minha-loja`} title="Minha Loja" className={`flex items-center rounded-2xl py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white ${sidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-4'}`}><Store size={18} />{!sidebarCollapsed ? <span>Minha Loja</span> : null}</Link>
+            <Link href={`/loja/${slug}/pipeline`} title="Pipeline" className={`flex items-center rounded-2xl py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white ${sidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-4'}`}><BarChart3 size={18} />{!sidebarCollapsed ? <span>Pipeline</span> : null}</Link>
+            <Link href={`/loja/${slug}/whatsapp`} title="WhatsApp CRM" className={`flex items-center rounded-2xl bg-red-600 py-3.5 font-bold shadow-lg shadow-red-600/20 ${sidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-4'}`}><MessageCircle size={18} />{!sidebarCollapsed ? <span>WhatsApp CRM</span> : null}</Link>
+            <Link href={`/loja/${slug}/calendario`} title="Calendário" className={`flex items-center rounded-2xl py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white ${sidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-4'}`}><CalendarDays size={18} />{!sidebarCollapsed ? <span>Calendário</span> : null}</Link>
+            <Link href={`/loja/${slug}/estoque`} title="Estoque" className={`flex items-center rounded-2xl py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white ${sidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-4'}`}><Package size={18} />{!sidebarCollapsed ? <span>Estoque</span> : null}</Link>
+            <Link href={`/loja/${slug}/operacao`} title="Operação" className={`flex items-center rounded-2xl py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white ${sidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-4'}`}><ClipboardList size={18} />{!sidebarCollapsed ? <span>Operação</span> : null}</Link>
+            <Link href="/logout" title="Sair" className={`flex items-center rounded-2xl py-3.5 text-zinc-400 hover:bg-white/5 hover:text-white ${sidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-4'}`}><LogOut size={18} />{!sidebarCollapsed ? <span>Sair</span> : null}</Link>
           </nav>
         </aside>
 
@@ -332,7 +353,7 @@ export default function StoreWhatsappPage() {
           {statusMessage ? <div className="mt-3 flex items-center gap-2 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-black text-red-700"><CircleAlert size={17} className="shrink-0" /><span>{statusMessage}</span></div> : null}
 
           <section className="mt-3 overflow-hidden rounded-[26px] border border-zinc-200 bg-white shadow-sm">
-            <div className="grid min-h-[720px] xl:h-[calc(100vh-210px)] xl:min-h-[680px] xl:grid-cols-[360px_minmax(500px,1fr)_330px] 2xl:grid-cols-[390px_minmax(560px,1fr)_350px]">
+            <div className={`grid min-h-[720px] xl:h-[calc(100vh-210px)] xl:min-h-[680px] ${detailsOpen ? 'xl:grid-cols-[360px_minmax(500px,1fr)_330px] 2xl:grid-cols-[390px_minmax(560px,1fr)_350px]' : 'xl:grid-cols-[360px_minmax(620px,1fr)] 2xl:grid-cols-[390px_minmax(760px,1fr)]'}`}>
               <aside className="flex min-h-0 flex-col border-r border-zinc-200 bg-white">
                 <div className="border-b border-zinc-200 p-4">
                   <div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[0.15em] text-zinc-400">Fila de atendimento</p><h2 className="mt-1 text-lg font-black text-zinc-950">Conversas</h2></div><span className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-black text-zinc-600">{filteredConversations.length}</span></div>
@@ -376,30 +397,38 @@ export default function StoreWhatsappPage() {
                 {selectedConversation ? (
                   <>
                     <div className="border-b border-zinc-200 bg-white px-4 py-3">
-                      <div className="flex flex-col gap-3">
+                      <div className="flex flex-col gap-2.5">
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                          <div className="flex min-w-0 items-center gap-3">
-                            <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-sm font-black text-zinc-700">{initials(conversationName(selectedConversation))}<span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" /></div>
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2"><h2 className="truncate text-lg font-black text-zinc-950">{conversationName(selectedConversation)}</h2>{selectedConversation.lead_id || selectedConversation.base_lead_id ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead</span> : null}</div>
+                          <button
+                            type="button"
+                            onClick={() => setDetailsOpen((current) => !current)}
+                            className="group flex min-w-0 items-center gap-3 rounded-xl text-left outline-none transition hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-red-100"
+                            aria-expanded={detailsOpen}
+                            title={detailsOpen ? 'Fechar detalhes do lead' : 'Abrir detalhes do lead'}
+                          >
+                            <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-sm font-black text-zinc-700 transition group-hover:bg-red-50 group-hover:text-red-600">{initials(conversationName(selectedConversation))}<span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" /></div>
+                            <div className="min-w-0 pr-2">
+                              <div className="flex flex-wrap items-center gap-2"><h2 className="truncate text-lg font-black text-zinc-950 group-hover:text-red-600">{conversationName(selectedConversation)}</h2>{selectedConversation.lead_id || selectedConversation.base_lead_id ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead</span> : null}</div>
                               <p className="mt-0.5 text-xs font-bold text-zinc-500">{formatPhone(conversationPhone(selectedConversation))}</p>
                               <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold text-zinc-400"><span>{selectedConversation.lead?.origin || selectedConversation.base_lead?.source || 'WhatsApp'}</span><span>•</span><span>{store?.store_name || 'Loja'}</span><span>•</span><span>{pipelineLeadId(selectedConversation) ? leadStatusLabel(pipelineStageValue(selectedConversation)) : 'Sem etapa na Pipeline'}</span></div>
                             </div>
-                          </div>
-                          <span className="inline-flex w-fit items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2.5 text-[10px] font-black uppercase text-emerald-700"><MessageCircle size={14} /> WhatsApp conectado</span>
+                          </button>
+                          <span className="inline-flex w-fit shrink-0 items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2.5 text-[10px] font-black uppercase text-emerald-700"><MessageCircle size={14} /> WhatsApp conectado</span>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3">
-                          <button className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-[10px] font-black uppercase text-zinc-600 transition hover:border-red-200 hover:text-red-600" type="button" onClick={markSelectedAsRead} title="Marcar como lida"><CheckCircle2 size={14} /> Marcar como lida</button>
-                          <label className="relative inline-flex min-w-[230px] items-center rounded-xl border border-zinc-200 bg-white">
+                        <div className="flex items-center gap-2 overflow-x-auto border-t border-zinc-100 pt-2.5">
+                          <button className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 text-[10px] font-black uppercase text-zinc-600 transition hover:border-red-200 hover:text-red-600" type="button" onClick={markSelectedAsRead} title="Marcar como lida"><CheckCircle2 size={13} /> Marcar como lida</button>
+
+                          <label className="relative inline-flex h-9 w-[235px] shrink-0 items-center rounded-lg border border-zinc-200 bg-white">
                             <span className="pointer-events-none absolute left-3 text-[9px] font-black uppercase tracking-wide text-zinc-400">Etapa</span>
-                            <select className="h-10 w-full appearance-none rounded-xl bg-transparent pl-14 pr-8 text-[10px] font-black uppercase text-zinc-700 outline-none transition focus:ring-2 focus:ring-red-100 disabled:cursor-not-allowed disabled:opacity-50" value={pipelineStageValue(selectedConversation)} onChange={(event) => void changePipelineStage(event.target.value)} disabled={stageUpdating || !pipelineLeadId(selectedConversation)} aria-label="Alterar etapa da Pipeline">
+                            <select className="h-full w-full appearance-none rounded-lg bg-transparent pl-14 pr-8 text-[10px] font-black uppercase text-zinc-700 outline-none transition focus:ring-2 focus:ring-red-100 disabled:cursor-not-allowed disabled:opacity-50" value={pipelineStageValue(selectedConversation)} onChange={(event) => void changePipelineStage(event.target.value)} disabled={stageUpdating || !pipelineLeadId(selectedConversation)} aria-label="Alterar etapa da Pipeline">
                               {!pipelineStageValue(selectedConversation) ? <option value="">Sem etapa</option> : null}
                               {pipelineStages.map((stage) => <option key={stage.key} value={stage.key}>{stage.label}{stage.secureFlow ? ' • fluxo seguro' : ''}</option>)}
                             </select>
                             <ArrowDownUp className="pointer-events-none absolute right-3 text-zinc-400" size={13} />
                           </label>
-                          <Link href={`/loja/${slug}/pipeline`} className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-[10px] font-black uppercase text-zinc-600 transition hover:border-red-200 hover:text-red-600"><ArrowUpRight size={14} /> Abrir Pipeline</Link>
+
+                          <Link href={`/loja/${slug}/pipeline`} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 text-[10px] font-black uppercase text-zinc-600 transition hover:border-red-200 hover:text-red-600"><ArrowUpRight size={13} /> Abrir Pipeline</Link>
                         </div>
                       </div>
                     </div>
@@ -423,14 +452,23 @@ export default function StoreWhatsappPage() {
                 ) : <div className="flex flex-1 flex-col items-center justify-center p-8 text-center"><UserCircle2 size={54} className="text-zinc-300" /><h2 className="mt-4 text-2xl font-black text-zinc-950">Selecione uma conversa</h2><p className="mt-2 max-w-md text-sm font-bold text-zinc-500">Assim que uma mensagem chegar, a conversa e todo o contexto comercial aparecerão aqui.</p></div>}
               </section>
 
-              <aside className="min-h-0 overflow-auto border-l border-zinc-200 bg-[#fafafa] p-3.5">
-                {selectedConversation ? <div className="space-y-3">
-                  <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm"><div className="flex items-center gap-3"><div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-red-50 text-sm font-black text-red-600">{initials(selectedName)}<span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" /></div><div className="min-w-0 flex-1"><p className="text-[10px] font-black uppercase tracking-[0.12em] text-zinc-400">Detalhes do contato</p><h3 className="mt-1 truncate text-base font-black text-zinc-950">{selectedName}</h3><p className="mt-1 text-xs font-bold text-zinc-500">{formatPhone(selectedPhone)}</p></div></div><div className="mt-3 flex flex-wrap gap-2"><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-black uppercase text-emerald-700">WhatsApp</span>{selectedConversation.lead_id || selectedConversation.base_lead_id ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead vinculado</span> : null}</div></section>
-                  <DetailCard title="Contato e canal"><DetailRow label="Telefone" value={formatPhone(selectedPhone)} icon={<Phone size={14} />} /><DetailRow label="Número central" value={selectedConversation.number?.phone_number || selectedConversation.number?.label || 'WhatsApp Oficial'} icon={<MessageCircle size={14} />} /><DetailRow label="Loja" value={store?.store_name || 'Loja vinculada'} icon={<Store size={14} />} /></DetailCard>
-                  <DetailCard title="Lead e distribuição"><DetailRow label="Estágio atual" value={leadStatusLabel(selectedConversation.lead?.status || selectedConversation.base_lead?.status)} /><DetailRow label="Carro de interesse" value={selectedConversation.lead?.interested_vehicle || 'Não informado'} /><DetailRow label="Origem" value={selectedConversation.lead?.origin || selectedConversation.base_lead?.source || 'WhatsApp Oficial'} /><DetailRow label="Campanha" value={selectedConversation.base_lead?.campaign_name || selectedConversation.number?.label || 'WhatsApp Oficial'} /><DetailRow label="Última mensagem" value={formatDateTime(selectedConversation.last_message_at)} /></DetailCard>
-                  <DetailCard title="Ações rápidas"><div className="grid gap-2"><Link href={`/loja/${slug}/pipeline`} className="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700">Abrir Pipeline <ArrowUpRight size={15} /></Link><Link href={`/loja/${slug}/calendario`} className="flex items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-xs font-black text-zinc-700 transition hover:border-red-200 hover:text-red-600">Ver calendário <CalendarDays size={15} /></Link></div></DetailCard>
-                </div> : <div className="flex h-full flex-col items-center justify-center p-8 text-center text-sm font-bold text-zinc-500"><UserCircle2 size={48} className="mb-3 text-zinc-300" />Selecione uma conversa para ver os detalhes do contato e do lead.</div>}
-              </aside>
+              {detailsOpen ? (
+                <aside className="min-h-0 overflow-auto border-l border-zinc-200 bg-[#fafafa] p-3.5">
+                  {selectedConversation ? <div className="space-y-3">
+                    <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                      <div className="flex items-start gap-3">
+                        <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-red-50 text-sm font-black text-red-600">{initials(selectedName)}<span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" /></div>
+                        <div className="min-w-0 flex-1"><p className="text-[10px] font-black uppercase tracking-[0.12em] text-zinc-400">Detalhes do contato</p><h3 className="mt-1 truncate text-base font-black text-zinc-950">{selectedName}</h3><p className="mt-1 text-xs font-bold text-zinc-500">{formatPhone(selectedPhone)}</p></div>
+                        <button type="button" onClick={() => setDetailsOpen(false)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-400 transition hover:bg-zinc-50 hover:text-zinc-700" aria-label="Fechar detalhes do lead" title="Fechar detalhes"><X size={15} /></button>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2"><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-black uppercase text-emerald-700">WhatsApp</span>{selectedConversation.lead_id || selectedConversation.base_lead_id ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead vinculado</span> : null}</div>
+                    </section>
+                    <DetailCard title="Contato e canal"><DetailRow label="Telefone" value={formatPhone(selectedPhone)} icon={<Phone size={14} />} /><DetailRow label="Número central" value={selectedConversation.number?.phone_number || selectedConversation.number?.label || 'WhatsApp Oficial'} icon={<MessageCircle size={14} />} /><DetailRow label="Loja" value={store?.store_name || 'Loja vinculada'} icon={<Store size={14} />} /></DetailCard>
+                    <DetailCard title="Lead e distribuição"><DetailRow label="Estágio atual" value={leadStatusLabel(selectedConversation.lead?.status || selectedConversation.base_lead?.status)} /><DetailRow label="Carro de interesse" value={selectedConversation.lead?.interested_vehicle || 'Não informado'} /><DetailRow label="Origem" value={selectedConversation.lead?.origin || selectedConversation.base_lead?.source || 'WhatsApp Oficial'} /><DetailRow label="Campanha" value={selectedConversation.base_lead?.campaign_name || selectedConversation.number?.label || 'WhatsApp Oficial'} /><DetailRow label="Última mensagem" value={formatDateTime(selectedConversation.last_message_at)} /></DetailCard>
+                    <DetailCard title="Ações rápidas"><div className="grid gap-2"><Link href={`/loja/${slug}/pipeline`} className="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700">Abrir Pipeline <ArrowUpRight size={15} /></Link><Link href={`/loja/${slug}/calendario`} className="flex items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-xs font-black text-zinc-700 transition hover:border-red-200 hover:text-red-600">Ver calendário <CalendarDays size={15} /></Link></div></DetailCard>
+                  </div> : null}
+                </aside>
+              ) : null}
             </div>
           </section>
         </div>
