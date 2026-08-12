@@ -236,7 +236,7 @@ async function findOrCreateLead(supabase: any, integration: any, contactName: st
         customer_bank: '',
         interested_vehicle: '',
         vehicle_category_interest: '',
-        origin: 'WhatsApp Evolution',
+        origin: 'WhatsApp Oficial',
         assigned_store_id: integration.store_id,
         status: 'new_lead',
         notes: firstMessage
