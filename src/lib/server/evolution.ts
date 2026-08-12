@@ -248,3 +248,26 @@ export function sendEvolutionText(instanceName: string, number: string, text: st
     }
   });
 }
+
+export async function getEvolutionProfilePictureUrl(instanceName: string, number: string) {
+  const normalizedNumber = String(number || '')
+    .split('@')[0]
+    .split(':')[0]
+    .replace(/\D/g, '');
+
+  if (!instanceName || normalizedNumber.length < 8) return null;
+
+  const result = await evolutionRequest(`/chat/fetchProfilePictureUrl/${encodeURIComponent(instanceName)}`, {
+    method: 'POST',
+    body: { number: normalizedNumber }
+  });
+
+  const candidate =
+    result?.profilePictureUrl ||
+    result?.profilePicUrl ||
+    result?.pictureUrl ||
+    result?.url ||
+    null;
+
+  return candidate ? String(candidate).trim() || null : null;
+}
