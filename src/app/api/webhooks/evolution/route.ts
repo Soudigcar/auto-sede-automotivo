@@ -3,6 +3,7 @@ import {
   evolutionWebhookSignatureHeader,
   verifyEvolutionWebhookSignature
 } from '@/lib/server/evolution';
+import { evolutionMessageContent, evolutionMessageType } from '@/lib/server/evolutionMessage';
 import { cleanText, createAdminClient } from '@/lib/server/storeTeam';
 
 export const runtime = 'nodejs';
@@ -38,40 +39,6 @@ function messageDate(value: unknown) {
 
   if (!Number.isFinite(seconds) || seconds <= 0) return new Date().toISOString();
   return new Date(seconds > 10_000_000_000 ? seconds : seconds * 1_000).toISOString();
-}
-
-function messageContent(data: any) {
-  const message = data?.message || {};
-  const text =
-    message.conversation ||
-    message.extendedTextMessage?.text ||
-    message.imageMessage?.caption ||
-    message.videoMessage?.caption ||
-    message.documentMessage?.caption ||
-    '';
-
-  if (text) return cleanText(text, 20_000);
-  if (message.imageMessage) return '[Imagem]';
-  if (message.videoMessage) return '[Vídeo]';
-  if (message.audioMessage) return '[Áudio]';
-  if (message.documentMessage) return cleanText(message.documentMessage?.fileName, 500) || '[Documento]';
-  if (message.stickerMessage) return '[Figurinha]';
-  if (message.contactMessage || message.contactsArrayMessage) return '[Contato]';
-  if (message.locationMessage || message.liveLocationMessage) return '[Localização]';
-  return `[Mensagem ${cleanText(data?.messageType, 80) || 'não textual'}]`;
-}
-
-function messageType(data: any) {
-  const type = cleanText(data?.messageType, 100).replace(/Message$/, '').toLowerCase();
-  if (!type || type === 'conversation' || type === 'extendedtext') return 'text';
-  if (type.includes('image')) return 'image';
-  if (type.includes('video')) return 'video';
-  if (type.includes('audio')) return 'audio';
-  if (type.includes('document')) return 'document';
-  if (type.includes('sticker')) return 'sticker';
-  if (type.includes('location')) return 'location';
-  if (type.includes('contact')) return 'contacts';
-  return type.slice(0, 80);
 }
 
 async function ensureCrmNumber(supabase: any, integration: any) {
@@ -332,7 +299,7 @@ async function processMessage(supabase: any, integration: any, data: any) {
   if (duplicate) return { skipped: true, reason: 'Mensagem já registrada.' };
 
   const fromMe = key.fromMe === true;
-  const body = messageContent(data);
+  const body = evolutionMessageContent(data);
   const sentAt = messageDate(data?.messageTimestamp);
   const profileName = fromMe ? phone : cleanText(data?.pushName, 180) || phone;
   const number = await ensureCrmNumber(supabase, integration);
@@ -411,7 +378,7 @@ async function processMessage(supabase: any, integration: any, data: any) {
       base_lead_id: baseLeadId,
       wa_message_id: messageId,
       direction: fromMe ? 'outbound' : 'inbound',
-      message_type: messageType(data),
+      message_type: evolutionMessageType(data),
       body,
       status: fromMe ? 'sent' : 'received',
       raw_payload: data,
