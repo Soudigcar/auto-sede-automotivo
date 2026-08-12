@@ -105,7 +105,7 @@ function listLabels(listMessage: any) {
   );
 }
 
-function responseFromJson(value: unknown) {
+function responseFromJson(value: unknown): string {
   const parsed = parseJsonRecord(value);
   if (!parsed) return '';
 
