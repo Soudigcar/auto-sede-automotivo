@@ -1,7 +1,20 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Building2, CalendarRange, Car, Mail, Phone, Search, Trash2, UserCheck } from 'lucide-react';
+import {
+  Building2,
+  CalendarRange,
+  Car,
+  FileSpreadsheet,
+  LayoutGrid,
+  List,
+  Mail,
+  MapPin,
+  Phone,
+  Search,
+  Trash2,
+  UserCheck
+} from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { EventScopeSelect, eventScopeLabel } from '@/components/EventScopeSelect';
 import { createClient } from '@/lib/supabase';
@@ -17,23 +30,43 @@ const statuses = [
   'Perdido'
 ];
 
+type ViewMode = 'cards' | 'list';
+
 function money(value: number) {
   return `R$ ${Number(value || 0).toLocaleString('pt-BR')}`;
 }
 
 function formatCpf(value?: string) {
   if (!value) return '-';
-  const digits = value.replace(/\D/g, '');
+  const digits = String(value).replace(/\D/g, '');
   if (digits.length === 11) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
   return value;
 }
 
+function birthDateValue(lead: any) {
+  return String(lead?._birth_date || lead?.metadata?.birth_date || '').slice(0, 10);
+}
+
 function formatBirthDate(value?: unknown) {
   if (typeof value !== 'string') return '-';
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.slice(0, 10));
   if (!match) return '-';
   const [, year, month, day] = match;
   return `${day}/${month}/${year}`;
+}
+
+function leadCity(lead: any) {
+  return String(
+    lead?.metadata?.city
+      || lead?.metadata?.cidade
+      || lead?.metadata?.address?.city
+      || lead?.metadata?.raw_meta_lead?.city
+      || ''
+  ).trim();
+}
+
+function leadCpf(lead: any) {
+  return String(lead?.cpf || lead?._commercial_cpf || '').trim();
 }
 
 function assignedStoreName(lead: any) {
@@ -43,6 +76,21 @@ function assignedStoreName(lead: any) {
 function eventPeriod(event: any) {
   const date = (value?: string) => value ? new Date(`${value}T12:00:00`).toLocaleDateString('pt-BR') : '';
   return [date(event?.start_date), date(event?.end_date)].filter(Boolean).join(' a ');
+}
+
+function sourceBucket(lead: any) {
+  const source = String(lead?.source || '').toLowerCase();
+  const metadata = lead?.metadata || {};
+  const text = [source, metadata?.source, metadata?.channel, metadata?.page].filter(Boolean).join(' ').toLowerCase();
+
+  if (text.includes('instagram')) return 'Instagram';
+  if (text.includes('facebook') || text.includes('meta lead')) return 'Facebook';
+  if (text.includes('whatsapp') || text.includes('wati') || text.includes('evolution') || text.includes('umbler')) return 'WhatsApp';
+  if (text.includes('simulador') || text.includes('simulation') || text.includes('landing page')) return 'Simulador';
+  if (text.includes('marketplace') || text.includes('portal')) return 'Portal';
+  if (text.includes('manual')) return 'Manual';
+  if (text.includes('form') || metadata?.meta_form_id || metadata?.form_mapping_name) return 'Formulário';
+  return 'Outros';
 }
 
 export default function MasterBasePage() {
@@ -56,26 +104,40 @@ export default function MasterBasePage() {
   const [status, setStatus] = useState('all');
   const [source, setSource] = useState('all');
   const [storeFilter, setStoreFilter] = useState('all');
+  const [birthDateFilter, setBirthDateFilter] = useState('');
+  const [cityFilter, setCityFilter] = useState('all');
+  const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [message, setMessage] = useState('Carregando base...');
   const [busyLeadId, setBusyLeadId] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   async function loadLeads() {
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token || '';
 
-    const [leadResult, directStoreResult, eventResult, participationResult] = await Promise.all([
+    const [leadResult, commercialResult, directStoreResult, eventResult, participationResult] = await Promise.all([
       supabase.from('leads_base').select('*').order('created_at', { ascending: false }),
+      supabase.from('lead_commercial_details').select('lead_id,birth_date,cpf'),
       supabase.from('stores').select('id,store_name,status,portal_enabled,slug').order('store_name', { ascending: true }),
       supabase.from('events').select('id,event_name,status,start_date,end_date,state,city,location,created_at').neq('status', 'deleted').order('start_date', { ascending: false, nullsFirst: false }),
       supabase.from('store_event_participations').select('event_id,store_id,status')
     ]);
 
     const { data: leadRows, error: leadError } = leadResult;
-
     if (leadError || eventResult.error || participationResult.error) {
       setMessage('Não foi possível carregar a Base por evento. Atualize a página e tente novamente.');
       return;
     }
+
+    const commercialMap = new Map((commercialResult.data || []).map((item: any) => [String(item.lead_id), item]));
+    const enrichedLeads = (leadRows || []).map((lead: any) => {
+      const commercial = lead.routed_lead_id ? commercialMap.get(String(lead.routed_lead_id)) : null;
+      return {
+        ...lead,
+        _birth_date: commercial?.birth_date || lead.metadata?.birth_date || null,
+        _commercial_cpf: commercial?.cpf || null
+      };
+    });
 
     let storeRows = (directStoreResult.data || []).filter((store: any) => {
       const storeStatus = String(store.status || '').toLowerCase();
@@ -94,7 +156,7 @@ export default function MasterBasePage() {
       }
     }
 
-    setLeads(leadRows || []);
+    setLeads(enrichedLeads);
     setStores(storeRows || []);
     setEvents(eventResult.data || []);
     setParticipations(participationResult.data || []);
@@ -108,48 +170,64 @@ export default function MasterBasePage() {
   const eventMap = useMemo(() => new Map(events.map((event) => [event.id, event])), [events]);
   const activeEventIds = useMemo(() => new Set(events.filter((event) => event.status === 'active').map((event) => event.id)), [events]);
 
-  const eventScopedLeads = useMemo(() => {
-    return leads.filter((lead) => {
-      if (eventFilter === 'all') return true;
-      if (eventFilter === 'active') return Boolean(lead.event_id && activeEventIds.has(lead.event_id));
-      if (eventFilter === 'unassigned') return !lead.event_id;
-      return lead.event_id === eventFilter;
-    });
-  }, [activeEventIds, eventFilter, leads]);
+  const eventScopedLeads = useMemo(() => leads.filter((lead) => {
+    if (eventFilter === 'all') return true;
+    if (eventFilter === 'active') return Boolean(lead.event_id && activeEventIds.has(lead.event_id));
+    if (eventFilter === 'unassigned') return !lead.event_id;
+    return lead.event_id === eventFilter;
+  }), [activeEventIds, eventFilter, leads]);
 
-  const sources = useMemo(() => {
-    return Array.from(new Set(eventScopedLeads.map((lead) => lead.source).filter(Boolean))).sort();
-  }, [eventScopedLeads]);
-
-  const assignedStores = useMemo(() => {
-    return Array.from(new Set(eventScopedLeads.map((lead) => assignedStoreName(lead)).filter(Boolean))).sort();
-  }, [eventScopedLeads]);
+  const sources = useMemo(() => Array.from(new Set(eventScopedLeads.map((lead) => lead.source).filter(Boolean))).sort(), [eventScopedLeads]);
+  const assignedStores = useMemo(() => Array.from(new Set(eventScopedLeads.map((lead) => assignedStoreName(lead)).filter(Boolean))).sort(), [eventScopedLeads]);
+  const cities = useMemo(() => Array.from(new Set(eventScopedLeads.map((lead) => leadCity(lead)).filter(Boolean))).sort(), [eventScopedLeads]);
 
   const filtered = useMemo(() => {
     const term = query.toLowerCase().trim();
-
     return eventScopedLeads.filter((lead) => {
       if (status !== 'all' && lead.status !== status) return false;
       if (source !== 'all' && lead.source !== source) return false;
       if (storeFilter !== 'all' && assignedStoreName(lead) !== storeFilter) return false;
+      if (cityFilter !== 'all' && leadCity(lead) !== cityFilter) return false;
+      if (birthDateFilter && birthDateValue(lead) !== birthDateFilter) return false;
       if (!term) return true;
 
       const eventName = lead.event_id ? eventMap.get(lead.event_id)?.event_name : 'Sem evento';
       return [
-        lead.name, lead.phone, lead.cpf, lead.email, lead.campaign_name,
-        lead.vehicle_name, lead.source, assignedStoreName(lead), eventName
+        lead.id,
+        lead.name,
+        lead.phone,
+        leadCpf(lead),
+        lead.email,
+        lead.campaign_name,
+        lead.vehicle_name,
+        lead.source,
+        assignedStoreName(lead),
+        eventName,
+        leadCity(lead),
+        birthDateValue(lead)
       ].some((value) => String(value || '').toLowerCase().includes(term));
     });
-  }, [eventMap, eventScopedLeads, query, source, status, storeFilter]);
+  }, [birthDateFilter, cityFilter, eventMap, eventScopedLeads, query, source, status, storeFilter]);
 
   const summary = useMemo(() => ({
-    total: eventScopedLeads.length,
-    novos: eventScopedLeads.filter((lead) => lead.status === 'Novo lead').length,
-    atendimento: eventScopedLeads.filter((lead) => lead.status === 'Em atendimento').length,
-    aprovados: eventScopedLeads.filter((lead) => lead.status === 'Aprovado').length,
-    vendidos: eventScopedLeads.filter((lead) => lead.status === 'Venda concluída').length,
-    perdidos: eventScopedLeads.filter((lead) => lead.status === 'Perdido').length
-  }), [eventScopedLeads]);
+    total: filtered.length,
+    novos: filtered.filter((lead) => lead.status === 'Novo lead').length,
+    atendimento: filtered.filter((lead) => lead.status === 'Em atendimento').length,
+    aprovados: filtered.filter((lead) => lead.status === 'Aprovado').length,
+    vendidos: filtered.filter((lead) => lead.status === 'Venda concluída').length,
+    perdidos: filtered.filter((lead) => lead.status === 'Perdido').length
+  }), [filtered]);
+
+  const sourceSummary = useMemo(() => ({
+    formulario: filtered.filter((lead) => sourceBucket(lead) === 'Formulário').length,
+    whatsapp: filtered.filter((lead) => sourceBucket(lead) === 'WhatsApp').length,
+    simulador: filtered.filter((lead) => sourceBucket(lead) === 'Simulador').length,
+    portal: filtered.filter((lead) => sourceBucket(lead) === 'Portal').length,
+    facebook: filtered.filter((lead) => sourceBucket(lead) === 'Facebook').length,
+    instagram: filtered.filter((lead) => sourceBucket(lead) === 'Instagram').length,
+    manual: filtered.filter((lead) => sourceBucket(lead) === 'Manual').length,
+    cpf: filtered.filter((lead) => Boolean(leadCpf(lead))).length
+  }), [filtered]);
 
   const selectedEvent = events.find((event) => event.id === eventFilter) || null;
   const historicalScope = Boolean(selectedEvent && selectedEvent.status !== 'active');
@@ -157,13 +235,11 @@ export default function MasterBasePage() {
 
   function storesForLead(lead: any) {
     if (!lead.event_id) return stores;
-
     const allowedIds = new Set(
       participations
         .filter((item) => item.event_id === lead.event_id && ['active', 'inactive'].includes(item.status))
         .map((item) => item.store_id)
     );
-
     if (lead.assigned_store_id) allowedIds.add(lead.assigned_store_id);
     return stores.filter((store) => allowedIds.has(store.id));
   }
@@ -174,32 +250,18 @@ export default function MasterBasePage() {
   }
 
   async function updateLeadStatus(id: string, nextStatus: string) {
-    const { error } = await supabase
-      .from('leads_base')
-      .update({ status: nextStatus, updated_at: new Date().toISOString() })
-      .eq('id', id);
-
-    if (error) {
-      setMessage('Erro ao atualizar status.');
-      return;
-    }
-
+    const { error } = await supabase.from('leads_base').update({ status: nextStatus, updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) return setMessage('Erro ao atualizar status.');
     await loadLeads();
   }
 
   async function reassignLeadToStore(lead: any, storeId: string) {
     if (!storeId || storeId === lead.assigned_store_id) return;
-
     const selectedStore = stores.find((store) => store.id === storeId);
-    const confirmation = window.confirm(`Redirecionar este lead para ${selectedStore?.store_name || 'a loja selecionada'}?`);
-    if (!confirmation) return;
+    if (!window.confirm(`Redirecionar este lead para ${selectedStore?.store_name || 'a loja selecionada'}?`)) return;
 
     const token = await getAuthToken();
-    if (!token) {
-      setMessage('Sessão expirada. Faça login novamente.');
-      return;
-    }
-
+    if (!token) return setMessage('Sessão expirada. Faça login novamente.');
     setBusyLeadId(lead.id);
     setMessage('Redirecionando lead para outra loja...');
 
@@ -211,26 +273,19 @@ export default function MasterBasePage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Não foi possível redirecionar o lead.');
-
       setMessage(`Lead redirecionado para ${result.assigned_store_name}.`);
       await loadLeads();
     } catch (error: any) {
       setMessage(error?.message || 'Erro ao redirecionar lead.');
+    } finally {
+      setBusyLeadId('');
     }
-
-    setBusyLeadId('');
   }
 
   async function deleteLead(lead: any) {
-    const confirmation = window.prompt(`Excluir o lead de ${lead.name}? Digite EXCLUIR para confirmar.`);
-    if (confirmation !== 'EXCLUIR') return;
-
+    if (window.prompt(`Excluir o lead de ${lead.name}? Digite EXCLUIR para confirmar.`) !== 'EXCLUIR') return;
     const token = await getAuthToken();
-    if (!token) {
-      setMessage('Sessão expirada. Faça login novamente.');
-      return;
-    }
-
+    if (!token) return setMessage('Sessão expirada. Faça login novamente.');
     setBusyLeadId(lead.id);
     setMessage('Excluindo lead...');
 
@@ -242,19 +297,61 @@ export default function MasterBasePage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Não foi possível excluir o lead.');
-
       setMessage('Lead excluído com sucesso.');
       await loadLeads();
     } catch (error: any) {
       setMessage(error?.message || 'Erro ao excluir lead.');
+    } finally {
+      setBusyLeadId('');
     }
-
-    setBusyLeadId('');
   }
 
   function changeEventScope(value: string) {
     setEventFilter(value);
     setStoreFilter('all');
+  }
+
+  async function exportExcel() {
+    if (!filtered.length) return setMessage('Não há leads no filtro atual para exportar.');
+    setExporting(true);
+    try {
+      const XLSX = await import('xlsx');
+      const rows = filtered.map((lead) => ({
+        'ID do lead': lead.id,
+        Nome: lead.name || '',
+        Telefone: lead.phone || '',
+        CPF: leadCpf(lead),
+        'Data de nascimento': formatBirthDate(birthDateValue(lead)),
+        Cidade: leadCity(lead),
+        Email: lead.email || '',
+        Origem: lead.source || '',
+        'Categoria de origem': sourceBucket(lead),
+        Campanha: lead.campaign_name || '',
+        Evento: lead.event_id ? eventMap.get(lead.event_id)?.event_name || '' : '',
+        Loja: assignedStoreName(lead),
+        Status: lead.status || '',
+        Veículo: lead.vehicle_name || '',
+        'Valor do veículo': Number(lead.vehicle_price || 0),
+        Entrada: Number(lead.down_payment || 0),
+        Parcelas: lead.installments || '',
+        'Parcela estimada': Number(lead.estimated_installment || 0),
+        'Criado em': lead.created_at ? new Date(lead.created_at).toLocaleString('pt-BR') : '',
+        'Atualizado em': lead.updated_at ? new Date(lead.updated_at).toLocaleString('pt-BR') : ''
+      }));
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      worksheet['!cols'] = [
+        { wch: 38 }, { wch: 28 }, { wch: 18 }, { wch: 16 }, { wch: 18 }, { wch: 22 }, { wch: 30 },
+        { wch: 24 }, { wch: 20 }, { wch: 28 }, { wch: 26 }, { wch: 26 }, { wch: 20 }, { wch: 32 },
+        { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 18 }, { wch: 20 }, { wch: 20 }
+      ];
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Leads');
+      XLSX.writeFile(workbook, `base-leads-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (error: any) {
+      setMessage(error?.message || 'Não foi possível exportar o Excel.');
+    } finally {
+      setExporting(false);
+    }
   }
 
   return (
@@ -266,14 +363,10 @@ export default function MasterBasePage() {
           <header>
             <p className="premium-eyebrow">Central comercial</p>
             <h1 className="premium-title mt-2 text-4xl md:text-5xl">Base de Leads</h1>
-            <p className="premium-muted mt-3 max-w-3xl text-sm">
-              Todos os leads permanecem nesta base geral, com visão consolidada ou separada por evento, origem e loja.
-            </p>
+            <p className="premium-muted mt-3 max-w-3xl text-sm">Todos os leads permanecem nesta base geral, com visão consolidada ou separada por evento, origem e loja.</p>
           </header>
 
-          {message ? (
-            <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800">{message}</div>
-          ) : null}
+          {message ? <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800">{message}</div> : null}
 
           <div className={`mt-5 rounded-3xl border p-4 ${historicalScope ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-blue-200 bg-blue-50 text-blue-900'}`}>
             <div className="flex items-start gap-3">
@@ -287,34 +380,52 @@ export default function MasterBasePage() {
           </div>
 
           <section className="premium-card mt-3 p-3 md:p-4">
-            <div className="grid gap-2 lg:grid-cols-2 2xl:grid-cols-[minmax(260px,1.45fr)_minmax(180px,1fr)_minmax(150px,0.75fr)_minmax(150px,0.75fr)_minmax(180px,0.9fr)]">
-              <label className="relative min-w-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
-                <input className="premium-input min-h-10 py-2 pl-9 text-sm" placeholder="Buscar nome, telefone, CPF, evento, campanha, veículo ou loja" value={query} onChange={(event) => setQuery(event.target.value)} />
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="relative min-w-[240px] flex-1 xl:max-w-[360px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={15} />
+                <input className="premium-input h-9 min-h-9 py-1.5 pl-9 text-xs" placeholder="Buscar nome, telefone, CPF, cidade, veículo..." value={query} onChange={(event) => setQuery(event.target.value)} />
               </label>
 
-              <div className="min-w-0 [&_select]:min-h-10 [&_select]:py-2 [&_select]:text-sm">
+              <div className="w-[175px] [&_select]:h-9 [&_select]:min-h-9 [&_select]:py-1.5 [&_select]:text-xs">
                 <EventScopeSelect events={events} value={eventFilter} onChange={changeEventScope} allLabel="Todos os leads" />
               </div>
 
-              <select className="premium-input min-h-10 py-2 text-sm" value={status} onChange={(event) => setStatus(event.target.value)}>
+              <select className="premium-input h-9 min-h-9 w-[150px] py-1.5 text-xs" value={status} onChange={(event) => setStatus(event.target.value)}>
                 <option value="all">Todos os status</option>
                 {statuses.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
 
-              <select className="premium-input min-h-10 py-2 text-sm" value={source} onChange={(event) => setSource(event.target.value)}>
+              <select className="premium-input h-9 min-h-9 w-[150px] py-1.5 text-xs" value={source} onChange={(event) => setSource(event.target.value)}>
                 <option value="all">Todas as origens</option>
                 {sources.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
 
-              <select className="premium-input min-h-10 py-2 text-sm" value={storeFilter} onChange={(event) => setStoreFilter(event.target.value)}>
-                <option value="all">Todas as lojas do escopo</option>
+              <select className="premium-input h-9 min-h-9 w-[175px] py-1.5 text-xs" value={storeFilter} onChange={(event) => setStoreFilter(event.target.value)}>
+                <option value="all">Todas as lojas</option>
                 {assignedStores.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
+
+              <input type="date" title="Filtrar por data de nascimento" aria-label="Filtrar por data de nascimento" className="premium-input h-9 min-h-9 w-[150px] py-1.5 text-xs" value={birthDateFilter} onChange={(event) => setBirthDateFilter(event.target.value)} />
+
+              <select className="premium-input h-9 min-h-9 w-[150px] py-1.5 text-xs" value={cityFilter} onChange={(event) => setCityFilter(event.target.value)}>
+                <option value="all">Todas as cidades</option>
+                {cities.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 pt-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.12em] text-zinc-400">{filtered.length} lead(s) no filtro atual</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex rounded-xl border border-zinc-200 bg-zinc-50 p-1">
+                  <button type="button" onClick={() => setViewMode('cards')} className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[10px] font-black uppercase ${viewMode === 'cards' ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500'}`}><LayoutGrid size={13} /> Cards</button>
+                  <button type="button" onClick={() => setViewMode('list')} className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[10px] font-black uppercase ${viewMode === 'list' ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500'}`}><List size={13} /> Listagem</button>
+                </div>
+                <button type="button" onClick={() => void exportExcel()} disabled={exporting || !filtered.length} className="inline-flex h-10 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-[10px] font-black uppercase text-white transition hover:bg-emerald-700 disabled:opacity-50"><FileSpreadsheet size={15} /> {exporting ? 'Exportando...' : 'Exportar Excel'}</button>
+              </div>
             </div>
           </section>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <Mini label="Total" value={summary.total} />
             <Mini label="Novos" value={summary.novos} />
             <Mini label="Em atendimento" value={summary.atendimento} />
@@ -323,61 +434,92 @@ export default function MasterBasePage() {
             <Mini label="Perdidos" value={summary.perdidos} />
           </div>
 
-          <section className="mt-5 space-y-4">
-            {filtered.map((lead) => {
-              const storeName = assignedStoreName(lead);
-              const leadEvent = lead.event_id ? eventMap.get(lead.event_id) : null;
-              const eligibleStores = storesForLead(lead);
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-8">
+            <SourceMini label="Formulário" value={sourceSummary.formulario} />
+            <SourceMini label="WhatsApp" value={sourceSummary.whatsapp} />
+            <SourceMini label="Simulador" value={sourceSummary.simulador} />
+            <SourceMini label="Portal" value={sourceSummary.portal} />
+            <SourceMini label="Facebook" value={sourceSummary.facebook} />
+            <SourceMini label="Instagram" value={sourceSummary.instagram} />
+            <SourceMini label="Manual" value={sourceSummary.manual} />
+            <SourceMini label="Leads com CPF" value={sourceSummary.cpf} />
+          </div>
 
-              return (
-                <div key={lead.id} className="premium-card overflow-hidden p-5">
+          {viewMode === 'list' ? (
+            <section className="premium-card mt-5 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="min-w-[1450px] w-full border-collapse text-left text-xs">
+                  <thead className="bg-zinc-50 text-[10px] font-black uppercase tracking-wide text-zinc-500">
+                    <tr>
+                      <th className="px-3 py-3">ID do lead</th><th className="px-3 py-3">Nome</th><th className="px-3 py-3">Telefone</th><th className="px-3 py-3">CPF</th><th className="px-3 py-3">Nascimento</th><th className="px-3 py-3">Cidade</th><th className="px-3 py-3">Origem</th><th className="px-3 py-3">Campanha</th><th className="px-3 py-3">Loja</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Veículo</th><th className="px-3 py-3">Criado em</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((lead) => <tr key={lead.id} className="border-t border-zinc-100 bg-white align-top hover:bg-zinc-50/70">
+                      <td className="max-w-[250px] break-all px-3 py-3 font-mono text-[10px] text-zinc-500">{lead.id}</td>
+                      <td className="px-3 py-3 font-black text-zinc-900">{lead.name || '-'}</td>
+                      <td className="px-3 py-3 font-bold text-zinc-600">{lead.phone || '-'}</td>
+                      <td className="px-3 py-3 font-bold text-zinc-600">{formatCpf(leadCpf(lead))}</td>
+                      <td className="px-3 py-3 font-bold text-zinc-600">{formatBirthDate(birthDateValue(lead))}</td>
+                      <td className="px-3 py-3 font-bold text-zinc-600">{leadCity(lead) || '-'}</td>
+                      <td className="px-3 py-3"><span className="rounded-full bg-zinc-100 px-2 py-1 text-[9px] font-black text-zinc-600">{lead.source || '-'}</span></td>
+                      <td className="px-3 py-3 font-bold text-zinc-600">{lead.campaign_name || '-'}</td>
+                      <td className="px-3 py-3 font-bold text-zinc-600">{assignedStoreName(lead) || '-'}</td>
+                      <td className="px-3 py-3"><span className="rounded-full bg-red-50 px-2 py-1 text-[9px] font-black text-red-600">{lead.status || '-'}</span></td>
+                      <td className="px-3 py-3 font-bold text-zinc-600">{lead.vehicle_name || '-'}</td>
+                      <td className="px-3 py-3 font-bold text-zinc-500">{lead.created_at ? new Date(lead.created_at).toLocaleString('pt-BR') : '-'}</td>
+                    </tr>)}
+                  </tbody>
+                </table>
+              </div>
+              {!filtered.length && !message ? <div className="p-8 text-center text-sm font-bold text-zinc-500">Nenhum lead encontrado neste escopo.</div> : null}
+            </section>
+          ) : (
+            <section className="mt-5 space-y-4">
+              {filtered.map((lead) => {
+                const storeName = assignedStoreName(lead);
+                const leadEvent = lead.event_id ? eventMap.get(lead.event_id) : null;
+                const eligibleStores = storesForLead(lead);
+
+                return <div key={lead.id} className="premium-card overflow-hidden p-5">
                   <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="max-w-full break-words text-lg font-black text-zinc-950">{lead.name}</h2>
                         <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-black text-red-600">{lead.status}</span>
                         <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-bold text-zinc-500">{lead.source}</span>
-                        <span className={`rounded-full px-3 py-1 text-xs font-black ${leadEvent ? 'bg-indigo-50 text-indigo-700' : 'bg-amber-50 text-amber-700'}`}>
-                          Evento: {leadEvent?.event_name || 'Sem evento / campanha geral'}
-                        </span>
-                        {storeName ? (
-                          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">Enviado para: {storeName}</span>
-                        ) : (
-                          <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">Sem loja atribuída</span>
-                        )}
+                        <span className={`rounded-full px-3 py-1 text-xs font-black ${leadEvent ? 'bg-indigo-50 text-indigo-700' : 'bg-amber-50 text-amber-700'}`}>Evento: {leadEvent?.event_name || 'Sem evento / campanha geral'}</span>
+                        {storeName ? <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">Enviado para: {storeName}</span> : <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">Sem loja atribuída</span>}
                       </div>
 
                       <div className="mt-4 grid gap-3 text-sm text-zinc-600 md:grid-cols-2 xl:grid-cols-3">
                         <ContactItem icon={<Phone size={15} />} value={lead.phone || '-'} />
                         <ContactItem icon={<Mail size={15} />} value={lead.email || '-'} />
-                        <ContactItem icon={<UserCheck size={15} />} value={`CPF: ${formatCpf(lead.cpf)}`} />
+                        <ContactItem icon={<UserCheck size={15} />} value={`CPF: ${formatCpf(leadCpf(lead))}`} />
                         <ContactItem icon={<Car size={15} />} value={lead.vehicle_name || '-'} />
                         <ContactItem icon={<Building2 size={15} />} value={storeName || 'Não enviado'} />
+                        <ContactItem icon={<MapPin size={15} />} value={leadCity(lead) || 'Cidade não informada'} />
                       </div>
 
                       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        <Info label="ID do lead" value={lead.id} />
                         <Info label="Evento" value={leadEvent?.event_name || 'Sem evento / campanha geral'} />
                         <Info label="Campanha" value={lead.campaign_name || '-'} />
-                        <Info label="CPF completo" value={formatCpf(lead.cpf)} />
-                        <Info label="Data de nascimento" value={formatBirthDate(lead.metadata?.birth_date)} />
+                        <Info label="CPF completo" value={formatCpf(leadCpf(lead))} />
+                        <Info label="Data de nascimento" value={formatBirthDate(birthDateValue(lead))} />
+                        <Info label="Cidade" value={leadCity(lead) || '-'} />
                         <Info label="Loja enviada" value={storeName || 'Não enviado'} />
                         <Info label="Valor veículo" value={money(lead.vehicle_price)} />
                         <Info label="Entrada" value={money(lead.down_payment)} />
                         <Info label="Parcela estimada" value={`${lead.installments || '-'}x de ${money(lead.estimated_installment)}`} />
                       </div>
 
-                      {lead.assigned_at ? (
-                        <p className="mt-4 text-xs font-bold text-zinc-400">
-                          Distribuído automaticamente em {new Date(lead.assigned_at).toLocaleString('pt-BR')} via {lead.routing_strategy || 'round_robin'}.
-                        </p>
-                      ) : null}
+                      {lead.assigned_at ? <p className="mt-4 text-xs font-bold text-zinc-400">Distribuído automaticamente em {new Date(lead.assigned_at).toLocaleString('pt-BR')} via {lead.routing_strategy || 'round_robin'}.</p> : null}
                     </div>
 
                     <div className="rounded-3xl border border-zinc-100 bg-zinc-50 p-4">
                       <label className="text-xs font-black uppercase tracking-wide text-zinc-400">Status do lead</label>
-                      <select className="premium-input mt-1 bg-white" value={lead.status} disabled={busyLeadId === lead.id} onChange={(event) => updateLeadStatus(lead.id, event.target.value)}>
-                        {statuses.map((item) => <option key={item} value={item}>{item}</option>)}
-                      </select>
+                      <select className="premium-input mt-1 bg-white" value={lead.status} disabled={busyLeadId === lead.id} onChange={(event) => updateLeadStatus(lead.id, event.target.value)}>{statuses.map((item) => <option key={item} value={item}>{item}</option>)}</select>
 
                       <label className="mt-4 block text-xs font-black uppercase tracking-wide text-zinc-400">Redirecionar para loja</label>
                       <select className="premium-input mt-1 bg-white" value={lead.assigned_store_id || ''} disabled={busyLeadId === lead.id} onChange={(event) => reassignLeadToStore(lead, event.target.value)}>
@@ -386,21 +528,16 @@ export default function MasterBasePage() {
                       </select>
                       {lead.event_id ? <p className="mt-2 text-xs font-bold text-zinc-400">Somente lojas participantes deste evento podem receber o lead.</p> : null}
 
-                      <button className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-white px-4 py-3 text-sm font-black text-red-600 transition hover:bg-red-50" type="button" disabled={busyLeadId === lead.id} onClick={() => deleteLead(lead)}>
-                        <Trash2 size={16} /> Excluir lead
-                      </button>
-
+                      <button className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-white px-4 py-3 text-sm font-black text-red-600 transition hover:bg-red-50" type="button" disabled={busyLeadId === lead.id} onClick={() => deleteLead(lead)}><Trash2 size={16} /> Excluir lead</button>
                       <p className="mt-3 text-xs font-bold text-zinc-400">Criado em {new Date(lead.created_at).toLocaleString('pt-BR')}</p>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                </div>;
+              })}
 
-            {!filtered.length && !message ? (
-              <div className="premium-card p-8 text-center text-sm font-bold text-zinc-500">Nenhum lead encontrado neste escopo.</div>
-            ) : null}
-          </section>
+              {!filtered.length && !message ? <div className="premium-card p-8 text-center text-sm font-bold text-zinc-500">Nenhum lead encontrado neste escopo.</div> : null}
+            </section>
+          )}
         </div>
       </section>
     </main>
@@ -408,28 +545,17 @@ export default function MasterBasePage() {
 }
 
 function Mini({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="premium-card p-4">
-      <p className="text-xs font-black uppercase tracking-wide text-zinc-400">{label}</p>
-      <strong className="mt-1 block text-2xl font-black text-zinc-950">{value}</strong>
-    </div>
-  );
+  return <div className="premium-card p-3.5"><p className="text-[10px] font-black uppercase tracking-wide text-zinc-400">{label}</p><strong className="mt-1 block text-2xl font-black text-zinc-950">{value}</strong></div>;
+}
+
+function SourceMini({ label, value }: { label: string; value: number }) {
+  return <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 shadow-sm"><p className="text-[9px] font-black uppercase tracking-wide text-zinc-400">{label}</p><strong className="mt-0.5 block text-lg font-black text-zinc-900">{value}</strong></div>;
 }
 
 function ContactItem({ icon, value }: { icon: React.ReactNode; value: string }) {
-  return (
-    <span className="flex min-w-0 items-start gap-2 rounded-2xl bg-zinc-50 p-3 font-bold">
-      <span className="mt-0.5 shrink-0 text-zinc-400">{icon}</span>
-      <span className="min-w-0 break-words">{value}</span>
-    </span>
-  );
+  return <span className="flex min-w-0 items-start gap-2 rounded-2xl bg-zinc-50 p-3 font-bold"><span className="mt-0.5 shrink-0 text-zinc-400">{icon}</span><span className="min-w-0 break-words">{value}</span></span>;
 }
 
 function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0 rounded-2xl border border-zinc-100 bg-zinc-50 p-3">
-      <p className="text-xs font-black uppercase tracking-wide text-zinc-400">{label}</p>
-      <strong className="mt-1 block break-words text-sm text-zinc-800">{value}</strong>
-    </div>
-  );
+  return <div className="min-w-0 rounded-2xl border border-zinc-100 bg-zinc-50 p-3"><p className="text-xs font-black uppercase tracking-wide text-zinc-400">{label}</p><strong className="mt-1 block break-words text-sm text-zinc-800">{value}</strong></div>;
 }
