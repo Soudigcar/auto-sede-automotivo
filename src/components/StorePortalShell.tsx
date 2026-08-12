@@ -7,6 +7,8 @@ import {
   BarChart3,
   CalendarDays,
   Car,
+  ChevronLeft,
+  ChevronRight,
   ClipboardList,
   LayoutDashboard,
   LogOut,
@@ -90,10 +92,11 @@ function currentSegment(pathname: string, slug: string) {
   return rest.split('/')[0] || '';
 }
 
-function desktopMenuClass(active: boolean) {
+function desktopMenuClass(active: boolean, collapsed = false) {
+  const alignment = collapsed ? 'justify-center px-0' : 'gap-3 px-4';
   return active
-    ? 'flex w-full items-center gap-3 rounded-2xl bg-red-600 px-4 py-4 text-left font-bold text-white shadow-lg shadow-red-600/20'
-    : 'flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left font-bold text-zinc-400 transition hover:bg-white/5 hover:text-white';
+    ? `flex w-full items-center ${alignment} rounded-2xl py-4 text-left font-bold text-white bg-red-600 shadow-lg shadow-red-600/20`
+    : `flex w-full items-center ${alignment} rounded-2xl py-4 text-left font-bold text-zinc-400 transition hover:bg-white/5 hover:text-white`;
 }
 
 function mobileMenuClass(active: boolean, dark: boolean) {
@@ -118,6 +121,7 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState('Validando acesso ao Portal da Loja...');
   const [theme, setTheme] = useState<StorePortalTheme>('light');
   const [themeReady, setThemeReady] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -196,39 +200,51 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
     <PortalContext.Provider value={portalValue}>
       <main className={`premium-page store-portal-theme store-theme-${theme}`}>
         <section className="premium-shell flex min-h-screen items-stretch">
-          <aside className="hidden w-72 shrink-0 bg-[#071020] px-6 py-7 text-white lg:sticky lg:top-6 lg:flex lg:h-[calc(100vh-48px)] lg:self-start lg:flex-col lg:overflow-y-auto">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-red-600/15 text-red-500"><Car size={22} /></div>
-              <div><p className="text-sm font-black tracking-wide">AUTO CONTROLE</p><p className="text-[10px] uppercase tracking-[0.35em] text-zinc-500">Automotivo</p></div>
-            </div>
+          <div className={`relative hidden shrink-0 transition-[width] duration-200 lg:block ${sidebarCollapsed ? 'w-[76px]' : 'w-72'}`}>
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed((current) => !current)}
+              className="absolute -right-4 top-5 z-[120] flex h-10 w-10 items-center justify-center rounded-full border-2 border-white bg-red-600 text-white shadow-xl shadow-black/30 transition hover:scale-105 hover:bg-red-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-200"
+              aria-label={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
+              title={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
+            >
+              {sidebarCollapsed ? <ChevronRight size={19} strokeWidth={3} /> : <ChevronLeft size={19} strokeWidth={3} />}
+            </button>
 
-            <div className="mt-9 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-600/20 text-sm font-black text-red-400">{initials(context.profile.full_name)}</div>
-                <div className="min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500">Logado como</p>
-                  <p className="mt-1 truncate text-sm font-black text-white">{context.profile.full_name}</p>
-                  <p className="mt-0.5 truncate text-[11px] font-bold text-red-400">{context.profile.role_label}</p>
+            <aside className={`sticky top-6 flex h-[calc(100vh-48px)] w-full self-start flex-col overflow-y-auto bg-[#071020] py-7 text-white transition-[padding] duration-200 ${sidebarCollapsed ? 'px-3' : 'px-6'}`}>
+              <div className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'gap-3'}`}>
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-red-600/15 text-red-500"><Car size={22} /></div>
+                {!sidebarCollapsed ? <div><p className="text-sm font-black tracking-wide">AUTO CONTROLE</p><p className="text-[10px] uppercase tracking-[0.35em] text-zinc-500">Automotivo</p></div> : null}
+              </div>
+
+              <div className={`mt-9 rounded-2xl border border-white/10 bg-white/[0.04] ${sidebarCollapsed ? 'p-2' : 'p-4'}`} title={sidebarCollapsed ? `${context.profile.full_name} · ${context.store.store_name}` : undefined}>
+                <div className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'gap-3'}`}>
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-600/20 text-sm font-black text-red-400">{initials(context.profile.full_name)}</div>
+                  {!sidebarCollapsed ? <div className="min-w-0">
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500">Logado como</p>
+                    <p className="mt-1 truncate text-sm font-black text-white">{context.profile.full_name}</p>
+                    <p className="mt-0.5 truncate text-[11px] font-bold text-red-400">{context.profile.role_label}</p>
+                  </div> : null}
                 </div>
+                {!sidebarCollapsed ? <div className="mt-3 border-t border-white/10 pt-3">
+                  <p className="text-[9px] font-black uppercase tracking-[0.18em] text-zinc-600">Loja vinculada</p>
+                  <p className="mt-1 truncate text-xs font-bold text-zinc-300">{context.store.store_name}</p>
+                </div> : null}
               </div>
-              <div className="mt-3 border-t border-white/10 pt-3">
-                <p className="text-[9px] font-black uppercase tracking-[0.18em] text-zinc-600">Loja vinculada</p>
-                <p className="mt-1 truncate text-xs font-bold text-zinc-300">{context.store.store_name}</p>
+
+              <nav className="mt-7 space-y-2 text-sm">
+                {context.menu.map((item) => {
+                  const Icon = menuIcons[item.key] || LayoutDashboard;
+                  return <Link key={item.key} href={item.href} title={sidebarCollapsed ? item.label : undefined} aria-label={sidebarCollapsed ? item.label : undefined} className={desktopMenuClass(segment === item.segment, sidebarCollapsed)}><Icon size={18} /> {!sidebarCollapsed ? item.label : null}</Link>;
+                })}
+              </nav>
+
+              <div className="mt-auto space-y-1 pt-7">
+                <button type="button" onClick={toggleTheme} title={sidebarCollapsed ? themeLabel : undefined} className={desktopMenuClass(false, sidebarCollapsed)} aria-label={themeLabel}><ThemeIcon size={18} /> {!sidebarCollapsed ? themeLabel : null}</button>
+                <Link href="/logout" title={sidebarCollapsed ? 'Sair' : undefined} aria-label={sidebarCollapsed ? 'Sair' : undefined} className={desktopMenuClass(false, sidebarCollapsed)}><LogOut size={18} /> {!sidebarCollapsed ? 'Sair' : null}</Link>
               </div>
-            </div>
-
-            <nav className="mt-7 space-y-2 text-sm">
-              {context.menu.map((item) => {
-                const Icon = menuIcons[item.key] || LayoutDashboard;
-                return <Link key={item.key} href={item.href} className={desktopMenuClass(segment === item.segment)}><Icon size={18} /> {item.label}</Link>;
-              })}
-            </nav>
-
-            <div className="mt-auto space-y-1 pt-7">
-              <button type="button" onClick={toggleTheme} className={desktopMenuClass(false)} aria-label={themeLabel}><ThemeIcon size={18} /> {themeLabel}</button>
-              <Link href="/logout" className={desktopMenuClass(false)}><LogOut size={18} /> Sair</Link>
-            </div>
-          </aside>
+            </aside>
+          </div>
 
           <div className="premium-canvas min-w-0 flex-1 overflow-x-clip">
             <header className={`store-mobile-header sticky top-0 z-40 px-4 py-3 backdrop-blur-lg lg:hidden ${dark ? 'border-b border-white/10 bg-[#0d1725]/95' : 'border-b border-zinc-200 bg-white/95'}`}>
@@ -273,6 +289,10 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
         }
 
         .store-portal-child > .premium-page > .premium-shell > aside {
+          display: none !important;
+        }
+
+        .store-portal-child [data-sidebar-toggle='true'] {
           display: none !important;
         }
 
