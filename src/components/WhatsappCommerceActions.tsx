@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRightLeft, CalendarDays, Camera, Car, Check, ChevronLeft, Clock3, Loader2, Search, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
@@ -54,6 +54,7 @@ export default function WhatsappCommerceActions({ slug, conversationId, leadId, 
   onStatus: (message: string) => void;
 }) {
   const supabase = createClient();
+  const actionBarRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<Mode>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
@@ -216,9 +217,17 @@ export default function WhatsappCommerceActions({ slug, conversationId, leadId, 
     setSelectedVehicle(null);
   }, [conversationId]);
 
+  useEffect(() => {
+    const warning = actionBarRef.current?.previousElementSibling as HTMLElement | null;
+    if (!warning || !warning.textContent?.includes('Janela de 24h')) return;
+    const previousDisplay = warning.style.display;
+    warning.style.display = 'none';
+    return () => { warning.style.display = previousDisplay; };
+  }, [conversationId]);
+
   return (
     <>
-      <div className="flex min-w-0 items-center gap-2 overflow-x-auto py-0.5">
+      <div ref={actionBarRef} className="flex min-w-0 items-center gap-2 overflow-x-auto py-0.5">
         <button type="button" onClick={() => void loadVehicles('stock')} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 text-[10px] font-black uppercase text-blue-700 transition hover:bg-blue-100"><Car size={14} /> Estoque</button>
         <button type="button" onClick={() => void loadVehicles('photos')} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 text-[10px] font-black uppercase text-violet-700 transition hover:bg-violet-100"><Camera size={14} /> Fotos do veículo</button>
         <button type="button" onClick={openSchedule} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 text-[10px] font-black uppercase text-amber-700 transition hover:bg-amber-100"><CalendarDays size={14} /> Agendar</button>
