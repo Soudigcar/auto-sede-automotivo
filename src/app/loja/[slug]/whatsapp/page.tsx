@@ -296,17 +296,19 @@ export default function StoreWhatsappPage() {
   return (
     <main className="premium-page">
       <section className="premium-shell flex min-h-screen">
-        <aside className={`relative hidden shrink-0 bg-[#071020] py-7 text-white transition-all duration-200 lg:block ${sidebarCollapsed ? 'w-[76px] px-3' : 'w-72 px-6'}`}>
-          <button
-            type="button"
-            onClick={() => setSidebarCollapsed((current) => !current)}
-            className="absolute right-2 top-5 z-[100] flex h-10 w-10 items-center justify-center rounded-xl border border-red-500/60 bg-red-600 text-white shadow-xl shadow-black/30 transition hover:bg-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
-            aria-label={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
-            title={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
-          >
-            {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
-          </button>
+        <button
+          type="button"
+          onClick={() => setSidebarCollapsed((current) => !current)}
+          className="fixed top-8 z-[300] hidden h-11 w-11 -translate-x-1/2 items-center justify-center rounded-full border-2 border-white bg-red-600 text-white shadow-2xl shadow-black/30 transition hover:scale-105 hover:bg-red-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-200 lg:flex"
+          style={{ left: sidebarCollapsed ? 76 : 288 }}
+          aria-label={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
+          title={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
+          data-sidebar-toggle="true"
+        >
+          {sidebarCollapsed ? <ChevronRight size={20} strokeWidth={3} /> : <ChevronLeft size={20} strokeWidth={3} />}
+        </button>
 
+        <aside className={`relative hidden shrink-0 bg-[#071020] py-7 text-white transition-all duration-200 lg:block ${sidebarCollapsed ? 'w-[76px] px-3' : 'w-72 px-6'}`}>
           <div className={`flex min-w-0 items-center gap-3 ${sidebarCollapsed ? 'justify-center' : ''}`}>
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-red-600/15 text-red-500"><Car size={22} /></div>
             {!sidebarCollapsed ? <div className="min-w-0 pr-12"><p className="truncate text-sm font-black tracking-wide">AUTO CONTROLE</p><p className="text-[10px] uppercase tracking-[0.35em] text-zinc-500">Automotivo</p></div> : null}
