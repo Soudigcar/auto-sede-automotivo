@@ -61,7 +61,14 @@ function ChangePasswordContent() {
 
     try {
       const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token || '';
+      const session = data.session;
+      const token = session?.access_token || '';
+      const email = session?.user.email?.trim() || '';
+
+      if (!token || !email) {
+        throw new Error('Sua sessão não pôde ser renovada. Entre novamente e repita a troca de senha.');
+      }
+
       const response = await fetch('/api/auth/change-password', {
         method: 'POST',
         headers: {
@@ -73,9 +80,19 @@ function ChangePasswordContent() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Não foi possível alterar a senha.');
 
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (signInError || !signInData.session) {
+        throw new Error('Senha alterada, mas não foi possível renovar sua sessão. Entre novamente com a nova senha.');
+      }
+
       setSuccess(true);
       setMessage('Senha alterada. Liberando seu acesso...');
-      window.setTimeout(() => router.replace(nextPath), 800);
+      router.replace(nextPath);
+      router.refresh();
     } catch (error: any) {
       setMessage(error?.message || 'Não foi possível alterar a senha.');
     } finally {
