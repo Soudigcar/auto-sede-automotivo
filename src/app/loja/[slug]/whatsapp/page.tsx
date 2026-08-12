@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { WhatsappMediaMessage } from '@/components/WhatsappMediaMessage';
+import { WhatsappComposer } from '@/components/WhatsappComposer';
 
 const pipelineStages = [
   { key: 'new_lead', label: 'Novo Lead Recebido', secureFlow: false },
@@ -449,15 +450,10 @@ export default function StoreWhatsappPage() {
                           </div>
                         );
                       })}
-                      {!messages.length ? <div className="flex h-full min-h-80 items-center justify-center p-8 text-center"><div><MessageCircle size={42} className="mx-auto text-zinc-300" /><p className="mt-3 text-sm font-black text-zinc-700">Nenhuma mensagem carregada</p><p className="mt-1 text-xs font-bold text-zinc-400">O histórico da conversa aparecerá aqui.</p></div></div> : null}
+                      {!messages.length ? <div className="flex h-full min-h-80 flex-col items-center justify-center p-8 text-center"><div><MessageCircle size={42} className="mx-auto text-zinc-300" /><p className="mt-3 text-sm font-black text-zinc-700">Nenhuma mensagem carregada</p><p className="mt-1 text-xs font-bold text-zinc-400">O histórico da conversa aparecerá aqui.</p></div></div> : null}
                     </div>
 
-                    <form onSubmit={sendMessage} className="shrink-0 border-t border-zinc-200 bg-white p-3.5">
-                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-2 transition focus-within:border-red-300 focus-within:bg-white">
-                        <textarea className="min-h-16 w-full resize-none bg-transparent px-2 py-2 text-sm font-semibold text-zinc-800 outline-none placeholder:text-zinc-400" placeholder="Digite sua mensagem..." value={messageText} onChange={(event) => setMessageText(event.target.value)} disabled={sending} />
-                        <div className="flex flex-col gap-2 border-t border-zinc-200 pt-2 sm:flex-row sm:items-center sm:justify-between"><p className="px-2 text-[10px] font-bold leading-relaxed text-zinc-400">Envio de texto ativo. Anexos serão habilitados na próxima etapa após validação deste Preview.</p><button className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50" type="submit" disabled={sending || !messageText.trim()}><Send size={16} /> {sending ? 'Enviando...' : 'Enviar'}</button></div>
-                      </div>
-                    </form>
+                    <WhatsappComposer conversationId={selectedId} onSent={() => loadData(selectedId)} setStatusMessage={setStatusMessage} />
                   </>
                 ) : <div className="flex flex-1 flex-col items-center justify-center p-8 text-center"><UserCircle2 size={54} className="text-zinc-300" /><h2 className="mt-4 text-2xl font-black text-zinc-950">Selecione uma conversa</h2><p className="mt-2 max-w-md text-sm font-bold text-zinc-500">Assim que uma mensagem chegar, a conversa e todo o contexto comercial aparecerão aqui.</p></div>}
               </section>
