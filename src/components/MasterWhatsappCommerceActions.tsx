@@ -46,9 +46,10 @@ function priceLabel(value?: number | null) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(value);
 }
 
-export default function MasterWhatsappCommerceActions({ conversationId, leadId, onRefresh, onStatus }: {
+export default function MasterWhatsappCommerceActions({ conversationId, leadId, baseLeadId, onRefresh, onStatus }: {
   conversationId: string;
   leadId: string;
+  baseLeadId: string;
   onRefresh: () => Promise<void> | void;
   onStatus: (message: string) => void;
 }) {
@@ -72,15 +73,23 @@ export default function MasterWhatsappCommerceActions({ conversationId, leadId, 
     return data.session?.access_token || '';
   }
 
+  function targetQuery() {
+    const query = new URLSearchParams();
+    if (leadId) query.set('lead_id', leadId);
+    else if (baseLeadId) query.set('base_lead_id', baseLeadId);
+    return query;
+  }
+
   async function loadVehicles(nextMode: 'stock' | 'photos') {
-    if (!leadId) return onStatus('Este contato ainda não possui lead vinculado.');
+    if (!leadId && !baseLeadId) return onStatus('Este contato ainda não possui lead vinculado.');
     setMode(nextMode);
     setSelectedVehicle(null);
     setSearch('');
     setLoading(true);
     try {
       const accessToken = await token();
-      const response = await fetch(`/api/master/whatsapp/portal-stock?lead_id=${encodeURIComponent(leadId)}`, {
+      const query = targetQuery();
+      const response = await fetch(`/api/master/whatsapp/portal-stock?${query.toString()}`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       const result = await response.json();
@@ -95,7 +104,7 @@ export default function MasterWhatsappCommerceActions({ conversationId, leadId, 
   }
 
   function openSchedule() {
-    if (!leadId) return onStatus('Este contato ainda não possui lead vinculado.');
+    if (!leadId && !baseLeadId) return onStatus('Este contato ainda não possui lead vinculado.');
     setMode('schedule');
     setScheduleType('');
     setDate('');
@@ -104,10 +113,16 @@ export default function MasterWhatsappCommerceActions({ conversationId, leadId, 
   }
 
   async function openTransfer() {
-    if (!leadId) return onStatus('Este contato ainda não possui lead vinculado.');
     setMode('transfer');
     setTeam([]);
     setTargetUserId('');
+
+    if (!leadId) {
+      setLoading(false);
+      onStatus('Este lead ainda está somente na Base Master. Direcione-o para uma loja antes de transferir para um colaborador.');
+      return;
+    }
+
     setLoading(true);
     try {
       const accessToken = await token();
@@ -150,7 +165,7 @@ export default function MasterWhatsappCommerceActions({ conversationId, leadId, 
   }
 
   async function setVehicleInterest(confirm: boolean) {
-    if (!selectedVehicle || !leadId) return;
+    if (!selectedVehicle || (!leadId && !baseLeadId)) return;
     if (!confirm) {
       setSelectedVehicle(null);
       onStatus('Veículo não vinculado. Você pode escolher outro veículo.');
@@ -163,7 +178,10 @@ export default function MasterWhatsappCommerceActions({ conversationId, leadId, 
       const response = await fetch('/api/master/whatsapp/portal-stock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ lead_id: leadId, vehicle_id: selectedVehicle.id })
+        body: JSON.stringify({
+          ...(leadId ? { lead_id: leadId } : { base_lead_id: baseLeadId }),
+          vehicle_id: selectedVehicle.id
+        })
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Não foi possível vincular o veículo do portal.');
@@ -205,14 +223,18 @@ export default function MasterWhatsappCommerceActions({ conversationId, leadId, 
   }
 
   async function createSchedule() {
-    if (!scheduleType || !date || !time || !leadId) return onStatus('Escolha o tipo, a data e o horário do agendamento.');
+    if (!scheduleType || !date || !time || (!leadId && !baseLeadId)) return onStatus('Escolha o tipo, a data e o horário do agendamento.');
     setSaving(true);
     try {
       const accessToken = await token();
-      const response = await fetch('/api/store/lead-task', {
+      const endpoint = leadId ? '/api/store/lead-task' : '/api/master/whatsapp/base-task';
+      const payload = leadId
+        ? { lead_id: leadId, task_type: scheduleType, date, time, description }
+        : { base_lead_id: baseLeadId, task_type: scheduleType, date, time, description };
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ lead_id: leadId, task_type: scheduleType, date, time, description })
+        body: JSON.stringify(payload)
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Não foi possível criar o agendamento.');
@@ -259,7 +281,13 @@ export default function MasterWhatsappCommerceActions({ conversationId, leadId, 
 
             {mode === 'transfer' ? (
               <div className="max-h-[70vh] overflow-auto p-5">
-                {loading ? <div className="flex min-h-52 items-center justify-center"><Loader2 className="animate-spin text-emerald-600" /></div> : <>
+                {!leadId ? (
+                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5 text-center">
+                    <ArrowRightLeft className="mx-auto text-emerald-600" size={28} />
+                    <p className="mt-3 text-sm font-black text-emerald-900">Lead ainda na Base Master</p>
+                    <p className="mt-2 text-xs font-bold leading-relaxed text-emerald-700">Primeiro direcione este lead para uma loja pela Base Master. Depois disso, este mesmo botão permitirá transferir o atendimento para um colaborador da equipe responsável.</p>
+                  </div>
+                ) : loading ? <div className="flex min-h-52 items-center justify-center"><Loader2 className="animate-spin text-emerald-600" /></div> : <>
                   <p className="mb-3 text-xs font-bold text-zinc-500">Selecione um colaborador ativo da loja responsável pelo lead.</p>
                   <div className="grid gap-2 sm:grid-cols-2">{team.map((member) => {
                     const current = member.id === currentResponsibleId;
