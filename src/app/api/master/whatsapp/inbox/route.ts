@@ -61,6 +61,34 @@ function buildMap(rows: any[]) {
   return Object.fromEntries((rows || []).map((row) => [row.id, row]));
 }
 
+function whatsappProvider(number: any) {
+  const configuredProvider = cleanText(number?.settings?.provider).toLowerCase();
+  if (configuredProvider === 'evolution') return 'evolution';
+
+  return cleanText(number?.phone_number_id).toLowerCase().startsWith('evolution:')
+    ? 'evolution'
+    : 'meta_cloud';
+}
+
+function publicWhatsappNumber(number: any, integration: any) {
+  const provider = whatsappProvider(number);
+
+  return {
+    id: number.id,
+    label: number.label,
+    phone_number: number.phone_number,
+    phone_number_id: number.phone_number_id,
+    status: number.status,
+    is_active: number.is_active,
+    store_id: number.store_id,
+    provider,
+    integration_status: provider === 'evolution' ? integration?.status || 'disconnected' : number.status,
+    instance_name: provider === 'evolution'
+      ? integration?.instance_name || cleanText(number?.settings?.instance_name) || null
+      : null
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const supabase = getAdminClient();
@@ -81,7 +109,7 @@ export async function GET(request: Request) {
 
     const { data: centralNumbers, error: numbersError } = await supabase
       .from('whatsapp_numbers')
-      .select('id, label, phone_number, phone_number_id, status, is_active, store_id')
+      .select('id, label, phone_number, phone_number_id, status, is_active, store_id, settings')
       .is('store_id', null)
       .neq('status', 'archived')
       .order('label', { ascending: true });
@@ -103,16 +131,34 @@ export async function GET(request: Request) {
       });
     }
 
-    const { data: conversations, error: conversationsError } = await supabase
-      .from('whatsapp_conversations')
-      .select('*')
-      .in('whatsapp_number_id', centralNumberIds)
-      .order('last_message_at', { ascending: false })
-      .limit(300);
+    const [conversationsResponse, integrationsResponse] = await Promise.all([
+      supabase
+        .from('whatsapp_conversations')
+        .select('*')
+        .in('whatsapp_number_id', centralNumberIds)
+        .order('last_message_at', { ascending: false })
+        .limit(300),
+      supabase
+        .from('store_whatsapp_integrations')
+        .select('crm_number_id, instance_name, status, scope')
+        .in('crm_number_id', centralNumberIds)
+    ]);
 
-    if (conversationsError) {
-      return NextResponse.json({ error: conversationsError.message }, { status: 400 });
+    const conversations = conversationsResponse.data;
+    const conversationsError = conversationsResponse.error;
+    const integrationsError = integrationsResponse.error;
+
+    const inboxLoadError = conversationsError || integrationsError;
+    if (inboxLoadError) {
+      return NextResponse.json({ error: inboxLoadError.message }, { status: 400 });
     }
+
+    const integrationsByNumberId = Object.fromEntries(
+      (integrationsResponse.data || []).map((integration: any) => [integration.crm_number_id, integration])
+    );
+    const publicCentralNumbers = (centralNumbers || []).map((number: any) =>
+      publicWhatsappNumber(number, integrationsByNumberId[number.id] || null)
+    );
 
     const contactIds = unique((conversations || []).map((item: any) => item.contact_id));
     const leadIds = unique((conversations || []).map((item: any) => item.lead_id));
@@ -137,7 +183,7 @@ export async function GET(request: Request) {
     }
 
     const contactsById = buildMap(contactsResponse.data || []);
-    const numbersById = buildMap(centralNumbers || []);
+    const numbersById = buildMap(publicCentralNumbers);
     const leadsById = buildMap(leadsResponse.data || []);
     const baseLeadsById = buildMap(baseLeadsResponse.data || []);
 
@@ -201,7 +247,7 @@ export async function GET(request: Request) {
       conversations: enrichedConversations,
       messages,
       selected_conversation_id: conversationId || null,
-      numbers: centralNumbers || [],
+      numbers: publicCentralNumbers,
       scope: 'central_master'
     });
   } catch (error: any) {

@@ -83,6 +83,15 @@ function pipelineHref(conversation: any) {
   return `/loja/${slug}/pipeline`;
 }
 
+function isEvolutionConversation(conversation: any) {
+  return conversation?.number?.provider === 'evolution';
+}
+
+function channelStatus(conversation: any) {
+  if (!isEvolutionConversation(conversation)) return 'Meta Cloud';
+  return conversation?.number?.integration_status === 'connected' ? 'Evolution conectada' : 'Evolution desconectada';
+}
+
 export default function MasterWhatsappInboxPage() {
   const supabase = createClient();
   const [conversations, setConversations] = useState<any[]>([]);
@@ -409,6 +418,9 @@ export default function MasterWhatsappInboxPage() {
                             Marcar como lida
                           </button>
                           <span className="rounded-2xl bg-emerald-50 px-4 py-3 text-xs font-black uppercase text-emerald-700">{selectedConversation.number?.label || 'WhatsApp Central'}</span>
+                          <span className={`flex items-center gap-2 rounded-2xl px-4 py-3 text-xs font-black uppercase ${isEvolutionConversation(selectedConversation) && selectedConversation.number?.integration_status === 'connected' ? 'bg-emerald-100 text-emerald-800' : 'bg-zinc-100 text-zinc-600'}`}>
+                            <CheckCircle2 size={15} /> {channelStatus(selectedConversation)}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -447,13 +459,21 @@ export default function MasterWhatsappInboxPage() {
                           disabled={sending}
                         />
 
-                        <button className="premium-button-primary justify-center md:w-44" type="submit" disabled={sending || !messageText.trim()}>
+                        <button
+                          className="premium-button-primary justify-center md:w-44"
+                          type="submit"
+                          disabled={sending || !messageText.trim() || (isEvolutionConversation(selectedConversation) && selectedConversation.number?.integration_status !== 'connected')}
+                        >
                           <Send size={18} /> {sending ? 'Enviando...' : 'Enviar'}
                         </button>
                       </div>
 
                       <p className="mt-3 text-xs font-bold text-zinc-400">
-                        Resposta livre depende da janela de atendimento da Meta. Fora da janela, pode exigir template aprovado.
+                        {isEvolutionConversation(selectedConversation)
+                          ? selectedConversation.number?.integration_status === 'connected'
+                            ? 'Resposta enviada pela Evolution API usando a conexão ativa da Master.'
+                            : 'A conexão Evolution está indisponível. Reconecte o número em Integrações para responder.'
+                          : 'Resposta livre depende da janela de atendimento da Meta. Fora da janela, pode exigir template aprovado.'}
                       </p>
                     </form>
                   </>
@@ -484,6 +504,7 @@ export default function MasterWhatsappInboxPage() {
                     <DetailCard title="Detalhes de contato">
                       <DetailRow label="Telefone" value={formatPhone(conversationPhone(selectedConversation))} />
                       <DetailRow label="Número central" value={selectedConversation.number?.label || 'WhatsApp Central'} />
+                      <DetailRow label="Canal" value={channelStatus(selectedConversation)} />
                       <DetailRow label="Última mensagem" value={formatFullDateTime(selectedConversation.last_message_at)} />
                     </DetailCard>
 
@@ -491,7 +512,7 @@ export default function MasterWhatsappInboxPage() {
                       <DetailRow label="Base Master" value={selectedConversation.base_lead?.id ? 'Registrado na Base' : 'Ainda não registrado'} />
                       <DetailRow label="Loja direcionada" value={assignedStoreName(selectedConversation)} />
                       <DetailRow label="Status" value={selectedConversation.lead?.status || selectedConversation.base_lead?.status || selectedConversation.status || 'Aberta'} />
-                      <DetailRow label="Origem" value={selectedConversation.lead?.origin || selectedConversation.base_lead?.source || 'WhatsApp Oficial'} />
+                      <DetailRow label="Origem" value={selectedConversation.lead?.origin || selectedConversation.base_lead?.source || (isEvolutionConversation(selectedConversation) ? 'WhatsApp Evolution' : 'WhatsApp Oficial')} />
                       <DetailRow label="Campanha" value={selectedConversation.base_lead?.campaign_name || selectedConversation.number?.label || 'WhatsApp Central'} />
                     </DetailCard>
 

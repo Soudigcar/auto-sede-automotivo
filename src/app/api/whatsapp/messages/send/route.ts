@@ -90,7 +90,7 @@ export async function POST(request: Request) {
 
     const { data: conversation, error: conversationError } = await supabase
       .from('whatsapp_conversations')
-      .select('*, whatsapp_contacts(*), whatsapp_numbers(*)')
+      .select('*')
       .eq('id', conversationId)
       .maybeSingle();
 
@@ -102,23 +102,45 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Conversa não encontrada ou sem permissão.' }, { status: 404 });
     }
 
-    const number = conversation.whatsapp_numbers;
-    const contact = conversation.whatsapp_contacts;
-    const provider = String(number?.settings?.provider || 'meta_cloud');
+    const [numberResponse, contactResponse, integrationResponse] = await Promise.all([
+      supabase
+        .from('whatsapp_numbers')
+        .select('*')
+        .eq('id', conversation.whatsapp_number_id)
+        .maybeSingle(),
+      supabase
+        .from('whatsapp_contacts')
+        .select('*')
+        .eq('id', conversation.contact_id)
+        .maybeSingle(),
+      supabase
+        .from('store_whatsapp_integrations')
+        .select('instance_name, status, scope')
+        .eq('crm_number_id', conversation.whatsapp_number_id)
+        .maybeSingle()
+    ]);
+
+    const relationError = numberResponse.error || contactResponse.error || integrationResponse.error;
+    if (relationError) {
+      return NextResponse.json({ error: relationError.message }, { status: 400 });
+    }
+
+    const number = numberResponse.data;
+    const contact = contactResponse.data;
+    const integration = integrationResponse.data;
+
+    if (!number || !contact) {
+      return NextResponse.json({ error: 'Número ou contato da conversa não foi encontrado.' }, { status: 404 });
+    }
+
+    const configuredProvider = String(number?.settings?.provider || '').trim().toLowerCase();
+    const provider = integration || configuredProvider === 'evolution' || String(number.phone_number_id || '').startsWith('evolution:')
+      ? 'evolution'
+      : 'meta_cloud';
     let result: any = null;
     let waMessageId: string | null = null;
 
     if (provider === 'evolution') {
-      const { data: integration, error: integrationError } = await supabase
-        .from('store_whatsapp_integrations')
-        .select('instance_name, status, scope')
-        .eq('crm_number_id', conversation.whatsapp_number_id)
-        .maybeSingle();
-
-      if (integrationError) {
-        return NextResponse.json({ error: integrationError.message }, { status: 400 });
-      }
-
       if (!integration || integration.status !== 'connected') {
         const owner = integration?.scope === 'master' ? 'central da Master' : 'da loja';
         return NextResponse.json({ error: `WhatsApp ${owner} está desconectado. Reconecte em Integrações.` }, { status: 409 });
@@ -206,6 +228,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       message: savedMessage,
+      provider,
       meta: result
     });
   } catch (error: any) {
