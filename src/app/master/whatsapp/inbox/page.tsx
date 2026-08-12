@@ -4,15 +4,21 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   CheckCircle2,
+  ChevronDown,
+  CircleAlert,
   Database,
   ExternalLink,
   Inbox,
   MessageCircle,
+  MessagesSquare,
   Phone,
   RefreshCw,
   Search,
   Send,
-  UserCircle2
+  ShieldCheck,
+  UserCircle2,
+  UsersRound,
+  Wifi
 } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { createClient } from '@/lib/supabase';
@@ -90,6 +96,10 @@ function isEvolutionConversation(conversation: any) {
 function channelStatus(conversation: any) {
   if (!isEvolutionConversation(conversation)) return 'Meta Cloud';
   return conversation?.number?.integration_status === 'connected' ? 'Evolution conectada' : 'Evolution desconectada';
+}
+
+function conversationOrigin(conversation: any) {
+  return conversation?.lead?.origin || conversation?.base_lead?.source || (isEvolutionConversation(conversation) ? 'WhatsApp Evolution' : 'WhatsApp Oficial');
 }
 
 export default function MasterWhatsappInboxPage() {
@@ -261,12 +271,20 @@ export default function MasterWhatsappInboxPage() {
 
   const stats = useMemo(() => {
     const unread = conversations.reduce((sum, item) => sum + Number(item.unread_count || 0), 0);
+    const unreadConversations = conversations.filter((item) => Number(item.unread_count || 0) > 0).length;
     const withLead = conversations.filter((item) => item.lead?.id || item.base_lead?.id).length;
+    const connectedChannels = new Set(
+      conversations
+        .filter((item) => !isEvolutionConversation(item) || item.number?.integration_status === 'connected')
+        .map((item) => item.number?.id || item.number?.label || item.number?.phone_number || 'central')
+    ).size;
 
     return {
       total: conversations.length,
       unread,
-      withLead
+      unreadConversations,
+      withLead,
+      connectedChannels
     };
   }, [conversations]);
 
@@ -275,114 +293,144 @@ export default function MasterWhatsappInboxPage() {
       <section className="premium-shell flex min-h-screen">
         <MasterSidebar active="Inbox WhatsApp" />
 
-        <div className="premium-canvas min-w-0 flex-1 p-4 md:p-7">
-          <header className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div>
-              <p className="premium-eyebrow">Caixa de Entrada Central</p>
-              <h1 className="premium-title mt-2 text-4xl md:text-5xl">Inbox WhatsApp</h1>
-              <p className="premium-muted mt-3 max-w-3xl text-sm">
-                Caixa de entrada do WhatsApp central do Master. As lojas atendem os próprios leads no Inbox da loja.
-              </p>
-            </div>
+        <div className="premium-canvas min-w-0 flex-1 p-3 md:p-5 xl:p-6">
+          <header className="rounded-[26px] border border-zinc-200 bg-white px-4 py-4 shadow-sm md:px-5">
+            <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-center 2xl:justify-between">
+              <div className="min-w-0">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+                    <MessageCircle size={23} />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="premium-eyebrow">Caixa de Entrada Central</p>
+                    <h1 className="mt-1 text-2xl font-black tracking-tight text-zinc-950 md:text-3xl">Inbox WhatsApp</h1>
+                    <p className="mt-1 text-xs font-bold text-zinc-500">Atendimento central do Master com contexto de lead e distribuição.</p>
+                  </div>
+                </div>
+              </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Link href="/master/integrations/whatsapp" className="premium-button-secondary">
-                <MessageCircle size={18} /> Gerenciar WhatsApp
-              </Link>
-              <button className="premium-button-secondary" type="button" onClick={() => loadData(selectedId)} disabled={loading}>
-                <RefreshCw size={18} /> Atualizar
-              </button>
+              <div className="flex flex-wrap items-stretch gap-2">
+                <InboxMetric label="Conversas" value={stats.total} helper="na caixa central" icon={<MessagesSquare size={16} />} />
+                <InboxMetric label="Não lidas" value={stats.unread} helper={`${stats.unreadConversations} conversa${stats.unreadConversations === 1 ? '' : 's'}`} icon={<Inbox size={16} />} accent="red" />
+                <InboxMetric label="Leads" value={stats.withLead} helper="vinculados" icon={<UsersRound size={16} />} accent="green" />
+                <InboxMetric label="Canais ativos" value={stats.connectedChannels} helper="disponíveis" icon={<Wifi size={16} />} accent="blue" />
+
+                <div className="flex gap-2 pl-0 2xl:pl-2">
+                  <Link href="/master/integrations/whatsapp" className="inline-flex min-h-[58px] items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 text-xs font-black text-zinc-700 transition hover:border-red-200 hover:text-red-600">
+                    <MessageCircle size={17} /> Gerenciar WhatsApp
+                  </Link>
+                  <button className="inline-flex min-h-[58px] items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 text-xs font-black text-white shadow-lg shadow-red-600/15 transition hover:bg-red-700 disabled:opacity-60" type="button" onClick={() => loadData(selectedId)} disabled={loading}>
+                    <RefreshCw size={17} className={loading ? 'animate-spin' : ''} /> Atualizar
+                  </button>
+                </div>
+              </div>
             </div>
           </header>
 
           {statusMessage ? (
-            <div className="mt-5 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-black text-red-700">
-              {statusMessage}
+            <div className="mt-3 flex flex-col gap-3 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-2">
+                <CircleAlert size={17} className="shrink-0" />
+                <span className="truncate sm:whitespace-normal">{statusMessage}</span>
+              </div>
+              <Link href="/master/integrations/whatsapp" className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-black text-red-700">
+                Ver configuração <ExternalLink size={13} />
+              </Link>
             </div>
           ) : null}
 
-          <section className="mt-6 overflow-hidden rounded-[30px] border border-zinc-200 bg-white shadow-sm">
-            <div className="flex flex-wrap items-center gap-3 border-b border-zinc-200 bg-white px-4 py-3 text-sm font-black text-zinc-500">
-              <button
-                className={`rounded-2xl px-4 py-3 ${!onlyUnread && !onlyLeads ? 'bg-blue-50 text-blue-700' : 'bg-zinc-50 text-zinc-600'}`}
-                type="button"
-                onClick={() => { setOnlyUnread(false); setOnlyLeads(false); }}
-              >
-                Todas as mensagens <span className="ml-2 rounded-full bg-white px-2 py-1 text-xs">{stats.total}</span>
-              </button>
-              <button
-                className={`rounded-2xl px-4 py-3 ${onlyUnread ? 'bg-red-600 text-white' : 'bg-zinc-50 text-zinc-600'}`}
-                type="button"
-                onClick={() => setOnlyUnread((current) => !current)}
-              >
-                Não lidas <span className="ml-2 rounded-full bg-white/80 px-2 py-1 text-xs text-red-600">{stats.unread}</span>
-              </button>
-              <button
-                className={`rounded-2xl px-4 py-3 ${onlyLeads ? 'bg-emerald-600 text-white' : 'bg-zinc-50 text-zinc-600'}`}
-                type="button"
-                onClick={() => setOnlyLeads((current) => !current)}
-              >
-                Leads <span className="ml-2 rounded-full bg-white/80 px-2 py-1 text-xs text-emerald-700">{stats.withLead}</span>
-              </button>
-              <span className="rounded-full bg-emerald-50 px-3 py-2 text-xs uppercase text-emerald-700">WhatsApp Central</span>
-            </div>
-
-            <div className="grid min-h-[760px] xl:grid-cols-[410px_1fr_360px]">
-              <aside className="border-r border-zinc-200 bg-white">
-                <div className="space-y-3 border-b border-zinc-200 p-4">
+          <section className="mt-3 overflow-hidden rounded-[26px] border border-zinc-200 bg-white shadow-sm">
+            <div className="grid min-h-[720px] xl:h-[calc(100vh-210px)] xl:min-h-[680px] xl:grid-cols-[360px_minmax(500px,1fr)_330px] 2xl:grid-cols-[390px_minmax(560px,1fr)_350px]">
+              <aside className="flex min-h-0 flex-col border-r border-zinc-200 bg-white">
+                <div className="border-b border-zinc-200 p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <h2 className="text-xl font-black text-zinc-950">Mensagens</h2>
-                    <Link href="/master/integrations/whatsapp" className="rounded-2xl border border-zinc-200 px-4 py-3 text-sm font-black text-zinc-700 hover:border-red-200 hover:text-red-600">
-                      Gerenciar
-                    </Link>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.15em] text-zinc-400">Fila de atendimento</p>
+                      <h2 className="mt-1 text-lg font-black text-zinc-950">Conversas</h2>
+                    </div>
+                    <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-black text-zinc-600">{filteredConversations.length}</span>
                   </div>
 
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
+                  <div className="mt-4 grid grid-cols-3 gap-1 rounded-2xl bg-zinc-100 p-1 text-[11px] font-black">
+                    <button
+                      className={`rounded-xl px-2 py-2.5 transition ${!onlyUnread && !onlyLeads ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500 hover:text-zinc-800'}`}
+                      type="button"
+                      onClick={() => { setOnlyUnread(false); setOnlyLeads(false); }}
+                    >
+                      Todas <span className="ml-1 text-[10px]">{stats.total}</span>
+                    </button>
+                    <button
+                      className={`rounded-xl px-2 py-2.5 transition ${onlyUnread ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500 hover:text-zinc-800'}`}
+                      type="button"
+                      onClick={() => setOnlyUnread((current) => !current)}
+                    >
+                      Não lidas <span className="ml-1 text-[10px]">{stats.unread}</span>
+                    </button>
+                    <button
+                      className={`rounded-xl px-2 py-2.5 transition ${onlyLeads ? 'bg-white text-emerald-700 shadow-sm' : 'text-zinc-500 hover:text-zinc-800'}`}
+                      type="button"
+                      onClick={() => setOnlyLeads((current) => !current)}
+                    >
+                      Leads <span className="ml-1 text-[10px]">{stats.withLead}</span>
+                    </button>
+                  </div>
+
+                  <div className="relative mt-3">
+                    <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
                     <input
-                      className="w-full rounded-2xl border border-zinc-200 bg-white py-3 pl-11 pr-4 text-sm font-bold outline-none focus:border-red-500"
-                      placeholder="Pesquisar"
+                      className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 py-3 pl-10 pr-4 text-xs font-bold text-zinc-800 outline-none transition placeholder:text-zinc-400 focus:border-red-300 focus:bg-white"
+                      placeholder="Buscar conversa, telefone ou loja..."
                       value={searchTerm}
                       onChange={(event) => setSearchTerm(event.target.value)}
                     />
                   </div>
 
-                  <div className="flex flex-wrap gap-2 text-xs font-black">
-                    <button className={`rounded-xl px-3 py-2 ${onlyUnread ? 'bg-red-600 text-white' : 'bg-zinc-100 text-zinc-600'}`} type="button" onClick={() => setOnlyUnread((current) => !current)}>Não lidas</button>
-                    <button className="rounded-xl bg-zinc-100 px-3 py-2 text-zinc-600" type="button">Prioridade</button>
-                    <button className={`rounded-xl px-3 py-2 ${onlyLeads ? 'bg-emerald-600 text-white' : 'bg-zinc-100 text-zinc-600'}`} type="button" onClick={() => setOnlyLeads((current) => !current)}>Leads</button>
+                  <div className="mt-3 flex items-center justify-between gap-2 text-[10px] font-black text-zinc-500">
+                    <span className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2">WhatsApp Central</span>
+                    <span className="inline-flex items-center gap-1">Mais recentes <ChevronDown size={13} /></span>
                   </div>
                 </div>
 
-                <div className="max-h-[655px] overflow-auto">
+                <div className="min-h-0 flex-1 overflow-auto">
                   {filteredConversations.map((conversation) => {
                     const isSelected = conversation.id === selectedId;
                     const name = conversationName(conversation);
                     const phone = conversationPhone(conversation);
                     const unread = Number(conversation.unread_count || 0);
+                    const hasLead = Boolean(conversation.lead?.id || conversation.base_lead?.id);
 
                     return (
                       <button
                         key={conversation.id}
-                        className={`block w-full border-b border-zinc-100 p-4 text-left transition hover:bg-zinc-50 ${isSelected ? 'border-r-4 border-r-red-600 bg-red-50' : 'bg-white'}`}
+                        className={`group block w-full border-b border-zinc-100 px-3 py-3 text-left transition ${isSelected ? 'bg-red-50/70' : 'bg-white hover:bg-zinc-50'}`}
                         type="button"
                         onClick={() => selectConversation(conversation.id)}
                       >
-                        <div className="flex items-start gap-3">
-                          <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full font-black ${isSelected ? 'bg-red-600 text-white' : 'bg-zinc-100 text-zinc-600'}`}>
-                            {initials(name)}
-                          </div>
-
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-3">
-                              <h3 className="truncate text-sm font-black text-zinc-950">{name}</h3>
-                              <span className="text-[11px] font-bold text-zinc-400">{formatDateTime(conversation.last_message_at)}</span>
+                        <div className={`rounded-2xl border p-3 transition ${isSelected ? 'border-red-200 bg-white shadow-sm' : 'border-transparent group-hover:border-zinc-200'}`}>
+                          <div className="flex items-start gap-3">
+                            <div className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-black ${isSelected ? 'bg-red-600 text-white' : 'bg-zinc-100 text-zinc-600'}`}>
+                              {initials(name)}
+                              <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" />
                             </div>
-                            <p className="mt-1 flex items-center gap-1 text-xs font-bold text-zinc-500"><Phone size={12} /> {formatPhone(phone)}</p>
-                            <p className="mt-2 line-clamp-2 text-sm font-bold text-zinc-600">{conversation.last_message || 'Sem mensagem'}</p>
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase text-emerald-700">{conversation.number?.label || 'WhatsApp Central'}</span>
-                              {unread ? <span className="rounded-full bg-red-600 px-2 py-1 text-[10px] font-black text-white">{unread}</span> : null}
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <h3 className="truncate text-sm font-black text-zinc-950">{name}</h3>
+                                  <p className="mt-0.5 truncate text-[11px] font-bold text-zinc-500">{formatPhone(phone)}</p>
+                                </div>
+                                <span className="shrink-0 text-[10px] font-bold text-zinc-400">{formatDateTime(conversation.last_message_at)}</span>
+                              </div>
+
+                              <p className="mt-2 line-clamp-2 text-xs font-semibold leading-relaxed text-zinc-600">{conversation.last_message || 'Sem mensagem'}</p>
+
+                              <div className="mt-2.5 flex items-center justify-between gap-2">
+                                <div className="flex min-w-0 flex-wrap gap-1.5">
+                                  <span className="max-w-[145px] truncate rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-black uppercase text-emerald-700">{conversation.number?.label || 'WhatsApp Central'}</span>
+                                  {hasLead ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead</span> : null}
+                                </div>
+                                {unread ? <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-black text-white">{unread}</span> : null}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -391,49 +439,63 @@ export default function MasterWhatsappInboxPage() {
                   })}
 
                   {!filteredConversations.length ? (
-                    <div className="p-6 text-center text-sm font-bold text-zinc-500">
-                      Nenhuma conversa encontrada no WhatsApp central.
+                    <div className="flex min-h-56 flex-col items-center justify-center p-6 text-center">
+                      <Inbox size={34} className="text-zinc-300" />
+                      <p className="mt-3 text-sm font-black text-zinc-700">Nenhuma conversa encontrada</p>
+                      <p className="mt-1 text-xs font-bold text-zinc-400">Ajuste os filtros ou aguarde novas mensagens.</p>
                     </div>
                   ) : null}
                 </div>
               </aside>
 
-              <section className="flex min-h-[760px] flex-col bg-white">
+              <section className="flex min-h-0 flex-col bg-[#f5f6f8]">
                 {selectedConversation ? (
                   <>
-                    <div className="border-b border-zinc-200 bg-white p-5">
-                      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                        <div className="flex items-center gap-4">
-                          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100 text-lg font-black text-zinc-700">
+                    <div className="border-b border-zinc-200 bg-white px-4 py-3.5">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-sm font-black text-zinc-700">
                             {initials(conversationName(selectedConversation))}
+                            <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" />
                           </div>
-                          <div>
-                            <h2 className="text-2xl font-black text-zinc-950">{conversationName(selectedConversation)}</h2>
-                            <p className="mt-1 text-sm font-bold text-zinc-500">{formatPhone(conversationPhone(selectedConversation))}</p>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h2 className="truncate text-lg font-black text-zinc-950">{conversationName(selectedConversation)}</h2>
+                              {selectedConversation.lead?.id || selectedConversation.base_lead?.id ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead</span> : null}
+                            </div>
+                            <p className="mt-0.5 text-xs font-bold text-zinc-500">{formatPhone(conversationPhone(selectedConversation))}</p>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold text-zinc-400">
+                              <span>{conversationOrigin(selectedConversation)}</span>
+                              <span>•</span>
+                              <span>{assignedStoreName(selectedConversation)}</span>
+                            </div>
                           </div>
                         </div>
 
-                        <div className="flex flex-wrap gap-2">
-                          <button className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-xs font-black uppercase text-zinc-600" type="button" onClick={() => markRead()}>
-                            Marcar como lida
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-[10px] font-black uppercase text-zinc-600 transition hover:border-red-200 hover:text-red-600" type="button" onClick={() => markRead()}>
+                            <CheckCircle2 size={14} /> Marcar como lida
                           </button>
-                          <span className="rounded-2xl bg-emerald-50 px-4 py-3 text-xs font-black uppercase text-emerald-700">{selectedConversation.number?.label || 'WhatsApp Central'}</span>
-                          <span className={`flex items-center gap-2 rounded-2xl px-4 py-3 text-xs font-black uppercase ${isEvolutionConversation(selectedConversation) && selectedConversation.number?.integration_status === 'connected' ? 'bg-emerald-100 text-emerald-800' : 'bg-zinc-100 text-zinc-600'}`}>
-                            <CheckCircle2 size={15} /> {channelStatus(selectedConversation)}
+                          <span className={`inline-flex items-center gap-2 rounded-xl px-3 py-2.5 text-[10px] font-black uppercase ${isEvolutionConversation(selectedConversation) && selectedConversation.number?.integration_status === 'connected' ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`}>
+                            <ShieldCheck size={14} /> {channelStatus(selectedConversation)}
                           </span>
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex-1 space-y-3 overflow-auto bg-[#f3f5f8] p-5">
+                    <div className="flex-1 space-y-3 overflow-auto bg-[#f2f4f7] p-4 md:p-5">
+                      <div className="mx-auto mb-4 flex w-fit items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase text-zinc-400 shadow-sm">
+                        Histórico da conversa
+                      </div>
+
                       {messages.map((message) => {
                         const outbound = message.direction === 'outbound';
 
                         return (
                           <div key={message.id} className={`flex ${outbound ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`max-w-[82%] rounded-[24px] px-5 py-4 shadow-sm ${outbound ? 'bg-red-600 text-white' : 'border border-zinc-100 bg-white text-zinc-900'}`}>
-                              <p className="whitespace-pre-wrap text-sm font-bold leading-relaxed">{message.body || '[Mensagem sem texto]'}</p>
-                              <div className={`mt-2 flex items-center justify-end gap-2 text-[10px] font-black uppercase ${outbound ? 'text-white/70' : 'text-zinc-400'}`}>
+                            <div className={`max-w-[82%] rounded-2xl px-4 py-3 shadow-sm md:max-w-[72%] ${outbound ? 'rounded-br-md bg-red-600 text-white' : 'rounded-bl-md border border-zinc-200 bg-white text-zinc-900'}`}>
+                              <p className="whitespace-pre-wrap text-sm font-semibold leading-relaxed">{message.body || '[Mensagem sem texto]'}</p>
+                              <div className={`mt-2 flex items-center justify-end gap-2 text-[9px] font-black uppercase ${outbound ? 'text-white/70' : 'text-zinc-400'}`}>
                                 <span>{formatDateTime(message.sent_at || message.created_at)}</span>
                                 <span>{message.status}</span>
                               </div>
@@ -443,38 +505,44 @@ export default function MasterWhatsappInboxPage() {
                       })}
 
                       {!messages.length ? (
-                        <div className="flex h-full items-center justify-center p-8 text-center text-sm font-bold text-zinc-500">
-                          Nenhuma mensagem carregada nesta conversa.
+                        <div className="flex h-full min-h-80 items-center justify-center p-8 text-center">
+                          <div>
+                            <MessageCircle size={42} className="mx-auto text-zinc-300" />
+                            <p className="mt-3 text-sm font-black text-zinc-700">Nenhuma mensagem carregada</p>
+                            <p className="mt-1 text-xs font-bold text-zinc-400">O histórico desta conversa aparecerá aqui.</p>
+                          </div>
                         </div>
                       ) : null}
                     </div>
 
-                    <form onSubmit={sendMessage} className="border-t border-zinc-200 bg-white p-4">
-                      <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                    <form onSubmit={sendMessage} className="border-t border-zinc-200 bg-white p-3.5">
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-2 transition focus-within:border-red-300 focus-within:bg-white">
                         <textarea
-                          className="premium-input min-h-24 resize-none"
-                          placeholder="Responda no WhatsApp..."
+                          className="min-h-20 w-full resize-none bg-transparent px-2 py-2 text-sm font-semibold text-zinc-800 outline-none placeholder:text-zinc-400"
+                          placeholder="Digite sua mensagem..."
                           value={messageText}
                           onChange={(event) => setMessageText(event.target.value)}
                           disabled={sending}
                         />
 
-                        <button
-                          className="premium-button-primary justify-center md:w-44"
-                          type="submit"
-                          disabled={sending || !messageText.trim() || (isEvolutionConversation(selectedConversation) && selectedConversation.number?.integration_status !== 'connected')}
-                        >
-                          <Send size={18} /> {sending ? 'Enviando...' : 'Enviar'}
-                        </button>
-                      </div>
+                        <div className="flex flex-col gap-2 border-t border-zinc-200 pt-2 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="px-2 text-[10px] font-bold leading-relaxed text-zinc-400">
+                            {isEvolutionConversation(selectedConversation)
+                              ? selectedConversation.number?.integration_status === 'connected'
+                                ? 'Resposta pela Evolution API usando a conexão ativa da Master.'
+                                : 'Evolution indisponível. Reconecte o número em Integrações.'
+                              : 'Na Meta, respostas fora da janela podem exigir template aprovado.'}
+                          </p>
 
-                      <p className="mt-3 text-xs font-bold text-zinc-400">
-                        {isEvolutionConversation(selectedConversation)
-                          ? selectedConversation.number?.integration_status === 'connected'
-                            ? 'Resposta enviada pela Evolution API usando a conexão ativa da Master.'
-                            : 'A conexão Evolution está indisponível. Reconecte o número em Integrações para responder.'
-                          : 'Resposta livre depende da janela de atendimento da Meta. Fora da janela, pode exigir template aprovado.'}
-                      </p>
+                          <button
+                            className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            type="submit"
+                            disabled={sending || !messageText.trim() || (isEvolutionConversation(selectedConversation) && selectedConversation.number?.integration_status !== 'connected')}
+                          >
+                            <Send size={16} /> {sending ? 'Enviando...' : 'Enviar'}
+                          </button>
+                        </div>
+                      </div>
                     </form>
                   </>
                 ) : (
@@ -486,23 +554,28 @@ export default function MasterWhatsappInboxPage() {
                 )}
               </section>
 
-              <aside className="border-l border-zinc-200 bg-white p-5">
+              <aside className="min-h-0 overflow-auto border-l border-zinc-200 bg-[#fafafa] p-3.5">
                 {selectedConversation ? (
-                  <div className="space-y-5">
-                    <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-3">
+                    <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100 text-lg font-black text-zinc-700">
+                        <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-red-50 text-sm font-black text-red-600">
                           {initials(conversationName(selectedConversation))}
+                          <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" />
                         </div>
-                        <div>
-                          <h3 className="text-xl font-black text-zinc-950">{conversationName(selectedConversation)}</h3>
-                          <p className="text-sm font-bold text-blue-600">Contato WhatsApp</p>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-black uppercase tracking-[0.12em] text-zinc-400">Detalhes do contato</p>
+                          <h3 className="mt-1 truncate text-base font-black text-zinc-950">{conversationName(selectedConversation)}</h3>
+                          <p className="mt-1 text-xs font-bold text-zinc-500">{formatPhone(conversationPhone(selectedConversation))}</p>
                         </div>
                       </div>
-                    </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-black uppercase text-emerald-700">WhatsApp</span>
+                        {selectedConversation.lead?.id || selectedConversation.base_lead?.id ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead vinculado</span> : null}
+                      </div>
+                    </section>
 
-                    <DetailCard title="Detalhes de contato">
-                      <DetailRow label="Telefone" value={formatPhone(conversationPhone(selectedConversation))} />
+                    <DetailCard title="Contato e canal">
                       <DetailRow label="Número central" value={selectedConversation.number?.label || 'WhatsApp Central'} />
                       <DetailRow label="Canal" value={channelStatus(selectedConversation)} />
                       <DetailRow label="Última mensagem" value={formatFullDateTime(selectedConversation.last_message_at)} />
@@ -512,22 +585,22 @@ export default function MasterWhatsappInboxPage() {
                       <DetailRow label="Base Master" value={selectedConversation.base_lead?.id ? 'Registrado na Base' : 'Ainda não registrado'} />
                       <DetailRow label="Loja direcionada" value={assignedStoreName(selectedConversation)} />
                       <DetailRow label="Status" value={selectedConversation.lead?.status || selectedConversation.base_lead?.status || selectedConversation.status || 'Aberta'} />
-                      <DetailRow label="Origem" value={selectedConversation.lead?.origin || selectedConversation.base_lead?.source || (isEvolutionConversation(selectedConversation) ? 'WhatsApp Evolution' : 'WhatsApp Oficial')} />
+                      <DetailRow label="Origem" value={conversationOrigin(selectedConversation)} />
                       <DetailRow label="Campanha" value={selectedConversation.base_lead?.campaign_name || selectedConversation.number?.label || 'WhatsApp Central'} />
                     </DetailCard>
 
                     <DetailCard title="Ações rápidas">
                       <div className="grid gap-2">
-                        <Link href="/master/base" className="flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 px-4 py-3 text-sm font-black text-zinc-700 hover:border-red-200 hover:text-red-600">
-                          <Database size={16} /> Abrir Base Master
+                        <Link href="/master/base" className="flex items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-xs font-black text-zinc-700 transition hover:border-red-200 hover:text-red-600">
+                          <Database size={15} /> Abrir Base Master
                         </Link>
                         {pipelineHref(selectedConversation) ? (
-                          <Link href={pipelineHref(selectedConversation)} className="flex items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 py-3 text-sm font-black text-white shadow-lg shadow-red-600/20">
-                            <ExternalLink size={16} /> Abrir Pipeline da loja
+                          <Link href={pipelineHref(selectedConversation)} className="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700">
+                            <ExternalLink size={15} /> Abrir Pipeline da loja
                           </Link>
                         ) : (
-                          <div className="rounded-2xl bg-orange-50 p-4 text-xs font-bold text-orange-700">
-                            Este lead ainda não foi direcionado para uma loja. Ele deve ser tratado pela automação da Base Master.
+                          <div className="rounded-xl border border-orange-100 bg-orange-50 p-3 text-[10px] font-bold leading-relaxed text-orange-700">
+                            Este lead ainda não foi direcionado para uma loja. A distribuição permanece sob responsabilidade da Base Master.
                           </div>
                         )}
                       </div>
@@ -548,11 +621,33 @@ export default function MasterWhatsappInboxPage() {
   );
 }
 
+function InboxMetric({ label, value, helper, icon, accent = 'zinc' }: { label: string; value: number; helper: string; icon: React.ReactNode; accent?: 'zinc' | 'red' | 'green' | 'blue' }) {
+  const tones = {
+    zinc: 'bg-zinc-50 text-zinc-500',
+    red: 'bg-red-50 text-red-600',
+    green: 'bg-emerald-50 text-emerald-600',
+    blue: 'bg-blue-50 text-blue-600'
+  };
+
+  return (
+    <div className="flex min-h-[58px] min-w-[118px] items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${tones[accent]}`}>{icon}</span>
+      <div>
+        <p className="text-[9px] font-black uppercase tracking-wide text-zinc-400">{label}</p>
+        <div className="mt-0.5 flex items-baseline gap-1.5">
+          <strong className="text-lg font-black leading-none text-zinc-950">{value}</strong>
+          <span className="text-[9px] font-bold text-zinc-400">{helper}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DetailCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-[24px] border border-zinc-100 bg-zinc-50 p-4">
-      <h4 className="text-sm font-black uppercase tracking-wide text-zinc-500">{title}</h4>
-      <div className="mt-4 grid gap-3">{children}</div>
+    <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+      <h4 className="text-[10px] font-black uppercase tracking-[0.12em] text-zinc-400">{title}</h4>
+      <div className="mt-3 grid gap-3">{children}</div>
     </section>
   );
 }
@@ -560,8 +655,8 @@ function DetailCard({ title, children }: { title: string; children: React.ReactN
 function DetailRow({ label, value }: { label: string; value: any }) {
   return (
     <div>
-      <p className="text-[10px] font-black uppercase tracking-wide text-zinc-400">{label}</p>
-      <p className="mt-1 break-words text-sm font-black text-zinc-900">{value || '-'}</p>
+      <p className="text-[9px] font-black uppercase tracking-wide text-zinc-400">{label}</p>
+      <p className="mt-1 break-words text-xs font-black leading-relaxed text-zinc-900">{value || '-'}</p>
     </div>
   );
 }
