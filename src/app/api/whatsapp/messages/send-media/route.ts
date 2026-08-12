@@ -77,7 +77,7 @@ export async function POST(request: Request) {
     const provider = integration || configuredProvider === 'evolution' || String(number.phone_number_id || '').startsWith('evolution:') ? 'evolution' : 'meta_cloud';
     const recipient = normalizePhone(contact?.phone || contact?.wa_id);
     if (!recipient) return NextResponse.json({ error: 'Contato sem telefone válido para envio.' }, { status: 400 });
-    if (provider === 'evolution' && (!integration || integration.status !== 'connected')) return NextResponse.json({ error: 'WhatsApp da loja está desconectado. Reconecte em Integrações.' }, { status: 409 });
+    if (provider === 'evolution' && (!integration || integration.status !== 'connected' || !integration.instance_name)) return NextResponse.json({ error: 'WhatsApp da loja está desconectado. Reconecte em Integrações.' }, { status: 409 });
 
     const sentAt = new Date().toISOString();
     const saved: any[] = [];
@@ -89,7 +89,9 @@ export async function POST(request: Request) {
       let waMessageId: string | null = null;
 
       if (provider === 'evolution') {
-        result = await sendEvolutionMedia(integration.instance_name, recipient, mediaUrl, imageCaption);
+        const instanceName = String(integration?.instance_name || '').trim();
+        if (!instanceName) throw new Error('Instância Evolution não encontrada para esta conversa.');
+        result = await sendEvolutionMedia(instanceName, recipient, mediaUrl, imageCaption);
         waMessageId = result?.key?.id || result?.message?.key?.id || result?.id || null;
       } else {
         if (!number?.access_token || !number?.phone_number_id) return NextResponse.json({ error: 'Número WhatsApp sem token ou Phone Number ID.' }, { status: 400 });
