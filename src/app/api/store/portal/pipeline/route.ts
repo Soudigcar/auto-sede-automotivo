@@ -29,7 +29,8 @@ export async function GET(request: Request) {
         'interested_vehicle_id', 'interested_vehicle_price', 'vehicle_category_interest',
         'origin', 'status', 'notes', 'scheduled_at', 'appointment_notes',
         'appointment_cancelled_at', 'appointment_cancelled_reason', 'lost_reason',
-        'created_at', 'updated_at', 'last_activity_at', 'last_activity_label', 'last_activity_by_name'
+        'created_at', 'updated_at', 'first_viewed_at', 'first_phone_viewed_at',
+        'first_whatsapp_clicked_at', 'last_activity_at', 'last_activity_label', 'last_activity_by_name'
       ].join(','))
       .eq('assigned_store_id', context.store.id)
       .neq('status', 'deleted')
@@ -55,6 +56,46 @@ export async function GET(request: Request) {
       lost: leads.filter((lead: any) => lead.status === 'lost').length
     };
 
+    let team: Array<{ id: string; full_name: string; role: string; role_label: string }> = [];
+
+    if (context.role === 'master' || context.role === 'store') {
+      const { data: members, error: teamError } = await context.supabase
+        .from('users')
+        .select('id,full_name,email,role')
+        .eq('store_id', context.store.id)
+        .eq('status', 'active')
+        .in('role', ['store', 'pre_sales', 'seller', 'prospector'])
+        .order('full_name', { ascending: true });
+
+      if (teamError) throw teamError;
+
+      const labels: Record<string, string> = {
+        store: 'Gestor da loja',
+        pre_sales: 'Pré-vendas',
+        seller: 'Vendedor',
+        prospector: 'Prospectador'
+      };
+
+      team = (members || []).map((member: any) => ({
+        id: member.id,
+        full_name: member.full_name || member.email || 'Usuário',
+        role: member.role,
+        role_label: labels[member.role] || 'Responsável'
+      }));
+    } else {
+      const labels: Record<string, string> = {
+        pre_sales: 'Pré-vendas',
+        seller: 'Vendedor',
+        prospector: 'Prospectador'
+      };
+      team = [{
+        id: context.profile.id,
+        full_name: context.profile.full_name || context.profile.email || 'Usuário',
+        role: context.role,
+        role_label: labels[context.role] || 'Responsável'
+      }];
+    }
+
     return NextResponse.json({
       store: context.store,
       profile: {
@@ -69,6 +110,7 @@ export async function GET(request: Request) {
         can_confirm_sale: context.role !== 'prospector'
       },
       metrics,
+      team,
       leads
     });
   } catch (error: any) {
