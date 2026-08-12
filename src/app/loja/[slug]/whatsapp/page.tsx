@@ -300,16 +300,16 @@ export default function StoreWhatsappPage() {
           <button
             type="button"
             onClick={() => setSidebarCollapsed((current) => !current)}
-            className="absolute -right-4 top-7 z-40 flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-[#111c2e] text-zinc-300 shadow-lg transition hover:bg-[#17243a] hover:text-white"
+            className="absolute right-2 top-5 z-[100] flex h-10 w-10 items-center justify-center rounded-xl border border-red-500/60 bg-red-600 text-white shadow-xl shadow-black/30 transition hover:bg-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
             aria-label={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
             title={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
           >
-            {sidebarCollapsed ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}
+            {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
           </button>
 
           <div className={`flex min-w-0 items-center gap-3 ${sidebarCollapsed ? 'justify-center' : ''}`}>
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-red-600/15 text-red-500"><Car size={22} /></div>
-            {!sidebarCollapsed ? <div className="min-w-0"><p className="truncate text-sm font-black tracking-wide">AUTO CONTROLE</p><p className="text-[10px] uppercase tracking-[0.35em] text-zinc-500">Automotivo</p></div> : null}
+            {!sidebarCollapsed ? <div className="min-w-0 pr-12"><p className="truncate text-sm font-black tracking-wide">AUTO CONTROLE</p><p className="text-[10px] uppercase tracking-[0.35em] text-zinc-500">Automotivo</p></div> : null}
           </div>
 
           {!sidebarCollapsed ? (
