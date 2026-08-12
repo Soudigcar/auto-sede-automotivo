@@ -375,6 +375,7 @@ export default function StoreWhatsappPage() {
                     const phone = conversationPhone(conversation);
                     const unread = Number(conversation.unread_count || 0);
                     const hasLead = Boolean(conversation.lead_id || conversation.base_lead_id);
+                    const pipelineStage = String(conversation.lead?.status || conversation.base_lead?.status || '').trim();
                     return (
                       <button key={conversation.id} className={`group block w-full border-b border-zinc-100 px-3 py-3 text-left transition ${isSelected ? 'bg-red-50/70' : 'bg-white hover:bg-zinc-50'}`} type="button" onClick={() => selectConversation(conversation.id)}>
                         <div className={`rounded-2xl border p-3 transition ${isSelected ? 'border-red-200 bg-white shadow-sm' : 'border-transparent group-hover:border-zinc-200'}`}>
@@ -383,7 +384,7 @@ export default function StoreWhatsappPage() {
                             <div className="min-w-0 flex-1">
                               <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate text-sm font-black text-zinc-950">{name}</h3><p className="mt-0.5 truncate text-[11px] font-bold text-zinc-500">{formatPhone(phone)}</p></div><span className="shrink-0 text-[10px] font-bold text-zinc-400">{formatTime(conversation.last_message_at)}</span></div>
                               <p className="mt-2 line-clamp-2 text-xs font-semibold leading-relaxed text-zinc-600">{conversation.last_message || 'Sem mensagem'}</p>
-                              <div className="mt-2.5 flex items-center justify-between gap-2"><div className="flex min-w-0 flex-wrap gap-1.5"><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-black uppercase text-emerald-700">WhatsApp</span>{hasLead ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead</span> : null}</div>{unread ? <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-black text-white">{unread}</span> : null}</div>
+                              <div className="mt-2.5 flex items-center justify-between gap-2"><div className="flex min-w-0 flex-wrap gap-1.5"><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-black uppercase text-emerald-700">WhatsApp</span>{hasLead ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead</span> : null}{hasLead && pipelineStage ? <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[9px] font-black uppercase text-amber-700">{leadStatusLabel(pipelineStage)}</span> : null}</div>{unread ? <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-black text-white">{unread}</span> : null}</div>
                             </div>
                           </div>
                         </div>
