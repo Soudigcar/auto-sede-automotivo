@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRightLeft, CalendarDays, Camera, Car, Check, ChevronLeft, Clock3, Loader2, Search, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { WhatsappAttachmentButton } from '@/components/WhatsappAttachmentButton';
@@ -47,6 +47,217 @@ function priceLabel(value?: number | null) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(value);
 }
 
+function compactMasterQueue(root: HTMLElement) {
+  const queue = Array.from(root.querySelectorAll('aside')).find((item) => item.textContent?.includes('Todas') && item.textContent?.includes('Não lidas') && item.textContent?.includes('Urgentes')) as HTMLElement | undefined;
+  if (!queue) return () => {};
+
+  const header = queue.firstElementChild as HTMLElement | null;
+  if (header) {
+    header.style.flexShrink = '0';
+
+    const tabs = Array.from(header.querySelectorAll('div')).find((item) => item.textContent?.includes('Todas') && item.textContent?.includes('Prioridade') && item.textContent?.includes('Urgentes')) as HTMLElement | undefined;
+    if (tabs) {
+      tabs.style.paddingTop = '4px';
+      tabs.style.paddingLeft = '6px';
+      tabs.style.paddingRight = '6px';
+      tabs.querySelectorAll('button').forEach((button) => {
+        const element = button as HTMLElement;
+        element.style.padding = '6px 7px';
+        element.style.fontSize = '8px';
+      });
+    }
+
+    const search = header.querySelector('input[placeholder="Buscar conversas..."]') as HTMLInputElement | null;
+    if (search) {
+      search.style.height = '32px';
+      search.style.fontSize = '10px';
+      search.style.paddingLeft = '34px';
+      const controls = search.closest('.space-y-2\\.5') as HTMLElement | null;
+      if (controls) controls.style.padding = '6px 8px 7px';
+      const filterButton = search.parentElement?.parentElement?.querySelector('button') as HTMLElement | null;
+      if (filterButton) {
+        filterButton.style.width = '32px';
+        filterButton.style.height = '32px';
+      }
+    }
+
+    header.querySelectorAll('select').forEach((select) => {
+      const element = select as HTMLElement;
+      element.style.height = '30px';
+      element.style.fontSize = '8px';
+      element.style.paddingLeft = '8px';
+      element.style.paddingRight = '8px';
+    });
+
+    const sortButton = Array.from(header.querySelectorAll('button')).find((button) => button.textContent?.includes('Mais recentes') || button.textContent?.includes('Mais antigas')) as HTMLElement | undefined;
+    if (sortButton) {
+      sortButton.style.height = '30px';
+      sortButton.style.paddingLeft = '8px';
+      sortButton.style.paddingRight = '8px';
+      sortButton.style.fontSize = '8px';
+    }
+  }
+
+  const list = queue.children.item(1) as HTMLElement | null;
+  if (!list) return () => {};
+  list.style.padding = '3px';
+
+  const compactCards = () => {
+    Array.from(list.children).forEach((child) => {
+      if (!(child instanceof HTMLButtonElement)) return;
+      child.style.marginBottom = '2px';
+      child.style.padding = '5px 7px';
+      child.style.borderRadius = '10px';
+      child.style.minHeight = '48px';
+
+      const avatar = child.querySelector('.h-12.w-12') as HTMLElement | null;
+      if (avatar) {
+        avatar.style.width = '28px';
+        avatar.style.height = '28px';
+        avatar.style.fontSize = '9px';
+      }
+
+      const mainRow = child.querySelector('.flex.items-start.gap-3') as HTMLElement | null;
+      if (mainRow) mainRow.style.gap = '7px';
+
+      const name = child.querySelector('h3') as HTMLElement | null;
+      if (name) {
+        name.style.fontSize = '10px';
+        name.style.lineHeight = '12px';
+      }
+
+      const phone = Array.from(child.querySelectorAll('p')).find((item) => item.className.includes('text-[11px]')) as HTMLElement | undefined;
+      if (phone) {
+        phone.style.fontSize = '8px';
+        phone.style.lineHeight = '10px';
+        phone.style.marginTop = '0';
+      }
+
+      const time = Array.from(child.querySelectorAll('span')).find((item) => item.className.includes('text-[10px]') && !item.className.includes('font-black')) as HTMLElement | undefined;
+      if (time) time.style.fontSize = '8px';
+
+      const lastMessage = child.querySelector('p.line-clamp-1') as HTMLElement | null;
+      if (lastMessage) {
+        const row = lastMessage.parentElement as HTMLElement | null;
+        if (row) row.style.marginTop = '2px';
+        lastMessage.style.fontSize = '9px';
+        lastMessage.style.lineHeight = '11px';
+      }
+
+      const unread = Array.from(child.querySelectorAll('span')).find((item) => item.className.includes('bg-red-600') && item.className.includes('min-w-6')) as HTMLElement | undefined;
+      if (unread) {
+        unread.style.height = '18px';
+        unread.style.minWidth = '18px';
+        unread.style.fontSize = '8px';
+        unread.style.paddingLeft = '4px';
+        unread.style.paddingRight = '4px';
+      }
+
+      const badgeRow = Array.from(child.querySelectorAll('div')).find((item) => item.querySelector('span.bg-blue-50, span.bg-emerald-50') && item.querySelector('span.bg-zinc-100')) as HTMLElement | undefined;
+      if (badgeRow) {
+        badgeRow.style.marginTop = '2px';
+        badgeRow.style.gap = '4px';
+        const badges = Array.from(badgeRow.querySelectorAll('span')) as HTMLElement[];
+        badges.forEach((badge, index) => {
+          badge.style.padding = '1px 5px';
+          badge.style.fontSize = '6px';
+          badge.style.lineHeight = '9px';
+          if (index > 0) badge.style.display = 'none';
+        });
+      }
+    });
+  };
+
+  compactCards();
+  const observer = new MutationObserver(compactCards);
+  observer.observe(list, { childList: true, subtree: true });
+  return () => observer.disconnect();
+}
+
+function fitMasterViewport(root: HTMLElement, actionBar: HTMLElement) {
+  const form = actionBar.closest('form') as HTMLFormElement | null;
+  if (!form) return () => {};
+
+  form.style.padding = '6px';
+  form.style.flexShrink = '0';
+  const composer = form.firstElementChild as HTMLElement | null;
+  if (composer) {
+    composer.style.padding = '5px';
+    composer.style.borderRadius = '13px';
+  }
+
+  const textarea = form.querySelector('textarea[placeholder="Digite sua mensagem..."]') as HTMLTextAreaElement | null;
+  if (textarea) {
+    textarea.style.minHeight = '42px';
+    textarea.style.height = '42px';
+    textarea.style.paddingTop = '6px';
+    textarea.style.paddingBottom = '6px';
+  }
+
+  actionBar.querySelectorAll('button').forEach((button) => {
+    const element = button as HTMLElement;
+    element.style.height = '32px';
+    element.style.paddingLeft = '9px';
+    element.style.paddingRight = '9px';
+    element.style.fontSize = '8px';
+  });
+
+  const sendButton = Array.from(form.querySelectorAll('button')).find((button) => button.textContent?.includes('Enviar')) as HTMLElement | undefined;
+  if (sendButton) {
+    sendButton.style.minHeight = '32px';
+    sendButton.style.height = '32px';
+    sendButton.style.paddingLeft = '13px';
+    sendButton.style.paddingRight = '13px';
+    sendButton.style.fontSize = '9px';
+  }
+
+  const conversationPanel = form.parentElement as HTMLElement | null;
+  const conversationHeader = conversationPanel?.firstElementChild as HTMLElement | null;
+  if (conversationHeader) {
+    conversationHeader.style.paddingTop = '7px';
+    conversationHeader.style.paddingBottom = '7px';
+  }
+
+  const queue = Array.from(root.querySelectorAll('aside')).find((item) => item.textContent?.includes('Todas') && item.textContent?.includes('Não lidas') && item.textContent?.includes('Urgentes')) as HTMLElement | undefined;
+  const grid = queue?.parentElement as HTMLElement | null;
+
+  const resize = () => {
+    if (!grid) return;
+    const top = grid.getBoundingClientRect().top;
+    const available = Math.max(470, window.innerHeight - top - 10);
+    grid.style.height = `${available}px`;
+    grid.style.minHeight = '0';
+    if (conversationPanel) {
+      conversationPanel.style.minHeight = '0';
+      conversationPanel.style.overflow = 'hidden';
+    }
+  };
+
+  resize();
+  window.addEventListener('resize', resize);
+  return () => window.removeEventListener('resize', resize);
+}
+
+function keepLatestMessageVisible(root: HTMLElement) {
+  const label = Array.from(root.querySelectorAll('div')).find((item) => item.textContent?.trim() === 'Histórico da conversa') as HTMLElement | undefined;
+  const history = label?.parentElement as HTMLElement | null;
+  if (!history) return () => {};
+
+  const scrollToBottom = () => {
+    history.scrollTop = history.scrollHeight;
+  };
+
+  requestAnimationFrame(() => requestAnimationFrame(scrollToBottom));
+  const timer = window.setTimeout(scrollToBottom, 120);
+  const observer = new MutationObserver(() => requestAnimationFrame(scrollToBottom));
+  observer.observe(history, { childList: true, subtree: true });
+
+  return () => {
+    window.clearTimeout(timer);
+    observer.disconnect();
+  };
+}
+
 export default function MasterWhatsappCommerceActions({ conversationId, leadId, baseLeadId, onRefresh, onStatus }: {
   conversationId: string;
   leadId: string;
@@ -55,6 +266,7 @@ export default function MasterWhatsappCommerceActions({ conversationId, leadId, 
   onStatus: (message: string) => void;
 }) {
   const supabase = createClient();
+  const actionBarRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<Mode>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
@@ -179,10 +391,7 @@ export default function MasterWhatsappCommerceActions({ conversationId, leadId, 
       const response = await fetch('/api/master/whatsapp/portal-stock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({
-          ...(leadId ? { lead_id: leadId } : { base_lead_id: baseLeadId }),
-          vehicle_id: selectedVehicle.id
-        })
+        body: JSON.stringify({ ...(leadId ? { lead_id: leadId } : { base_lead_id: baseLeadId }), vehicle_id: selectedVehicle.id })
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Não foi possível vincular o veículo do portal.');
@@ -229,9 +438,7 @@ export default function MasterWhatsappCommerceActions({ conversationId, leadId, 
     try {
       const accessToken = await token();
       const endpoint = leadId ? '/api/store/lead-task' : '/api/master/whatsapp/base-task';
-      const payload = leadId
-        ? { lead_id: leadId, task_type: scheduleType, date, time, description }
-        : { base_lead_id: baseLeadId, task_type: scheduleType, date, time, description };
+      const payload = leadId ? { lead_id: leadId, task_type: scheduleType, date, time, description } : { base_lead_id: baseLeadId, task_type: scheduleType, date, time, description };
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
@@ -260,9 +467,26 @@ export default function MasterWhatsappCommerceActions({ conversationId, leadId, 
     setSelectedVehicle(null);
   }, [conversationId]);
 
+  useEffect(() => {
+    const actionBar = actionBarRef.current;
+    if (!actionBar) return;
+    const root = actionBar.closest('main') as HTMLElement | null;
+    if (!root) return;
+
+    const cleanQueue = compactMasterQueue(root);
+    const cleanViewport = fitMasterViewport(root, actionBar);
+    const cleanScroll = keepLatestMessageVisible(root);
+
+    return () => {
+      cleanQueue();
+      cleanViewport();
+      cleanScroll();
+    };
+  }, [conversationId]);
+
   return (
     <>
-      <div className="flex min-w-0 items-center gap-2 overflow-x-auto py-0.5">
+      <div ref={actionBarRef} className="flex min-w-0 items-center gap-2 overflow-x-auto py-0.5">
         <WhatsappAttachmentButton conversationId={conversationId} onRefresh={onRefresh} onStatus={onStatus} />
         <button type="button" onClick={() => void loadVehicles('stock')} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 text-[10px] font-black uppercase text-blue-700 transition hover:bg-blue-100"><Car size={14} /> Estoque</button>
         <button type="button" onClick={() => void loadVehicles('photos')} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 text-[10px] font-black uppercase text-violet-700 transition hover:bg-violet-100"><Camera size={14} /> Fotos do veículo</button>
