@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import {
   evolutionWebhookSignatureHeader,
+  getEvolutionConnectionState,
   verifyEvolutionWebhookSignature
 } from '@/lib/server/evolution';
 import { evolutionMessageContent, evolutionMessageType } from '@/lib/server/evolutionMessage';
@@ -39,6 +40,48 @@ function messageDate(value: unknown) {
 
   if (!Number.isFinite(seconds) || seconds <= 0) return new Date().toISOString();
   return new Date(seconds > 10_000_000_000 ? seconds : seconds * 1_000).toISOString();
+}
+
+async function reconcileConnectedStatusFromMessage(supabase: any, integration: any, now: string) {
+  if (integration.status === 'connected') return false;
+
+  try {
+    const stateResult = await getEvolutionConnectionState(integration.instance_name);
+    if (normalizeStatus(stateResult?.instance?.state) !== 'connected') return false;
+
+    const connectedAt = integration.last_connected_at || now;
+    const { error } = await supabase
+      .from('store_whatsapp_integrations')
+      .update({
+        status: 'connected',
+        last_connected_at: connectedAt,
+        last_webhook_at: now,
+        last_error: null,
+        updated_at: now
+      })
+      .eq('id', integration.id);
+
+    if (error) throw error;
+
+    if (integration.crm_number_id) {
+      const { error: numberError } = await supabase
+        .from('whatsapp_numbers')
+        .update({ status: 'connected', is_active: true, updated_at: now })
+        .eq('id', integration.crm_number_id);
+
+      if (numberError) throw numberError;
+    }
+
+    integration.status = 'connected';
+    integration.last_connected_at = connectedAt;
+    return true;
+  } catch (error: any) {
+    console.warn('[Evolution webhook] Falha ao reconciliar status conectado por mensagem.', {
+      instanceName: integration.instance_name,
+      error: error?.message || String(error)
+    });
+    return false;
+  }
 }
 
 async function ensureCrmNumber(supabase: any, integration: any) {
@@ -450,9 +493,20 @@ export async function POST(request: Request) {
         : Array.isArray(payload?.data)
           ? payload.data
           : [payload?.data];
+      const validMessages = messages.filter(Boolean);
+      const hasIdentifiedMessage = validMessages.some((message: any) => {
+        const key = message?.key || {};
+        return Boolean(
+          cleanText(key.id, 250) && cleanText(key.remoteJidAlt || key.remoteJid, 180)
+        );
+      });
+
+      if (hasIdentifiedMessage) {
+        await reconcileConnectedStatusFromMessage(supabase, integration, now);
+      }
 
       const results = [];
-      for (const message of messages.filter(Boolean)) {
+      for (const message of validMessages) {
         results.push(await processMessage(supabase, integration, message));
       }
 
