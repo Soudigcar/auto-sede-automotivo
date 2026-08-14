@@ -31,6 +31,8 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import WhatsappCommerceActions from '@/components/WhatsappCommerceActions';
+import { WhatsappAttachmentButton } from '@/components/WhatsappAttachmentButton';
+import { WhatsappMediaMessage } from '@/components/WhatsappMediaMessage';
 
 const pipelineStages = [
   { key: 'new_lead', label: 'Novo Lead Recebido', secureFlow: false },
@@ -106,6 +108,35 @@ function pipelineLeadId(conversation: any) {
 
 function pipelineStageValue(conversation: any) {
   return String(conversation?.lead?.status || '').trim();
+}
+
+function conversationPriority(conversation: any) {
+  const metadata = conversation?.metadata || {};
+  const value = String(metadata?.priority || metadata?.urgency || '').trim().toLowerCase();
+  const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((tag: any) => String(tag || '').trim().toLowerCase()) : [];
+  if (['urgent', 'urgente', 'critical', 'critico', 'crítico'].includes(value) || tags.some((tag: string) => ['urgent', 'urgente', 'critical'].includes(tag))) return 'urgent';
+  if (['priority', 'prioridade', 'high', 'alta'].includes(value) || tags.some((tag: string) => ['priority', 'prioridade', 'high'].includes(tag))) return 'priority';
+  return '';
+}
+
+function isEvolutionConversation(conversation: any) {
+  return conversation?.number?.provider === 'evolution';
+}
+
+function channelConnected(conversation: any) {
+  if (isEvolutionConversation(conversation)) return conversation?.number?.integration_status === 'connected';
+  return Boolean(conversation?.number?.is_active);
+}
+
+function channelStatus(conversation: any) {
+  if (isEvolutionConversation(conversation)) {
+    const status = String(conversation?.number?.integration_status || '').toLowerCase();
+    if (status === 'connected') return 'Evolution conectada';
+    if (status === 'qrcode') return 'Aguardando QR Code';
+    if (status === 'connecting') return 'Evolution conectando';
+    return 'Evolution desconectada';
+  }
+  return conversation?.number?.is_active ? 'WhatsApp ativo' : 'WhatsApp desconectado';
 }
 
 export default function StoreWhatsappPage() {
@@ -282,7 +313,7 @@ export default function StoreWhatsappPage() {
       if (!matchesSearch) return false;
       if (filter === 'unread') return Number(conversation.unread_count || 0) > 0;
       if (filter === 'leads') return Boolean(conversation.lead_id || conversation.base_lead_id);
-      if (filter === 'priority') return Number(conversation.unread_count || 0) > 0 || conversation.status === 'open';
+      if (filter === 'priority') return Boolean(conversationPriority(conversation));
       return true;
     });
   }, [conversations, filter, searchTerm]);
@@ -411,7 +442,7 @@ export default function StoreWhatsappPage() {
                               <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold text-zinc-400"><span>{selectedConversation.lead?.origin || selectedConversation.base_lead?.source || 'WhatsApp'}</span><span>•</span><span>{store?.store_name || 'Loja'}</span><span>•</span><span>{pipelineLeadId(selectedConversation) ? leadStatusLabel(pipelineStageValue(selectedConversation)) : 'Sem etapa na Pipeline'}</span></div>
                             </div>
                           </button>
-                          <span className="inline-flex w-fit shrink-0 items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2.5 text-[10px] font-black uppercase text-emerald-700"><MessageCircle size={14} /> WhatsApp conectado</span>
+                          <span className={`inline-flex w-fit shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-[10px] font-black uppercase ${channelConnected(selectedConversation) ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`}><MessageCircle size={14} /> {channelStatus(selectedConversation)}</span>
                         </div>
 
                         <div className="flex items-center gap-2 overflow-x-auto border-t border-zinc-100 pt-2.5">
@@ -435,7 +466,7 @@ export default function StoreWhatsappPage() {
                       <div className="mx-auto mb-3 w-fit rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase text-zinc-400 shadow-sm">Histórico da conversa</div>
                       {messages.map((message) => {
                         const outbound = message.direction === 'outbound';
-                        return <div key={message.id} className={`flex ${outbound ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[82%] rounded-2xl px-4 py-3 shadow-sm md:max-w-[72%] ${outbound ? 'rounded-br-md bg-red-600 text-white' : 'rounded-bl-md border border-zinc-200 bg-white text-zinc-900'}`}><p className="whitespace-pre-wrap text-sm font-semibold leading-relaxed">{message.body || '[Mensagem sem texto]'}</p><div className={`mt-2 flex items-center justify-end gap-2 text-[9px] font-black uppercase ${outbound ? 'text-white/70' : 'text-zinc-400'}`}><span>{formatDateTime(message.sent_at || message.created_at)}</span><span>{message.status}</span></div></div></div>;
+                        return <div key={message.id} className={`flex ${outbound ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[82%] rounded-2xl px-4 py-3 shadow-sm md:max-w-[72%] ${outbound ? 'rounded-br-md bg-red-600 text-white' : 'rounded-bl-md border border-zinc-200 bg-white text-zinc-900'}`}><WhatsappMediaMessage message={message} outbound={outbound} /><div className={`mt-2 flex items-center justify-end gap-2 text-[9px] font-black uppercase ${outbound ? 'text-white/70' : 'text-zinc-400'}`}><span>{formatDateTime(message.sent_at || message.created_at)}</span><span>{message.status}</span></div></div></div>;
                       })}
                       {!messages.length ? <div className="flex h-full min-h-40 items-center justify-center p-6 text-center"><div><MessageCircle size={36} className="mx-auto text-zinc-300" /><p className="mt-3 text-sm font-black text-zinc-700">Nenhuma mensagem carregada</p><p className="mt-1 text-xs font-bold text-zinc-400">O histórico da conversa aparecerá aqui.</p></div></div> : null}
                     </div>
@@ -446,9 +477,12 @@ export default function StoreWhatsappPage() {
                         <div className="flex flex-col gap-2 border-t border-zinc-200 pt-2 lg:flex-row lg:items-center lg:justify-between">
                           <div className="flex min-w-0 flex-1 flex-col gap-2 xl:flex-row xl:items-center">
                             <p className="px-2 text-[10px] font-bold leading-relaxed text-zinc-400">Janela de 24h: fora dela, a Meta pode exigir template aprovado.</p>
-                            <WhatsappCommerceActions slug={slug} conversationId={selectedId} leadId={pipelineLeadId(selectedConversation)} onRefresh={() => loadData(selectedId)} onStatus={setStatusMessage} />
+                            <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
+                              <WhatsappAttachmentButton conversationId={selectedId} onRefresh={() => loadData(selectedId)} onStatus={setStatusMessage} />
+                              <WhatsappCommerceActions slug={slug} conversationId={selectedId} leadId={pipelineLeadId(selectedConversation)} onRefresh={() => loadData(selectedId)} onStatus={setStatusMessage} />
+                            </div>
                           </div>
-                          <button className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50" type="submit" disabled={sending || !messageText.trim()}><Send size={16} /> {sending ? 'Enviando...' : 'Enviar'}</button>
+                          <button className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50" type="submit" disabled={sending || !messageText.trim() || !channelConnected(selectedConversation)}><Send size={16} /> {sending ? 'Enviando...' : 'Enviar'}</button>
                         </div>
                       </div>
                     </form>

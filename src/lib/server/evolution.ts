@@ -57,18 +57,7 @@ function safeErrorMessage(result: any, status: number) {
   return String(candidate).slice(0, 500);
 }
 
-export async function evolutionRequest(path: string, options: EvolutionRequestOptions = {}) {
-  const response = await fetch(`${evolutionBaseUrl()}${path}`, {
-    method: options.method || 'GET',
-    headers: {
-      apikey: evolutionApiKey(),
-      'Content-Type': 'application/json'
-    },
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(EVOLUTION_TIMEOUT_MS)
-  });
-
+async function parseEvolutionResponse(response: Response) {
   const raw = await response.text();
   let result: any = {};
 
@@ -85,6 +74,35 @@ export async function evolutionRequest(path: string, options: EvolutionRequestOp
   }
 
   return result;
+}
+
+export async function evolutionRequest(path: string, options: EvolutionRequestOptions = {}) {
+  const response = await fetch(`${evolutionBaseUrl()}${path}`, {
+    method: options.method || 'GET',
+    headers: {
+      apikey: evolutionApiKey(),
+      'Content-Type': 'application/json'
+    },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(EVOLUTION_TIMEOUT_MS)
+  });
+
+  return parseEvolutionResponse(response);
+}
+
+export async function evolutionMultipartRequest(path: string, body: FormData) {
+  const response = await fetch(`${evolutionBaseUrl()}${path}`, {
+    method: 'POST',
+    headers: {
+      apikey: evolutionApiKey()
+    },
+    body,
+    cache: 'no-store',
+    signal: AbortSignal.timeout(EVOLUTION_TIMEOUT_MS)
+  });
+
+  return parseEvolutionResponse(response);
 }
 
 export function evolutionInstanceName(scopeKey: string) {
