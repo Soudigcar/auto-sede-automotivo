@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import WhatsappCommerceActions from '@/components/WhatsappCommerceActions';
+import { WhatsappMediaMessage } from '@/components/WhatsappMediaMessage';
 
 const pipelineStages = [
   { key: 'new_lead', label: 'Novo Lead Recebido', secureFlow: false },
@@ -473,7 +474,7 @@ export default function StoreWhatsappPage() {
                       <div className="mx-auto mb-4 w-fit rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase text-zinc-400 shadow-sm">Histórico da conversa</div>
                       {messages.map((message) => {
                         const outbound = message.direction === 'outbound';
-                        return <div key={message.id} className={`flex ${outbound ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[82%] rounded-2xl px-4 py-3 shadow-sm md:max-w-[72%] ${outbound ? 'rounded-br-md bg-red-600 text-white' : 'rounded-bl-md border border-zinc-200 bg-white text-zinc-900'}`}><p className="whitespace-pre-wrap text-sm font-semibold leading-relaxed">{message.body || '[Mensagem sem texto]'}</p><div className={`mt-2 flex items-center justify-end gap-2 text-[9px] font-black uppercase ${outbound ? 'text-white/70' : 'text-zinc-400'}`}><span>{formatDateTime(message.sent_at || message.created_at)}</span><span>{message.status}</span></div></div></div>;
+                        return <div key={message.id} className={`flex ${outbound ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[82%] rounded-2xl px-4 py-3 shadow-sm md:max-w-[72%] ${outbound ? 'rounded-br-md bg-red-600 text-white' : 'rounded-bl-md border border-zinc-200 bg-white text-zinc-900'}`}><WhatsappMediaMessage message={message} outbound={outbound} /><div className={`mt-2 flex items-center justify-end gap-2 text-[9px] font-black uppercase ${outbound ? 'text-white/70' : 'text-zinc-400'}`}><span>{formatDateTime(message.sent_at || message.created_at)}</span><span>{message.status}</span></div></div></div>;
                       })}
                       {!messages.length ? <div className="flex h-full min-h-80 items-center justify-center p-8 text-center"><div><MessageCircle size={42} className="mx-auto text-zinc-300" /><p className="mt-3 text-sm font-black text-zinc-700">Nenhuma mensagem carregada</p><p className="mt-1 text-xs font-bold text-zinc-400">O histórico da conversa aparecerá aqui.</p></div></div> : null}
                     </div>
