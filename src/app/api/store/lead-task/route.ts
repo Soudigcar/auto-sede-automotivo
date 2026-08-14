@@ -9,6 +9,10 @@ const taskLabels: Record<string, string> = {
   request_documents: 'Solicitar documentos',
   confirm_visit: 'Confirmar visita',
   whatsapp_followup: 'Retornar pelo WhatsApp',
+  test_drive: 'Test-Drive',
+  after_sales: 'Pós-venda',
+  birthday: 'Feliz Aniversário',
+  follow_up: 'Follow-up',
   other: 'Outra tarefa'
 };
 
