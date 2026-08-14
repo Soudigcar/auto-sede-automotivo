@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { evolutionDisplayBody } from '@/lib/server/evolutionMessage';
 
 export const runtime = 'nodejs';
 
@@ -67,6 +68,35 @@ function buildMap(rows: any[]) {
   return Object.fromEntries((rows || []).map((row) => [row.id, row]));
 }
 
+function whatsappProvider(number: any) {
+  const configuredProvider = cleanText(number?.settings?.provider).toLowerCase();
+  if (configuredProvider === 'evolution') return 'evolution';
+
+  return cleanText(number?.phone_number_id).toLowerCase().startsWith('evolution:')
+    ? 'evolution'
+    : 'meta_cloud';
+}
+
+function publicWhatsappNumber(number: any, integration: any) {
+  const provider = whatsappProvider(number);
+
+  return {
+    id: number.id,
+    label: number.label,
+    phone_number: number.phone_number,
+    phone_number_id: number.phone_number_id,
+    status: number.status,
+    is_active: number.is_active,
+    provider,
+    integration_status: provider === 'evolution'
+      ? integration?.status || 'disconnected'
+      : number.status,
+    instance_name: provider === 'evolution'
+      ? integration?.instance_name || cleanText(number?.settings?.instance_name) || null
+      : null
+  };
+}
+
 async function getStore(supabase: any, slug: string) {
   const { data, error } = await supabase
     .from('stores')
@@ -123,12 +153,15 @@ export async function GET(request: Request) {
     const leadIds = unique((conversations || []).map((item: any) => item.lead_id));
     const baseLeadIds = unique((conversations || []).map((item: any) => item.base_lead_id));
 
-    const [contactsResponse, numbersResponse, leadsResponse, baseLeadsResponse] = await Promise.all([
+    const [contactsResponse, numbersResponse, integrationsResponse, leadsResponse, baseLeadsResponse] = await Promise.all([
       contactIds.length
         ? supabase.from('whatsapp_contacts').select('*').in('id', contactIds)
         : Promise.resolve({ data: [], error: null }),
       numberIds.length
-        ? supabase.from('whatsapp_numbers').select('id, label, phone_number, phone_number_id, status, is_active').in('id', numberIds)
+        ? supabase.from('whatsapp_numbers').select('id, label, phone_number, phone_number_id, status, is_active, settings').in('id', numberIds)
+        : Promise.resolve({ data: [], error: null }),
+      numberIds.length
+        ? supabase.from('store_whatsapp_integrations').select('crm_number_id, instance_name, status, scope').in('crm_number_id', numberIds).eq('scope', 'store')
         : Promise.resolve({ data: [], error: null }),
       leadIds.length
         ? supabase.from('leads').select('id, customer_name, customer_phone, status, interested_vehicle, origin, scheduled_at, created_at').in('id', leadIds)
@@ -138,14 +171,20 @@ export async function GET(request: Request) {
         : Promise.resolve({ data: [], error: null })
     ]);
 
-    const loadError = contactsResponse.error || numbersResponse.error || leadsResponse.error || baseLeadsResponse.error;
+    const loadError = contactsResponse.error || numbersResponse.error || integrationsResponse.error || leadsResponse.error || baseLeadsResponse.error;
 
     if (loadError) {
       return NextResponse.json({ error: loadError.message }, { status: 400 });
     }
 
     const contactsById = buildMap(contactsResponse.data || []);
-    const numbersById = buildMap(numbersResponse.data || []);
+    const integrationsByNumberId = Object.fromEntries(
+      (integrationsResponse.data || []).map((integration: any) => [integration.crm_number_id, integration])
+    );
+    const publicNumbers = (numbersResponse.data || []).map((number: any) =>
+      publicWhatsappNumber(number, integrationsByNumberId[number.id] || null)
+    );
+    const numbersById = buildMap(publicNumbers);
     const leadsById = buildMap(leadsResponse.data || []);
     const baseLeadsById = buildMap(baseLeadsResponse.data || []);
 
@@ -178,13 +217,10 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: messagesError.message }, { status: 400 });
       }
 
-      messages = messageRows || [];
-
-      await supabase
-        .from('whatsapp_conversations')
-        .update({ unread_count: 0, updated_at: new Date().toISOString() })
-        .eq('id', conversationId)
-        .eq('store_id', store.id);
+      messages = (messageRows || []).map((message: any) => ({
+        ...message,
+        body: evolutionDisplayBody(message.body, message.raw_payload)
+      }));
     }
 
     return NextResponse.json({
