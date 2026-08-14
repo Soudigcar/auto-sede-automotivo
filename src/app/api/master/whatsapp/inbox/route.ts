@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getEvolutionProfilePictureUrl } from '@/lib/server/evolution';
+import { evolutionDisplayBody } from '@/lib/server/evolutionMessage';
 
 export const runtime = 'nodejs';
 
@@ -309,7 +310,10 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: messagesError.message }, { status: 400 });
       }
 
-      messages = messageRows || [];
+      messages = (messageRows || []).map((message: any) => ({
+        ...message,
+        body: evolutionDisplayBody(message.body, message.raw_payload)
+      }));
     }
 
     return NextResponse.json({
