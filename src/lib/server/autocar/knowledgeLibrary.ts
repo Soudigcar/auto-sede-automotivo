@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { createAdminClient } from '@/lib/server/storeTeam';
+import { createClient } from '@supabase/supabase-js';
 import { autocarModelName } from '@/lib/server/autocar/client';
 
 const KNOWLEDGE_BUCKET = 'autocar-knowledge';
@@ -28,6 +28,17 @@ function requiredOpenAiKey() {
   const key = String(process.env.OPENAI_API_KEY || '').trim();
   if (!key) throw new Error('OPENAI_API_KEY não disponível no ambiente de execução.');
   return key;
+}
+
+function createKnowledgeAdminClient() {
+  const url = String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_URL || '').trim();
+  const serviceRoleKey = String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  if (!url || !serviceRoleKey) {
+    throw new Error('AUTOCAR_KNOWLEDGE_SUPABASE não configurado para este ambiente.');
+  }
+  return createClient(url, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
 }
 
 function safeName(value: string) {
@@ -102,8 +113,15 @@ function vectorLiteral(values: number[]) {
   return `[${values.map((value) => Number(value).toFixed(8)).join(',')}]`;
 }
 
+export function autocarKnowledgeConfigured() {
+  return Boolean(
+    String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_URL || '').trim()
+    && String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY || '').trim()
+  );
+}
+
 export async function uploadAndIndexAutocarKnowledge(input: UploadInput) {
-  const supabase: any = createAdminClient();
+  const supabase: any = createKnowledgeAdminClient();
   const file = input.file;
   const mimeType = String(file.type || '').trim().toLowerCase();
   if (!SUPPORTED_MIME_TYPES.has(mimeType)) throw new Error('Formato não suportado. Use PDF, DOCX, TXT, MD ou CSV.');
@@ -137,9 +155,7 @@ export async function uploadAndIndexAutocarKnowledge(input: UploadInput) {
     storage_path: storagePath,
     status: 'processing',
     embedding_model: EMBEDDING_MODEL,
-    metadata: { source: 'portal_upload', model_route: autocarModelName() },
-    created_by: input.userId,
-    updated_by: input.userId
+    metadata: { source: 'portal_upload', model_route: autocarModelName(), actor_profile_id: input.userId }
   }).select('*').single();
 
   if (documentError) {
@@ -185,7 +201,6 @@ export async function uploadAndIndexAutocarKnowledge(input: UploadInput) {
       extracted_characters: extracted.length,
       chunk_count: chunks.length,
       extraction_error: null,
-      updated_by: input.userId,
       updated_at: new Date().toISOString()
     }).eq('id', document.id).select('*').single();
     if (readyError) throw readyError;
@@ -197,7 +212,7 @@ export async function uploadAndIndexAutocarKnowledge(input: UploadInput) {
 }
 
 export async function listAutocarKnowledge(storeId: string) {
-  const supabase: any = createAdminClient();
+  const supabase: any = createKnowledgeAdminClient();
   const { data, error } = await supabase.from('ai_knowledge_documents')
     .select('id,scope,store_id,title,original_filename,mime_type,file_size_bytes,status,extracted_characters,chunk_count,embedding_model,extraction_error,created_at,updated_at')
     .or(`scope.eq.method,and(scope.eq.store,store_id.eq.${storeId})`)
@@ -208,7 +223,7 @@ export async function listAutocarKnowledge(storeId: string) {
 }
 
 export async function archiveAutocarKnowledge(documentId: string, storeId: string, isMaster: boolean) {
-  const supabase: any = createAdminClient();
+  const supabase: any = createKnowledgeAdminClient();
   const { data: document, error } = await supabase.from('ai_knowledge_documents').select('id,scope,store_id').eq('id', documentId).maybeSingle();
   if (error) throw error;
   if (!document) throw new Error('Documento não encontrado.');
@@ -222,7 +237,7 @@ export async function searchAutocarKnowledge(storeId: string, query: string, mat
   const clean = normalizeText(query).slice(0, 4000);
   if (!clean) return [];
   const [embedding] = await embedBatch([clean]);
-  const supabase: any = createAdminClient();
+  const supabase: any = createKnowledgeAdminClient();
   const { data, error } = await supabase.rpc('match_autocar_knowledge', { p_store_id: storeId, p_query_embedding: vectorLiteral(embedding), p_match_count: matchCount });
   if (error) throw error;
   return data || [];
