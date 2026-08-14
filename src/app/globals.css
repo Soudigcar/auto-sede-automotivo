@@ -161,6 +161,40 @@ textarea {
   color: var(--app-muted);
 }
 
+/* Correção restrita aos controles compactos da seção Filtros em /master/base. */
+body:has(input[placeholder='Nome, telefone, CPF...']) input[placeholder='Nome, telefone, CPF...'],
+body:has(input[placeholder='Nome, telefone, CPF...']) input[placeholder='Nome, telefone, CPF...'] ~ *,
+body:has(input[placeholder='Nome, telefone, CPF...']) select.h-8.min-h-8,
+body:has(input[placeholder='Nome, telefone, CPF...']) input[type='date'].h-8.min-h-8 {
+  line-height: 1.25rem;
+}
+
+body:has(input[placeholder='Nome, telefone, CPF...']) input[placeholder='Nome, telefone, CPF...'],
+body:has(input[placeholder='Nome, telefone, CPF...']) select.h-8.min-h-8,
+body:has(input[placeholder='Nome, telefone, CPF...']) input[type='date'].h-8.min-h-8 {
+  height: 2.25rem !important;
+  min-height: 2.25rem !important;
+  padding-top: 0.4rem !important;
+  padding-bottom: 0.4rem !important;
+}
+
+body:has(input[placeholder='Nome, telefone, CPF...']) input[placeholder='Nome, telefone, CPF...'] {
+  padding-left: 2.25rem !important;
+}
+
+body:has(input[placeholder='Nome, telefone, CPF...']) select.h-8.min-h-8 {
+  padding-right: 2rem !important;
+}
+
+body:has(input[placeholder='Nome, telefone, CPF...']) [class*='[&_select]:h-8'] select {
+  height: 2.25rem !important;
+  min-height: 2.25rem !important;
+  line-height: 1.25rem !important;
+  padding-top: 0.4rem !important;
+  padding-bottom: 0.4rem !important;
+  padding-right: 2rem !important;
+}
+
 /* Portal da loja: o tema fica restrito ao shell e é persistido no navegador. */
 .store-portal-theme {
   --store-canvas: #F4F6FA;
