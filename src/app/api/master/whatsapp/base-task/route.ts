@@ -83,16 +83,32 @@ export async function POST(request: Request) {
 
     if (baseLead.assigned_store_id) {
       const searchStart = new Date(startsAt.getTime() - 60 * 60 * 1000);
-      const { data: existingTasks, error: tasksError } = await supabase
-        .from('store_calendar_tasks')
-        .select('id,title,starts_at,ends_at,status')
-        .eq('store_id', baseLead.assigned_store_id)
-        .gte('starts_at', searchStart.toISOString())
-        .lt('starts_at', endsAt.toISOString());
+      const [leadAppointmentsResult, tasksResult] = await Promise.all([
+        supabase
+          .from('leads')
+          .select('id,customer_name,scheduled_at')
+          .eq('assigned_store_id', baseLead.assigned_store_id)
+          .not('scheduled_at', 'is', null)
+          .gte('scheduled_at', searchStart.toISOString())
+          .lt('scheduled_at', endsAt.toISOString()),
+        supabase
+          .from('store_calendar_tasks')
+          .select('id,title,starts_at,ends_at,status')
+          .eq('store_id', baseLead.assigned_store_id)
+          .gte('starts_at', searchStart.toISOString())
+          .lt('starts_at', endsAt.toISOString())
+      ]);
 
-      if (tasksError) throw tasksError;
+      if (leadAppointmentsResult.error) throw leadAppointmentsResult.error;
+      if (tasksResult.error) throw tasksResult.error;
 
-      const conflict = (existingTasks || []).find((item: any) => {
+      const leadConflict = (leadAppointmentsResult.data || []).find((item: any) => {
+        const existingStart = new Date(item.scheduled_at);
+        const existingEnd = new Date(existingStart.getTime() + 60 * 60 * 1000);
+        return overlaps(startsAt, endsAt, existingStart, existingEnd);
+      });
+
+      const taskConflict = (tasksResult.data || []).find((item: any) => {
         if (['completed', 'cancelled', 'done'].includes(String(item.status || '').toLowerCase())) return false;
         const existingStart = new Date(item.starts_at);
         const existingEnd = item.ends_at
@@ -101,9 +117,11 @@ export async function POST(request: Request) {
         return overlaps(startsAt, endsAt, existingStart, existingEnd);
       });
 
-      if (conflict) {
+      if (leadConflict || taskConflict) {
+        const conflictTitle = leadConflict?.customer_name || taskConflict?.title || 'Outro compromisso';
+        const conflictTime = leadConflict?.scheduled_at || taskConflict?.starts_at;
         return NextResponse.json(
-          { error: `Horário ocupado por “${conflict.title || 'Outro compromisso'}” em ${formatConflictDate(conflict.starts_at)}. Escolha outro horário.` },
+          { error: `Horário ocupado por “${conflictTitle}” em ${formatConflictDate(conflictTime)}. Escolha outro horário.` },
           { status: 409 }
         );
       }
