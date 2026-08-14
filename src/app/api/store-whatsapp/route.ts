@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -48,7 +49,7 @@ async function getProfile(supabase: any, token: string) {
     profile = byEmail;
   }
 
-  if (!profile || profile.status !== 'active') return null;
+  if (!profile || profile.status !== 'active' || !asStorePortalRole(profile.role)) return null;
 
   return profile;
 }
@@ -57,6 +58,14 @@ function canAccessStore(profile: any, store: any) {
   if (!profile || !store) return false;
   if (profile.role === 'master') return true;
   return Boolean(profile.store_id && profile.store_id === store.id);
+}
+
+function canAccessConversation(profile: any, store: any, conversation: any, lead: any) {
+  const role = asStorePortalRole(profile?.role);
+  if (!role || !canAccessStore(profile, store)) return false;
+  if (role === 'master' || role === 'store') return true;
+  if (!lead || conversation?.lead_id !== lead.id) return false;
+  return canAccessStoreLead(profile, role, lead);
 }
 
 function unique(values: Array<string | null | undefined>) {
@@ -107,7 +116,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Loja não encontrada ou sem permissão.' }, { status: 404 });
     }
 
-    const { data: conversations, error: conversationsError } = await supabase
+    const { data: storeConversations, error: conversationsError } = await supabase
       .from('whatsapp_conversations')
       .select('*')
       .eq('store_id', store.id)
@@ -118,10 +127,27 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: conversationsError.message }, { status: 400 });
     }
 
-    const contactIds = unique((conversations || []).map((item: any) => item.contact_id));
-    const numberIds = unique((conversations || []).map((item: any) => item.whatsapp_number_id));
-    const leadIds = unique((conversations || []).map((item: any) => item.lead_id));
-    const baseLeadIds = unique((conversations || []).map((item: any) => item.base_lead_id));
+    const allLeadIds = unique((storeConversations || []).map((item: any) => item.lead_id));
+    const { data: accessLeads, error: accessLeadsError } = allLeadIds.length
+      ? await supabase
+          .from('leads')
+          .select('id, assigned_store_id, assigned_user_id')
+          .in('id', allLeadIds)
+      : { data: [], error: null };
+
+    if (accessLeadsError) {
+      return NextResponse.json({ error: accessLeadsError.message }, { status: 400 });
+    }
+
+    const accessLeadsById = buildMap(accessLeads || []);
+    const conversations = (storeConversations || []).filter((conversation: any) =>
+      canAccessConversation(profile, store, conversation, accessLeadsById[conversation.lead_id])
+    );
+
+    const contactIds = unique(conversations.map((item: any) => item.contact_id));
+    const numberIds = unique(conversations.map((item: any) => item.whatsapp_number_id));
+    const leadIds = unique(conversations.map((item: any) => item.lead_id));
+    const baseLeadIds = unique(conversations.map((item: any) => item.base_lead_id));
 
     const [contactsResponse, numbersResponse, leadsResponse, baseLeadsResponse] = await Promise.all([
       contactIds.length
@@ -149,7 +175,7 @@ export async function GET(request: Request) {
     const leadsById = buildMap(leadsResponse.data || []);
     const baseLeadsById = buildMap(baseLeadsResponse.data || []);
 
-    const enrichedConversations = (conversations || []).map((conversation: any) => ({
+    const enrichedConversations = conversations.map((conversation: any) => ({
       ...conversation,
       contact: contactsById[conversation.contact_id] || null,
       number: numbersById[conversation.whatsapp_number_id] || null,
@@ -231,6 +257,32 @@ export async function POST(request: Request) {
 
     if (!store || !canAccessStore(profile, store)) {
       return NextResponse.json({ error: 'Loja não encontrada ou sem permissão.' }, { status: 404 });
+    }
+
+    const { data: conversation, error: conversationError } = await supabase
+      .from('whatsapp_conversations')
+      .select('id, store_id, lead_id')
+      .eq('id', conversationId)
+      .eq('store_id', store.id)
+      .maybeSingle();
+
+    if (conversationError) {
+      return NextResponse.json({ error: conversationError.message }, { status: 400 });
+    }
+
+    let lead: any = null;
+    if (conversation?.lead_id) {
+      const { data, error } = await supabase
+        .from('leads')
+        .select('id, assigned_store_id, assigned_user_id')
+        .eq('id', conversation.lead_id)
+        .maybeSingle();
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      lead = data;
+    }
+
+    if (!conversation || !canAccessConversation(profile, store, conversation, lead)) {
+      return NextResponse.json({ error: 'Conversa não encontrada nesta loja.' }, { status: 404 });
     }
 
     if (action === 'mark-read') {

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendEvolutionText } from '@/lib/server/evolution';
+import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -49,15 +50,19 @@ async function getProfile(supabase: any, token: string) {
     profile = byEmail;
   }
 
-  if (!profile || profile.status !== 'active') return null;
+  if (!profile || profile.status !== 'active' || !asStorePortalRole(profile.role)) return null;
 
   return profile;
 }
 
-function canAccessConversation(profile: any, conversation: any) {
-  if (!profile || !conversation) return false;
-  if (profile.role === 'master') return true;
-  return profile.store_id && profile.store_id === conversation.store_id;
+function canAccessConversation(profile: any, conversation: any, lead: any) {
+  const role = asStorePortalRole(profile?.role);
+  if (!role || !profile || !conversation) return false;
+  if (role === 'master') return true;
+  if (!profile.store_id || profile.store_id !== conversation.store_id) return false;
+  if (role === 'store') return true;
+  if (!lead || conversation.lead_id !== lead.id) return false;
+  return canAccessStoreLead(profile, role, lead);
 }
 
 function normalizePhone(value: unknown) {
@@ -98,7 +103,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: conversationError.message }, { status: 400 });
     }
 
-    if (!conversation || !canAccessConversation(profile, conversation)) {
+    let lead: any = null;
+    if (conversation?.lead_id) {
+      const { data, error } = await supabase
+        .from('leads')
+        .select('id, assigned_store_id, assigned_user_id')
+        .eq('id', conversation.lead_id)
+        .maybeSingle();
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+      lead = data;
+    }
+
+    if (!conversation || !canAccessConversation(profile, conversation, lead)) {
       return NextResponse.json({ error: 'Conversa não encontrada ou sem permissão.' }, { status: 404 });
     }
 
