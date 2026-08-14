@@ -29,7 +29,7 @@ export async function GET() {
 
     const { data, error } = await supabase
       .from('portal_settings')
-      .select('key,published')
+      .select('key,is_published')
       .eq('key', 'official')
       .maybeSingle();
 
@@ -38,7 +38,7 @@ export async function GET() {
     return NextResponse.json({
       status: 'ok',
       service: 'auto-sede-automotivo',
-      checks: { database: 'ok', portal_settings: data.published ? 'published' : 'draft' },
+      checks: { database: 'ok', portal_settings: data.is_published ? 'published' : 'draft' },
       commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) || null,
       timestamp: new Date().toISOString(),
       response_ms: Date.now() - startedAt
