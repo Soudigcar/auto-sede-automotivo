@@ -185,7 +185,7 @@ export async function POST(request: Request) {
       await incrementUsage(supabase, context.link);
 
       const loginUrl = `/login?redirectedFrom=${encodeURIComponent(`/loja/${store.slug}`)}`;
-      return NextResponse.json({ success: true, existing_store: true, store_slug: store.slug, login_url: loginUrl });
+      return NextResponse.json({ success: true, existing_store: true, event_name: context.event.event_name, store_slug: store.slug, login_url: loginUrl });
     }
 
     const slug = await buildUniqueStoreSlug(supabase, storeName);
@@ -194,7 +194,7 @@ export async function POST(request: Request) {
     createdAuthUserId = authUser.user.id;
 
     const { data: store, error: storeError } = await supabase.from('stores').insert({
-      event_id: context.event.id,
+      event_id: null,
       store_name: storeName,
       slug,
       portal_enabled: true,
@@ -204,11 +204,6 @@ export async function POST(request: Request) {
       website_url: websiteUrl || null,
       registration_source: 'self_registration',
       self_registration_completed_at: new Date().toISOString(),
-      event_name_snapshot: context.event.event_name || null,
-      event_start_date_snapshot: context.event.start_date || null,
-      event_end_date_snapshot: context.event.end_date || null,
-      event_state_snapshot: context.event.state || null,
-      event_city_snapshot: context.event.city || null,
       status: 'active'
     }).select('*').single();
 
@@ -230,7 +225,7 @@ export async function POST(request: Request) {
     await incrementUsage(supabase, context.link);
 
     const loginUrl = `/login?redirectedFrom=${encodeURIComponent(`/loja/${store.slug}`)}`;
-    return NextResponse.json({ success: true, existing_store: false, store_slug: store.slug, login_url: loginUrl });
+    return NextResponse.json({ success: true, existing_store: false, event_name: context.event.event_name, store_slug: store.slug, login_url: loginUrl });
   } catch (error: any) {
     const supabase = getAdminClient();
     if (createdStoreId) await supabase.from('stores').update({ status: 'deleted', portal_enabled: false }).eq('id', createdStoreId);
