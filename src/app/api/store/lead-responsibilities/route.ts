@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
+import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -36,13 +37,8 @@ async function getContext(request: Request) {
 }
 
 function canAccessLead(profile: any, lead: any) {
-  if (profile.role === 'master') return true;
-  if (!profile.store_id || profile.store_id !== lead.assigned_store_id) return false;
-  if (profile.role === 'store') return true;
-  if (profile.role === 'pre_sales') return lead.pre_sales_user_id === profile.id || lead.assigned_user_id === profile.id;
-  if (profile.role === 'seller') return lead.seller_user_id === profile.id || lead.assigned_user_id === profile.id;
-  if (profile.role === 'prospector') return lead.captured_by_user_id === profile.id || lead.assigned_user_id === profile.id;
-  return false;
+  const role = asStorePortalRole(profile?.role);
+  return Boolean(role && canAccessStoreLead(profile, role, lead));
 }
 
 async function loadUsers(supabase: any, ids: Array<string | null | undefined>) {
