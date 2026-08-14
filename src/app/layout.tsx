@@ -11,6 +11,7 @@ import { StorePipelineAuraTheme } from '@/components/StorePipelineAuraTheme';
 import { StorePipelineCockpitUx } from '@/components/StorePipelineCockpitUx';
 import { StorePipelineResponsibleTopbar } from '@/components/StorePipelineResponsibleTopbar';
 import { StorePipelineSidebarToggle } from '@/components/StorePipelineSidebarToggle';
+import { StorePipelineNewLeadButton } from '@/components/StorePipelineNewLeadButton';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.autosede.com.br'),
@@ -32,6 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StorePipelineCockpitUx />
         <StorePipelineResponsibleTopbar />
         <StorePipelineSidebarToggle />
+        <StorePipelineNewLeadButton />
       </body>
     </html>
   );
