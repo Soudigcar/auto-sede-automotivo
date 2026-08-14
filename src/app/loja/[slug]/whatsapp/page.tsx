@@ -108,6 +108,38 @@ function pipelineStageValue(conversation: any) {
   return String(conversation?.lead?.status || '').trim();
 }
 
+function conversationPriority(conversation: any) {
+  const metadata = conversation?.metadata || {};
+  const value = String(metadata?.priority || metadata?.urgency || '').trim().toLowerCase();
+  const tags = Array.isArray(metadata?.tags)
+    ? metadata.tags.map((tag: any) => String(tag || '').trim().toLowerCase())
+    : [];
+
+  if (['urgent', 'urgente', 'critical', 'critico', 'crítico'].includes(value) || tags.some((tag: string) => ['urgent', 'urgente', 'critical'].includes(tag))) return 'urgent';
+  if (['priority', 'prioridade', 'high', 'alta'].includes(value) || tags.some((tag: string) => ['priority', 'prioridade', 'high'].includes(tag))) return 'priority';
+  return '';
+}
+
+function isEvolutionConversation(conversation: any) {
+  return conversation?.number?.provider === 'evolution';
+}
+
+function channelConnected(conversation: any) {
+  if (isEvolutionConversation(conversation)) return conversation?.number?.integration_status === 'connected';
+  return Boolean(conversation?.number?.is_active);
+}
+
+function channelStatus(conversation: any) {
+  if (isEvolutionConversation(conversation)) {
+    const status = String(conversation?.number?.integration_status || '').toLowerCase();
+    if (status === 'connected') return 'Evolution conectada';
+    if (status === 'qrcode') return 'Aguardando QR Code';
+    if (status === 'connecting') return 'Evolution conectando';
+    return 'Evolution desconectada';
+  }
+  return conversation?.number?.is_active ? 'WhatsApp ativo' : 'WhatsApp desconectado';
+}
+
 export default function StoreWhatsappPage() {
   const supabase = createClient();
   const params = useParams();
@@ -282,7 +314,7 @@ export default function StoreWhatsappPage() {
       if (!matchesSearch) return false;
       if (filter === 'unread') return Number(conversation.unread_count || 0) > 0;
       if (filter === 'leads') return Boolean(conversation.lead_id || conversation.base_lead_id);
-      if (filter === 'priority') return Number(conversation.unread_count || 0) > 0 || conversation.status === 'open';
+      if (filter === 'priority') return Boolean(conversationPriority(conversation));
       return true;
     });
   }, [conversations, filter, searchTerm]);
@@ -417,7 +449,7 @@ export default function StoreWhatsappPage() {
                               <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold text-zinc-400"><span>{selectedConversation.lead?.origin || selectedConversation.base_lead?.source || 'WhatsApp'}</span><span>•</span><span>{store?.store_name || 'Loja'}</span><span>•</span><span>{pipelineLeadId(selectedConversation) ? leadStatusLabel(pipelineStageValue(selectedConversation)) : 'Sem etapa na Pipeline'}</span></div>
                             </div>
                           </button>
-                          <span className="inline-flex w-fit shrink-0 items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2.5 text-[10px] font-black uppercase text-emerald-700"><MessageCircle size={14} /> WhatsApp conectado</span>
+                          <span className={`inline-flex w-fit shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-[10px] font-black uppercase ${channelConnected(selectedConversation) ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`}><MessageCircle size={14} /> {channelStatus(selectedConversation)}</span>
                         </div>
 
                         <div className="flex items-center gap-2 overflow-x-auto border-t border-zinc-100 pt-2.5">
