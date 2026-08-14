@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Bot, BrainCircuit, CheckCircle2, Database, Eye, KeyRound, Loader2, LockKeyhole, ShieldCheck, Sparkles, Wrench, XCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { useStorePortal } from '@/components/StorePortalShell';
+import { AutocarIntelligenceCenter } from '@/components/AutocarIntelligenceCenter';
 
 type FoundationStatus = {
   phase: string;
@@ -66,15 +67,15 @@ export default function AutocarFoundationPage() {
       <div className="premium-canvas min-w-0 p-4 md:p-7">
         <header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <div className="flex items-center gap-2 text-red-600"><Sparkles size={18} /><span className="premium-eyebrow">I.A comercial por loja</span></div>
+            <div className="flex items-center gap-2 text-red-600"><Sparkles size={18} /><span className="premium-eyebrow">Agente comercial automotivo por loja</span></div>
             <h1 className="premium-title mt-2 text-4xl md:text-5xl">I.A AUTOCAR</h1>
             <p className="premium-muted mt-3 max-w-3xl text-sm">
-              Fundação técnica da agente comercial automotiva. Nesta fase o módulo permanece desligado, sem responder clientes, sem executar ações comerciais e sem alterar o webhook atual.
+              Central para ensinar a AUTOCAR a vender pelo Método Venda Mais, respeitando o contexto, as regras e o conhecimento exclusivo de cada loja.
             </p>
           </div>
           <div className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
-            <span className="h-3 w-3 rounded-full bg-zinc-400" />
-            <div><p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-400">Modo de execução</p><p className="text-sm font-black text-zinc-900">OFF · Fundação V1</p></div>
+            <span className="h-3 w-3 rounded-full bg-amber-400" />
+            <div><p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-400">Modo atual</p><p className="text-sm font-black text-zinc-900">COPILOT · Preview</p></div>
           </div>
         </header>
 
@@ -84,11 +85,17 @@ export default function AutocarFoundationPage() {
           </div>
         ) : null}
 
+        <AutocarIntelligenceCenter
+          storeName={status?.store_scope.store_name || portal.store.store_name}
+          slug={portal.store.slug}
+          canManage={Boolean(status?.permissions.manage)}
+        />
+
         <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatusCard icon={<Bot size={21} />} label="Atendimento automático" value={status?.automatic_replies_enabled ? 'Ativo' : 'Desligado'} ok={!status?.automatic_replies_enabled} helper="Nenhuma mensagem automática nesta fase." />
+          <StatusCard icon={<Bot size={21} />} label="Atendimento automático" value={status?.automatic_replies_enabled ? 'Ativo' : 'Desligado'} ok={!status?.automatic_replies_enabled} helper="Nenhuma mensagem é enviada automaticamente nesta fase." />
           <StatusCard icon={<KeyRound size={21} />} label="OpenAI server-side" value={status?.openai.configured ? 'Configurada' : 'Não detectada'} ok={Boolean(status?.openai.configured)} helper={status?.openai.configured ? 'A chave permanece privada no servidor.' : 'OPENAI_API_KEY precisa existir no ambiente Preview.'} />
-          <StatusCard icon={<Database size={21} />} label="Banco AUTOCAR" value="Somente versionado" ok helper="Migration criada, mas não aplicada ao Supabase Production." />
-          <StatusCard icon={<ShieldCheck size={21} />} label="Webhook Evolution" value={status?.webhook_hooked ? 'Integrado' : 'Intocado'} ok={!status?.webhook_hooked} helper="Fluxo WhatsApp atual não foi modificado." />
+          <StatusCard icon={<Database size={21} />} label="Banco AUTOCAR" value="Somente versionado" ok helper="Migration criada, mas ainda não aplicada ao Supabase Production." />
+          <StatusCard icon={<ShieldCheck size={21} />} label="Segurança" value="Hard Policy ativa" ok helper="Regras globais continuam acima das configurações da loja." />
         </section>
 
         <section className="mt-6 grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
@@ -100,8 +107,8 @@ export default function AutocarFoundationPage() {
             <p className="mt-3 text-sm leading-6 text-zinc-600">As ferramentas da AUTOCAR não recebem <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-bold">store_id</code>. O contexto nasce da conversa WhatsApp e o backend reaplica a loja em toda consulta.</p>
             <div className="mt-5 grid gap-3 md:grid-cols-3">
               <SecurityPoint title="Contexto" text="Conversa, integração, lead e mensagem são validados contra a mesma loja." />
-              <SecurityPoint title="Tools" text="Nenhuma ferramenta expõe um parâmetro para o modelo escolher outra loja." />
-              <SecurityPoint title="Banco" text="A migration inclui validação cruzada antes de inserir memória, runs, eventos e aprovações." />
+              <SecurityPoint title="Venda Mais" text="Método oficial herdado; a loja adiciona contexto sem remover regras essenciais." />
+              <SecurityPoint title="Conhecimento" text="Informações comerciais e políticas permanecem isoladas por loja." />
             </div>
           </div>
 
@@ -116,42 +123,45 @@ export default function AutocarFoundationPage() {
           </div>
         </section>
 
-        <section className="mt-6 grid gap-5 xl:grid-cols-2">
-          <div className="premium-card p-5 md:p-6">
-            <p className="premium-eyebrow">Fundação de dados</p>
-            <h2 className="mt-2 flex items-center gap-2 text-xl font-black text-zinc-950"><Database size={20} className="text-red-600" /> 7 estruturas versionadas</h2>
-            <div className="mt-5 grid gap-2 sm:grid-cols-2">
-              {foundationTables.map((table) => <div key={table} className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs font-bold text-zinc-700"><CheckCircle2 size={15} className="shrink-0 text-emerald-600" />{table}</div>)}
+        <details className="mt-6 rounded-3xl border border-zinc-200 bg-white p-5 md:p-6">
+          <summary className="cursor-pointer list-none text-sm font-black text-zinc-900">Detalhes técnicos da fundação AUTOCAR</summary>
+          <section className="mt-5 grid gap-5 xl:grid-cols-2">
+            <div className="rounded-2xl border border-zinc-200 p-5">
+              <p className="premium-eyebrow">Fundação de dados</p>
+              <h2 className="mt-2 flex items-center gap-2 text-xl font-black text-zinc-950"><Database size={20} className="text-red-600" /> 7 estruturas versionadas</h2>
+              <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                {foundationTables.map((table) => <div key={table} className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs font-bold text-zinc-700"><CheckCircle2 size={15} className="shrink-0 text-emerald-600" />{table}</div>)}
+              </div>
             </div>
-          </div>
 
-          <div className="premium-card p-5 md:p-6">
-            <p className="premium-eyebrow">Tools de leitura</p>
-            <h2 className="mt-2 flex items-center gap-2 text-xl font-black text-zinc-950"><Wrench size={20} className="text-red-600" /> Registry inicial</h2>
-            <div className="mt-5 max-h-80 space-y-2 overflow-auto pr-1">
-              {(status?.read_tools || []).map((tool) => (
-                <div key={tool.name} className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 px-3 py-2.5">
-                  <div className="min-w-0"><p className="truncate text-xs font-black text-zinc-800">{tool.name}</p><p className="mt-0.5 text-[10px] font-bold uppercase text-zinc-400">{tool.capability}</p></div>
-                  <span className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[9px] font-black uppercase ${tool.accepts_store_id ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>{tool.accepts_store_id ? <XCircle size={11} /> : <CheckCircle2 size={11} />}{tool.accepts_store_id ? 'store_id exposto' : 'sem store_id'}</span>
+            <div className="rounded-2xl border border-zinc-200 p-5">
+              <p className="premium-eyebrow">Tools de leitura</p>
+              <h2 className="mt-2 flex items-center gap-2 text-xl font-black text-zinc-950"><Wrench size={20} className="text-red-600" /> Registry inicial</h2>
+              <div className="mt-5 max-h-80 space-y-2 overflow-auto pr-1">
+                {(status?.read_tools || []).map((tool) => (
+                  <div key={tool.name} className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 px-3 py-2.5">
+                    <div className="min-w-0"><p className="truncate text-xs font-black text-zinc-800">{tool.name}</p><p className="mt-0.5 text-[10px] font-bold uppercase text-zinc-400">{tool.capability}</p></div>
+                    <span className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[9px] font-black uppercase ${tool.accepts_store_id ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>{tool.accepts_store_id ? <XCircle size={11} /> : <CheckCircle2 size={11} />}{tool.accepts_store_id ? 'store_id exposto' : 'sem store_id'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section className="mt-5 rounded-2xl border border-zinc-200 p-5">
+            <p className="premium-eyebrow">Global Hard Policy</p>
+            <h2 className="mt-2 flex items-center gap-2 text-xl font-black text-zinc-950"><BrainCircuit size={20} className="text-red-600" /> Limites que a loja não pode ultrapassar</h2>
+            <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              {Object.entries(status?.hard_policy_examples || {}).map(([key, decision]) => (
+                <div key={key} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <p className="break-words text-[10px] font-black uppercase tracking-wide text-zinc-500">{key}</p>
+                  <div className="mt-2 flex items-center gap-1.5"><Eye size={14} className="text-red-600" /><strong className="text-sm uppercase text-zinc-900">{decision.effect}</strong></div>
+                  <p className="mt-2 text-xs leading-5 text-zinc-500">{decision.reason}</p>
                 </div>
               ))}
             </div>
-          </div>
-        </section>
-
-        <section className="mt-6 premium-card p-5 md:p-6">
-          <p className="premium-eyebrow">Global Hard Policy</p>
-          <h2 className="mt-2 flex items-center gap-2 text-xl font-black text-zinc-950"><BrainCircuit size={20} className="text-red-600" /> Limites que a loja não pode ultrapassar</h2>
-          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            {Object.entries(status?.hard_policy_examples || {}).map(([key, decision]) => (
-              <div key={key} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <p className="break-words text-[10px] font-black uppercase tracking-wide text-zinc-500">{key}</p>
-                <div className="mt-2 flex items-center gap-1.5"><Eye size={14} className="text-red-600" /><strong className="text-sm uppercase text-zinc-900">{decision.effect}</strong></div>
-                <p className="mt-2 text-xs leading-5 text-zinc-500">{decision.reason}</p>
-              </div>
-            ))}
-          </div>
-        </section>
+          </section>
+        </details>
       </div>
     </main>
   );
