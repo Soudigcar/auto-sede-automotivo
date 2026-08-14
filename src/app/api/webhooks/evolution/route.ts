@@ -41,6 +41,13 @@ function messageDate(value: unknown) {
   return new Date(seconds > 10_000_000_000 ? seconds : seconds * 1_000).toISOString();
 }
 
+function scopedEvolutionMessageId(whatsappNumberId: unknown, providerMessageId: unknown) {
+  const numberId = cleanText(whatsappNumberId, 120);
+  const rawMessageId = cleanText(providerMessageId, 250);
+  if (!rawMessageId) return '';
+  return numberId ? `evolution:${numberId}:${rawMessageId}` : `evolution:${rawMessageId}`;
+}
+
 async function ensureCrmNumber(supabase: any, integration: any) {
   if (integration.crm_number_id) {
     const { data, error } = await supabase
@@ -289,20 +296,24 @@ async function processMessage(supabase: any, integration: any, data: any) {
   const phone = normalizePhone(remoteJid);
   if (phone.length < 8) return { skipped: true, reason: 'Mensagem sem telefone resolvido.' };
 
-  const { data: duplicate, error: duplicateError } = await supabase
-    .from('whatsapp_messages')
-    .select('id')
-    .eq('wa_message_id', messageId)
-    .maybeSingle();
-
-  if (duplicateError) throw duplicateError;
-  if (duplicate) return { skipped: true, reason: 'Mensagem já registrada.' };
-
   const fromMe = key.fromMe === true;
   const body = evolutionMessageContent(data);
   const sentAt = messageDate(data?.messageTimestamp);
   const profileName = fromMe ? phone : cleanText(data?.pushName, 180) || phone;
   const number = await ensureCrmNumber(supabase, integration);
+  const scopedMessageId = scopedEvolutionMessageId(number.id, messageId);
+
+  const { data: duplicate, error: duplicateError } = await supabase
+    .from('whatsapp_messages')
+    .select('id')
+    .eq('whatsapp_number_id', number.id)
+    .in('wa_message_id', [messageId, scopedMessageId])
+    .limit(1)
+    .maybeSingle();
+
+  if (duplicateError) throw duplicateError;
+  if (duplicate) return { skipped: true, reason: 'Mensagem já registrada neste canal.' };
+
   const { leadId, baseLeadId } = await findOrCreateLead(supabase, integration, profileName, phone, body);
 
   const { data: contact, error: contactError } = await supabase
@@ -332,35 +343,21 @@ async function processMessage(supabase: any, integration: any, data: any) {
 
   if (conversationReadError) throw conversationReadError;
 
-  const conversationPayload = {
-    store_id: integration.store_id,
-    whatsapp_number_id: number.id,
-    contact_id: contact.id,
-    lead_id: leadId,
-    base_lead_id: baseLeadId,
-    status: 'open',
-    last_message: body,
-    last_message_at: sentAt,
-    unread_count: fromMe ? (existingConversation?.unread_count || 0) : (existingConversation?.unread_count || 0) + 1,
-    metadata: { provider: 'evolution', profile_name: profileName, phone },
-    updated_at: new Date().toISOString()
-  };
-
   let conversation = existingConversation;
 
-  if (conversation) {
-    const { data: updated, error } = await supabase
-      .from('whatsapp_conversations')
-      .update(conversationPayload)
-      .eq('id', conversation.id)
-      .select('*')
-      .single();
-    if (error) throw error;
-    conversation = updated;
-  } else {
+  if (!conversation) {
     const { data: created, error } = await supabase
       .from('whatsapp_conversations')
-      .insert(conversationPayload)
+      .insert({
+        store_id: integration.store_id,
+        whatsapp_number_id: number.id,
+        contact_id: contact.id,
+        lead_id: leadId,
+        base_lead_id: baseLeadId,
+        status: 'open',
+        unread_count: 0,
+        metadata: { provider: 'evolution', profile_name: profileName, phone }
+      })
       .select('*')
       .single();
     if (error) throw error;
@@ -376,7 +373,7 @@ async function processMessage(supabase: any, integration: any, data: any) {
       contact_id: contact.id,
       lead_id: leadId,
       base_lead_id: baseLeadId,
-      wa_message_id: messageId,
+      wa_message_id: scopedMessageId,
       direction: fromMe ? 'outbound' : 'inbound',
       message_type: evolutionMessageType(data),
       body,
@@ -388,6 +385,22 @@ async function processMessage(supabase: any, integration: any, data: any) {
     .single();
 
   if (messageError) throw messageError;
+
+  const { error: conversationUpdateError } = await supabase
+    .from('whatsapp_conversations')
+    .update({
+      lead_id: leadId,
+      base_lead_id: baseLeadId,
+      status: 'open',
+      last_message: body,
+      last_message_at: sentAt,
+      unread_count: fromMe ? (conversation.unread_count || 0) : (conversation.unread_count || 0) + 1,
+      metadata: { provider: 'evolution', profile_name: profileName, phone },
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', conversation.id);
+
+  if (conversationUpdateError) throw conversationUpdateError;
   return { success: true, message_id: savedMessage.id, direction: fromMe ? 'outbound' : 'inbound' };
 }
 
