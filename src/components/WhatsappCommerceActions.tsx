@@ -46,6 +46,168 @@ function priceLabel(value?: number | null) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(value);
 }
 
+function compactConversationQueue(root: HTMLElement) {
+  const queue = Array.from(root.querySelectorAll('aside')).find((item) => item.textContent?.includes('Fila de atendimento')) as HTMLElement | undefined;
+  if (!queue) return;
+
+  const header = queue.firstElementChild as HTMLElement | null;
+  if (header) {
+    header.style.padding = '9px 10px';
+    const heading = Array.from(header.querySelectorAll('h2')).find((item) => item.textContent?.trim() === 'Conversas') as HTMLElement | undefined;
+    if (heading) {
+      heading.style.fontSize = '16px';
+      heading.style.marginTop = '1px';
+    }
+    const tabs = Array.from(header.querySelectorAll('div')).find((item) => item.textContent?.includes('Todas') && item.textContent?.includes('Prioridade') && item.textContent?.includes('Leads')) as HTMLElement | undefined;
+    if (tabs) {
+      tabs.style.marginTop = '7px';
+      tabs.style.borderRadius = '12px';
+      tabs.querySelectorAll('button').forEach((button) => {
+        const el = button as HTMLElement;
+        el.style.padding = '6px 9px';
+        el.style.fontSize = '9px';
+      });
+    }
+    const search = header.querySelector('input[placeholder*="Buscar conversa"]') as HTMLInputElement | null;
+    if (search) {
+      const wrapper = search.parentElement as HTMLElement | null;
+      if (wrapper) wrapper.style.marginTop = '7px';
+      search.style.paddingTop = '8px';
+      search.style.paddingBottom = '8px';
+      search.style.fontSize = '11px';
+    }
+    const channelRow = Array.from(header.querySelectorAll('div')).find((item) => item.textContent?.includes('Todas as mensagens') && item.textContent?.includes('WhatsApp')) as HTMLElement | undefined;
+    if (channelRow) {
+      channelRow.style.marginTop = '6px';
+      channelRow.querySelectorAll('span').forEach((span) => {
+        const el = span as HTMLElement;
+        el.style.padding = '3px 7px';
+        el.style.fontSize = '8px';
+      });
+    }
+  }
+
+  const list = queue.children.item(1) as HTMLElement | null;
+  if (!list) return;
+
+  const applyCards = () => {
+    Array.from(list.children).forEach((child) => {
+      if (!(child instanceof HTMLButtonElement)) return;
+      child.style.padding = '2px 6px';
+      const card = child.firstElementChild as HTMLElement | null;
+      if (!card) return;
+      card.style.padding = '5px 7px';
+      card.style.borderRadius = '12px';
+      card.style.minHeight = '50px';
+
+      const avatar = card.querySelector('.h-11.w-11') as HTMLElement | null;
+      if (avatar) {
+        avatar.style.width = '30px';
+        avatar.style.height = '30px';
+        avatar.style.fontSize = '10px';
+      }
+
+      const name = card.querySelector('h3') as HTMLElement | null;
+      if (name) {
+        name.style.fontSize = '11px';
+        name.style.lineHeight = '14px';
+      }
+
+      const phone = Array.from(card.querySelectorAll('p')).find((item) => item.className.includes('text-[11px]')) as HTMLElement | undefined;
+      if (phone) {
+        phone.style.fontSize = '9px';
+        phone.style.lineHeight = '11px';
+        phone.style.marginTop = '0';
+      }
+
+      const message = card.querySelector('p.line-clamp-2') as HTMLElement | null;
+      if (message) {
+        message.style.marginTop = '2px';
+        message.style.fontSize = '10px';
+        message.style.lineHeight = '12px';
+        message.style.whiteSpace = 'nowrap';
+        message.style.overflow = 'hidden';
+        message.style.textOverflow = 'ellipsis';
+        message.style.display = 'block';
+      }
+
+      const vehicle = Array.from(card.querySelectorAll('p')).find((item) => item.querySelector('svg') && item.className.includes('font-black')) as HTMLElement | undefined;
+      if (vehicle) vehicle.style.display = 'none';
+
+      const badgeRow = Array.from(card.querySelectorAll('div')).find((item) => item.querySelector('span.bg-emerald-50') && item.querySelector('span.bg-blue-50')) as HTMLElement | undefined;
+      if (badgeRow) {
+        badgeRow.style.marginTop = '3px';
+        badgeRow.querySelectorAll('span').forEach((span) => {
+          const el = span as HTMLElement;
+          el.style.padding = '2px 6px';
+          el.style.fontSize = '7px';
+          el.style.lineHeight = '10px';
+          if (el.className.includes('h-6')) {
+            el.style.height = '18px';
+            el.style.minWidth = '18px';
+          }
+        });
+      }
+    });
+  };
+
+  applyCards();
+  const observer = new MutationObserver(applyCards);
+  observer.observe(list, { childList: true, subtree: true });
+  return () => observer.disconnect();
+}
+
+function fitComposer(root: HTMLElement, actionBar: HTMLElement) {
+  const form = actionBar.closest('form') as HTMLFormElement | null;
+  if (!form) return;
+  form.style.padding = '6px';
+  const composer = form.firstElementChild as HTMLElement | null;
+  if (composer) {
+    composer.style.padding = '6px';
+    composer.style.borderRadius = '14px';
+  }
+  const textarea = form.querySelector('textarea[placeholder="Digite sua mensagem..."]') as HTMLTextAreaElement | null;
+  if (textarea) {
+    textarea.style.minHeight = '46px';
+    textarea.style.height = '46px';
+    textarea.style.paddingTop = '7px';
+    textarea.style.paddingBottom = '7px';
+  }
+  const send = Array.from(form.querySelectorAll('button')).find((button) => button.textContent?.includes('Enviar')) as HTMLElement | undefined;
+  if (send) {
+    send.style.minHeight = '34px';
+    send.style.paddingLeft = '14px';
+    send.style.paddingRight = '14px';
+  }
+
+  const conversationPanel = form.parentElement as HTMLElement | null;
+  const conversationHeader = conversationPanel?.firstElementChild as HTMLElement | null;
+  if (conversationHeader) {
+    conversationHeader.style.paddingTop = '8px';
+    conversationHeader.style.paddingBottom = '8px';
+  }
+}
+
+function scrollConversationToLatest(root: HTMLElement) {
+  const historyLabel = Array.from(root.querySelectorAll('div')).find((item) => item.textContent?.trim() === 'Histórico da conversa') as HTMLElement | undefined;
+  const history = historyLabel?.parentElement as HTMLElement | null;
+  if (!history) return;
+
+  const scrollToBottom = () => {
+    history.scrollTop = history.scrollHeight;
+  };
+
+  requestAnimationFrame(() => requestAnimationFrame(scrollToBottom));
+  const timer = window.setTimeout(scrollToBottom, 120);
+  const observer = new MutationObserver(() => requestAnimationFrame(scrollToBottom));
+  observer.observe(history, { childList: true, subtree: true });
+
+  return () => {
+    window.clearTimeout(timer);
+    observer.disconnect();
+  };
+}
+
 export default function WhatsappCommerceActions({ slug, conversationId, leadId, onRefresh, onStatus }: {
   slug: string;
   conversationId: string;
@@ -218,20 +380,30 @@ export default function WhatsappCommerceActions({ slug, conversationId, leadId, 
   }, [conversationId]);
 
   useEffect(() => {
-    const warning = actionBarRef.current?.previousElementSibling as HTMLElement | null;
-    if (!warning || !warning.textContent?.includes('Janela de 24h')) return;
-    const previousDisplay = warning.style.display;
-    warning.style.display = 'none';
-    return () => { warning.style.display = previousDisplay; };
+    const actionBar = actionBarRef.current;
+    const root = actionBar?.closest('main.premium-page') as HTMLElement | null;
+    if (!actionBar || !root) return;
+
+    const warning = actionBar.previousElementSibling as HTMLElement | null;
+    if (warning?.textContent?.includes('Janela de 24h')) warning.style.display = 'none';
+
+    fitComposer(root, actionBar);
+    const stopQueueObserver = compactConversationQueue(root);
+    const stopHistoryObserver = scrollConversationToLatest(root);
+
+    return () => {
+      stopQueueObserver?.();
+      stopHistoryObserver?.();
+    };
   }, [conversationId]);
 
   return (
     <>
-      <div ref={actionBarRef} className="flex min-w-0 items-center gap-2 overflow-x-auto py-0.5">
-        <button type="button" onClick={() => void loadVehicles('stock')} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 text-[10px] font-black uppercase text-blue-700 transition hover:bg-blue-100"><Car size={14} /> Estoque</button>
-        <button type="button" onClick={() => void loadVehicles('photos')} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 text-[10px] font-black uppercase text-violet-700 transition hover:bg-violet-100"><Camera size={14} /> Fotos do veículo</button>
-        <button type="button" onClick={openSchedule} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 text-[10px] font-black uppercase text-amber-700 transition hover:bg-amber-100"><CalendarDays size={14} /> Agendar</button>
-        <button type="button" onClick={() => void openTransfer()} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-[10px] font-black uppercase text-emerald-700 transition hover:bg-emerald-100"><ArrowRightLeft size={14} /> Transferir lead</button>
+      <div ref={actionBarRef} className="flex min-w-0 items-center gap-1.5 overflow-x-auto py-0.5">
+        <button type="button" onClick={() => void loadVehicles('stock')} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-2.5 text-[9px] font-black uppercase text-blue-700 transition hover:bg-blue-100"><Car size={13} /> Estoque</button>
+        <button type="button" onClick={() => void loadVehicles('photos')} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-2.5 text-[9px] font-black uppercase text-violet-700 transition hover:bg-violet-100"><Camera size={13} /> Fotos do veículo</button>
+        <button type="button" onClick={openSchedule} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-2.5 text-[9px] font-black uppercase text-amber-700 transition hover:bg-amber-100"><CalendarDays size={13} /> Agendar</button>
+        <button type="button" onClick={() => void openTransfer()} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 text-[9px] font-black uppercase text-emerald-700 transition hover:bg-emerald-100"><ArrowRightLeft size={13} /> Transferir lead</button>
       </div>
 
       {mode ? (
