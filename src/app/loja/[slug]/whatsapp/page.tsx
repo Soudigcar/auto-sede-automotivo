@@ -296,7 +296,7 @@ export default function StoreWhatsappPage() {
 
   return (
     <main className="premium-page">
-      <section className="premium-shell flex min-h-screen">
+      <section className="premium-shell flex min-h-screen lg:h-screen lg:overflow-hidden">
         <button
           type="button"
           onClick={() => setSidebarCollapsed((current) => !current)}
@@ -309,7 +309,7 @@ export default function StoreWhatsappPage() {
           {sidebarCollapsed ? <ChevronRight size={20} strokeWidth={3} /> : <ChevronLeft size={20} strokeWidth={3} />}
         </button>
 
-        <aside className={`relative hidden shrink-0 bg-[#071020] py-7 text-white transition-all duration-200 lg:block ${sidebarCollapsed ? 'w-[76px] px-3' : 'w-72 px-6'}`}>
+        <aside className={`relative hidden shrink-0 bg-[#071020] py-7 text-white transition-all duration-200 lg:block lg:h-screen lg:overflow-y-auto ${sidebarCollapsed ? 'w-[76px] px-3' : 'w-72 px-6'}`}>
           <div className={`flex min-w-0 items-center gap-3 ${sidebarCollapsed ? 'justify-center' : ''}`}>
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-red-600/15 text-red-500"><Car size={22} /></div>
             {!sidebarCollapsed ? <div className="min-w-0 pr-12"><p className="truncate text-sm font-black tracking-wide">AUTO CONTROLE</p><p className="text-[10px] uppercase tracking-[0.35em] text-zinc-500">Automotivo</p></div> : null}
@@ -335,27 +335,21 @@ export default function StoreWhatsappPage() {
           </nav>
         </aside>
 
-        <div className="premium-canvas min-w-0 flex-1 p-3 md:p-5 xl:p-6">
-          <header className="rounded-[26px] border border-zinc-200 bg-white px-4 py-4 shadow-sm md:px-5">
-            <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-center 2xl:justify-between">
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600"><MessageCircle size={23} /></span>
-                <div className="min-w-0"><p className="premium-eyebrow">Atendimento da Loja</p><h1 className="mt-1 text-2xl font-black tracking-tight text-zinc-950 md:text-3xl">Inbox WhatsApp</h1><p className="mt-1 truncate text-xs font-bold text-zinc-500">{store?.store_name || 'Loja'} · conversas, atendimento e contexto comercial em uma única tela.</p></div>
-              </div>
-              <div className="flex flex-wrap items-stretch gap-2">
-                <InboxMetric label="Conversas" value={stats.total} helper="na fila" icon={<MessagesSquare size={16} />} />
-                <InboxMetric label="Não lidas" value={stats.unread} helper="pendentes" icon={<Inbox size={16} />} accent="red" />
-                <InboxMetric label="Em atendimento" value={stats.active} helper="abertas" icon={<UsersRound size={16} />} accent="green" />
-                <InboxMetric label="Leads" value={stats.leads} helper="vinculados" icon={<UserCircle2 size={16} />} accent="blue" />
-                <button className="inline-flex min-h-[58px] items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 text-xs font-black text-white shadow-lg shadow-red-600/15 transition hover:bg-red-700 disabled:opacity-60" type="button" onClick={() => loadData(selectedId)} disabled={loading}><RefreshCw size={17} className={loading ? 'animate-spin' : ''} /> Atualizar</button>
-              </div>
+        <div className="premium-canvas min-w-0 flex-1 p-2.5 md:p-3 xl:p-3 lg:h-screen lg:overflow-hidden">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-2 shadow-sm" aria-label="Resumo do Inbox WhatsApp">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
+              <InboxMetric label="Conversas" value={stats.total} helper="na fila" icon={<MessagesSquare size={15} />} />
+              <InboxMetric label="Não lidas" value={stats.unread} helper="pendentes" icon={<Inbox size={15} />} accent="red" />
+              <InboxMetric label="Em atendimento" value={stats.active} helper="abertas" icon={<UsersRound size={15} />} accent="green" />
+              <InboxMetric label="Leads" value={stats.leads} helper="vinculados" icon={<UserCircle2 size={15} />} accent="blue" />
+              <button className="inline-flex h-[46px] items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700 disabled:opacity-60" type="button" onClick={() => loadData(selectedId)} disabled={loading}><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Atualizar</button>
             </div>
-          </header>
+          </div>
 
-          {statusMessage ? <div className="mt-3 flex items-center gap-2 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-black text-red-700"><CircleAlert size={17} className="shrink-0" /><span>{statusMessage}</span></div> : null}
+          {statusMessage ? <div className="mt-2 flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-black text-red-700"><CircleAlert size={15} className="shrink-0" /><span>{statusMessage}</span></div> : null}
 
-          <section className="relative mt-3 overflow-hidden rounded-[26px] border border-zinc-200 bg-white shadow-sm">
-            <div className="grid min-h-[720px] xl:h-[calc(100vh-210px)] xl:min-h-[680px] xl:grid-cols-[360px_minmax(620px,1fr)] 2xl:grid-cols-[390px_minmax(760px,1fr)]">
+          <section className="relative mt-2 overflow-hidden rounded-[22px] border border-zinc-200 bg-white shadow-sm">
+            <div className="grid min-h-[680px] xl:h-[calc(100dvh-82px)] xl:min-h-0 xl:grid-cols-[360px_minmax(620px,1fr)] 2xl:grid-cols-[390px_minmax(760px,1fr)]">
               <aside className="flex min-h-0 flex-col border-r border-zinc-200 bg-white">
                 <div className="border-b border-zinc-200 p-4">
                   <div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[0.15em] text-zinc-400">Fila de atendimento</p><h2 className="mt-1 text-lg font-black text-zinc-950">Conversas</h2></div><span className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-black text-zinc-600">{filteredConversations.length}</span></div>
@@ -397,10 +391,10 @@ export default function StoreWhatsappPage() {
                 </div>
               </aside>
 
-              <section className="flex min-h-0 flex-col bg-[#f5f6f8]">
+              <section className="flex min-h-0 flex-col overflow-hidden bg-[#f5f6f8]">
                 {selectedConversation ? (
                   <>
-                    <div className="border-b border-zinc-200 bg-white px-4 py-3">
+                    <div className="shrink-0 border-b border-zinc-200 bg-white px-4 py-3">
                       <div className="flex flex-col gap-2.5">
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                           <button
@@ -437,18 +431,18 @@ export default function StoreWhatsappPage() {
                       </div>
                     </div>
 
-                    <div className="flex-1 space-y-3 overflow-auto bg-[#f2f4f7] p-4 md:p-5">
-                      <div className="mx-auto mb-4 w-fit rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase text-zinc-400 shadow-sm">Histórico da conversa</div>
+                    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-[#f2f4f7] p-3 md:p-4">
+                      <div className="mx-auto mb-3 w-fit rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase text-zinc-400 shadow-sm">Histórico da conversa</div>
                       {messages.map((message) => {
                         const outbound = message.direction === 'outbound';
                         return <div key={message.id} className={`flex ${outbound ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[82%] rounded-2xl px-4 py-3 shadow-sm md:max-w-[72%] ${outbound ? 'rounded-br-md bg-red-600 text-white' : 'rounded-bl-md border border-zinc-200 bg-white text-zinc-900'}`}><p className="whitespace-pre-wrap text-sm font-semibold leading-relaxed">{message.body || '[Mensagem sem texto]'}</p><div className={`mt-2 flex items-center justify-end gap-2 text-[9px] font-black uppercase ${outbound ? 'text-white/70' : 'text-zinc-400'}`}><span>{formatDateTime(message.sent_at || message.created_at)}</span><span>{message.status}</span></div></div></div>;
                       })}
-                      {!messages.length ? <div className="flex h-full min-h-80 items-center justify-center p-8 text-center"><div><MessageCircle size={42} className="mx-auto text-zinc-300" /><p className="mt-3 text-sm font-black text-zinc-700">Nenhuma mensagem carregada</p><p className="mt-1 text-xs font-bold text-zinc-400">O histórico da conversa aparecerá aqui.</p></div></div> : null}
+                      {!messages.length ? <div className="flex h-full min-h-40 items-center justify-center p-6 text-center"><div><MessageCircle size={36} className="mx-auto text-zinc-300" /><p className="mt-3 text-sm font-black text-zinc-700">Nenhuma mensagem carregada</p><p className="mt-1 text-xs font-bold text-zinc-400">O histórico da conversa aparecerá aqui.</p></div></div> : null}
                     </div>
 
-                    <form onSubmit={sendMessage} className="border-t border-zinc-200 bg-white p-3.5">
+                    <form onSubmit={sendMessage} className="shrink-0 border-t border-zinc-200 bg-white p-2.5">
                       <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-2 transition focus-within:border-red-300 focus-within:bg-white">
-                        <textarea className="min-h-20 w-full resize-none bg-transparent px-2 py-2 text-sm font-semibold text-zinc-800 outline-none placeholder:text-zinc-400" placeholder="Digite sua mensagem..." value={messageText} onChange={(event) => setMessageText(event.target.value)} disabled={sending} />
+                        <textarea className="min-h-16 w-full resize-none bg-transparent px-2 py-2 text-sm font-semibold text-zinc-800 outline-none placeholder:text-zinc-400" placeholder="Digite sua mensagem..." value={messageText} onChange={(event) => setMessageText(event.target.value)} disabled={sending} />
                         <div className="flex flex-col gap-2 border-t border-zinc-200 pt-2 lg:flex-row lg:items-center lg:justify-between">
                           <div className="flex min-w-0 flex-1 flex-col gap-2 xl:flex-row xl:items-center">
                             <p className="px-2 text-[10px] font-bold leading-relaxed text-zinc-400">Janela de 24h: fora dela, a Meta pode exigir template aprovado.</p>
@@ -489,7 +483,7 @@ export default function StoreWhatsappPage() {
 
 function InboxMetric({ label, value, helper, icon, accent = 'zinc' }: { label: string; value: number; helper: string; icon: React.ReactNode; accent?: 'zinc' | 'red' | 'green' | 'blue' }) {
   const tones = { zinc: 'bg-zinc-50 text-zinc-500', red: 'bg-red-50 text-red-600', green: 'bg-emerald-50 text-emerald-600', blue: 'bg-blue-50 text-blue-600' };
-  return <div className="flex min-h-[58px] min-w-[118px] items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2"><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${tones[accent]}`}>{icon}</span><div><p className="text-[9px] font-black uppercase tracking-wide text-zinc-400">{label}</p><div className="mt-0.5 flex items-baseline gap-1.5"><strong className="text-lg font-black leading-none text-zinc-950">{value}</strong><span className="text-[9px] font-bold text-zinc-400">{helper}</span></div></div></div>;
+  return <div className="flex h-[46px] min-w-0 items-center gap-2.5 rounded-xl border border-zinc-200 bg-white px-3"><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${tones[accent]}`}>{icon}</span><div className="min-w-0"><p className="truncate text-[8px] font-black uppercase tracking-wide text-zinc-400">{label}</p><div className="mt-0.5 flex min-w-0 items-baseline gap-1.5"><strong className="text-base font-black leading-none text-zinc-950">{value}</strong><span className="truncate text-[8px] font-bold text-zinc-400">{helper}</span></div></div></div>;
 }
 
 function DetailCard({ title, children }: { title: string; children: React.ReactNode }) {
