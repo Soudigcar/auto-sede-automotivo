@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Copy, ExternalLink } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { EventSelectField } from '@/components/EventSelectField';
+import { OFFICIAL_PORTAL_URL } from '@/lib/publicRoutes';
 
 function slugify(value: string) {
   return value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '') || 'loja';
@@ -35,6 +36,7 @@ type StoreEventCreateFormProps = {
 };
 
 const emptyForm = { selectedStoreId: '', storeName: '', responsibleName: '', phone: '', email: '' };
+const permanentPublicRegistrationLink = `${OFFICIAL_PORTAL_URL}/cadastre-sua-loja`;
 
 export function StoreEventCreateForm({ onSaved, mode = 'portal', eventId: controlledEventId = '', onEventChange }: StoreEventCreateFormProps) {
   const supabase = createClient();
@@ -100,6 +102,11 @@ export function StoreEventCreateForm({ onSaved, mode = 'portal', eventId: contro
     if (!link) return;
     await navigator.clipboard.writeText(link);
     setMessage('Link de login da loja copiado.');
+  }
+
+  async function copyPermanentRegistrationLink() {
+    await navigator.clipboard.writeText(permanentPublicRegistrationLink);
+    setMessage('Link público de cadastro permanente copiado.');
   }
 
   async function copyRegistrationLink() {
@@ -252,6 +259,17 @@ export function StoreEventCreateForm({ onSaved, mode = 'portal', eventId: contro
     <form onSubmit={savePermanentStore} className="premium-card p-6">
       <h2 className="text-2xl font-black text-zinc-950">Cadastrar loja permanente no Portal</h2>
       <p className="mt-1 text-sm text-zinc-500">Este cadastro não exige evento. A loja poderá usar o Portal, estoque, equipe, Pipeline e demais recursos e ser vinculada a eventos depois.</p>
+
+      <div className="mt-5 rounded-2xl border border-red-100 bg-red-50/60 p-4">
+        <p className="text-xs font-black uppercase tracking-wide text-red-600">Link público para cadastro permanente</p>
+        <p className="mt-1 text-xs font-semibold leading-relaxed text-zinc-600">Envie este link para uma revenda se cadastrar no Portal Auto Sede sem participar de nenhum evento.</p>
+        <p className="mt-3 break-all text-sm font-black text-zinc-900">{permanentPublicRegistrationLink}</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button className="premium-button-secondary text-xs" type="button" onClick={copyPermanentRegistrationLink}><Copy size={14} /> Copiar link</button>
+          <a className="premium-button-secondary text-xs" href={permanentPublicRegistrationLink} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Abrir cadastro</a>
+        </div>
+      </div>
+
       <div className="mt-5 grid gap-3">
         <label className="text-xs font-bold uppercase tracking-wide text-zinc-400">Loja já cadastrada
           <select className="premium-input mt-1" value={form.selectedStoreId} onChange={(event) => chooseStore(event.target.value)}>
