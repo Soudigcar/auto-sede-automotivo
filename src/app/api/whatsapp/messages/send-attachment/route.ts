@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { evolutionMultipartRequest } from '@/lib/server/evolution';
+import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,19 +23,23 @@ function getAdminClient() {
 async function getProfile(supabase: any, token: string) {
   const { data: authData, error: authError } = await supabase.auth.getUser(token);
   if (authError || !authData.user) return null;
-  const { data: byAuth } = await supabase.from('users').select('id, auth_user_id, email, role, store_id, status').eq('auth_user_id', authData.user.id).maybeSingle();
-  if (byAuth?.status === 'active') return byAuth;
+  const { data: byAuth } = await supabase.from('users').select('*').eq('auth_user_id', authData.user.id).maybeSingle();
+  if (byAuth?.status === 'active' && asStorePortalRole(byAuth.role)) return byAuth;
   if (authData.user.email) {
-    const { data: byEmail } = await supabase.from('users').select('id, auth_user_id, email, role, store_id, status').ilike('email', authData.user.email).maybeSingle();
-    if (byEmail?.status === 'active') return byEmail;
+    const { data: byEmail } = await supabase.from('users').select('*').ilike('email', authData.user.email).maybeSingle();
+    if (byEmail?.status === 'active' && asStorePortalRole(byEmail.role)) return byEmail;
   }
   return null;
 }
 
-function canAccessConversation(profile: any, conversation: any) {
-  if (!profile || !conversation) return false;
-  if (profile.role === 'master') return true;
-  return Boolean(profile.store_id && profile.store_id === conversation.store_id);
+function canAccessConversation(profile: any, conversation: any, lead: any) {
+  const role = asStorePortalRole(profile?.role);
+  if (!role || !profile || !conversation) return false;
+  if (role === 'master') return true;
+  if (!profile.store_id || profile.store_id !== conversation.store_id) return false;
+  if (role === 'store') return true;
+  if (!lead || conversation.lead_id !== lead.id) return false;
+  return canAccessStoreLead(profile, role, lead);
 }
 
 function normalizePhone(value: unknown) {
@@ -98,7 +103,15 @@ export async function POST(request: Request) {
 
     const { data: conversation, error: conversationError } = await supabase.from('whatsapp_conversations').select('*').eq('id', conversationId).maybeSingle();
     if (conversationError) return NextResponse.json({ error: conversationError.message }, { status: 400 });
-    if (!conversation || !canAccessConversation(profile, conversation)) return NextResponse.json({ error: 'Conversa não encontrada ou sem permissão.' }, { status: 404 });
+
+    let lead: any = null;
+    if (conversation?.lead_id) {
+      const { data, error } = await supabase.from('leads').select('id, assigned_store_id, assigned_user_id').eq('id', conversation.lead_id).maybeSingle();
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      lead = data;
+    }
+
+    if (!conversation || !canAccessConversation(profile, conversation, lead)) return NextResponse.json({ error: 'Conversa não encontrada ou sem permissão.' }, { status: 404 });
 
     const [contactResponse, integrationResponse] = await Promise.all([
       supabase.from('whatsapp_contacts').select('id, phone, wa_id').eq('id', conversation.contact_id).maybeSingle(),
