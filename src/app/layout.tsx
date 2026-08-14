@@ -15,6 +15,7 @@ import { StorePipelineNewLeadButton } from '@/components/StorePipelineNewLeadBut
 import { StorePipelineScheduleUxBridge } from '@/components/StorePipelineScheduleUxBridge';
 import { StorePipelineNewLeadScheduleButton } from '@/components/StorePipelineNewLeadScheduleButton';
 import { StorePipelineSaleActionBridge } from '@/components/StorePipelineSaleActionBridge';
+import { StoreWhatsappRealtimeSync } from '@/components/StoreWhatsappRealtimeSync';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.autosede.com.br'),
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StorePipelineScheduleUxBridge />
         <StorePipelineNewLeadScheduleButton />
         <StorePipelineSaleActionBridge />
+        <StoreWhatsappRealtimeSync />
       </body>
     </html>
   );
