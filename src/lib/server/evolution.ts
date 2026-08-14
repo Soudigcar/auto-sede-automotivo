@@ -3,6 +3,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 const EVOLUTION_TIMEOUT_MS = 20_000;
 const WEBHOOK_SIGNATURE_HEADER = 'x-auto-controle-evolution-signature';
 const VERCEL_PROTECTION_BYPASS_HEADER = 'x-vercel-protection-bypass';
+const PRODUCTION_EVOLUTION_WEBHOOK_URL = 'https://sistemaautomotivo.autosede.com.br/api/webhooks/evolution';
 
 type EvolutionRequestOptions = {
   method?: 'GET' | 'POST' | 'DELETE';
@@ -42,6 +43,7 @@ function vercelProtectionBypassSecret() {
 }
 
 export function evolutionWebhookUrl() {
+  if (process.env.VERCEL_ENV === 'production') return PRODUCTION_EVOLUTION_WEBHOOK_URL;
   return requiredEnvironment('EVOLUTION_WEBHOOK_URL').replace(/\/$/, '');
 }
 
