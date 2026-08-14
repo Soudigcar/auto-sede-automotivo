@@ -5,19 +5,20 @@ import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 
 const WHATSAPP_STORE_PATH = /^\/loja\/([^/]+)\/whatsapp\/?$/;
-const FALLBACK_INTERVAL_MS = 15_000;
-const REALTIME_DEBOUNCE_MS = 300;
+const FALLBACK_INTERVAL_MS = 5_000;
+const REALTIME_DEBOUNCE_MS = 250;
 
 function clickInboxRefreshButton() {
   const summary = document.querySelector<HTMLElement>('[aria-label="Resumo do Inbox WhatsApp"]');
-  if (!summary) return;
+  if (!summary) return false;
 
   const refreshButton = Array.from(summary.querySelectorAll<HTMLButtonElement>('button')).find((button) =>
     button.textContent?.includes('Atualizar')
   );
 
-  if (!refreshButton || refreshButton.disabled) return;
+  if (!refreshButton || refreshButton.disabled) return false;
   refreshButton.click();
+  return true;
 }
 
 export function StoreWhatsappRealtimeSync() {
@@ -38,7 +39,12 @@ export function StoreWhatsappRealtimeSync() {
       if (refreshTimerRef.current !== null) window.clearTimeout(refreshTimerRef.current);
       refreshTimerRef.current = window.setTimeout(() => {
         refreshTimerRef.current = null;
-        clickInboxRefreshButton();
+        if (!clickInboxRefreshButton() && active) {
+          refreshTimerRef.current = window.setTimeout(() => {
+            refreshTimerRef.current = null;
+            clickInboxRefreshButton();
+          }, 750);
+        }
       }, REALTIME_DEBOUNCE_MS);
     };
 
@@ -58,8 +64,12 @@ export function StoreWhatsappRealtimeSync() {
         const token = data.session?.access_token;
         if (!token || !active) return;
 
+        await supabase.realtime.setAuth(token);
+        if (!active) return;
+
         const response = await fetch(`/api/store-whatsapp?slug=${encodeURIComponent(slug)}`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store'
         });
         if (!response.ok || !active) return;
 
@@ -89,7 +99,10 @@ export function StoreWhatsappRealtimeSync() {
             },
             queueRefresh
           )
-          .subscribe();
+          .subscribe((status) => {
+            if (!active) return;
+            if (status === 'SUBSCRIBED') queueRefresh();
+          });
       } catch (error) {
         console.warn('[WhatsApp realtime] Realtime indisponível; mantendo sincronização periódica.', error);
       }
