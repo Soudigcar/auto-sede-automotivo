@@ -29,14 +29,14 @@ function generatePublicToken() {
 
 type StoreEventCreateFormProps = {
   onSaved?: () => void;
-  mode?: 'link' | 'manual';
+  mode?: 'portal' | 'event' | 'link';
   eventId?: string;
   onEventChange?: (eventId: string) => void;
 };
 
 const emptyForm = { selectedStoreId: '', storeName: '', responsibleName: '', phone: '', email: '' };
 
-export function StoreEventCreateForm({ onSaved, mode = 'link', eventId: controlledEventId = '', onEventChange }: StoreEventCreateFormProps) {
+export function StoreEventCreateForm({ onSaved, mode = 'portal', eventId: controlledEventId = '', onEventChange }: StoreEventCreateFormProps) {
   const supabase = createClient();
   const [events, setEvents] = useState<any[]>([]);
   const [stores, setStores] = useState<any[]>([]);
@@ -66,7 +66,7 @@ export function StoreEventCreateForm({ onSaved, mode = 'link', eventId: controll
   }
 
   async function loadRegistrationLink(currentEventId: string) {
-    if (!currentEventId) { setRegistrationLink(null); return; }
+    if (!currentEventId || mode !== 'link') { setRegistrationLink(null); return; }
     setRegistrationLink(null);
 
     const { data } = await supabase.from('store_registration_links').select('*').eq('event_id', currentEventId).maybeSingle();
@@ -77,7 +77,7 @@ export function StoreEventCreateForm({ onSaved, mode = 'link', eventId: controll
   }
 
   useEffect(() => { loadData().catch(() => null); }, []);
-  useEffect(() => { loadRegistrationLink(eventId).catch(() => setRegistrationLink(null)); }, [eventId]);
+  useEffect(() => { loadRegistrationLink(eventId).catch(() => setRegistrationLink(null)); }, [eventId, mode]);
 
   async function buildUniqueSlug(storeName: string) {
     const base = slugify(storeName);
@@ -106,7 +106,7 @@ export function StoreEventCreateForm({ onSaved, mode = 'link', eventId: controll
     const link = registrationPublicLink(registrationLink?.public_token);
     if (!link) { setMessage('Este evento ainda não possui link de cadastro.'); return; }
     await navigator.clipboard.writeText(link);
-    setMessage('Link de cadastro da loja copiado.');
+    setMessage('Link de cadastro do evento copiado.');
   }
 
   async function findExistingStore() {
@@ -120,10 +120,9 @@ export function StoreEventCreateForm({ onSaved, mode = 'link', eventId: controll
     }) || null;
   }
 
-  async function save(event: React.FormEvent<HTMLFormElement>) {
+  async function savePermanentStore(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const selectedEvent = events.find((item) => item.id === eventId);
-    if (!selectedEvent) { setMessage('Selecione o evento.'); return; }
+    setMessage('Salvando loja permanente...');
 
     const existingStore = await findExistingStore();
     let store = existingStore;
@@ -143,26 +142,49 @@ export function StoreEventCreateForm({ onSaved, mode = 'link', eventId: controll
     } else {
       const slug = await buildUniqueSlug(form.storeName);
       const { data, error } = await supabase.from('stores').insert({
-        event_id: eventId,
+        event_id: null,
         store_name: form.storeName,
         slug,
         portal_enabled: true,
         responsible_name: form.responsibleName,
         responsible_phone: form.phone || null,
         responsible_email: form.email.trim().toLowerCase(),
-        event_name_snapshot: selectedEvent.event_name || null,
-        event_start_date_snapshot: selectedEvent.start_date || null,
-        event_end_date_snapshot: selectedEvent.end_date || null,
-        event_state_snapshot: selectedEvent.state || null,
-        event_city_snapshot: selectedEvent.city || null,
-        registration_source: 'master',
+        registration_source: 'master_portal',
         status: 'active'
       }).select('*').single();
       if (error) { setMessage(error.message || 'Erro ao criar loja permanente.'); return; }
       store = data;
     }
 
-    const { error: participationError } = await supabase.from('store_event_participations').upsert({
+    setLastStore(store);
+    setMessage(existingStore ? 'Loja permanente atualizada. Nenhum evento foi alterado.' : 'Loja permanente criada no Portal sem vínculo obrigatório com evento.');
+    setForm(emptyForm);
+    await loadData();
+    onSaved?.();
+  }
+
+  async function linkStoreToEvent(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const selectedEvent = events.find((item) => item.id === eventId);
+    if (!selectedEvent) { setMessage('Selecione o evento.'); return; }
+    if (!form.selectedStoreId) { setMessage('Selecione uma loja já cadastrada no Portal.'); return; }
+
+    const store = stores.find((item) => item.id === form.selectedStoreId);
+    if (!store) { setMessage('Loja não encontrada.'); return; }
+
+    const { data: currentParticipation } = await supabase
+      .from('store_event_participations')
+      .select('id,status')
+      .eq('store_id', store.id)
+      .eq('event_id', selectedEvent.id)
+      .maybeSingle();
+
+    if (currentParticipation?.status === 'active') {
+      setMessage('Esta loja já participa deste evento. Nenhuma duplicidade foi criada.');
+      return;
+    }
+
+    const { error } = await supabase.from('store_event_participations').upsert({
       store_id: store.id,
       event_id: selectedEvent.id,
       status: 'active',
@@ -177,12 +199,9 @@ export function StoreEventCreateForm({ onSaved, mode = 'link', eventId: controll
       updated_at: new Date().toISOString()
     }, { onConflict: 'store_id,event_id' });
 
-    if (participationError) { setMessage(participationError.message || 'A loja foi salva, mas não foi possível vincular o evento.'); return; }
+    if (error) { setMessage(error.message || 'Não foi possível vincular a loja ao evento.'); return; }
 
-    setLastStore(store);
-    setMessage(existingStore ? 'Loja permanente reutilizada e vinculada ao evento sem duplicar cadastro.' : 'Loja permanente criada e vinculada ao primeiro evento.');
-    setForm(emptyForm);
-    await loadData();
+    setMessage(`${store.store_name} vinculada ao evento ${selectedEvent.event_name} sem duplicar o cadastro permanente.`);
     onSaved?.();
   }
 
@@ -192,11 +211,11 @@ export function StoreEventCreateForm({ onSaved, mode = 'link', eventId: controll
   if (mode === 'link') {
     return (
       <section className="premium-card p-6">
-        <h2 className="text-2xl font-black text-zinc-950">Link do evento para novas lojas</h2>
-        <p className="mt-1 text-sm text-zinc-500">Use este link para uma revenda que ainda não possui conta. Lojas já cadastradas devem ser selecionadas no cadastro manual para evitar duplicidade.</p>
-        <div className="mt-5"><EventSelectField events={events} value={eventId} onChange={selectEvent} label="Evento do cadastro" /></div>
+        <h2 className="text-2xl font-black text-zinc-950">Link para cadastro no evento</h2>
+        <p className="mt-1 text-sm text-zinc-500">A revenda abre o link deste evento. Se já possuir cadastro, usa o acesso existente e o sistema adiciona somente a participação. Se for nova, cria a loja permanente e a participação no mesmo fluxo.</p>
+        <div className="mt-5"><EventSelectField events={events} value={eventId} onChange={selectEvent} label="Evento do convite" /></div>
         <div className="mt-4 rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
-          <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Link público de cadastro no evento</p>
+          <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Link público de participação</p>
           <p className="mt-2 break-all text-sm font-black text-zinc-800">{publicRegistrationLink || 'Gerando ou localizando o link deste evento...'}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button className="premium-button-secondary text-xs" type="button" onClick={copyRegistrationLink}><Copy size={14} /> Copiar link</button>
@@ -208,15 +227,35 @@ export function StoreEventCreateForm({ onSaved, mode = 'link', eventId: controll
     );
   }
 
+  if (mode === 'event') {
+    return (
+      <form onSubmit={linkStoreToEvent} className="premium-card p-6">
+        <h2 className="text-2xl font-black text-zinc-950">Vincular loja existente a evento</h2>
+        <p className="mt-1 text-sm text-zinc-500">A loja continua única e permanente no Portal. Aqui você cria somente uma participação no evento selecionado.</p>
+        <div className="mt-5 grid gap-3">
+          <EventSelectField events={events} value={eventId} onChange={selectEvent} label="Evento da participação" />
+          <label className="text-xs font-bold uppercase tracking-wide text-zinc-400">Loja permanente
+            <select className="premium-input mt-1" value={form.selectedStoreId} onChange={(event) => chooseStore(event.target.value)} required>
+              <option value="">Selecione uma loja cadastrada</option>
+              {stores.map((store) => <option key={store.id} value={store.id}>{store.store_name}</option>)}
+            </select>
+          </label>
+          {form.selectedStoreId ? <div className="rounded-2xl border border-zinc-100 bg-zinc-50 p-4 text-sm font-bold text-zinc-600"><strong className="text-zinc-950">{form.storeName}</strong><br />{form.email || 'Sem e-mail informado'}<br />{form.phone || 'Sem telefone informado'}</div> : null}
+        </div>
+        <button className="premium-button-primary mt-5 w-full" type="submit">Vincular loja ao evento</button>
+        {message ? <p className="mt-3 rounded-2xl bg-zinc-50 p-3 text-sm font-bold text-zinc-600">{message}</p> : null}
+      </form>
+    );
+  }
+
   return (
-    <form onSubmit={save} className="premium-card p-6">
-      <h2 className="text-2xl font-black text-zinc-950">Vincular ou cadastrar loja</h2>
-      <p className="mt-1 text-sm text-zinc-500">Selecione uma loja permanente existente ou preencha os dados para criar uma nova.</p>
+    <form onSubmit={savePermanentStore} className="premium-card p-6">
+      <h2 className="text-2xl font-black text-zinc-950">Cadastrar loja permanente no Portal</h2>
+      <p className="mt-1 text-sm text-zinc-500">Este cadastro não exige evento. A loja poderá usar o Portal, estoque, equipe, Pipeline e demais recursos e ser vinculada a eventos depois.</p>
       <div className="mt-5 grid gap-3">
-        <EventSelectField events={events} value={eventId} onChange={selectEvent} label="Evento da participação" />
-        <label className="text-xs font-bold uppercase tracking-wide text-zinc-400">Loja permanente já cadastrada
+        <label className="text-xs font-bold uppercase tracking-wide text-zinc-400">Loja já cadastrada
           <select className="premium-input mt-1" value={form.selectedStoreId} onChange={(event) => chooseStore(event.target.value)}>
-            <option value="">Criar uma nova loja</option>
+            <option value="">Criar uma nova loja permanente</option>
             {stores.map((store) => <option key={store.id} value={store.id}>{store.store_name}</option>)}
           </select>
         </label>
@@ -225,7 +264,7 @@ export function StoreEventCreateForm({ onSaved, mode = 'link', eventId: controll
         <input className="premium-input" placeholder="Telefone" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
         <input className="premium-input" type="email" placeholder="E-mail" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
       </div>
-      <button className="premium-button-primary mt-5 w-full" type="submit">{form.selectedStoreId ? 'Vincular loja existente ao evento' : 'Criar loja e vincular ao evento'}</button>
+      <button className="premium-button-primary mt-5 w-full" type="submit">{form.selectedStoreId ? 'Atualizar loja permanente' : 'Criar loja permanente'}</button>
       {lastStore?.slug ? <div className="mt-4 rounded-2xl border border-zinc-100 bg-zinc-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-zinc-400">Acesso permanente da loja</p><p className="mt-2 break-all text-sm font-black text-zinc-800">{lastLink}</p><div className="mt-3 flex flex-wrap gap-2"><button className="premium-button-secondary text-xs" type="button" onClick={copyLastLink}><Copy size={14} /> Copiar link</button><a className="premium-button-secondary text-xs" href={lastLink} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Abrir login</a></div></div> : null}
       {message ? <p className="mt-3 rounded-2xl bg-zinc-50 p-3 text-sm font-bold text-zinc-600">{message}</p> : null}
     </form>
