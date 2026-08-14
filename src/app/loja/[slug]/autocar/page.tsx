@@ -5,6 +5,7 @@ import { Bot, BrainCircuit, CheckCircle2, Database, Eye, KeyRound, Loader2, Lock
 import { createClient } from '@/lib/supabase';
 import { useStorePortal } from '@/components/StorePortalShell';
 import { AutocarIntelligenceCenter } from '@/components/AutocarIntelligenceCenter';
+import { AutocarKnowledgeLibrary } from '@/components/AutocarKnowledgeLibrary';
 
 type FoundationStatus = {
   phase: string;
@@ -91,10 +92,16 @@ export default function AutocarFoundationPage() {
           canManage={Boolean(status?.permissions.manage)}
         />
 
+        <AutocarKnowledgeLibrary
+          slug={portal.store.slug}
+          canManage={Boolean(status?.permissions.manage)}
+          isMaster={portal.profile.role === 'master'}
+        />
+
         <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatusCard icon={<Bot size={21} />} label="Atendimento automático" value={status?.automatic_replies_enabled ? 'Ativo' : 'Desligado'} ok={!status?.automatic_replies_enabled} helper="Nenhuma mensagem é enviada automaticamente nesta fase." />
           <StatusCard icon={<KeyRound size={21} />} label="OpenAI server-side" value={status?.openai.configured ? 'Configurada' : 'Não detectada'} ok={Boolean(status?.openai.configured)} helper={status?.openai.configured ? 'A chave permanece privada no servidor.' : 'OPENAI_API_KEY precisa existir no ambiente Preview.'} />
-          <StatusCard icon={<Database size={21} />} label="Banco AUTOCAR" value="Somente versionado" ok helper="Migration criada, mas ainda não aplicada ao Supabase Production." />
+          <StatusCard icon={<Database size={21} />} label="Banco AUTOCAR" value="Somente versionado" ok helper="Migrations criadas, mas ainda não aplicadas ao Supabase Production." />
           <StatusCard icon={<ShieldCheck size={21} />} label="Segurança" value="Hard Policy ativa" ok helper="Regras globais continuam acima das configurações da loja." />
         </section>
 
@@ -108,7 +115,7 @@ export default function AutocarFoundationPage() {
             <div className="mt-5 grid gap-3 md:grid-cols-3">
               <SecurityPoint title="Contexto" text="Conversa, integração, lead e mensagem são validados contra a mesma loja." />
               <SecurityPoint title="Venda Mais" text="Método oficial herdado; a loja adiciona contexto sem remover regras essenciais." />
-              <SecurityPoint title="Conhecimento" text="Informações comerciais e políticas permanecem isoladas por loja." />
+              <SecurityPoint title="Conhecimento" text="Documentos oficiais e materiais da loja são buscados separadamente e só entram no contexto quando forem relevantes." />
             </div>
           </div>
 
@@ -128,9 +135,11 @@ export default function AutocarFoundationPage() {
           <section className="mt-5 grid gap-5 xl:grid-cols-2">
             <div className="rounded-2xl border border-zinc-200 p-5">
               <p className="premium-eyebrow">Fundação de dados</p>
-              <h2 className="mt-2 flex items-center gap-2 text-xl font-black text-zinc-950"><Database size={20} className="text-red-600" /> 7 estruturas versionadas</h2>
+              <h2 className="mt-2 flex items-center gap-2 text-xl font-black text-zinc-950"><Database size={20} className="text-red-600" /> Estruturas AUTOCAR versionadas</h2>
               <div className="mt-5 grid gap-2 sm:grid-cols-2">
                 {foundationTables.map((table) => <div key={table} className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs font-bold text-zinc-700"><CheckCircle2 size={15} className="shrink-0 text-emerald-600" />{table}</div>)}
+                <div className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs font-bold text-zinc-700"><CheckCircle2 size={15} className="shrink-0 text-emerald-600" />ai_knowledge_documents</div>
+                <div className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs font-bold text-zinc-700"><CheckCircle2 size={15} className="shrink-0 text-emerald-600" />ai_knowledge_chunks</div>
               </div>
             </div>
 
