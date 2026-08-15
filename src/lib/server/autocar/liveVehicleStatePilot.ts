@@ -1,9 +1,8 @@
 import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 import { evaluateAutocarPolicy } from '@/lib/server/autocar/policyEngine';
 
-const A4_PILOT_STORE_ID = '239755c3-a2d4-4cdd-9502-f1595031c924';
 const LIVE_PURPOSE = 'live_vehicle_interest';
-const LIVE_VERSION = 'autocar-vehicle-state-a4-v1';
+const LIVE_VERSION = 'autocar-vehicle-state-v1';
 
 function liveKey(storeId: string, inboundMessageId: string) {
   return `autocar:${storeId}:${inboundMessageId}:${LIVE_PURPOSE}`;
@@ -11,6 +10,10 @@ function liveKey(storeId: string, inboundMessageId: string) {
 
 function shadowFrom(result: any) {
   return result?.result?.shadow || result?.shadow || null;
+}
+
+function isLiveRuntimeEnvironment() {
+  return ['preview', 'production'].includes(String(process.env.VERCEL_ENV || '').trim());
 }
 
 function vehicleName(vehicle: any) {
@@ -158,8 +161,7 @@ export async function attemptAutocarVehicleStatePilot(input: {
   inboundMessageId: string;
   shadowResult: any;
 }) {
-  if (process.env.VERCEL_ENV !== 'preview') return { updated: false, skipped: true, reason: 'Vehicle State V1 é bloqueado fora de Preview.' };
-  if (input.storeId !== A4_PILOT_STORE_ID) return { updated: false, skipped: true, reason: 'Vehicle State V1 está liberado somente para A4 Multimarcas.' };
+  if (!isLiveRuntimeEnvironment()) return { updated: false, skipped: true, reason: 'Vehicle State V1 é bloqueado fora de Preview/Production.' };
   if (!input.leadId) return { updated: false, skipped: true, reason: 'Conversa sem lead canônico.' };
 
   const shadow = shadowFrom(input.shadowResult);
@@ -323,7 +325,7 @@ export async function attemptAutocarVehicleStatePilot(input: {
   const { error: historyError } = await input.productionSupabase.from('lead_activity_logs').insert({
     lead_id: lead.id,
     store_id: input.storeId,
-    store_name: store?.store_name || 'A4 Multimarcas',
+    store_name: store?.store_name || 'Loja',
     user_id: null,
     user_name: 'AUTOCAR',
     activity_type: 'vehicle_interest_updated',
@@ -339,7 +341,7 @@ export async function attemptAutocarVehicleStatePilot(input: {
 
   if (historyError) {
     const rollbackNow = new Date().toISOString();
-    let rollbackQuery = input.productionSupabase.from('leads')
+    const { error: rollbackError } = await input.productionSupabase.from('leads')
       .update({
         interested_vehicle_id: previousVehicleId,
         interested_vehicle: previousVehicleName,
@@ -353,7 +355,6 @@ export async function attemptAutocarVehicleStatePilot(input: {
       .eq('id', lead.id)
       .eq('assigned_store_id', input.storeId)
       .eq('interested_vehicle_id', vehicle.id);
-    const { error: rollbackError } = await rollbackQuery;
 
     const failed = await updateClaim(claimResult.claim.id, {
       status: 'failed',
