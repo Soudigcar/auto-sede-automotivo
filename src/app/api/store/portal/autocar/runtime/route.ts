@@ -10,6 +10,8 @@ import {
   resumeAutocarConversation
 } from '@/lib/server/autocar/safeRuntime';
 import { generateAutocarShadowReply } from '@/lib/server/autocar/shadowReply';
+import { evaluateAutocarOperationalShadowPolicy } from '@/lib/server/autocar/operationalPolicy';
+import type { AutocarCapability } from '@/lib/server/autocar/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,6 +37,46 @@ async function canonicalConversation(context: any, conversationId: string) {
   return data;
 }
 
+function finalizeOperationalShadow(shadow: any) {
+  const preview = shadow?.operational_preview || {};
+  const existing = Array.isArray(shadow?.proposed_actions) ? shadow.proposed_actions : [];
+  const byCapability = new Map<string, any>();
+
+  for (const action of existing) {
+    const capability = String(action?.capability || '') as AutocarCapability;
+    if (!capability) continue;
+    const decision = evaluateAutocarOperationalShadowPolicy({ capability, operationalPreview: preview });
+    byCapability.set(capability, {
+      ...action,
+      capability,
+      decision,
+      simulation: decision.effect === 'allow' ? 'would_execute' : decision.effect
+    });
+  }
+
+  const inferred: Array<{ capability: AutocarCapability; reason: string }> = [];
+  if (preview?.plan?.needs_photos) inferred.push({ capability: 'send_photos', reason: 'Cliente solicitou fotos do veículo identificado no estoque.' });
+  if (preview?.plan?.needs_location) inferred.push({ capability: 'send_location', reason: 'Cliente solicitou a localização da loja.' });
+  if (preview?.plan?.needs_availability) inferred.push({ capability: 'schedule_visit', reason: 'Cliente demonstrou intenção de visita em data e horário específicos.' });
+
+  for (const action of inferred) {
+    const decision = evaluateAutocarOperationalShadowPolicy({ capability: action.capability, operationalPreview: preview });
+    byCapability.set(action.capability, {
+      capability: action.capability,
+      reason: action.reason,
+      decision,
+      simulation: decision.effect === 'allow' ? 'would_execute' : decision.effect
+    });
+  }
+
+  return {
+    ...shadow,
+    proposed_actions: Array.from(byCapability.values()),
+    operational_policy_version: 'autocar-operational-policy-v1',
+    no_external_execution: true
+  };
+}
+
 async function processShadowInbound(context: any, conversation: any, message: any) {
   const prepared = await prepareAutocarSafeInbound({
     productionSupabase: context.supabase,
@@ -51,11 +93,12 @@ async function processShadowInbound(context: any, conversation: any, message: an
   }
 
   try {
-    const shadow = await generateAutocarShadowReply({
+    const generated = await generateAutocarShadowReply({
       productionSupabase: context.supabase,
       storeId: context.store.id,
       conversationId: conversation.id
     });
+    const shadow = finalizeOperationalShadow(generated);
     const completedClaim = await completeAutocarShadowClaim({
       storeId: context.store.id,
       claimId: prepared.claim.id,
