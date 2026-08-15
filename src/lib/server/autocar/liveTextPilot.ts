@@ -2,9 +2,8 @@ import { evaluateAutocarPolicy } from '@/lib/server/autocar/policyEngine';
 import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 import { sendEvolutionText } from '@/lib/server/evolution';
 
-const A4_PILOT_STORE_ID = '239755c3-a2d4-4cdd-9502-f1595031c924';
 const LIVE_PURPOSE = 'live_text_send';
-const LIVE_PILOT_VERSION = 'autocar-live-text-a4-v1';
+const LIVE_PILOT_VERSION = 'autocar-live-text-v1';
 
 const blockedLiveCapabilities = new Set([
   'send_photos',
@@ -39,6 +38,10 @@ function scopedEvolutionMessageId(whatsappNumberId: unknown, providerMessageId: 
 
 function shadowFrom(result: any) {
   return result?.result?.shadow || result?.shadow || null;
+}
+
+function isLiveRuntimeEnvironment() {
+  return ['preview', 'production'].includes(String(process.env.VERCEL_ENV || '').trim());
 }
 
 function liveGateReason(shadow: any) {
@@ -98,7 +101,7 @@ async function createLiveClaim(input: {
     policy_capability: 'respond_first_contact',
     policy_effect: blocked ? 'deny' : 'allow',
     policy_source: 'live_pilot_gate',
-    policy_reason: input.gateReason || 'A4 LIVE PILOT V1: texto simples liberado após SAFE CORE e Shadow.',
+    policy_reason: input.gateReason || 'AUTOCAR LIVE TEXT V1: texto simples liberado após SAFE CORE, elegibilidade da loja e Shadow.',
     result: {
       live_pilot_version: LIVE_PILOT_VERSION,
       planned_text: input.response,
@@ -184,7 +187,7 @@ async function currentLiveEligibility(storeId: string, conversationId: string) {
     return { allowed: false, reason: policy.reason, runtime, policy };
   }
 
-  return { allowed: true, reason: 'Elegível para LIVE PILOT V1.', runtime, policy };
+  return { allowed: true, reason: 'Elegível para AUTOCAR LIVE TEXT V1.', runtime, policy };
 }
 
 export async function attemptAutocarLiveTextPilot(input: {
@@ -201,11 +204,8 @@ export async function attemptAutocarLiveTextPilot(input: {
   };
   shadowResult: any;
 }) {
-  if (process.env.VERCEL_ENV !== 'preview') {
-    return { sent: false, skipped: true, reason: 'LIVE PILOT V1 é bloqueado fora de Preview.' };
-  }
-  if (input.storeId !== A4_PILOT_STORE_ID) {
-    return { sent: false, skipped: true, reason: 'LIVE PILOT V1 está liberado somente para A4 Multimarcas.' };
+  if (!isLiveRuntimeEnvironment()) {
+    return { sent: false, skipped: true, reason: 'AUTOCAR LIVE TEXT V1 é bloqueado fora de Preview/Production.' };
   }
   if (input.integration?.scope !== 'store' || input.integration?.status !== 'connected' || !input.integration?.instance_name) {
     return { sent: false, skipped: true, reason: 'Integração Evolution da loja não está conectada.' };
@@ -371,7 +371,7 @@ export async function isAutocarLiveTextOutboundEcho(input: {
   providerMessageId?: string | null;
   body?: string | null;
 }) {
-  if (input.storeId !== A4_PILOT_STORE_ID || process.env.VERCEL_ENV !== 'preview') return false;
+  if (!isLiveRuntimeEnvironment()) return false;
 
   const autocar = getAutocarDevClient();
   const since = new Date(Date.now() - 2 * 60 * 1000).toISOString();
