@@ -53,6 +53,6 @@ export type AutocarToolDefinition = {
 
 export type AutocarPolicyDecision = {
   effect: AutocarPolicyEffect;
-  source: 'global_hard_policy' | 'store_policy' | 'mode_guard' | 'default';
+  source: 'global_hard_policy' | 'store_policy' | 'mode_guard' | 'operational_guard' | 'default';
   reason: string;
 };
