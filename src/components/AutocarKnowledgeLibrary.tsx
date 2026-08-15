@@ -20,6 +20,16 @@ type KnowledgeDocument = {
   created_at: string;
 };
 
+type PreparedUpload = {
+  storage_path: string;
+  signed_url: string;
+  mime_type: string;
+  max_file_bytes: number;
+  expires_in_seconds: number;
+};
+
+const MAX_FILE_BYTES = 25 * 1024 * 1024;
+
 function formatBytes(value: number) {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
@@ -34,6 +44,30 @@ function statusLabel(status: KnowledgeDocument['status']) {
   return 'Arquivado';
 }
 
+async function readResponse(response: Response) {
+  const text = await response.text();
+  if (!text) return {} as any;
+  try {
+    return JSON.parse(text);
+  } catch {
+    if (response.status === 413 || /request entity too large|payload too large/i.test(text)) {
+      return { error: 'O arquivo é grande demais para passar pela API. Atualize a página e tente novamente pelo upload direto.' };
+    }
+    return { error: text.slice(0, 300) };
+  }
+}
+
+function uploadDirectly(signedUrl: string, file: File) {
+  const form = new FormData();
+  form.append('cacheControl', '3600');
+  form.append('', file);
+  return fetch(signedUrl, {
+    method: 'PUT',
+    headers: { 'x-upsert': 'false' },
+    body: form
+  });
+}
+
 export function AutocarKnowledgeLibrary({ slug, canManage, isMaster }: { slug: string; canManage: boolean; isMaster: boolean }) {
   const supabase = useMemo(() => createClient(), []);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
@@ -43,6 +77,10 @@ export function AutocarKnowledgeLibrary({ slug, canManage, isMaster }: { slug: s
   const [scope, setScope] = useState<'method' | 'store'>(isMaster ? 'method' : 'store');
   const [title, setTitle] = useState('');
   const [file, setFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    if (!isMaster && scope !== 'store') setScope('store');
+  }, [isMaster, scope]);
 
   const token = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
@@ -58,7 +96,7 @@ export function AutocarKnowledgeLibrary({ slug, canManage, isMaster }: { slug: s
         headers: { Authorization: `Bearer ${accessToken}` },
         cache: 'no-store'
       });
-      const body = await response.json();
+      const body = await readResponse(response);
       if (!response.ok) throw new Error(body.error || 'Não foi possível carregar a biblioteca.');
       setDocuments(body.documents || []);
       setSchemaReady(Boolean(body.schema_ready));
@@ -75,23 +113,64 @@ export function AutocarKnowledgeLibrary({ slug, canManage, isMaster }: { slug: s
   async function uploadDocument(event: React.FormEvent) {
     event.preventDefault();
     if (!file || !schemaReady || !canManage) return;
+    if (file.size > MAX_FILE_BYTES) {
+      setMessage('O arquivo deve ter no máximo 25 MB.');
+      return;
+    }
+    if (scope === 'method' && !isMaster) {
+      setMessage('Somente o Master pode publicar o Método Venda Mais oficial.');
+      return;
+    }
+
     setBusy(true);
-    setMessage('Enviando, extraindo texto e criando índice semântico...');
+    setMessage('Preparando upload privado e seguro...');
     try {
       const accessToken = await token();
       if (!accessToken) throw new Error('Sessão expirada.');
-      const form = new FormData();
-      form.append('slug', slug);
-      form.append('scope', scope);
-      form.append('title', title || file.name);
-      form.append('file', file);
-      const response = await fetch('/api/store/portal/autocar/knowledge', {
+
+      const prepareResponse = await fetch('/api/store/portal/autocar/knowledge', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: form
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'prepare-upload',
+          slug,
+          scope,
+          title: title || file.name,
+          file_name: file.name,
+          mime_type: file.type,
+          file_size_bytes: file.size
+        })
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || 'Não foi possível processar o documento.');
+      const preparedBody = await readResponse(prepareResponse);
+      if (!prepareResponse.ok) throw new Error(preparedBody.error || 'Não foi possível preparar o upload privado.');
+      const upload = preparedBody.upload as PreparedUpload;
+      if (!upload?.signed_url || !upload?.storage_path) throw new Error('O servidor não retornou a autorização temporária de upload.');
+
+      setMessage(`Enviando ${formatBytes(file.size)} diretamente ao Storage privado...`);
+      const storageResponse = await uploadDirectly(upload.signed_url, file);
+      if (!storageResponse.ok) {
+        const storageBody = await readResponse(storageResponse);
+        throw new Error(storageBody.error || `O Storage recusou o arquivo (HTTP ${storageResponse.status}).`);
+      }
+
+      setMessage('Arquivo recebido. Extraindo texto e criando o índice semântico...');
+      const finalizeResponse = await fetch('/api/store/portal/autocar/knowledge', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'finalize-upload',
+          slug,
+          scope,
+          title: title || file.name,
+          file_name: file.name,
+          mime_type: file.type,
+          file_size_bytes: file.size,
+          storage_path: upload.storage_path
+        })
+      });
+      const finalBody = await readResponse(finalizeResponse);
+      if (!finalizeResponse.ok) throw new Error(finalBody.error || 'O arquivo foi enviado, mas não foi possível concluir a indexação.');
+
       setFile(null);
       setTitle('');
       setMessage('Documento processado e pronto para ser consultado pela AUTOCAR.');
@@ -113,7 +192,7 @@ export function AutocarKnowledgeLibrary({ slug, canManage, isMaster }: { slug: s
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ slug, document_id: document.id })
       });
-      const body = await response.json();
+      const body = await readResponse(response);
       if (!response.ok) throw new Error(body.error || 'Não foi possível arquivar.');
       setMessage('Documento arquivado. Ele deixa de participar das consultas da AUTOCAR.');
       await load();
@@ -143,7 +222,7 @@ export function AutocarKnowledgeLibrary({ slug, canManage, isMaster }: { slug: s
       <div className="grid gap-5 p-4 md:p-6 xl:grid-cols-[0.78fr_1.22fr]">
         <form onSubmit={uploadDocument} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 md:p-5">
           <div className="flex items-center gap-2"><Upload size={18} className="text-red-600" /><h3 className="text-base font-black text-zinc-950">Adicionar conhecimento</h3></div>
-          <p className="mt-2 text-xs leading-5 text-zinc-600">PDF, DOCX, TXT, Markdown ou CSV. Máximo de 25 MB por arquivo.</p>
+          <p className="mt-2 text-xs leading-5 text-zinc-600">PDF, DOCX, TXT, Markdown ou CSV. Máximo de 25 MB. Arquivos grandes vão direto ao Storage privado e não passam pelo limite da Function.</p>
 
           <div className="mt-4 grid gap-3">
             {isMaster ? (
@@ -153,25 +232,26 @@ export function AutocarKnowledgeLibrary({ slug, canManage, isMaster }: { slug: s
                   <option value="store">Conhecimento específico desta loja</option>
                 </select>
               </label>
-            ) : <div className="rounded-xl border border-zinc-200 bg-white p-3 text-xs font-bold text-zinc-700"><Store size={14} className="mr-1 inline text-red-600" /> Este arquivo ficará disponível somente para esta loja.</div>}
+            ) : <div className="rounded-xl border border-zinc-200 bg-white p-3 text-xs font-bold text-zinc-700"><Store size={14} className="mr-1 inline text-red-600" /> Este arquivo ficará disponível somente para esta loja. Para publicar o Método Venda Mais oficial, entre com uma sessão Master.</div>}
 
             <label className="text-xs font-black text-zinc-700">Título
               <input className="premium-input mt-1.5" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Ex.: Livro Método Venda Mais — edição 2026" />
             </label>
             <label className="text-xs font-black text-zinc-700">Arquivo
-              <input className="premium-input mt-1.5 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-950 file:px-3 file:py-2 file:text-xs file:font-black file:text-white" type="file" accept=".pdf,.docx,.txt,.md,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv" onChange={(event) => setFile(event.target.files?.[0] || null)} />
+              <input className="premium-input mt-1.5 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-950 file:px-3 file:py-2 file:text-xs file:font-black file:text-white" type="file" accept=".pdf,.docx,.txt,.md,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv" onChange={(event) => { const selected = event.target.files?.[0] || null; setFile(selected); if (selected && selected.size > MAX_FILE_BYTES) setMessage('O arquivo deve ter no máximo 25 MB.'); }} />
             </label>
+            {file ? <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-bold text-zinc-600">Selecionado: {file.name} · {formatBytes(file.size)}</div> : null}
           </div>
 
           {!schemaReady ? (
-            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3"><div className="flex items-center gap-2 text-amber-800"><LockKeyhole size={15} /><strong className="text-xs">Banco ainda não ativado</strong></div><p className="mt-1 text-xs leading-5 text-amber-800">A interface e o processamento estão implementados, mas a migration e o bucket privados continuam somente versionados. Nenhum arquivo será enviado ao Supabase Production nesta validação.</p></div>
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3"><div className="flex items-center gap-2 text-amber-800"><LockKeyhole size={15} /><strong className="text-xs">Banco ainda não ativado</strong></div><p className="mt-1 text-xs leading-5 text-amber-800">A Biblioteca aguarda um ambiente de banco/Storage próprio. Nenhum arquivo será enviado ao Supabase Production.</p></div>
           ) : null}
 
-          <button type="submit" disabled={!canManage || !schemaReady || !file || busy} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-zinc-300">{busy ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} Enviar e indexar</button>
+          <button type="submit" disabled={!canManage || !schemaReady || !file || file.size > MAX_FILE_BYTES || busy} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-zinc-300">{busy ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} {busy ? 'Processando...' : 'Enviar e indexar'}</button>
         </form>
 
         <div className="space-y-4">
-          <LibraryGroup title="Método Venda Mais — Oficial" helper="Conhecimento global protegido, herdado por todas as lojas." icon={<BookOpen size={17} />} documents={methodDocuments} canArchive={isMaster && canManage} onArchive={archive} />
+          <LibraryGroup title="Método Venda Mais — Oficial" helper="Conhecimento global protegido, herdado por todas as lojas. Somente Master publica." icon={<BookOpen size={17} />} documents={methodDocuments} canArchive={isMaster && canManage} onArchive={archive} />
           <LibraryGroup title="Conhecimento desta loja" helper="Políticas, treinamentos e materiais exclusivos da operação." icon={<Store size={17} />} documents={storeDocuments} canArchive={canManage} onArchive={archive} />
         </div>
       </div>
