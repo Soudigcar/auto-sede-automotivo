@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cleanText } from '@/lib/server/storeTeam';
 import { authorizeStorePortal, canAccessStoreLead } from '@/lib/server/storePortal';
+import { checkStoreAvailability } from '@/lib/server/storeAvailability';
 
 export const runtime = 'nodejs';
 
@@ -114,17 +115,17 @@ function parseSchedule(dateValue: unknown, timeValue: unknown) {
 }
 
 async function assertScheduleAvailable(supabase: any, storeId: string, leadId: string, startsAt: Date) {
-  const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000);
-  const [leadConflict, taskConflict] = await Promise.all([
-    supabase.from('leads').select('id').eq('assigned_store_id', storeId).neq('id', leadId)
-      .not('scheduled_at', 'is', null).gte('scheduled_at', startsAt.toISOString()).lt('scheduled_at', endsAt.toISOString()).limit(1),
-    supabase.from('store_calendar_tasks').select('id').eq('store_id', storeId)
-      .gte('starts_at', startsAt.toISOString()).lt('starts_at', endsAt.toISOString()).limit(1)
-  ]);
-  if (leadConflict.error) throw leadConflict.error;
-  if (taskConflict.error) throw taskConflict.error;
-  if ((leadConflict.data || []).length || (taskConflict.data || []).length) {
-    throw new Error('Horário ocupado no calendário. Escolha outro horário.');
+  const availability = await checkStoreAvailability({
+    supabase,
+    storeId,
+    startsAt,
+    durationMinutes: 60,
+    excludeLeadId: leadId
+  });
+  if (!availability.available) {
+    const conflict = availability.conflicts[0];
+    const detail = conflict?.title ? ` Conflito: ${conflict.title}.` : '';
+    throw new Error(`Horário ocupado no calendário. Escolha outro horário.${detail}`);
   }
 }
 
