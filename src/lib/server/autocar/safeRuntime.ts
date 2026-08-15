@@ -201,6 +201,15 @@ export async function failAutocarShadowClaim(input: {
   return data;
 }
 
+function providerMessageIdFromRawPayload(rawPayload: any) {
+  return String(
+    rawPayload?.key?.id ||
+    rawPayload?.message?.key?.id ||
+    rawPayload?.id ||
+    ''
+  ).trim();
+}
+
 async function isOwnAutocarLiveOutbound(input: {
   productionSupabase: any;
   autocar: ReturnType<typeof getAutocarDevClient>;
@@ -222,21 +231,44 @@ async function isOwnAutocarLiveOutbound(input: {
 
   const since = new Date(Date.now() - 2 * 60 * 1000).toISOString();
   const { data: claims, error: claimsError } = await input.autocar.from('ai_runtime_message_claims')
-    .select('id,status,result,created_at')
+    .select('id,status,purpose,result,created_at')
     .eq('store_id', input.storeId)
     .eq('production_conversation_id', input.conversationId)
-    .eq('purpose', 'live_text_send')
+    .in('purpose', ['live_text_send', 'live_photo_send'])
     .gte('created_at', since)
     .order('created_at', { ascending: false })
-    .limit(5);
+    .limit(10);
   if (claimsError) throw claimsError;
 
   const body = String(message.body || '').trim();
+  const providerMessageId = providerMessageIdFromRawPayload(message.raw_payload);
+
   return (claims || []).some((claim: any) => {
     const result = claim?.result || {};
-    if (String(result?.production_outbound_message_id || '') === input.messageId) return true;
-    const planned = String(result?.planned_text || '').trim();
-    return Boolean(body && planned && body === planned && (claim.status === 'ready' || claim.status === 'completed'));
+
+    if (claim.purpose === 'live_text_send') {
+      if (String(result?.production_outbound_message_id || '') === input.messageId) return true;
+      if (providerMessageId && String(result?.provider_message_id || '') === providerMessageId) return true;
+      const planned = String(result?.planned_text || '').trim();
+      return Boolean(body && planned && body === planned && (claim.status === 'ready' || claim.status === 'completed'));
+    }
+
+    if (claim.purpose === 'live_photo_send') {
+      const productionIds = Array.isArray(result?.production_outbound_message_ids)
+        ? result.production_outbound_message_ids.map(String)
+        : [];
+      if (productionIds.includes(input.messageId)) return true;
+
+      const providerIds = Array.isArray(result?.provider_message_ids)
+        ? result.provider_message_ids.map(String)
+        : [];
+      if (providerMessageId && providerIds.includes(providerMessageId)) return true;
+
+      const plannedCaption = String(result?.planned_caption || '').trim();
+      if (claim.status === 'ready' && body && plannedCaption && body === plannedCaption) return true;
+    }
+
+    return false;
   });
 }
 
@@ -269,7 +301,7 @@ export async function markAutocarHumanActive(input: {
         leadId: input.leadId || null
       }, effectiveMode, {
         metadata: {
-          last_ignored_outbound_source: 'autocar_live_text',
+          last_ignored_outbound_source: 'autocar_live',
           last_ignored_outbound_message_id: input.messageId
         },
         updated_at: new Date().toISOString()
