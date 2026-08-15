@@ -201,6 +201,45 @@ export async function failAutocarShadowClaim(input: {
   return data;
 }
 
+async function isOwnAutocarLiveOutbound(input: {
+  productionSupabase: any;
+  autocar: ReturnType<typeof getAutocarDevClient>;
+  storeId: string;
+  conversationId: string;
+  messageId: string;
+}) {
+  const { data: message, error: messageError } = await input.productionSupabase
+    .from('whatsapp_messages')
+    .select('id,body,raw_payload,created_at,sent_at')
+    .eq('id', input.messageId)
+    .eq('store_id', input.storeId)
+    .eq('conversation_id', input.conversationId)
+    .maybeSingle();
+  if (messageError) throw messageError;
+  if (!message) return false;
+
+  if (message?.raw_payload?.autocar_live_pilot === true) return true;
+
+  const since = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+  const { data: claims, error: claimsError } = await input.autocar.from('ai_runtime_message_claims')
+    .select('id,status,result,created_at')
+    .eq('store_id', input.storeId)
+    .eq('production_conversation_id', input.conversationId)
+    .eq('purpose', 'live_text_send')
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(5);
+  if (claimsError) throw claimsError;
+
+  const body = String(message.body || '').trim();
+  return (claims || []).some((claim: any) => {
+    const result = claim?.result || {};
+    if (String(result?.production_outbound_message_id || '') === input.messageId) return true;
+    const planned = String(result?.planned_text || '').trim();
+    return Boolean(body && planned && body === planned && (claim.status === 'ready' || claim.status === 'completed'));
+  });
+}
+
 export async function markAutocarHumanActive(input: {
   productionSupabase: any;
   storeId: string;
@@ -213,6 +252,31 @@ export async function markAutocarHumanActive(input: {
 }) {
   const { autocar } = await ensureRuntimeStore(input.productionSupabase, input.storeId);
   const effectiveMode = await readEffectiveMode(autocar, input.storeId);
+
+  if (input.source === 'webhook_outbound' && input.messageId) {
+    const ownLiveOutbound = await isOwnAutocarLiveOutbound({
+      productionSupabase: input.productionSupabase,
+      autocar,
+      storeId: input.storeId,
+      conversationId: input.conversationId,
+      messageId: input.messageId
+    });
+    if (ownLiveOutbound) {
+      return upsertRuntimeConversation(autocar, {
+        storeId: input.storeId,
+        conversationId: input.conversationId,
+        whatsappNumberId: input.whatsappNumberId || null,
+        leadId: input.leadId || null
+      }, effectiveMode, {
+        metadata: {
+          last_ignored_outbound_source: 'autocar_live_text',
+          last_ignored_outbound_message_id: input.messageId
+        },
+        updated_at: new Date().toISOString()
+      });
+    }
+  }
+
   const now = new Date().toISOString();
   return upsertRuntimeConversation(autocar, {
     storeId: input.storeId,
