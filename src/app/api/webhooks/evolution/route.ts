@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import {
   evolutionWebhookSignatureHeader,
   getEvolutionConnectionState,
@@ -6,9 +6,12 @@ import {
 } from '@/lib/server/evolution';
 import { evolutionMessageContent, evolutionMessageType } from '@/lib/server/evolutionMessage';
 import { cleanText, createAdminClient } from '@/lib/server/storeTeam';
+import { processAutocarShadowInbound } from '@/lib/server/autocar/autoShadow';
+import { markAutocarHumanActive } from '@/lib/server/autocar/safeRuntime';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 function normalizePhone(value: unknown) {
   const jid = cleanText(value, 180).split('@')[0].split(':')[0];
@@ -378,6 +381,7 @@ async function processMessage(supabase: any, integration: any, data: any) {
     conversation = created;
   }
 
+  const messageType = evolutionMessageType(data);
   const { data: savedMessage, error: messageError } = await supabase
     .from('whatsapp_messages')
     .insert({
@@ -389,7 +393,7 @@ async function processMessage(supabase: any, integration: any, data: any) {
       base_lead_id: baseLeadId,
       wa_message_id: scopedMessageId,
       direction: fromMe ? 'outbound' : 'inbound',
-      message_type: evolutionMessageType(data),
+      message_type: messageType,
       body,
       status: fromMe ? 'sent' : 'received',
       raw_payload: data,
@@ -414,7 +418,62 @@ async function processMessage(supabase: any, integration: any, data: any) {
     .eq('id', conversation.id);
   if (conversationUpdateError) throw conversationUpdateError;
 
-  return { success: true, message_id: savedMessage.id, direction: fromMe ? 'outbound' : 'inbound' };
+  return {
+    success: true,
+    message_id: savedMessage.id,
+    direction: fromMe ? 'outbound' : 'inbound',
+    message_type: messageType,
+    store_id: integration.store_id,
+    conversation_id: conversation.id,
+    whatsapp_number_id: number.id,
+    lead_id: leadId
+  };
+}
+
+function scheduleAutocarBestEffort(supabase: any, integration: any, result: any) {
+  if (integration.scope !== 'store' || !integration.store_id || !result?.success || !result?.conversation_id || !result?.message_id) return;
+
+  after(async () => {
+    try {
+      if (result.direction === 'inbound') {
+        await processAutocarShadowInbound({
+          productionSupabase: supabase,
+          storeId: integration.store_id,
+          conversation: {
+            id: result.conversation_id,
+            whatsapp_number_id: result.whatsapp_number_id,
+            lead_id: result.lead_id || null
+          },
+          message: {
+            id: result.message_id,
+            message_type: result.message_type || null
+          }
+        });
+        return;
+      }
+
+      if (result.direction === 'outbound') {
+        await markAutocarHumanActive({
+          productionSupabase: supabase,
+          storeId: integration.store_id,
+          conversationId: result.conversation_id,
+          whatsappNumberId: result.whatsapp_number_id,
+          leadId: result.lead_id || null,
+          messageId: result.message_id,
+          profileId: null,
+          source: 'webhook_outbound'
+        });
+      }
+    } catch (error: any) {
+      console.warn('[AUTOCAR auto-shadow] Pós-processamento best effort falhou sem bloquear o WhatsApp.', {
+        storeId: integration.store_id,
+        conversationId: result.conversation_id,
+        messageId: result.message_id,
+        direction: result.direction,
+        error: error?.message || String(error)
+      });
+    }
+  });
 }
 
 export async function POST(request: Request) {
@@ -473,7 +532,11 @@ export async function POST(request: Request) {
       if (hasIdentifiedMessage) await reconcileConnectedStatusFromMessage(supabase, integration, now);
 
       const results = [];
-      for (const message of validMessages) results.push(await processMessage(supabase, integration, message));
+      for (const message of validMessages) {
+        const result = await processMessage(supabase, integration, message);
+        results.push(result);
+        scheduleAutocarBestEffort(supabase, integration, result);
+      }
 
       await supabase
         .from('store_whatsapp_integrations')
