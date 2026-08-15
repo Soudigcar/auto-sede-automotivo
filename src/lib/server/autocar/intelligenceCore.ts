@@ -29,13 +29,7 @@ export async function buildAutocarIntelligenceContext(input: {
     searchTrainingScenarios(query, input.storeId, 6),
     searchAutocarKnowledge(input.storeId, query, 10),
     input.inventorySupabase
-      ? loadAutocarInventory({
-          supabase: input.inventorySupabase,
-          storeId: input.storeId,
-          query,
-          matchLimit: 12,
-          indexLimit: 80
-        })
+      ? loadAutocarInventory({ supabase: input.inventorySupabase, storeId: input.storeId, query, matchLimit: 12, indexLimit: 80 })
       : Promise.resolve(null)
   ]);
 
@@ -118,7 +112,8 @@ export function serializeAutocarIntelligenceContext(context: Awaited<ReturnType<
         photos: vehicle.photos,
         portal_url: vehicle.portal_url,
         published: vehicle.published
-      }))
+      })),
+      inventory_index: context.inventory.inventory_index
     } : null
   };
 }
