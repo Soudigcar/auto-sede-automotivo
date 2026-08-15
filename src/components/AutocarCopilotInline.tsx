@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, Camera, Car, ExternalLink, Eye, Loader2, MapPin, ShieldCheck, Sparkles, WandSparkles } from 'lucide-react';
+import { Bot, CalendarClock, Camera, Car, ExternalLink, Eye, Hand, Loader2, MapPin, Play, ShieldCheck, Sparkles, WandSparkles } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
 type Vehicle = {
@@ -14,6 +14,15 @@ type Analysis = {
   summary: string; next_best_question: string; suggested_reply: string; score: number;
   temperature: 'FRIO' | 'MORNO' | 'QUENTE'; referenced_vehicles?: Vehicle[];
   intelligence?: { inventory_available_count?: number; inventory_matches?: number };
+};
+
+type RuntimeState = {
+  effective_mode?: string;
+  human_state?: 'autocar_active' | 'human_active' | 'paused' | string;
+  pause_reason?: string | null;
+  paused_by_source?: string | null;
+  paused_at?: string | null;
+  resumed_at?: string | null;
 };
 
 type ShadowAction = {
@@ -81,18 +90,66 @@ export default function AutocarCopilotInline({ slug, conversationId, conversatio
   const [reply, setReply] = useState('');
   const [loading, setLoading] = useState(false);
   const [shadowLoading, setShadowLoading] = useState(false);
+  const [runtimeLoading, setRuntimeLoading] = useState(false);
+  const [resumeLoading, setResumeLoading] = useState(false);
+  const [runtime, setRuntime] = useState<RuntimeState | null>(null);
+  const [canManageAutocar, setCanManageAutocar] = useState(false);
   const [shadow, setShadow] = useState<ShadowResult | null>(null);
   const [shadowMeta, setShadowMeta] = useState('');
+  const [runtimeMeta, setRuntimeMeta] = useState('');
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState(false);
 
-  useEffect(() => { setAnalysis(null); setReply(''); setShadow(null); setShadowMeta(''); setError(''); setExpanded(false); }, [conversationId]);
+  useEffect(() => {
+    setAnalysis(null); setReply(''); setShadow(null); setShadowMeta(''); setRuntimeMeta(''); setError(''); setExpanded(false);
+    setRuntime(null); setCanManageAutocar(false);
+    if (conversationId && slug) void loadRuntime();
+  }, [conversationId, slug]);
 
   async function token() {
     const { data } = await supabase.auth.getSession();
     const access = data.session?.access_token || '';
     if (!access) throw new Error('Sessão não encontrada.');
     return access;
+  }
+
+  async function loadRuntime() {
+    if (!conversationId || !slug) return;
+    setRuntimeLoading(true);
+    try {
+      const access = await token();
+      const response = await fetch(`/api/store/portal/autocar/runtime?slug=${encodeURIComponent(slug)}&conversation_id=${encodeURIComponent(conversationId)}`, {
+        method: 'GET', headers: { Authorization: `Bearer ${access}` }, cache: 'no-store'
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Não foi possível consultar o estado da AUTOCAR.');
+      setRuntime(result.runtime || null);
+      setCanManageAutocar(Boolean(result.can_manage_autocar));
+    } catch (err: any) {
+      setError(err?.message || 'Erro ao consultar estado da AUTOCAR.');
+    } finally {
+      setRuntimeLoading(false);
+    }
+  }
+
+  async function resumeAutocar() {
+    if (!conversationId || !slug || !canManageAutocar) return;
+    setResumeLoading(true); setError(''); setRuntimeMeta('');
+    try {
+      const access = await token();
+      const response = await fetch('/api/store/portal/autocar/runtime', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${access}` },
+        body: JSON.stringify({ slug, conversation_id: conversationId, action: 'resume' }), cache: 'no-store'
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Não foi possível devolver a conversa para a AUTOCAR.');
+      setRuntime(result.runtime || null);
+      setRuntimeMeta('Conversa devolvida para a AUTOCAR. A próxima mensagem do cliente poderá voltar ao AUTOPILOT.');
+    } catch (err: any) {
+      setError(err?.message || 'Erro ao devolver a conversa para a AUTOCAR.');
+    } finally {
+      setResumeLoading(false);
+    }
   }
 
   async function analyze() {
@@ -129,6 +186,7 @@ export default function AutocarCopilotInline({ slug, conversationId, conversatio
       else if (!result?.result?.ready) setShadowMeta(result?.result?.claim?.result?.reason || `Shadow não executável no modo ${String(result?.result?.effectiveMode || 'off').toUpperCase()}.`);
       else setShadowMeta('Shadow concluído. Nenhuma mensagem, foto, localização ou agendamento foi executado.');
       setExpanded(true);
+      await loadRuntime();
     } catch (err: any) { setError(err?.message || 'Erro ao executar Shadow Mode.'); }
     finally { setShadowLoading(false); }
   }
@@ -136,18 +194,32 @@ export default function AutocarCopilotInline({ slug, conversationId, conversatio
   function useReply() { const text = reply.trim(); if (text) onUseReply(text); }
   const op = shadow?.operational_preview;
   const booking = shadow?.booking_guard;
+  const humanActive = runtime?.human_state === 'human_active' || runtime?.human_state === 'paused';
+  const autocarActive = runtime?.human_state === 'autocar_active';
 
   return (
     <section className="border-t border-zinc-200 bg-white px-2.5 pt-2.5">
       <div className="rounded-2xl border border-red-100 bg-red-50/40 p-2.5">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0"><p className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.14em] text-red-600"><Sparkles size={13} /> AUTOCAR</p><p className="mt-1 truncate text-[11px] font-bold text-zinc-600">Conversa ativa: <b className="text-zinc-900">{conversationName || 'Cliente WhatsApp'}</b></p></div>
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.14em] text-red-600"><Sparkles size={13} /> AUTOCAR</p>
+            <p className="mt-1 truncate text-[11px] font-bold text-zinc-600">Conversa ativa: <b className="text-zinc-900">{conversationName || 'Cliente WhatsApp'}</b></p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {runtimeLoading ? <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2.5 py-1 text-[8px] font-black uppercase text-zinc-500"><Loader2 size={10} className="animate-spin" /> Consultando atendimento</span> : null}
+              {!runtimeLoading && autocarActive ? <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-[8px] font-black uppercase text-emerald-700"><Bot size={11} /> AUTOCAR ATENDENDO</span> : null}
+              {!runtimeLoading && humanActive ? <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-1 text-[8px] font-black uppercase text-blue-700"><Hand size={11} /> ATENDIMENTO HUMANO</span> : null}
+              {!runtimeLoading && runtime?.effective_mode ? <span className="rounded-full bg-white px-2.5 py-1 text-[8px] font-black uppercase text-zinc-600">{runtime.effective_mode}</span> : null}
+            </div>
+          </div>
           <div className="flex flex-wrap gap-2">
+            {humanActive && canManageAutocar ? <button type="button" onClick={() => void resumeAutocar()} disabled={resumeLoading || runtimeLoading || !conversationId} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 text-[10px] font-black uppercase text-emerald-800 disabled:opacity-50">{resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} {resumeLoading ? 'Devolvendo...' : 'Devolver para AUTOCAR'}</button> : null}
             <button type="button" onClick={() => void testShadow()} disabled={shadowLoading || loading || !conversationId} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 text-[10px] font-black uppercase text-amber-800 disabled:opacity-50">{shadowLoading ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />} {shadowLoading ? 'Simulando...' : 'Testar Shadow'}</button>
             <button type="button" onClick={() => void analyze()} disabled={loading || shadowLoading || !conversationId} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#071020] px-4 text-[10px] font-black uppercase text-white disabled:opacity-50">{loading ? <Loader2 size={14} className="animate-spin" /> : <WandSparkles size={14} />} {loading ? 'Analisando...' : 'Copilot'}</button>
           </div>
         </div>
 
+        {runtimeMeta ? <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-bold text-emerald-800">{runtimeMeta}</div> : null}
+        {humanActive && runtime?.pause_reason ? <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-bold text-blue-800">{runtime.pause_reason}{runtime.paused_at ? ` · desde ${formatDateTime(runtime.paused_at)}` : ''}</div> : null}
         {error ? <div className="mt-2 rounded-xl border border-red-100 bg-white px-3 py-2 text-[10px] font-bold text-red-700">{error}</div> : null}
         {shadowMeta ? <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-900">{shadowMeta}</div> : null}
 
