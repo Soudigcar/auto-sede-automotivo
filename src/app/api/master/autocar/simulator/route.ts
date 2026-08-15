@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cleanText, getAdminClient, requireMaster } from '@/lib/server/masterApi';
 import { simulateAutocarMode } from '@/lib/server/autocar/modeSimulator';
+import { ensureAutocarDevStore, getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -44,11 +45,13 @@ export async function POST(request: Request) {
 
     const { data: store, error } = await context.production
       .from('stores')
-      .select('id,store_name,slug,status')
+      .select('id,store_name,slug,status,portal_enabled')
       .eq('id', storeId)
       .maybeSingle();
     if (error) throw error;
     if (!store) return NextResponse.json({ error: 'Loja não encontrada no CRM.' }, { status: 404 });
+
+    await ensureAutocarDevStore(getAutocarDevClient(), store);
 
     const result = await simulateAutocarMode({
       storeId: store.id,
