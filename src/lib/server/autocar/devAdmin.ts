@@ -36,22 +36,70 @@ export async function ensureAutocarDevStore(
   if (error) throw error;
 }
 
-export async function setAutocarStoreMode(
+async function currentAgent(supabase: ReturnType<typeof getAutocarDevClient>, storeId: string) {
+  const { data, error } = await supabase.from('ai_store_agents')
+    .select('id,store_id,name,status,mode,tone,language,version,master_enabled,master_autopilot_allowed,store_selected_mode,updated_at')
+    .eq('store_id', storeId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function setAutocarMasterAccess(
+  supabase: ReturnType<typeof getAutocarDevClient>,
+  store: { id: string; store_name: string; slug?: string | null; status?: string | null; portal_enabled?: boolean | null },
+  input: { enabled: boolean; autopilotAllowed: boolean }
+) {
+  await ensureAutocarDevStore(supabase, store);
+  const existing = await currentAgent(supabase, store.id);
+  const selectedMode: AutocarStoreMode = existing?.store_selected_mode || (input.enabled ? 'copilot' : 'off');
+
+  const { data, error } = await supabase.from('ai_store_agents').upsert({
+    store_id: store.id,
+    name: 'AUTOCAR',
+    master_enabled: Boolean(input.enabled),
+    master_autopilot_allowed: Boolean(input.enabled && input.autopilotAllowed),
+    store_selected_mode: selectedMode,
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'store_id' }).select('id,store_id,name,status,mode,tone,language,version,master_enabled,master_autopilot_allowed,store_selected_mode,updated_at').single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function setAutocarStoreSelectedMode(
   supabase: ReturnType<typeof getAutocarDevClient>,
   store: { id: string; store_name: string; slug?: string | null; status?: string | null; portal_enabled?: boolean | null },
   mode: AutocarStoreMode
 ) {
   await ensureAutocarDevStore(supabase, store);
+  const existing = await currentAgent(supabase, store.id);
 
-  const status = mode === 'off' ? 'inactive' : 'active';
-  const { data, error } = await supabase.from('ai_store_agents').upsert({
-    store_id: store.id,
-    name: 'AUTOCAR',
-    status,
-    mode,
+  if (!existing?.master_enabled) {
+    throw new Error('A AUTOCAR ainda não foi liberada pelo Master para esta loja.');
+  }
+  if (mode === 'autopilot' && !existing.master_autopilot_allowed) {
+    throw new Error('O AUTOPILOT ainda não foi liberado pelo Master para esta loja.');
+  }
+
+  const { data, error } = await supabase.from('ai_store_agents').update({
+    store_selected_mode: mode,
     updated_at: new Date().toISOString()
-  }, { onConflict: 'store_id' }).select('id,store_id,name,status,mode,tone,language,version,updated_at').single();
+  }).eq('store_id', store.id)
+    .select('id,store_id,name,status,mode,tone,language,version,master_enabled,master_autopilot_allowed,store_selected_mode,updated_at')
+    .single();
 
   if (error) throw error;
   return data;
+}
+
+export async function setAutocarStoreMode(
+  supabase: ReturnType<typeof getAutocarDevClient>,
+  store: { id: string; store_name: string; slug?: string | null; status?: string | null; portal_enabled?: boolean | null },
+  mode: AutocarStoreMode
+) {
+  return setAutocarMasterAccess(supabase, store, {
+    enabled: mode !== 'off',
+    autopilotAllowed: mode === 'autopilot'
+  });
 }
