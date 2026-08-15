@@ -76,7 +76,8 @@ export async function POST(request: Request) {
       lead: lead || null,
       baseLead: baseLead || null,
       commercial: commercial || null,
-      messages: textMessages
+      messages: textMessages,
+      inventorySupabase: context.supabase
     });
 
     return NextResponse.json({
