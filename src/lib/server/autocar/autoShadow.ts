@@ -7,6 +7,7 @@ import { generateAutocarShadowReply } from '@/lib/server/autocar/shadowReply';
 import { evaluateAutocarOperationalShadowPolicy } from '@/lib/server/autocar/operationalPolicy';
 import { resolveBookingContext } from '@/lib/server/autocar/bookingContextResolver';
 import { evaluateBookingConfirmationGuard } from '@/lib/server/autocar/bookingConfirmationGuard';
+import { enhanceAutocarBookingConversation } from '@/lib/server/autocar/bookingConversation';
 import { attemptAutocarLiveTextPilot } from '@/lib/server/autocar/liveTextPilot';
 import { attemptAutocarLivePhotoPilot } from '@/lib/server/autocar/livePhotoPilot';
 import { attemptAutocarLiveLocationPilot } from '@/lib/server/autocar/liveLocationPilot';
@@ -115,6 +116,26 @@ function finalizeOperationalShadow(shadow: any, bookingGuard: any) {
   };
 }
 
+function conversationalTextShadowResult(baseResult: any, shadow: any) {
+  const state = String(shadow?.booking_guard?.state || 'NOT_APPLICABLE');
+  if (!['WAITING_CONFIRMATION', 'SLOT_UNAVAILABLE'].includes(state)) return baseResult;
+
+  return {
+    ...baseResult,
+    result: {
+      ...baseResult.result,
+      shadow: {
+        ...shadow,
+        booking_guard: {
+          ...shadow.booking_guard,
+          state: 'NOT_APPLICABLE',
+          conversational_original_state: state
+        }
+      }
+    }
+  };
+}
+
 export async function processAutocarShadowInbound(input: {
   productionSupabase: any;
   storeId: string;
@@ -164,7 +185,16 @@ export async function processAutocarShadowInbound(input: {
       bookingContext
     });
 
-    const shadow = finalizeOperationalShadow(generated, bookingGuard);
+    const conversationalGenerated = await enhanceAutocarBookingConversation({
+      productionSupabase: input.productionSupabase,
+      storeId: input.storeId,
+      leadId: input.conversation.lead_id || null,
+      shadow: generated,
+      bookingGuard,
+      bookingContext
+    });
+
+    const shadow = finalizeOperationalShadow(conversationalGenerated, bookingGuard);
     const completedClaim = await completeAutocarShadowClaim({
       storeId: input.storeId,
       claimId: prepared.claim.id,
@@ -198,7 +228,7 @@ export async function processAutocarShadowInbound(input: {
         leadId: input.conversation.lead_id || null,
         inboundMessageId: input.message.id,
         integration: integration || {},
-        shadowResult: baseResult
+        shadowResult: conversationalTextShadowResult(baseResult, shadow)
       });
 
       let livePhotos: any = {
