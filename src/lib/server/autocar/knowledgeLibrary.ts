@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { autocarModelName } from '@/lib/server/autocar/client';
 
 const KNOWLEDGE_BUCKET = 'autocar-knowledge';
-const MAX_FILE_BYTES = 25 * 1024 * 1024;
+export const AUTOCAR_KNOWLEDGE_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const EMBEDDING_MODEL = 'text-embedding-3-small';
 const EMBEDDING_DIMENSIONS = 1536;
 const SUPPORTED_MIME_TYPES = new Set([
@@ -22,6 +22,26 @@ type UploadInput = {
   userId: string;
   title: string;
   file: File;
+};
+
+type DirectUploadPreparationInput = {
+  scope: AutocarKnowledgeScope;
+  storeId: string | null;
+  title: string;
+  fileName: string;
+  mimeType: string;
+  fileSizeBytes: number;
+};
+
+type FinalizeStoredUploadInput = {
+  scope: AutocarKnowledgeScope;
+  storeId: string | null;
+  userId: string;
+  title: string;
+  originalFilename: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  storagePath: string;
 };
 
 function requiredOpenAiKey() {
@@ -43,6 +63,37 @@ function createKnowledgeAdminClient() {
 
 function safeName(value: string) {
   return value.normalize('NFKD').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 120) || 'documento';
+}
+
+function normalizeMimeType(value: string) {
+  return String(value || '').split(';')[0].trim().toLowerCase();
+}
+
+function validateScope(scope: AutocarKnowledgeScope, storeId: string | null) {
+  if (scope === 'method' && storeId) throw new Error('Documento oficial do Método Venda Mais não pode ser vinculado a uma única loja.');
+  if (scope === 'store' && !storeId) throw new Error('Documento da loja exige store_id confiável.');
+}
+
+function validateFileDescriptor(fileName: string, mimeType: string, fileSizeBytes: number) {
+  const normalizedMime = normalizeMimeType(mimeType);
+  if (!SUPPORTED_MIME_TYPES.has(normalizedMime)) throw new Error('Formato não suportado. Use PDF, DOCX, TXT, MD ou CSV.');
+  if (!fileName.trim()) throw new Error('Nome do arquivo obrigatório.');
+  if (!Number.isFinite(fileSizeBytes) || fileSizeBytes <= 0 || fileSizeBytes > AUTOCAR_KNOWLEDGE_MAX_FILE_BYTES) {
+    throw new Error('O arquivo deve ter até 25 MB.');
+  }
+  return normalizedMime;
+}
+
+function expectedStoragePrefix(scope: AutocarKnowledgeScope, storeId: string | null) {
+  validateScope(scope, storeId);
+  return `${scope}/${scope === 'method' ? 'official' : storeId}/`;
+}
+
+function assertOwnedStoragePath(scope: AutocarKnowledgeScope, storeId: string | null, storagePath: string) {
+  const prefix = expectedStoragePrefix(scope, storeId);
+  if (!storagePath || !storagePath.startsWith(prefix) || storagePath.includes('..')) {
+    throw new Error('Caminho de armazenamento inválido para este escopo AUTOCAR.');
+  }
 }
 
 function normalizeText(value: string) {
@@ -113,49 +164,46 @@ function vectorLiteral(values: number[]) {
   return `[${values.map((value) => Number(value).toFixed(8)).join(',')}]`;
 }
 
-export function autocarKnowledgeConfigured() {
-  return Boolean(
-    String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_URL || '').trim()
-    && String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY || '').trim()
-  );
+async function findDuplicate(supabase: any, scope: AutocarKnowledgeScope, storeId: string | null, checksum: string) {
+  const query = supabase.from('ai_knowledge_documents')
+    .select('id,title,status,created_at')
+    .eq('scope', scope)
+    .eq('checksum_sha256', checksum)
+    .neq('status', 'archived');
+  if (scope === 'store') query.eq('store_id', storeId);
+  else query.is('store_id', null);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw error;
+  return data;
 }
 
-export async function uploadAndIndexAutocarKnowledge(input: UploadInput) {
-  const supabase: any = createKnowledgeAdminClient();
-  const file = input.file;
-  const mimeType = String(file.type || '').trim().toLowerCase();
-  if (!SUPPORTED_MIME_TYPES.has(mimeType)) throw new Error('Formato não suportado. Use PDF, DOCX, TXT, MD ou CSV.');
-  if (!file.size || file.size > MAX_FILE_BYTES) throw new Error('O arquivo deve ter até 25 MB.');
-  if (input.scope === 'method' && input.storeId) throw new Error('Documento oficial do método não pode ser vinculado a uma única loja.');
-  if (input.scope === 'store' && !input.storeId) throw new Error('Documento da loja exige store_id confiável.');
-
-  const bytes = Buffer.from(await file.arrayBuffer());
-  const checksum = createHash('sha256').update(bytes).digest('hex');
-  const storagePath = `${input.scope}/${input.scope === 'method' ? 'official' : input.storeId}/${Date.now()}-${checksum.slice(0, 12)}-${safeName(file.name)}`;
-
-  const duplicateQuery = supabase.from('ai_knowledge_documents').select('id,title,status,created_at').eq('scope', input.scope).eq('checksum_sha256', checksum).neq('status', 'archived');
-  if (input.scope === 'store') duplicateQuery.eq('store_id', input.storeId);
-  else duplicateQuery.is('store_id', null);
-  const { data: duplicate, error: duplicateError } = await duplicateQuery.maybeSingle();
-  if (duplicateError) throw duplicateError;
-  if (duplicate) throw new Error(`Este arquivo já existe na biblioteca como “${duplicate.title}”.`);
-
-  const { error: uploadError } = await supabase.storage.from(KNOWLEDGE_BUCKET).upload(storagePath, bytes, { contentType: mimeType, upsert: false });
-  if (uploadError) throw uploadError;
-
+async function persistAndIndexAutocarKnowledge(input: {
+  supabase: any;
+  scope: AutocarKnowledgeScope;
+  storeId: string | null;
+  userId: string;
+  title: string;
+  originalFilename: string;
+  mimeType: string;
+  storagePath: string;
+  bytes: Buffer;
+  checksum: string;
+  source: 'portal_upload' | 'direct_storage_upload';
+}) {
+  const { supabase, scope, storeId, userId, title, originalFilename, mimeType, storagePath, bytes, checksum, source } = input;
   const { data: document, error: documentError } = await supabase.from('ai_knowledge_documents').insert({
-    scope: input.scope,
-    store_id: input.storeId,
-    title: input.title || file.name,
-    original_filename: file.name,
+    scope,
+    store_id: storeId,
+    title: title || originalFilename,
+    original_filename: originalFilename,
     mime_type: mimeType,
-    file_size_bytes: file.size,
+    file_size_bytes: bytes.length,
     checksum_sha256: checksum,
     storage_bucket: KNOWLEDGE_BUCKET,
     storage_path: storagePath,
     status: 'processing',
     embedding_model: EMBEDDING_MODEL,
-    metadata: { source: 'portal_upload', model_route: autocarModelName(), actor_profile_id: input.userId }
+    metadata: { source, model_route: autocarModelName(), actor_profile_id: userId }
   }).select('*').single();
 
   if (documentError) {
@@ -170,7 +218,7 @@ export async function uploadAndIndexAutocarKnowledge(input: UploadInput) {
     if (!chunks.length) throw new Error('O documento não gerou trechos úteis para indexação.');
 
     const rows: any[] = [];
-    const batchSize = 32;
+    const batchSize = 48;
     for (let start = 0; start < chunks.length; start += batchSize) {
       const batch = chunks.slice(start, start + batchSize);
       const embeddings = await embedBatch(batch);
@@ -179,14 +227,14 @@ export async function uploadAndIndexAutocarKnowledge(input: UploadInput) {
         const embedding = embeddings[index];
         rows.push({
           document_id: document.id,
-          scope: input.scope,
-          store_id: input.storeId,
+          scope,
+          store_id: storeId,
           chunk_index: start + index,
           content,
           content_hash: createHash('sha256').update(content).digest('hex'),
           token_estimate: Math.ceil(content.length / 4),
           embedding: vectorLiteral(embedding),
-          metadata: { filename: file.name, title: input.title || file.name }
+          metadata: { filename: originalFilename, title: title || originalFilename }
         });
       });
     }
@@ -206,9 +254,103 @@ export async function uploadAndIndexAutocarKnowledge(input: UploadInput) {
     if (readyError) throw readyError;
     return ready;
   } catch (error: any) {
-    await supabase.from('ai_knowledge_documents').update({ status: 'failed', extraction_error: String(error?.message || error).slice(0, 1000), updated_at: new Date().toISOString() }).eq('id', document.id);
+    await supabase.from('ai_knowledge_documents').update({
+      status: 'failed',
+      extraction_error: String(error?.message || error).slice(0, 1000),
+      updated_at: new Date().toISOString()
+    }).eq('id', document.id);
     throw error;
   }
+}
+
+export function autocarKnowledgeConfigured() {
+  return Boolean(
+    String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_URL || '').trim()
+    && String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY || '').trim()
+  );
+}
+
+export async function prepareAutocarKnowledgeUpload(input: DirectUploadPreparationInput) {
+  const supabase: any = createKnowledgeAdminClient();
+  validateScope(input.scope, input.storeId);
+  const mimeType = validateFileDescriptor(input.fileName, input.mimeType, input.fileSizeBytes);
+  const prefix = expectedStoragePrefix(input.scope, input.storeId);
+  const storagePath = `${prefix}${Date.now()}-${randomUUID()}-${safeName(input.fileName)}`;
+  const { data, error } = await supabase.storage.from(KNOWLEDGE_BUCKET).createSignedUploadUrl(storagePath, { upsert: false });
+  if (error) throw error;
+  if (!data?.signedUrl) throw new Error('Não foi possível criar a autorização temporária de upload.');
+  return {
+    storage_path: storagePath,
+    signed_url: data.signedUrl,
+    mime_type: mimeType,
+    max_file_bytes: AUTOCAR_KNOWLEDGE_MAX_FILE_BYTES,
+    expires_in_seconds: 7200
+  };
+}
+
+export async function finalizeAutocarKnowledgeUpload(input: FinalizeStoredUploadInput) {
+  const supabase: any = createKnowledgeAdminClient();
+  validateScope(input.scope, input.storeId);
+  const mimeType = validateFileDescriptor(input.originalFilename, input.mimeType, input.fileSizeBytes);
+  assertOwnedStoragePath(input.scope, input.storeId, input.storagePath);
+
+  const { data: downloaded, error: downloadError } = await supabase.storage.from(KNOWLEDGE_BUCKET).download(input.storagePath);
+  if (downloadError || !downloaded) throw downloadError || new Error('Arquivo enviado não foi encontrado no Storage privado.');
+  const bytes = Buffer.from(await downloaded.arrayBuffer());
+  if (!bytes.length || bytes.length > AUTOCAR_KNOWLEDGE_MAX_FILE_BYTES) {
+    await supabase.storage.from(KNOWLEDGE_BUCKET).remove([input.storagePath]);
+    throw new Error('O arquivo armazenado deve ter até 25 MB.');
+  }
+
+  const checksum = createHash('sha256').update(bytes).digest('hex');
+  const duplicate = await findDuplicate(supabase, input.scope, input.storeId, checksum);
+  if (duplicate) {
+    await supabase.storage.from(KNOWLEDGE_BUCKET).remove([input.storagePath]);
+    throw new Error(`Este arquivo já existe na biblioteca como “${duplicate.title}”.`);
+  }
+
+  return persistAndIndexAutocarKnowledge({
+    supabase,
+    scope: input.scope,
+    storeId: input.storeId,
+    userId: input.userId,
+    title: input.title,
+    originalFilename: input.originalFilename,
+    mimeType,
+    storagePath: input.storagePath,
+    bytes,
+    checksum,
+    source: 'direct_storage_upload'
+  });
+}
+
+export async function uploadAndIndexAutocarKnowledge(input: UploadInput) {
+  const supabase: any = createKnowledgeAdminClient();
+  const file = input.file;
+  validateScope(input.scope, input.storeId);
+  const mimeType = validateFileDescriptor(file.name, file.type, file.size);
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const checksum = createHash('sha256').update(bytes).digest('hex');
+  const duplicate = await findDuplicate(supabase, input.scope, input.storeId, checksum);
+  if (duplicate) throw new Error(`Este arquivo já existe na biblioteca como “${duplicate.title}”.`);
+
+  const storagePath = `${expectedStoragePrefix(input.scope, input.storeId)}${Date.now()}-${checksum.slice(0, 12)}-${safeName(file.name)}`;
+  const { error: uploadError } = await supabase.storage.from(KNOWLEDGE_BUCKET).upload(storagePath, bytes, { contentType: mimeType, upsert: false });
+  if (uploadError) throw uploadError;
+
+  return persistAndIndexAutocarKnowledge({
+    supabase,
+    scope: input.scope,
+    storeId: input.storeId,
+    userId: input.userId,
+    title: input.title,
+    originalFilename: file.name,
+    mimeType,
+    storagePath,
+    bytes,
+    checksum,
+    source: 'portal_upload'
+  });
 }
 
 export async function listAutocarKnowledge(storeId: string) {
