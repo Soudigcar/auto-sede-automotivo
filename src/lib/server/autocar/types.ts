@@ -14,6 +14,7 @@ export const autocarCapabilities = [
   'respond_audio_with_audio',
   'schedule_visit',
   'schedule_test_drive',
+  'set_active_vehicle_interest',
   'create_follow_up',
   'transfer_lead',
   'alter_pipeline',
