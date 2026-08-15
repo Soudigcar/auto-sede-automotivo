@@ -29,6 +29,7 @@ type ExtractedCopilotFacts = {
   summary: string;
   next_best_question: string;
   suggested_reply: string;
+  referenced_vehicle_ids: string[];
 };
 
 const copilotSchema = {
@@ -48,12 +49,13 @@ const copilotSchema = {
     objections: { type: 'array', items: { type: 'string' } },
     summary: { type: 'string' },
     next_best_question: { type: 'string' },
-    suggested_reply: { type: 'string' }
+    suggested_reply: { type: 'string' },
+    referenced_vehicle_ids: { type: 'array', items: { type: 'string' } }
   },
   required: [
     'vehicle_interest', 'payment_method', 'financing_context', 'down_payment_context', 'trade_in_context',
     'purchase_timeframe_days', 'city', 'next_step', 'next_step_detail', 'explicit_buying_intent',
-    'objections', 'summary', 'next_best_question', 'suggested_reply'
+    'objections', 'summary', 'next_best_question', 'suggested_reply', 'referenced_vehicle_ids'
   ]
 };
 
@@ -140,6 +142,24 @@ function knownMissing(qualification: ReturnType<typeof canonicalQualification>) 
   };
 }
 
+function referencedVehicles(intelligence: Awaited<ReturnType<typeof buildAutocarIntelligenceContext>>, ids: unknown) {
+  const requested = (Array.isArray(ids) ? ids : [])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  if (!intelligence.inventory || !requested.length) return [];
+
+  const byId = new Map<string, any>();
+  for (const vehicle of intelligence.inventory.inventory_index || []) {
+    if (vehicle?.id) byId.set(String(vehicle.id), vehicle);
+  }
+  for (const vehicle of intelligence.inventory.matching_vehicles || []) {
+    if (vehicle?.id) byId.set(String(vehicle.id), vehicle);
+  }
+
+  return requested.map((id) => byId.get(id)).filter(Boolean);
+}
+
 export async function analyzeAutocarCopilot(source: AutocarCopilotSource) {
   const transcript = source.messages
     .filter((message) => message.body)
@@ -168,6 +188,7 @@ export async function analyzeAutocarCopilot(source: AutocarCopilotSource) {
     'Primeiro consulte matching_vehicles. Se a pré-busca não trouxer um candidato claro, examine inventory_index, que contém o inventário compacto real da loja e serve como fallback interpretativo.',
     'Só afirme que um veículo está disponível quando ele aparecer em matching_vehicles ou inventory_index. Nunca invente veículo, preço ou disponibilidade.',
     'Quando encontrar o veículo no inventory_index, use somente os fatos presentes naquele registro; não invente detalhes ausentes.',
+    'Sempre preencha referenced_vehicle_ids com os IDs exatos dos veículos do store_inventory que foram usados ou mencionados na resposta sugerida. Use [] quando nenhum veículo real for citado. Nunca invente IDs.',
     'Portal/site é apenas vitrine: portal_url pode ser compartilhada se existir, mas a disponibilidade vem do estoque interno.',
     'Aprendizados aprovados são exemplos de comportamento, mas nunca podem superar hard policies.',
     'Sua tarefa é analisar a conversa fornecida e sugerir uma resposta para um operador humano.',
@@ -237,6 +258,8 @@ export async function analyzeAutocarCopilot(source: AutocarCopilotSource) {
 
   const scored = scoreAutocarLead(source, extracted);
   const fields = knownMissing(scored.qualification);
+  const usedVehicles = referencedVehicles(intelligence, extracted.referenced_vehicle_ids);
+
   return {
     summary: cleanNullable(extracted.summary) || 'Sem resumo disponível.',
     objections: (extracted.objections || []).map((item) => String(item).trim()).filter(Boolean).slice(0, 8),
@@ -259,6 +282,7 @@ export async function analyzeAutocarCopilot(source: AutocarCopilotSource) {
       inventory_matches: intelligence.inventory?.matched_count ?? 0,
       hard_policies_applied: true
     },
+    referenced_vehicles: usedVehicles,
     inventory_matches: intelligence.inventory?.matching_vehicles || [],
     usage: {
       input_tokens: Number(payload?.usage?.input_tokens || 0),
