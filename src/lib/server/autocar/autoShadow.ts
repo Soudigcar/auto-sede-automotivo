@@ -7,6 +7,7 @@ import { generateAutocarShadowReply } from '@/lib/server/autocar/shadowReply';
 import { evaluateAutocarOperationalShadowPolicy } from '@/lib/server/autocar/operationalPolicy';
 import { resolveBookingContext } from '@/lib/server/autocar/bookingContextResolver';
 import { evaluateBookingConfirmationGuard } from '@/lib/server/autocar/bookingConfirmationGuard';
+import { attemptAutocarLiveTextPilot } from '@/lib/server/autocar/liveTextPilot';
 import type { AutocarCapability, AutocarPolicyDecision } from '@/lib/server/autocar/types';
 
 function bookingDecision(bookingGuard: any): { decision: AutocarPolicyDecision; simulation: string } {
@@ -123,6 +124,7 @@ export async function processAutocarShadowInbound(input: {
     id: string;
     message_type?: string | null;
   };
+  allowLivePilot?: boolean;
 }) {
   const prepared = await prepareAutocarSafeInbound({
     productionSupabase: input.productionSupabase,
@@ -166,12 +168,54 @@ export async function processAutocarShadowInbound(input: {
       shadow: shadow as unknown as Record<string, unknown>
     });
 
-    return {
+    const baseResult = {
       success: true,
       shadow_mode: true,
       no_external_execution: true,
       result: { ...prepared, claim: completedClaim, shadow }
     };
+
+    if (input.allowLivePilot === false) return baseResult;
+
+    try {
+      const { data: integration, error: integrationError } = await input.productionSupabase
+        .from('store_whatsapp_integrations')
+        .select('instance_name,status,scope')
+        .eq('store_id', input.storeId)
+        .eq('crm_number_id', input.conversation.whatsapp_number_id)
+        .eq('scope', 'store')
+        .maybeSingle();
+      if (integrationError) throw integrationError;
+
+      const live = await attemptAutocarLiveTextPilot({
+        productionSupabase: input.productionSupabase,
+        storeId: input.storeId,
+        conversationId: input.conversation.id,
+        whatsappNumberId: input.conversation.whatsapp_number_id,
+        leadId: input.conversation.lead_id || null,
+        inboundMessageId: input.message.id,
+        integration: integration || {},
+        shadowResult: baseResult
+      });
+
+      return { ...baseResult, live_pilot: live };
+    } catch (liveError: any) {
+      console.warn('[AUTOCAR LIVE PILOT] Falha best effort após Shadow; Shadow permanece concluído.', {
+        storeId: input.storeId,
+        conversationId: input.conversation.id,
+        inboundMessageId: input.message.id,
+        error: liveError?.message || String(liveError)
+      });
+      return {
+        ...baseResult,
+        live_pilot: {
+          sent: false,
+          failed: true,
+          best_effort: true,
+          reason: String(liveError?.message || liveError || 'Falha no LIVE PILOT.').slice(0, 500)
+        }
+      };
+    }
   } catch (shadowError: any) {
     const failedClaim = await failAutocarShadowClaim({
       storeId: input.storeId,
