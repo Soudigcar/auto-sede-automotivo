@@ -54,6 +54,7 @@ export async function GET(request: Request) {
       success: true,
       shadow_mode: true,
       no_external_execution: true,
+      can_manage_autocar: context.permissions.includes('manage_autocar'),
       runtime: runtimeState.data || null,
       claims: claims.data || []
     });
