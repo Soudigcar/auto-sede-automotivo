@@ -200,7 +200,7 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
     <PortalContext.Provider value={portalValue}>
       <main className={`premium-page store-portal-theme store-theme-${theme}`} style={{ paddingTop: '4px' }}>
         <section className="premium-shell flex min-h-screen items-stretch">
-          <div className={`relative hidden shrink-0 transition-[width] duration-200 lg:block ${sidebarCollapsed ? 'w-[76px]' : 'w-[236px]'}`}>
+          <div className={`relative hidden shrink-0 rounded-l-[28px] bg-[#071020] transition-[width] duration-200 lg:block ${sidebarCollapsed ? 'w-[76px]' : 'w-[236px]'}`}>
             <button
               type="button"
               onClick={() => setSidebarCollapsed((current) => !current)}
@@ -211,7 +211,7 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
               {sidebarCollapsed ? <ChevronRight size={17} strokeWidth={3} /> : <ChevronLeft size={17} strokeWidth={3} />}
             </button>
 
-            <aside className={`sticky top-6 flex h-[calc(100vh-48px)] w-full self-start flex-col overflow-y-auto bg-[#071020] py-5 text-white transition-[padding] duration-200 ${sidebarCollapsed ? 'px-3' : 'px-4'}`}>
+            <aside className={`sticky top-0 flex h-screen w-full self-start flex-col overflow-y-auto rounded-l-[28px] bg-[#071020] py-5 text-white transition-[padding] duration-200 ${sidebarCollapsed ? 'px-3' : 'px-4'}`}>
               <div className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'gap-2.5'}`}>
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-600/15 text-red-500"><Car size={19} /></div>
                 {!sidebarCollapsed ? <div><p className="text-[13px] font-black tracking-wide">AUTO CONTROLE</p><p className="text-[9px] uppercase tracking-[0.3em] text-zinc-500">Automotivo</p></div> : null}
@@ -319,6 +319,13 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
 
         .store-pipeline-page [class*='min-w-[1760px]'] {
           padding-bottom: 8px;
+        }
+
+        @media (min-width: 1024px) {
+          .store-portal-theme {
+            padding-top: 0 !important;
+            padding-left: 0 !important;
+          }
         }
 
         @media (max-width: 1023px) {
