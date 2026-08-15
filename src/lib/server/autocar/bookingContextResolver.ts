@@ -48,6 +48,75 @@ function saoPauloNow() {
   }).format(new Date());
 }
 
+function validDate(value: unknown) {
+  const text = String(value || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
+}
+
+function validTime(value: unknown) {
+  const text = String(value || '').trim();
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(text) ? text : '';
+}
+
+async function requestBookingContext(instructions: string, payload: unknown, maxOutputTokens: number) {
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${openAiKey()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: autocarModelName(),
+      store: false,
+      max_output_tokens: maxOutputTokens,
+      instructions,
+      input: JSON.stringify(payload),
+      text: { format: { type: 'json_schema', name: 'autocar_booking_context', strict: true, schema } }
+    }),
+    cache: 'no-store'
+  });
+
+  const raw = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return {
+      parsed: null,
+      raw,
+      error: String(raw?.error?.message || `OpenAI respondeu com HTTP ${response.status}.`).slice(0, 500)
+    };
+  }
+
+  const text = outputText(raw);
+  if (!text) return { parsed: null, raw, error: 'Resposta estruturada vazia.' };
+
+  try {
+    return { parsed: JSON.parse(text), raw, error: null };
+  } catch (error: any) {
+    return {
+      parsed: null,
+      raw,
+      error: String(error?.message || 'JSON incompleto no contexto de agendamento.').slice(0, 500)
+    };
+  }
+}
+
+function safeContextFallback(shadowProposal: any) {
+  const previousType = String(shadowProposal?.booking_type || '');
+  const bookingType = previousType === 'visit' || previousType === 'test_drive' ? previousType : 'none';
+  const requestedDate = validDate(shadowProposal?.requested_date);
+  const requestedTime = validTime(shadowProposal?.requested_time);
+  const hasPreviousContext = Boolean(shadowProposal || requestedDate || requestedTime || bookingType !== 'none');
+
+  return {
+    booking_requested: hasPreviousContext,
+    booking_type: bookingType,
+    planner_confirmed: false,
+    confirmation_mode: 'not_confirmed',
+    reference_source: hasPreviousContext ? 'previous_shadow' : 'none',
+    confirmation_evidence: 'Fallback seguro do contexto: a interpretação estruturada não ficou íntegra; nenhuma autorização de agendamento foi assumida.',
+    requested_date: requestedDate,
+    requested_time: requestedTime,
+    resolver_fallback: true,
+    resolver_version: 'autocar-booking-context-v3-resilient'
+  };
+}
+
 export async function resolveBookingContext(input: {
   productionSupabase: any;
   storeId: string;
@@ -101,6 +170,7 @@ export async function resolveBookingContext(input: {
   } : null;
 
   const previousOutboundText = shadowResponse || productionPreviousOutbound?.body || null;
+  const recentMessages = ordered.slice(-8);
 
   if (!latestInbound) {
     return {
@@ -114,7 +184,10 @@ export async function resolveBookingContext(input: {
       requested_time: '',
       latest_inbound: '',
       previous_outbound: previousOutboundText,
-      shadow_proposal: shadowProposal
+      shadow_proposal: shadowProposal,
+      recent_messages: recentMessages,
+      resolver_fallback: false,
+      resolver_version: 'autocar-booking-context-v3-resilient'
     };
   }
 
@@ -129,6 +202,7 @@ export async function resolveBookingContext(input: {
     'Perguntar se um horário está disponível, perguntar se pode ir ou demonstrar interesse não é confirmação para criar agendamento.',
     'confirmation_mode=explicit_request quando a própria última mensagem contém uma instrução/aceite suficientemente completa para agendar.',
     'confirmation_mode=contextual_acceptance quando a última mensagem é curta ou implícita e seu significado de confirmação depende de uma proposta concreta anterior.',
+    'confirmation_mode=not_confirmimed não existe; use exatamente not_confirmed quando não houver autorização inequívoca.',
     'confirmation_mode=not_confirmed quando não houver autorização inequívoca.',
     'reference_source=previous_shadow quando data/hora vêm da proposta Shadow anterior; production_history quando vêm de uma mensagem outbound real anterior; latest_message quando a própria mensagem atual fornece o contexto suficiente; none quando não houver referência concreta.',
     'Se houver confirmação contextual de um horário já proposto, preserve exatamente requested_date YYYY-MM-DD e requested_time HH:MM desse contexto.',
@@ -137,34 +211,34 @@ export async function resolveBookingContext(input: {
     'confirmation_evidence deve explicar brevemente por que a última mensagem, dentro daquele contexto, foi ou não interpretada como confirmação. Não invente fatos.'
   ].join(' ');
 
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${openAiKey()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: autocarModelName(),
-      store: false,
-      max_output_tokens: 600,
-      instructions,
-      input: JSON.stringify({
-        latest_inbound: latestInbound,
-        previous_outbound: productionPreviousOutbound,
-        previous_shadow_proposal: shadowProposal,
-        recent_messages: ordered.slice(-8)
-      }),
-      text: { format: { type: 'json_schema', name: 'autocar_booking_context', strict: true, schema } }
-    }),
-    cache: 'no-store'
-  });
-  const raw = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(String(raw?.error?.message || `OpenAI respondeu com HTTP ${response.status}.`).slice(0, 500));
-  const text = outputText(raw);
-  if (!text) throw new Error('A OpenAI não retornou o contexto de agendamento.');
-  const parsed = JSON.parse(text);
+  const requestPayload = {
+    latest_inbound: latestInbound,
+    previous_outbound: productionPreviousOutbound,
+    previous_shadow_proposal: shadowProposal,
+    recent_messages: recentMessages
+  };
+
+  let resolved: any = null;
+  let firstError = '';
+  for (const maxOutputTokens of [850, 1300]) {
+    const attempt = await requestBookingContext(instructions, requestPayload, maxOutputTokens);
+    if (attempt.parsed) {
+      resolved = attempt.parsed;
+      break;
+    }
+    if (!firstError) firstError = attempt.error || '';
+  }
+
+  const parsed = resolved || safeContextFallback(shadowProposal);
 
   return {
     ...parsed,
     latest_inbound: latestInbound.body,
     previous_outbound: previousOutboundText,
-    shadow_proposal: shadowProposal
+    shadow_proposal: shadowProposal,
+    recent_messages: recentMessages,
+    resolver_fallback: Boolean(parsed?.resolver_fallback),
+    resolver_error: resolved ? null : firstError || 'Falha na interpretação estruturada do contexto.',
+    resolver_version: 'autocar-booking-context-v3-resilient'
   };
 }
