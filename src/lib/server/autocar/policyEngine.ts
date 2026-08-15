@@ -17,6 +17,7 @@ const writeCapabilities = new Set<AutocarCapability>([
   'respond_first_contact',
   'send_vehicles',
   'send_photos',
+  'send_location',
   'respond_audio_with_audio',
   'schedule_visit',
   'schedule_test_drive',
@@ -35,6 +36,10 @@ const defaultEffects: Partial<Record<AutocarCapability, AutocarPolicyEffect>> = 
   respond_first_contact: 'allow',
   qualify_lead: 'allow',
   consult_stock: 'allow',
+  send_photos: 'allow',
+  send_location: 'allow',
+  schedule_visit: 'allow',
+  schedule_test_drive: 'allow',
   negotiate_price: 'handoff'
 };
 
@@ -94,7 +99,9 @@ export function evaluateAutocarPolicy(input: {
     reason: effect === 'allow'
       ? input.capability === 'respond_first_contact'
         ? 'Resposta textual segura permitida somente no modo AUTOPILOT; gates Master/Loja e pausa humana são validados pelo runtime antes desta decisão.'
-        : 'Capacidade de leitura/qualificação permitida pelo padrão AUTOCAR.'
+        : ['send_photos', 'send_location', 'schedule_visit', 'schedule_test_drive'].includes(input.capability)
+          ? 'Capacidade operacional permitida no AUTOPILOT somente após validação das pré-condições pelo backend. Em Shadow nenhuma ação externa é executada.'
+          : 'Capacidade de leitura/qualificação permitida pelo padrão AUTOCAR.'
       : 'Capacidade não liberada por padrão.'
   };
 }
