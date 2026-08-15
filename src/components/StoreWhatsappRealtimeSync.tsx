@@ -80,9 +80,14 @@ function applyCompactInboxLayout() {
   const summary = findInboxSummary();
   if (summary) summary.style.setProperty('display', 'none', 'important');
 
+  const premiumPage = document.querySelector<HTMLElement>('main.premium-page');
   const canvas = document.querySelector<HTMLElement>('.premium-canvas');
   const inboxSection = canvas?.querySelector<HTMLElement>(':scope > section.relative') || null;
   const inboxGrid = inboxSection?.firstElementChild instanceof HTMLElement ? inboxSection.firstElementChild : null;
+
+  premiumPage?.style.setProperty('padding-top', '4px', 'important');
+  canvas?.style.setProperty('padding-top', '4px', 'important');
+  inboxSection?.style.setProperty('margin-top', '0px', 'important');
 
   if (inboxGrid) {
     if (window.innerWidth >= 1280 && inboxSection) {
@@ -123,9 +128,14 @@ function cleanupCompactInboxLayout() {
   const summary = findInboxSummary();
   summary?.style.removeProperty('display');
 
+  const premiumPage = document.querySelector<HTMLElement>('main.premium-page');
   const canvas = document.querySelector<HTMLElement>('.premium-canvas');
   const inboxSection = canvas?.querySelector<HTMLElement>(':scope > section.relative') || null;
   const inboxGrid = inboxSection?.firstElementChild instanceof HTMLElement ? inboxSection.firstElementChild : null;
+
+  premiumPage?.style.removeProperty('padding-top');
+  canvas?.style.removeProperty('padding-top');
+  inboxSection?.style.removeProperty('margin-top');
   inboxGrid?.style.removeProperty('height');
 
   document.querySelectorAll<HTMLElement>('[data-whatsapp-inbox-refresh-compact="true"]').forEach((element) => element.remove());
