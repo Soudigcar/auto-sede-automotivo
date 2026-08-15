@@ -6,55 +6,45 @@ export type BookingContext = {
   booking_requested?: boolean;
   booking_type?: 'none' | 'visit' | 'test_drive' | string;
   planner_confirmed?: boolean;
+  confirmation_mode?: 'not_confirmed' | 'explicit_request' | 'contextual_acceptance' | string;
+  reference_source?: 'none' | 'latest_message' | 'previous_shadow' | 'production_history' | string;
   confirmation_evidence?: string;
   requested_date?: string;
   requested_time?: string;
   latest_inbound?: string;
   previous_outbound?: string | null;
+  shadow_proposal?: {
+    response?: string | null;
+    booking_state?: string | null;
+    booking_type?: string | null;
+    requested_date?: string | null;
+    requested_time?: string | null;
+  } | null;
 };
 
-function normalize(value: unknown) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
+function validDate(value: unknown) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
 }
 
-function hasConcreteSchedulingProposal(value: unknown) {
-  const text = normalize(value);
-  if (!text) return false;
-  const hasSchedulingWord = /(agend|marc|visita|test.?drive|horario)/.test(text);
-  const hasTime = /\b(?:[01]?\d|2[0-3])(?::[0-5]\d|h(?:[0-5]\d)?)\b/.test(text);
-  return hasSchedulingWord && hasTime;
+function validTime(value: unknown) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || ''));
 }
 
-function explicitConfirmationSignal(latestInbound: unknown, previousOutbound: unknown) {
-  const text = normalize(latestInbound);
-  if (!text) return { confirmed: false, signal: 'empty_message' };
+function contextualReferenceIsCoherent(context: BookingContext) {
+  if (context.confirmation_mode !== 'contextual_acceptance') return true;
 
-  const strongPatterns = [
-    /\bpode (?:agendar|marcar|confirmar)\b/,
-    /\b(?:quero|pode) (?:deixar )?(?:agendad[oa]|marcad[oa])\b/,
-    /\b(?:agende|agenda|marque|marca) (?:pra|para) mim\b/,
-    /\bconfirmo\b/,
-    /\bpode deixar (?:agendad[oa]|marcad[oa])\b/,
-    /\bfechado(?: para| as| às| em)?\b/,
-    /\bcombinado\b/,
-    /\bconfirmad[oa]\b/
-  ];
-
-  if (strongPatterns.some((pattern) => pattern.test(text))) {
-    return { confirmed: true, signal: 'explicit_action_phrase' };
+  if (context.reference_source === 'previous_shadow') {
+    const proposal = context.shadow_proposal;
+    if (!proposal) return false;
+    return Boolean(
+      proposal.requested_date &&
+      proposal.requested_time &&
+      String(proposal.requested_date) === String(context.requested_date || '') &&
+      String(proposal.requested_time) === String(context.requested_time || '')
+    );
   }
 
-  const simpleYes = /^(sim|sim pode|pode ser|ok|okay|beleza|perfeito|isso|certo|fechado|combinado)[.! ]*$/.test(text);
-  if (simpleYes && hasConcreteSchedulingProposal(previousOutbound)) {
-    return { confirmed: true, signal: 'contextual_yes_to_concrete_slot' };
-  }
-
-  return { confirmed: false, signal: simpleYes ? 'ambiguous_yes_without_concrete_slot' : 'no_confirmation_phrase' };
+  return context.reference_source === 'production_history';
 }
 
 export async function evaluateBookingConfirmationGuard(input: {
@@ -76,7 +66,7 @@ export async function evaluateBookingConfirmationGuard(input: {
     return {
       state: 'NOT_APPLICABLE' as BookingGuardState,
       explicit_confirmation: false,
-      reason: 'Nenhum agendamento foi solicitado nesta mensagem.',
+      reason: 'Nenhum agendamento foi identificado pela interpretação semântica nesta mensagem.',
       booking_type: context.booking_type || 'none',
       requested_date: context.requested_date || '',
       requested_time: context.requested_time || '',
@@ -85,16 +75,14 @@ export async function evaluateBookingConfirmationGuard(input: {
     };
   }
 
-  const lexical = explicitConfirmationSignal(context.latest_inbound, context.previous_outbound);
-  const explicitConfirmation = Boolean(context.planner_confirmed && lexical.confirmed);
-
-  if (!explicitConfirmation) {
+  if (!context.planner_confirmed) {
     return {
       state: 'WAITING_CONFIRMATION' as BookingGuardState,
       explicit_confirmation: false,
-      confirmation_signal: lexical.signal,
-      planner_confirmed: Boolean(context.planner_confirmed),
-      reason: 'Aguardando confirmação explícita do cliente antes de qualquer agendamento.',
+      confirmation_mode: context.confirmation_mode || 'not_confirmed',
+      reference_source: context.reference_source || 'none',
+      confirmation_evidence: context.confirmation_evidence || '',
+      reason: 'A AUTOCAR ainda não interpretou uma autorização inequívoca do cliente para criar o agendamento.',
       booking_type: context.booking_type || 'visit',
       requested_date: context.requested_date || '',
       requested_time: context.requested_time || '',
@@ -103,12 +91,30 @@ export async function evaluateBookingConfirmationGuard(input: {
     };
   }
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(context.requested_date || '')) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(context.requested_time || ''))) {
+  if (!contextualReferenceIsCoherent(context)) {
     return {
       state: 'WAITING_CONFIRMATION' as BookingGuardState,
       explicit_confirmation: true,
-      confirmation_signal: lexical.signal,
-      reason: 'O cliente confirmou a intenção, mas ainda não há data e horário concretos suficientes para agendar.',
+      confirmation_mode: context.confirmation_mode || 'contextual_acceptance',
+      reference_source: context.reference_source || 'none',
+      confirmation_evidence: context.confirmation_evidence || '',
+      reason: 'A AUTOCAR interpretou confirmação, mas o backend não encontrou uma proposta concreta anterior coerente para a referência contextual.',
+      booking_type: context.booking_type || 'visit',
+      requested_date: context.requested_date || '',
+      requested_time: context.requested_time || '',
+      revalidated: false,
+      revalidation: null
+    };
+  }
+
+  if (!validDate(context.requested_date) || !validTime(context.requested_time)) {
+    return {
+      state: 'WAITING_CONFIRMATION' as BookingGuardState,
+      explicit_confirmation: true,
+      confirmation_mode: context.confirmation_mode || 'explicit_request',
+      reference_source: context.reference_source || 'latest_message',
+      confirmation_evidence: context.confirmation_evidence || '',
+      reason: 'O cliente confirmou a intenção, mas o backend ainda não possui data e horário estruturados suficientes para agendar.',
       booking_type: context.booking_type || 'visit',
       requested_date: context.requested_date || '',
       requested_time: context.requested_time || '',
@@ -129,8 +135,10 @@ export async function evaluateBookingConfirmationGuard(input: {
     return {
       state: 'SLOT_UNAVAILABLE' as BookingGuardState,
       explicit_confirmation: true,
-      confirmation_signal: lexical.signal,
-      reason: 'O cliente confirmou, mas o Calendário foi revalidado e o horário não está mais disponível.',
+      confirmation_mode: context.confirmation_mode || 'explicit_request',
+      reference_source: context.reference_source || 'latest_message',
+      confirmation_evidence: context.confirmation_evidence || '',
+      reason: 'A AUTOCAR interpretou a confirmação, mas o Calendário foi revalidado e o horário não está mais disponível.',
       booking_type: context.booking_type || 'visit',
       requested_date: String(context.requested_date),
       requested_time: String(context.requested_time),
@@ -143,8 +151,10 @@ export async function evaluateBookingConfirmationGuard(input: {
   return {
     state: 'READY_TO_SCHEDULE' as BookingGuardState,
     explicit_confirmation: true,
-    confirmation_signal: lexical.signal,
-    reason: 'Confirmação explícita recebida e Calendário revalidado imediatamente antes da ação simulada.',
+    confirmation_mode: context.confirmation_mode || 'explicit_request',
+    reference_source: context.reference_source || 'latest_message',
+    confirmation_evidence: context.confirmation_evidence || '',
+    reason: 'A AUTOCAR interpretou confirmação inequívoca e o backend revalidou o Calendário imediatamente antes da ação simulada.',
     booking_type: context.booking_type || 'visit',
     requested_date: String(context.requested_date),
     requested_time: String(context.requested_time),
