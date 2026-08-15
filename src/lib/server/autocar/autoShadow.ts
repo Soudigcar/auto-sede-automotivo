@@ -10,6 +10,7 @@ import { evaluateBookingConfirmationGuard } from '@/lib/server/autocar/bookingCo
 import { attemptAutocarLiveTextPilot } from '@/lib/server/autocar/liveTextPilot';
 import { attemptAutocarLivePhotoPilot } from '@/lib/server/autocar/livePhotoPilot';
 import { attemptAutocarLiveLocationPilot } from '@/lib/server/autocar/liveLocationPilot';
+import { attemptAutocarLiveVisitPilot } from '@/lib/server/autocar/liveVisitPilot';
 import type { AutocarCapability, AutocarPolicyDecision } from '@/lib/server/autocar/types';
 
 function bookingDecision(bookingGuard: any): { decision: AutocarPolicyDecision; simulation: string } {
@@ -236,13 +237,33 @@ export async function processAutocarShadowInbound(input: {
         });
       }
 
+      let liveVisit: any = {
+        sent: false,
+        scheduled: false,
+        skipped: true,
+        reason: 'A última mensagem não exige execução de agendamento.'
+      };
+      if (shadow?.booking_guard?.state !== 'NOT_APPLICABLE') {
+        liveVisit = await attemptAutocarLiveVisitPilot({
+          productionSupabase: input.productionSupabase,
+          storeId: input.storeId,
+          conversationId: input.conversation.id,
+          whatsappNumberId: input.conversation.whatsapp_number_id,
+          leadId: input.conversation.lead_id || null,
+          inboundMessageId: input.message.id,
+          integration: integration || {},
+          shadowResult: baseResult
+        });
+      }
+
       return {
         ...baseResult,
         live_pilot: {
-          sent: Boolean(liveText?.sent || livePhotos?.sent || liveLocation?.sent),
+          sent: Boolean(liveText?.sent || livePhotos?.sent || liveLocation?.sent || liveVisit?.sent),
           text: liveText,
           photos: livePhotos,
-          location: liveLocation
+          location: liveLocation,
+          visit: liveVisit
         }
       };
     } catch (liveError: any) {
