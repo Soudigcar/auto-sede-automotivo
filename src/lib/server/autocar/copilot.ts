@@ -1,4 +1,9 @@
 import { autocarModelName } from '@/lib/server/autocar/client';
+import {
+  autocarModeInstructions,
+  buildAutocarIntelligenceContext,
+  serializeAutocarIntelligenceContext
+} from '@/lib/server/autocar/intelligenceCore';
 
 export type AutocarCopilotSource = {
   store: { id: string; store_name: string; city?: string | null; state?: string | null };
@@ -143,18 +148,26 @@ export async function analyzeAutocarCopilot(source: AutocarCopilotSource) {
 
   if (!transcript.trim()) throw new Error('A conversa ainda não possui texto suficiente para análise AUTOCAR.');
 
+  const lastCustomerMessage = [...source.messages].reverse().find((message) => message.direction !== 'outbound' && message.body)?.body;
+  const retrievalQuery = String(lastCustomerMessage || transcript).slice(0, 6000);
+  const intelligence = await buildAutocarIntelligenceContext({ storeId: source.store.id, query: retrievalQuery, mode: 'copilot' });
+
   const instructions = [
+    intelligence.hardPolicyInstructions,
+    autocarModeInstructions('copilot'),
     'Você é o Copilot comercial AUTOCAR de uma loja de veículos.',
-    'Sua tarefa é somente analisar a conversa fornecida e sugerir uma resposta para um operador humano.',
+    'Use o Método Venda Mais, a Biblioteca Global, aprendizados aprovados e conhecimento específico da loja apenas quando forem relevantes à conversa.',
+    'Aprendizados aprovados são exemplos de comportamento, mas nunca podem superar hard policies.',
+    'Sua tarefa é analisar a conversa fornecida e sugerir uma resposta para um operador humano.',
     'Extraia apenas fatos explícitos ou inferências comerciais conservadoras apoiadas pela conversa.',
     'Quando um campo não estiver claro, retorne null. Nunca invente preço, estoque, aprovação de crédito, desconto, avaliação de troca ou condição comercial.',
-    'Não prometa financiamento. Não confirme venda. Não faça avaliação definitiva de veículo usado.',
     'A resposta sugerida deve ser curta, natural, em português do Brasil, útil para avançar a qualificação e sem dizer que foi escrita por IA.',
     'Se faltar informação importante, priorize uma única pergunta de maior valor comercial.',
     'O score NÃO é sua responsabilidade; não tente calcular ou mencionar pontuação.'
   ].join(' ');
 
   const modelInput = JSON.stringify({
+    inteligencia_autocar: serializeAutocarIntelligenceContext(intelligence),
     loja: { nome: source.store.store_name, cidade: source.store.city || null, estado: source.store.state || null },
     crm: {
       cliente: source.lead?.customer_name || source.baseLead?.name || null,
@@ -225,6 +238,13 @@ export async function analyzeAutocarCopilot(source: AutocarCopilotSource) {
     score_breakdown: scored.breakdown,
     score_version: scored.version,
     model,
+    intelligence: {
+      mode: 'copilot',
+      training_matches: intelligence.training.length,
+      method_matches: intelligence.methodKnowledge.length,
+      store_knowledge_matches: intelligence.storeKnowledge.length,
+      hard_policies_applied: true
+    },
     usage: {
       input_tokens: Number(payload?.usage?.input_tokens || 0),
       output_tokens: Number(payload?.usage?.output_tokens || 0)
