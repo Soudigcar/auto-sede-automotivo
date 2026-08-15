@@ -234,10 +234,10 @@ async function isOwnAutocarLiveOutbound(input: {
     .select('id,status,purpose,result,created_at')
     .eq('store_id', input.storeId)
     .eq('production_conversation_id', input.conversationId)
-    .in('purpose', ['live_text_send', 'live_photo_send'])
+    .in('purpose', ['live_text_send', 'live_photo_send', 'live_location_send'])
     .gte('created_at', since)
     .order('created_at', { ascending: false })
-    .limit(10);
+    .limit(12);
   if (claimsError) throw claimsError;
 
   const body = String(message.body || '').trim();
@@ -246,7 +246,7 @@ async function isOwnAutocarLiveOutbound(input: {
   return (claims || []).some((claim: any) => {
     const result = claim?.result || {};
 
-    if (claim.purpose === 'live_text_send') {
+    if (claim.purpose === 'live_text_send' || claim.purpose === 'live_location_send') {
       if (String(result?.production_outbound_message_id || '') === input.messageId) return true;
       if (providerMessageId && String(result?.provider_message_id || '') === providerMessageId) return true;
       const planned = String(result?.planned_text || '').trim();
