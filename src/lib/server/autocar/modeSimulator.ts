@@ -41,6 +41,7 @@ export async function simulateAutocarMode(input: {
   customerInput: string;
   mode: AutocarIntelligenceMode;
   actorProfileId?: string | null;
+  inventorySupabase?: any;
 }) {
   const customerInput = String(input.customerInput || '').trim();
   if (!customerInput) throw new Error('Digite uma pergunta ou situação do cliente.');
@@ -49,7 +50,8 @@ export async function simulateAutocarMode(input: {
   const intelligence = await buildAutocarIntelligenceContext({
     storeId: input.storeId,
     query: customerInput,
-    mode: input.mode
+    mode: input.mode,
+    inventorySupabase: input.inventorySupabase
   });
 
   const instructions = [
@@ -57,6 +59,10 @@ export async function simulateAutocarMode(input: {
     autocarModeInstructions(input.mode),
     'Você é o núcleo comercial AUTOCAR em uma simulação privada do Master.',
     'Use aprendizados aprovados, Método Venda Mais, Biblioteca Global e conhecimento específico da loja somente quando forem relevantes.',
+    'O campo store_inventory é a fonte oficial do estoque interno da loja selecionada. O backend já determinou a loja e filtrou o estoque; nunca escolha ou altere store_id.',
+    'Se store_inventory.matching_vehicles trouxer veículo compatível, use somente os dados reais fornecidos. Você pode informar disponibilidade, preço, ano, km, câmbio, combustível e mencionar que há fotos/link quando existirem.',
+    'Se não houver veículo compatível, não invente disponibilidade. Use o método comercial para explorar alternativas e preferências.',
+    'Portal/site é apenas vitrine; portal_url pode ser compartilhada quando existir, mas a disponibilidade vem do estoque interno.',
     'Nunca invente estoque, preço, parcela, desconto, aprovação, avaliação ou condição não fornecida.',
     'Responda de forma natural, comercial e curta, em português do Brasil.',
     'execution_decision descreve apenas o que aconteceria no modo informado; nenhuma ação será realmente executada.',
@@ -106,6 +112,8 @@ export async function simulateAutocarMode(input: {
       execution_reason: parsed.execution_reason,
       training_ids: intelligence.training.map((item: any) => item.id),
       knowledge_document_ids: Array.from(new Set(intelligence.knowledge.map((item: any) => item.document_id))),
+      inventory_vehicle_ids: intelligence.inventory?.matching_vehicles.map((item: any) => item.id) || [],
+      inventory_source: intelligence.inventory?.source || null,
       hard_policies_applied: true,
       no_external_execution: true
     },
@@ -127,8 +135,11 @@ export async function simulateAutocarMode(input: {
       training_matches: intelligence.training.length,
       method_matches: intelligence.methodKnowledge.length,
       store_knowledge_matches: intelligence.storeKnowledge.length,
+      inventory_available_count: intelligence.inventory?.available_count ?? 0,
+      inventory_matches: intelligence.inventory?.matched_count ?? 0,
       hard_policies_applied: true
     },
+    inventory_matches: intelligence.inventory?.matching_vehicles || [],
     model,
     usage: {
       input_tokens: Number(raw?.usage?.input_tokens || 0),
