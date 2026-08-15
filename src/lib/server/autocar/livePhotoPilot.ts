@@ -2,9 +2,8 @@ import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 import { evaluateAutocarOperationalShadowPolicy } from '@/lib/server/autocar/operationalPolicy';
 import { sendEvolutionMedia } from '@/lib/server/evolutionMedia';
 
-const A4_PILOT_STORE_ID = '239755c3-a2d4-4cdd-9502-f1595031c924';
 const LIVE_PURPOSE = 'live_photo_send';
-const LIVE_PILOT_VERSION = 'autocar-live-photos-a4-v1';
+const LIVE_PILOT_VERSION = 'autocar-live-photos-v1';
 
 const blockedLiveCapabilities = new Set([
   'send_location',
@@ -34,6 +33,10 @@ function scopedEvolutionMessageId(whatsappNumberId: unknown, providerMessageId: 
 
 function shadowFrom(result: any) {
   return result?.result?.shadow || result?.shadow || null;
+}
+
+function isLiveRuntimeEnvironment() {
+  return ['preview', 'production'].includes(String(process.env.VERCEL_ENV || '').trim());
 }
 
 function safePhotoUrls(value: unknown) {
@@ -138,7 +141,7 @@ async function currentLiveEligibility(storeId: string, conversationId: string, o
     return { allowed: false, reason: policy.reason, runtime, policy };
   }
 
-  return { allowed: true, reason: 'Elegível para LIVE PHOTOS V1.', runtime, policy };
+  return { allowed: true, reason: 'Elegível para AUTOCAR LIVE PHOTOS V1.', runtime, policy };
 }
 
 async function createPhotoClaim(input: {
@@ -171,7 +174,7 @@ async function createPhotoClaim(input: {
     policy_capability: 'send_photos',
     policy_effect: blocked ? 'deny' : 'allow',
     policy_source: 'live_photo_pilot_gate',
-    policy_reason: input.gateReason || 'A4 LIVE PHOTOS V1: fotos reais do estoque liberadas após guard operacional.',
+    policy_reason: input.gateReason || 'AUTOCAR LIVE PHOTOS V1: fotos reais do estoque liberadas após elegibilidade da loja e guard operacional.',
     result: {
       live_pilot_version: LIVE_PILOT_VERSION,
       planned_caption: input.caption,
@@ -245,11 +248,8 @@ export async function attemptAutocarLivePhotoPilot(input: {
   };
   shadowResult: any;
 }) {
-  if (process.env.VERCEL_ENV !== 'preview') {
-    return { sent: false, skipped: true, reason: 'LIVE PHOTOS V1 é bloqueado fora de Preview.' };
-  }
-  if (input.storeId !== A4_PILOT_STORE_ID) {
-    return { sent: false, skipped: true, reason: 'LIVE PHOTOS V1 está liberado somente para A4 Multimarcas.' };
+  if (!isLiveRuntimeEnvironment()) {
+    return { sent: false, skipped: true, reason: 'AUTOCAR LIVE PHOTOS V1 é bloqueado fora de Preview/Production.' };
   }
   if (input.integration?.scope !== 'store' || input.integration?.status !== 'connected' || !input.integration?.instance_name) {
     return { sent: false, skipped: true, reason: 'Integração Evolution da loja não está conectada.' };
