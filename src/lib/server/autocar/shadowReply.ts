@@ -103,21 +103,30 @@ async function buildOperationalPreview(input: {
   storeId: string;
   leadId?: string | null;
   lastInbound: string;
+  recentConversation: Array<{ direction: string; type: string; body: string; sent_at?: string | null }>;
   intelligence: Awaited<ReturnType<typeof buildAutocarIntelligenceContext>>;
   model: string;
 }) {
   const plannerInstructions = [
-    'Extraia somente necessidades operacionais da última mensagem do cliente.',
+    'Extraia somente necessidades operacionais da mensagem atual do cliente, interpretando-a semanticamente no contexto da conversa recente.',
+    'Use a conversa recente para resolver referências naturais como dele, dela, esse, essa, aquele, aquela, o carro, esse modelo ou expressões equivalentes.',
+    'Não use listas de palavras ou correspondência literal como decisão: interprete o sentido da conversa e a referência pretendida.',
+    'Uma referência contextual só pode apontar para um veículo quando o histórico recente identificar de forma inequívoca um único veículo existente no estoque fornecido.',
+    'Se houver ambiguidade entre dois ou mais veículos plausíveis, não escolha: deixe photo_vehicle_id vazio.',
+    'Não carregue automaticamente uma intenção operacional antiga para uma nova mensagem independente; só mantenha a intenção quando a mensagem atual for continuação semântica clara do pedido anterior.',
     `Agora em America/Sao_Paulo: ${saoPauloNow()}. Resolva datas relativas como hoje, amanhã, sábado para YYYY-MM-DD.`,
     'requested_time deve ser HH:MM em 24h quando houver horário explícito; caso contrário use string vazia.',
-    'requested_date deve ser YYYY-MM-DD quando houver dia/data identificável; caso contrário string vazia.',
-    'Para fotos, escolha photo_vehicle_id somente entre IDs exatos do estoque fornecido. Se não for possível identificar com segurança, deixe vazio.',
+    'requested_date deve ser YYYY-MM-DD quando houver dia/data identificável; caso contrário use string vazia.',
+    'Para fotos, photo_vehicle_id deve ser sempre um ID exato do estoque fornecido e corresponder ao veículo efetivamente pedido pelo cliente.',
+    'Mensagens anteriores ajudam a interpretar a referência, mas o estoque atual é a fonte oficial para o ID e a existência do veículo.',
+    'Se não for possível identificar o veículo com segurança, deixe photo_vehicle_id vazio.',
     'Não responda ao cliente e não invente dados.'
   ].join(' ');
   const planResult = await structuredResponse(input.model, 'autocar_operational_plan', operationalPlanSchema, plannerInstructions, {
-    mensagem: input.lastInbound,
+    mensagem_atual: input.lastInbound,
+    conversa_recente: input.recentConversation.slice(-12),
     inventory: input.intelligence.inventory || null
-  }, 500);
+  }, 650);
   const plan = planResult.parsed;
   const preview: any = { plan, hours: null, availability: null, location: null, photos: null };
 
@@ -176,9 +185,15 @@ export async function generateAutocarShadowReply(input: {
     storeId: input.storeId, query: String(lastInbound.body).slice(0, 6000), mode: 'autopilot', inventorySupabase: input.productionSupabase
   });
   const model = autocarModelName();
+  const recentConversation = transcript.slice(-12).map((message: any) => ({
+    direction: String(message.direction || ''),
+    type: String(message.type || 'text'),
+    body: String(message.body || '').slice(0, 2000),
+    sent_at: message.sent_at || null
+  }));
   const operationalPreview = await buildOperationalPreview({
     productionSupabase: input.productionSupabase, storeId: input.storeId, leadId: lead?.id || null,
-    lastInbound: String(lastInbound.body), intelligence, model
+    lastInbound: String(lastInbound.body), recentConversation, intelligence, model
   });
 
   const instructions = [
