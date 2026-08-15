@@ -6,6 +6,24 @@ function photoUrls(vehicle: any) {
     .filter((value) => typeof value === 'string' && /^https:\/\//i.test(value)))).slice(0, 10);
 }
 
+function minutesToTime(totalMinutes: number) {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function timeToMinutes(value: unknown) {
+  const [hours, minutes] = String(value || '').split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function periodForMinutes(minutes: number) {
+  if (minutes < 12 * 60) return 'morning';
+  if (minutes < 18 * 60) return 'afternoon';
+  return 'evening';
+}
+
 export async function consultAutocarStoreHours(storeId: string, date: string) {
   const profile = await getAutocarOperationalProfile(storeId);
   return {
@@ -62,6 +80,85 @@ export async function consultAutocarAvailability(input: {
     excludeLeadId: input.excludeLeadId || null
   });
   return { configured: true, reason: calendar.available ? 'available' : 'calendar_conflict', hours, ...calendar };
+}
+
+export async function consultAutocarDayAvailability(input: {
+  productionSupabase: any;
+  storeId: string;
+  date: string;
+  excludeLeadId?: string | null;
+}) {
+  const profile = await getAutocarOperationalProfile(input.storeId);
+  const hours = resolveOperationalHours(profile, input.date);
+  const durationMinutes = Math.max(15, Math.min(480, Number(profile?.default_visit_duration_minutes || 60)));
+
+  if (!profile) {
+    return {
+      configured: false,
+      date: input.date,
+      duration_minutes: durationMinutes,
+      hours,
+      available_slots: [],
+      morning_slots: [],
+      afternoon_slots: [],
+      evening_slots: []
+    };
+  }
+
+  if (hours.closed || !Array.isArray(hours.intervals) || hours.intervals.length === 0) {
+    return {
+      configured: true,
+      date: input.date,
+      duration_minutes: durationMinutes,
+      hours,
+      available_slots: [],
+      morning_slots: [],
+      afternoon_slots: [],
+      evening_slots: []
+    };
+  }
+
+  const candidateTimes: string[] = [];
+  for (const interval of hours.intervals) {
+    const openMinutes = timeToMinutes(interval?.open);
+    const closeMinutes = timeToMinutes(interval?.close);
+    if (openMinutes == null || closeMinutes == null || openMinutes >= closeMinutes) continue;
+
+    for (let start = openMinutes; start + durationMinutes <= closeMinutes; start += durationMinutes) {
+      const time = minutesToTime(start);
+      const startsAt = new Date(`${input.date}T${time}:00-03:00`);
+      if (Number.isNaN(startsAt.getTime()) || startsAt.getTime() <= Date.now()) continue;
+      candidateTimes.push(time);
+    }
+  }
+
+  const checked = await Promise.all(candidateTimes.map(async (time) => {
+    const availability = await consultAutocarAvailability({
+      productionSupabase: input.productionSupabase,
+      storeId: input.storeId,
+      date: input.date,
+      time,
+      excludeLeadId: input.excludeLeadId || null
+    });
+    return { time, available: availability.available === true };
+  }));
+
+  const availableSlots = checked.filter((slot) => slot.available).map((slot) => slot.time);
+  const morningSlots = availableSlots.filter((time) => periodForMinutes(timeToMinutes(time) || 0) === 'morning');
+  const afternoonSlots = availableSlots.filter((time) => periodForMinutes(timeToMinutes(time) || 0) === 'afternoon');
+  const eveningSlots = availableSlots.filter((time) => periodForMinutes(timeToMinutes(time) || 0) === 'evening');
+
+  return {
+    configured: true,
+    date: input.date,
+    timezone: profile.timezone || 'America/Sao_Paulo',
+    duration_minutes: durationMinutes,
+    hours,
+    available_slots: availableSlots,
+    morning_slots: morningSlots,
+    afternoon_slots: afternoonSlots,
+    evening_slots: eveningSlots
+  };
 }
 
 export async function consultAutocarVehiclePhotos(input: {
