@@ -12,6 +12,10 @@ import { StorePipelineCockpitUx } from '@/components/StorePipelineCockpitUx';
 import { StorePipelineResponsibleTopbar } from '@/components/StorePipelineResponsibleTopbar';
 import { StorePipelineSidebarToggle } from '@/components/StorePipelineSidebarToggle';
 import { StorePipelineNewLeadButton } from '@/components/StorePipelineNewLeadButton';
+import { StorePipelineScheduleUxBridge } from '@/components/StorePipelineScheduleUxBridge';
+import { StorePipelineNewLeadScheduleButton } from '@/components/StorePipelineNewLeadScheduleButton';
+import { StorePipelineSaleActionBridge } from '@/components/StorePipelineSaleActionBridge';
+import { StoreWhatsappRealtimeSync } from '@/components/StoreWhatsappRealtimeSync';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.autosede.com.br'),
@@ -34,6 +38,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StorePipelineResponsibleTopbar />
         <StorePipelineSidebarToggle />
         <StorePipelineNewLeadButton />
+        <StorePipelineScheduleUxBridge />
+        <StorePipelineNewLeadScheduleButton />
+        <StorePipelineSaleActionBridge />
+        <StoreWhatsappRealtimeSync />
       </body>
     </html>
   );

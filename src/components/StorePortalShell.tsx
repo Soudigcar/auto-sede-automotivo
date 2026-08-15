@@ -198,7 +198,7 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
 
   return (
     <PortalContext.Provider value={portalValue}>
-      <main className={`premium-page store-portal-theme store-theme-${theme}`}>
+      <main className={`premium-page store-portal-theme store-theme-${theme}`} style={{ paddingTop: '4px' }}>
         <section className="premium-shell flex min-h-screen items-stretch">
           <div className={`relative hidden shrink-0 transition-[width] duration-200 lg:block ${sidebarCollapsed ? 'w-[76px]' : 'w-72'}`}>
             <button
@@ -263,7 +263,7 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
               </nav>
             </header>
 
-            <div className={`store-portal-child min-w-0 max-w-full overflow-x-hidden p-4 md:p-7 ${pipelinePage ? 'store-pipeline-page pb-28' : ''}`}>{children}</div>
+            <div className={`store-portal-child min-w-0 max-w-full overflow-x-hidden px-4 pb-4 pt-1 md:px-7 md:pb-7 md:pt-1 ${pipelinePage ? 'store-pipeline-page pb-28' : ''}`}>{children}</div>
           </div>
         </section>
       </main>
