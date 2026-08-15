@@ -24,6 +24,13 @@ async function masterContext(request: Request) {
   return { production, master } as const;
 }
 
+async function productionStore(production: any, storeId: string) {
+  const { data: store, error } = await production.from('stores')
+    .select('id,store_name,slug,status,portal_enabled').eq('id', storeId).maybeSingle();
+  if (error) throw error;
+  return store;
+}
+
 export async function GET(request: Request) {
   try {
     const context = await masterContext(request);
@@ -75,19 +82,25 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const action = cleanText(body?.action, 60);
 
-    if (action === 'set-store-access') {
+    if (action === 'set-store-access' || action === 'set-store-mode') {
       const storeId = cleanText(body?.store_id, 100);
       if (!storeId) return NextResponse.json({ error: 'Loja AUTOCAR inválida.' }, { status: 400 });
-
-      const { data: store, error } = await context.production.from('stores')
-        .select('id,store_name,slug,status,portal_enabled').eq('id', storeId).maybeSingle();
-      if (error) throw error;
+      const store = await productionStore(context.production, storeId);
       if (!store) return NextResponse.json({ error: 'Loja não encontrada no CRM.' }, { status: 404 });
 
-      const agent = await setAutocarMasterAccess(getAutocarDevClient(), store, {
-        enabled: Boolean(body?.enabled),
-        autopilotAllowed: Boolean(body?.autopilot_allowed)
-      });
+      let enabled = Boolean(body?.enabled);
+      let autopilotAllowed = Boolean(body?.autopilot_allowed);
+
+      if (action === 'set-store-mode') {
+        const legacyMode = cleanText(body?.mode, 30);
+        if (!['off', 'copilot', 'autopilot'].includes(legacyMode)) {
+          return NextResponse.json({ error: 'Modo AUTOCAR inválido.' }, { status: 400 });
+        }
+        enabled = legacyMode !== 'off';
+        autopilotAllowed = legacyMode === 'autopilot';
+      }
+
+      const agent = await setAutocarMasterAccess(getAutocarDevClient(), store, { enabled, autopilotAllowed });
       return NextResponse.json({ success: true, agent });
     }
 
