@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { authorizeStorePortal } from '@/lib/server/storePortal';
 import { cleanText } from '@/lib/server/storeTeam';
 import { archiveAutocarKnowledge, finalizeAutocarKnowledgeUpload, listAutocarKnowledge, prepareAutocarKnowledgeUpload } from '@/lib/server/autocar/knowledgeLibrary';
+import { ensureAutocarDevStore, getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,6 +17,16 @@ function humanError(error: any) {
   if (/mime|formato não suportado/i.test(message)) return 'Formato não suportado. Use PDF, DOCX, TXT, Markdown ou CSV.';
   if (/25 MB|file size|tamanho/i.test(message)) return 'O arquivo deve ter no máximo 25 MB.';
   return message || 'Não foi possível processar o documento.';
+}
+
+async function ensureStore(context: any) {
+  await ensureAutocarDevStore(getAutocarDevClient(), {
+    id: context.store.id,
+    store_name: context.store.store_name,
+    slug: context.store.slug,
+    status: context.store.status,
+    portal_enabled: context.store.portal_enabled
+  });
 }
 
 export async function GET(request: Request) {
@@ -45,6 +56,8 @@ export async function POST(request: Request) {
     if ('error' in context) return context.error;
     if (!context.permissions.includes('manage_autocar')) return NextResponse.json({ error: 'Usuário sem permissão para administrar o conhecimento desta loja.' }, { status: 403 });
     if (body?.scope && body.scope !== 'store') return NextResponse.json({ error: 'O Método Venda Mais e a Biblioteca Global são administrados exclusivamente no ambiente Master.' }, { status: 403 });
+
+    await ensureStore(context);
 
     try {
       if (action === 'prepare-upload') {
