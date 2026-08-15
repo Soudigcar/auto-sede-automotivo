@@ -13,6 +13,7 @@ import { attemptAutocarLivePhotoPilot } from '@/lib/server/autocar/livePhotoPilo
 import { attemptAutocarLiveLocationPilot } from '@/lib/server/autocar/liveLocationPilot';
 import { attemptAutocarLiveVisitPilot } from '@/lib/server/autocar/liveVisitPilot';
 import { attemptAutocarVehicleStatePilot } from '@/lib/server/autocar/liveVehicleStatePilot';
+import { generateAutocarVehicleStatePostActionReply } from '@/lib/server/autocar/vehicleStateReply';
 import type { AutocarCapability, AutocarPolicyDecision } from '@/lib/server/autocar/types';
 
 function bookingDecision(bookingGuard: any): { decision: AutocarPolicyDecision; simulation: string } {
@@ -137,6 +138,52 @@ function conversationalTextShadowResult(baseResult: any, shadow: any) {
   };
 }
 
+function vehicleStatePostActionTextResult(baseResult: any, shadow: any, postActionReply: any, vehicleState: any) {
+  const response = String(postActionReply?.response || '').trim();
+  if (!response) return null;
+
+  const originalState = String(shadow?.booking_guard?.state || 'NOT_APPLICABLE');
+  const proposedActions = (Array.isArray(shadow?.proposed_actions) ? shadow.proposed_actions : [])
+    .filter((action: any) => !['schedule_visit', 'schedule_test_drive'].includes(String(action?.capability || '')));
+  const preview = shadow?.operational_preview || {};
+  const plan = preview?.plan || {};
+
+  return {
+    ...baseResult,
+    result: {
+      ...baseResult.result,
+      shadow: {
+        ...shadow,
+        response,
+        next_best_action: 'Continuar o atendimento a partir do veículo principal confirmado no CRM.',
+        proposed_actions: proposedActions,
+        booking_guard: {
+          ...shadow.booking_guard,
+          state: 'NOT_APPLICABLE',
+          post_action_original_state: originalState,
+          post_action_schedule_execution_blocked: true
+        },
+        operational_preview: {
+          ...preview,
+          plan: {
+            ...plan,
+            needs_photos: false,
+            needs_location: false,
+            needs_availability: false
+          }
+        },
+        vehicle_state_post_action: {
+          generated: true,
+          model: postActionReply?.model || null,
+          operation: postActionReply?.operation || null,
+          vehicle_state_claim_id: vehicleState?.claim?.id || null,
+          schedule_execution_blocked: true
+        }
+      }
+    }
+  };
+}
+
 export async function processAutocarShadowInbound(input: {
   productionSupabase: any;
   storeId: string;
@@ -251,6 +298,58 @@ export async function processAutocarShadowInbound(input: {
         };
       }
 
+      const vehicleStateHandled = Boolean(vehicleState?.updated || vehicleState?.noop);
+      let vehicleStateReply: any = {
+        generated: false,
+        response: '',
+        reason: 'Vehicle State não executou alteração nem confirmação idempotente nesta mensagem.'
+      };
+      let liveTextInput = conversationalTextShadowResult(baseResult, shadow);
+
+      if (vehicleStateHandled && input.conversation.lead_id) {
+        try {
+          vehicleStateReply = await generateAutocarVehicleStatePostActionReply({
+            productionSupabase: input.productionSupabase,
+            storeId: input.storeId,
+            conversationId: input.conversation.id,
+            leadId: input.conversation.lead_id,
+            vehicleState
+          });
+          const postActionResult = vehicleStatePostActionTextResult(baseResult, shadow, vehicleStateReply, vehicleState);
+          if (postActionResult) liveTextInput = postActionResult;
+        } catch (postActionError: any) {
+          console.warn('[AUTOCAR VEHICLE STATE V1] Falha ao gerar confirmação pós-ação; nenhuma mensagem de sucesso será inventada.', {
+            storeId: input.storeId,
+            conversationId: input.conversation.id,
+            inboundMessageId: input.message.id,
+            error: postActionError?.message || String(postActionError)
+          });
+          vehicleStateReply = {
+            generated: false,
+            response: '',
+            failed: true,
+            reason: String(postActionError?.message || postActionError || 'Falha na confirmação pós-ação.').slice(0, 500)
+          };
+          liveTextInput = {
+            ...baseResult,
+            result: {
+              ...baseResult.result,
+              shadow: {
+                ...shadow,
+                response: '',
+                booking_guard: {
+                  ...shadow.booking_guard,
+                  state: 'NOT_APPLICABLE',
+                  post_action_original_state: String(shadow?.booking_guard?.state || 'NOT_APPLICABLE'),
+                  post_action_schedule_execution_blocked: true
+                },
+                proposed_actions: []
+              }
+            }
+          };
+        }
+      }
+
       const liveText = await attemptAutocarLiveTextPilot({
         productionSupabase: input.productionSupabase,
         storeId: input.storeId,
@@ -259,7 +358,7 @@ export async function processAutocarShadowInbound(input: {
         leadId: input.conversation.lead_id || null,
         inboundMessageId: input.message.id,
         integration: integration || {},
-        shadowResult: conversationalTextShadowResult(baseResult, shadow)
+        shadowResult: liveTextInput
       });
 
       let livePhotos: any = {
@@ -267,7 +366,7 @@ export async function processAutocarShadowInbound(input: {
         skipped: true,
         reason: 'A última mensagem não exige envio de fotos.'
       };
-      if (shadow?.operational_preview?.plan?.needs_photos === true) {
+      if (!vehicleStateHandled && shadow?.operational_preview?.plan?.needs_photos === true) {
         livePhotos = await attemptAutocarLivePhotoPilot({
           productionSupabase: input.productionSupabase,
           storeId: input.storeId,
@@ -278,6 +377,12 @@ export async function processAutocarShadowInbound(input: {
           integration: integration || {},
           shadowResult: baseResult
         });
+      } else if (vehicleStateHandled) {
+        livePhotos = {
+          sent: false,
+          skipped: true,
+          reason: 'Vehicle State foi concluído nesta mensagem; V1 não combina alteração de veículo com outra execução operacional.'
+        };
       }
 
       let liveLocation: any = {
@@ -285,7 +390,7 @@ export async function processAutocarShadowInbound(input: {
         skipped: true,
         reason: 'A última mensagem não exige envio de localização.'
       };
-      if (shadow?.operational_preview?.plan?.needs_location === true) {
+      if (!vehicleStateHandled && shadow?.operational_preview?.plan?.needs_location === true) {
         liveLocation = await attemptAutocarLiveLocationPilot({
           productionSupabase: input.productionSupabase,
           storeId: input.storeId,
@@ -296,15 +401,23 @@ export async function processAutocarShadowInbound(input: {
           integration: integration || {},
           shadowResult: baseResult
         });
+      } else if (vehicleStateHandled) {
+        liveLocation = {
+          sent: false,
+          skipped: true,
+          reason: 'Vehicle State foi concluído nesta mensagem; V1 não combina alteração de veículo com outra execução operacional.'
+        };
       }
 
       let liveVisit: any = {
         sent: false,
         scheduled: false,
         skipped: true,
-        reason: 'A última mensagem não exige execução de agendamento.'
+        reason: vehicleStateHandled
+          ? 'Vehicle State foi concluído nesta mensagem; agendamento existente não será recriado nem reagendado.'
+          : 'A última mensagem não exige execução de agendamento.'
       };
-      if (shadow?.booking_guard?.state !== 'NOT_APPLICABLE') {
+      if (!vehicleStateHandled && shadow?.booking_guard?.state !== 'NOT_APPLICABLE') {
         liveVisit = await attemptAutocarLiveVisitPilot({
           productionSupabase: input.productionSupabase,
           storeId: input.storeId,
@@ -322,6 +435,7 @@ export async function processAutocarShadowInbound(input: {
         live_pilot: {
           sent: Boolean(liveText?.sent || livePhotos?.sent || liveLocation?.sent || liveVisit?.sent),
           vehicle_state: vehicleState,
+          vehicle_state_reply: vehicleStateReply,
           text: liveText,
           photos: livePhotos,
           location: liveLocation,
