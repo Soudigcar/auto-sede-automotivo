@@ -8,11 +8,22 @@ const schema = {
     booking_requested: { type: 'boolean' },
     booking_type: { type: 'string', enum: ['none', 'visit', 'test_drive'] },
     planner_confirmed: { type: 'boolean' },
+    confirmation_mode: { type: 'string', enum: ['not_confirmed', 'explicit_request', 'contextual_acceptance'] },
+    reference_source: { type: 'string', enum: ['none', 'latest_message', 'previous_shadow', 'production_history'] },
     confirmation_evidence: { type: 'string' },
     requested_date: { type: 'string' },
     requested_time: { type: 'string' }
   },
-  required: ['booking_requested', 'booking_type', 'planner_confirmed', 'confirmation_evidence', 'requested_date', 'requested_time']
+  required: [
+    'booking_requested',
+    'booking_type',
+    'planner_confirmed',
+    'confirmation_mode',
+    'reference_source',
+    'confirmation_evidence',
+    'requested_date',
+    'requested_time'
+  ]
 };
 
 function openAiKey() {
@@ -96,6 +107,8 @@ export async function resolveBookingContext(input: {
       booking_requested: false,
       booking_type: 'none',
       planner_confirmed: false,
+      confirmation_mode: 'not_confirmed',
+      reference_source: 'none',
       confirmation_evidence: '',
       requested_date: '',
       requested_time: '',
@@ -106,16 +119,22 @@ export async function resolveBookingContext(input: {
   }
 
   const instructions = [
-    'Analise somente se a ÚLTIMA mensagem inbound confirma ou solicita um agendamento de visita/test-drive.',
+    'Você é o interpretador semântico de intenção de agendamento da AUTOCAR.',
+    'Interprete linguagem natural pelo significado e pelo contexto; NÃO use listas rígidas de palavras-chave como critério de confirmação.',
+    'Considere pontuação, emojis, abreviações, informalidade e respostas curtas como partes normais da linguagem. Exemplos como "sim!", "fechou", "pode ser", "👍" ou equivalentes podem confirmar quando o contexto anterior deixa inequívoco o que está sendo aceito.',
+    'Analise principalmente a ÚLTIMA mensagem inbound e use o histórico apenas para resolver o referente dessa mensagem.',
     `Agora em America/Sao_Paulo: ${saoPauloNow()}.`,
     'Use a proposta Shadow anterior quando existir como se fosse a resposta que a AUTOCAR teria enviado; ela é memória de simulação, não prova de execução.',
-    'Use o histórico imediatamente anterior apenas para resolver referências como "sim", "pode ser", "fechado" e para recuperar data/hora já propostas.',
-    'planner_confirmed só pode ser true quando a última mensagem inbound demonstrar concordância inequívoca com um horário concreto ou disser explicitamente para agendar/marcar/confirmar.',
-    'Perguntas como "tem horário?", "posso ir?", "10h está livre?" NÃO são confirmação.',
-    'Se houver confirmação de um horário citado na proposta anterior, preserve esse requested_date YYYY-MM-DD e requested_time HH:MM.',
-    'Se não houver data/hora concreta suficiente, use string vazia.',
+    'planner_confirmed deve ser true somente quando, pela interpretação semântica do contexto, o cliente autorizou de forma inequívoca marcar uma visita/test-drive em um horário concreto.',
+    'Perguntar se um horário está disponível, perguntar se pode ir ou demonstrar interesse não é confirmação para criar agendamento.',
+    'confirmation_mode=explicit_request quando a própria última mensagem contém uma instrução/aceite suficientemente completa para agendar.',
+    'confirmation_mode=contextual_acceptance quando a última mensagem é curta ou implícita e seu significado de confirmação depende de uma proposta concreta anterior.',
+    'confirmation_mode=not_confirmed quando não houver autorização inequívoca.',
+    'reference_source=previous_shadow quando data/hora vêm da proposta Shadow anterior; production_history quando vêm de uma mensagem outbound real anterior; latest_message quando a própria mensagem atual fornece o contexto suficiente; none quando não houver referência concreta.',
+    'Se houver confirmação contextual de um horário já proposto, preserve exatamente requested_date YYYY-MM-DD e requested_time HH:MM desse contexto.',
+    'Se não houver data/hora concretas suficientes para executar, use string vazia mesmo que haja intenção positiva.',
     'booking_type deve ser test_drive apenas quando o contexto indicar test-drive; caso contrário visit para visita à loja; none se não houver intenção de agendamento.',
-    'confirmation_evidence deve resumir em poucas palavras o trecho que sustentou a decisão. Não invente.'
+    'confirmation_evidence deve explicar brevemente por que a última mensagem, dentro daquele contexto, foi ou não interpretada como confirmação. Não invente fatos.'
   ].join(' ');
 
   const response = await fetch('https://api.openai.com/v1/responses', {
@@ -124,7 +143,7 @@ export async function resolveBookingContext(input: {
     body: JSON.stringify({
       model: autocarModelName(),
       store: false,
-      max_output_tokens: 500,
+      max_output_tokens: 600,
       instructions,
       input: JSON.stringify({
         latest_inbound: latestInbound,
