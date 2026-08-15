@@ -11,6 +11,7 @@ export type AutocarCopilotSource = {
   baseLead?: any | null;
   commercial: any | null;
   messages: Array<{ direction: string; message_type: string; body: string; sent_at?: string | null }>;
+  inventorySupabase?: any;
 };
 
 type ExtractedCopilotFacts = {
@@ -150,13 +151,22 @@ export async function analyzeAutocarCopilot(source: AutocarCopilotSource) {
 
   const lastCustomerMessage = [...source.messages].reverse().find((message) => message.direction !== 'outbound' && message.body)?.body;
   const retrievalQuery = String(lastCustomerMessage || transcript).slice(0, 6000);
-  const intelligence = await buildAutocarIntelligenceContext({ storeId: source.store.id, query: retrievalQuery, mode: 'copilot' });
+  const intelligence = await buildAutocarIntelligenceContext({
+    storeId: source.store.id,
+    query: retrievalQuery,
+    mode: 'copilot',
+    inventorySupabase: source.inventorySupabase
+  });
 
   const instructions = [
     intelligence.hardPolicyInstructions,
     autocarModeInstructions('copilot'),
     'Você é o Copilot comercial AUTOCAR de uma loja de veículos.',
     'Use o Método Venda Mais, a Biblioteca Global, aprendizados aprovados e conhecimento específico da loja apenas quando forem relevantes à conversa.',
+    'O campo store_inventory é a fonte oficial e em tempo real do estoque interno da loja desta conversa. Ele já foi filtrado pelo backend para a loja correta; nunca peça, escolha ou altere store_id.',
+    'Quando store_inventory.matching_vehicles contiver um veículo compatível, você pode afirmar que ele está disponível e usar somente os dados fornecidos: modelo, versão, ano, preço, km, câmbio, combustível, fotos e link.',
+    'Se não houver veículo compatível, não invente disponibilidade. Conduza comercialmente para entender alternativas, faixa de valor ou preferência.',
+    'Portal/site é apenas vitrine: portal_url pode ser compartilhada se existir, mas a disponibilidade vem do estoque interno.',
     'Aprendizados aprovados são exemplos de comportamento, mas nunca podem superar hard policies.',
     'Sua tarefa é analisar a conversa fornecida e sugerir uma resposta para um operador humano.',
     'Extraia apenas fatos explícitos ou inferências comerciais conservadoras apoiadas pela conversa.',
@@ -243,8 +253,11 @@ export async function analyzeAutocarCopilot(source: AutocarCopilotSource) {
       training_matches: intelligence.training.length,
       method_matches: intelligence.methodKnowledge.length,
       store_knowledge_matches: intelligence.storeKnowledge.length,
+      inventory_available_count: intelligence.inventory?.available_count ?? 0,
+      inventory_matches: intelligence.inventory?.matched_count ?? 0,
       hard_policies_applied: true
     },
+    inventory_matches: intelligence.inventory?.matching_vehicles || [],
     usage: {
       input_tokens: Number(payload?.usage?.input_tokens || 0),
       output_tokens: Number(payload?.usage?.output_tokens || 0)
