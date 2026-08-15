@@ -16,7 +16,12 @@ type Analysis = {
   intelligence?: { inventory_available_count?: number; inventory_matches?: number };
 };
 
-type ShadowAction = { capability: string; reason: string; decision?: { effect?: string; source?: string; reason?: string } };
+type ShadowAction = {
+  capability: string;
+  reason: string;
+  simulation?: 'would_execute' | 'deny' | 'approval' | 'handoff' | string;
+  decision?: { effect?: string; source?: string; reason?: string };
+};
 type OperationalPreview = {
   plan?: { needs_hours?: boolean; needs_availability?: boolean; needs_location?: boolean; needs_photos?: boolean; requested_date?: string; requested_time?: string; photo_vehicle_id?: string };
   hours?: { configured?: boolean; closed?: boolean; intervals?: Array<{ open: string; close: string }>; source?: string } | null;
@@ -42,6 +47,11 @@ function formatDateTime(value?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function actionLabel(action: ShadowAction) {
+  if (action.simulation === 'would_execute') return 'WOULD EXECUTE';
+  return String(action.decision?.effect || action.simulation || 'deny').toUpperCase();
 }
 
 export default function AutocarCopilotInline({ slug, conversationId, conversationName, onUseReply }: {
@@ -136,7 +146,7 @@ export default function AutocarCopilotInline({ slug, conversationId, conversatio
               </div>
             ) : null}
 
-            <div className="mt-3 grid gap-2 md:grid-cols-2">{(shadow.proposed_actions || []).map((action, index) => <div key={`${action.capability}-${index}`} className="rounded-xl border border-zinc-200 bg-zinc-50 p-2.5"><div className="flex items-center justify-between gap-2"><b className="text-[9px] uppercase text-zinc-800">{action.capability}</b><span className="rounded-full bg-white px-2 py-1 text-[8px] font-black uppercase text-zinc-600">{action.decision?.effect || 'deny'}</span></div><p className="mt-1 text-[9px] font-semibold leading-relaxed text-zinc-500">{action.decision?.reason || action.reason}</p></div>)}</div>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">{(shadow.proposed_actions || []).map((action, index) => <div key={`${action.capability}-${index}`} className="rounded-xl border border-zinc-200 bg-zinc-50 p-2.5"><div className="flex items-center justify-between gap-2"><b className="text-[9px] uppercase text-zinc-800">{action.capability}</b><span className={`rounded-full px-2 py-1 text-[8px] font-black uppercase ${action.simulation === 'would_execute' ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-zinc-600'}`}>{actionLabel(action)}</span></div><p className="mt-1 text-[9px] font-semibold leading-relaxed text-zinc-500">{action.decision?.reason || action.reason}</p></div>)}</div>
           </div>
         ) : null}
 
