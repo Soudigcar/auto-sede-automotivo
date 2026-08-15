@@ -2,9 +2,8 @@ import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 import { evaluateAutocarOperationalShadowPolicy } from '@/lib/server/autocar/operationalPolicy';
 import { sendEvolutionText } from '@/lib/server/evolution';
 
-const A4_PILOT_STORE_ID = '239755c3-a2d4-4cdd-9502-f1595031c924';
 const LIVE_PURPOSE = 'live_visit_schedule';
-const LIVE_PILOT_VERSION = 'autocar-live-visit-a4-v1';
+const LIVE_PILOT_VERSION = 'autocar-live-visit-v1';
 
 const blockedLiveCapabilities = new Set([
   'send_photos',
@@ -34,6 +33,10 @@ function scopedEvolutionMessageId(whatsappNumberId: unknown, providerMessageId: 
 
 function shadowFrom(result: any) {
   return result?.result?.shadow || result?.shadow || null;
+}
+
+function isLiveRuntimeEnvironment() {
+  return ['preview', 'production'].includes(String(process.env.VERCEL_ENV || '').trim());
 }
 
 function liveKey(storeId: string, inboundMessageId: string) {
@@ -131,7 +134,7 @@ async function currentLiveEligibility(storeId: string, conversationId: string, o
     return { allowed: false, reason: policy.reason, runtime, policy };
   }
 
-  return { allowed: true, reason: 'Elegível para AGENDAMENTO LIVE V1.', runtime, policy };
+  return { allowed: true, reason: 'Elegível para AUTOCAR AGENDAMENTO LIVE V1.', runtime, policy };
 }
 
 async function createVisitClaim(input: {
@@ -164,7 +167,7 @@ async function createVisitClaim(input: {
     policy_capability: 'schedule_visit',
     policy_effect: blocked ? 'deny' : 'allow',
     policy_source: 'live_visit_pilot_gate',
-    policy_reason: input.gateReason || 'A4 AGENDAMENTO LIVE V1: visita liberada após confirmação semântica e revalidação do calendário.',
+    policy_reason: input.gateReason || 'AUTOCAR AGENDAMENTO LIVE V1: visita liberada após elegibilidade da loja, confirmação semântica e revalidação do calendário.',
     result: {
       live_pilot_version: LIVE_PILOT_VERSION,
       lead_id: input.leadId,
@@ -219,8 +222,7 @@ export async function attemptAutocarLiveVisitPilot(input: {
   integration: { instance_name?: string | null; status?: string | null; scope?: string | null };
   shadowResult: any;
 }) {
-  if (process.env.VERCEL_ENV !== 'preview') return { sent: false, scheduled: false, skipped: true, reason: 'AGENDAMENTO LIVE V1 é bloqueado fora de Preview.' };
-  if (input.storeId !== A4_PILOT_STORE_ID) return { sent: false, scheduled: false, skipped: true, reason: 'AGENDAMENTO LIVE V1 está liberado somente para A4 Multimarcas.' };
+  if (!isLiveRuntimeEnvironment()) return { sent: false, scheduled: false, skipped: true, reason: 'AGENDAMENTO LIVE V1 é bloqueado fora de Preview/Production.' };
   if (input.integration?.scope !== 'store' || input.integration?.status !== 'connected' || !input.integration?.instance_name) {
     return { sent: false, scheduled: false, skipped: true, reason: 'Integração Evolution da loja não está conectada.' };
   }
