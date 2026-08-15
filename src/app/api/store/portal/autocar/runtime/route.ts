@@ -35,6 +35,53 @@ async function canonicalConversation(context: any, conversationId: string) {
   return data;
 }
 
+async function processShadowInbound(context: any, conversation: any, message: any) {
+  const prepared = await prepareAutocarSafeInbound({
+    productionSupabase: context.supabase,
+    storeId: context.store.id,
+    conversationId: conversation.id,
+    whatsappNumberId: conversation.whatsapp_number_id,
+    leadId: conversation.lead_id,
+    messageId: message.id,
+    messageType: message.message_type
+  });
+
+  if (prepared.duplicate || !prepared.ready || !prepared.claim?.id) {
+    return { success: true, shadow_mode: true, no_external_execution: true, result: prepared };
+  }
+
+  try {
+    const shadow = await generateAutocarShadowReply({
+      productionSupabase: context.supabase,
+      storeId: context.store.id,
+      conversationId: conversation.id
+    });
+    const completedClaim = await completeAutocarShadowClaim({
+      storeId: context.store.id,
+      claimId: prepared.claim.id,
+      shadow: shadow as unknown as Record<string, unknown>
+    });
+    return {
+      success: true,
+      shadow_mode: true,
+      no_external_execution: true,
+      result: { ...prepared, claim: completedClaim, shadow }
+    };
+  } catch (shadowError: any) {
+    const failedClaim = await failAutocarShadowClaim({
+      storeId: context.store.id,
+      claimId: prepared.claim.id,
+      error: shadowError
+    });
+    return {
+      error: shadowError?.message || 'Falha ao gerar resposta Shadow.',
+      shadow_mode: true,
+      no_external_execution: true,
+      claim: failedClaim
+    };
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
@@ -80,73 +127,43 @@ export async function POST(request: Request) {
 
     const conversation = await canonicalConversation(context, conversationId);
 
-    if (action === 'process-inbound') {
+    if (action === 'process-inbound' || action === 'process-latest-inbound') {
       if (!context.permissions.includes('manage_autocar')) {
         return NextResponse.json({ error: 'Somente Gestor ou Master pode executar o Shadow Mode.' }, { status: 403 });
       }
-      const messageId = cleanText(body?.message_id, 100);
-      if (!messageId) return NextResponse.json({ error: 'Mensagem obrigatória.' }, { status: 400 });
 
-      const { data: message, error } = await context.supabase.from('whatsapp_messages')
-        .select('id,direction,message_type')
-        .eq('id', messageId)
-        .eq('store_id', context.store.id)
-        .eq('conversation_id', conversation.id)
-        .maybeSingle();
-      if (error) throw error;
+      let message: any = null;
+      if (action === 'process-latest-inbound') {
+        const { data, error } = await context.supabase.from('whatsapp_messages')
+          .select('id,direction,message_type,sent_at,created_at')
+          .eq('store_id', context.store.id)
+          .eq('conversation_id', conversation.id)
+          .eq('direction', 'inbound')
+          .order('sent_at', { ascending: false })
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (error) throw error;
+        message = data;
+      } else {
+        const messageId = cleanText(body?.message_id, 100);
+        if (!messageId) return NextResponse.json({ error: 'Mensagem obrigatória.' }, { status: 400 });
+        const { data, error } = await context.supabase.from('whatsapp_messages')
+          .select('id,direction,message_type,sent_at,created_at')
+          .eq('id', messageId)
+          .eq('store_id', context.store.id)
+          .eq('conversation_id', conversation.id)
+          .maybeSingle();
+        if (error) throw error;
+        message = data;
+      }
+
       if (!message || message.direction !== 'inbound') {
-        return NextResponse.json({ error: 'Informe uma mensagem inbound real desta conversa.' }, { status: 400 });
+        return NextResponse.json({ error: 'A conversa não possui uma mensagem inbound real para testar.' }, { status: 400 });
       }
 
-      const prepared = await prepareAutocarSafeInbound({
-        productionSupabase: context.supabase,
-        storeId: context.store.id,
-        conversationId: conversation.id,
-        whatsappNumberId: conversation.whatsapp_number_id,
-        leadId: conversation.lead_id,
-        messageId: message.id,
-        messageType: message.message_type
-      });
-
-      if (prepared.duplicate || !prepared.ready || !prepared.claim?.id) {
-        return NextResponse.json({
-          success: true,
-          shadow_mode: true,
-          no_external_execution: true,
-          result: prepared
-        });
-      }
-
-      try {
-        const shadow = await generateAutocarShadowReply({
-          productionSupabase: context.supabase,
-          storeId: context.store.id,
-          conversationId: conversation.id
-        });
-        const completedClaim = await completeAutocarShadowClaim({
-          storeId: context.store.id,
-          claimId: prepared.claim.id,
-          shadow: shadow as unknown as Record<string, unknown>
-        });
-        return NextResponse.json({
-          success: true,
-          shadow_mode: true,
-          no_external_execution: true,
-          result: { ...prepared, claim: completedClaim, shadow }
-        });
-      } catch (shadowError: any) {
-        const failedClaim = await failAutocarShadowClaim({
-          storeId: context.store.id,
-          claimId: prepared.claim.id,
-          error: shadowError
-        });
-        return NextResponse.json({
-          error: shadowError?.message || 'Falha ao gerar resposta Shadow.',
-          shadow_mode: true,
-          no_external_execution: true,
-          claim: failedClaim
-        }, { status: 500 });
-      }
+      const result = await processShadowInbound(context, conversation, message);
+      return NextResponse.json(result, { status: result.error ? 500 : 200 });
     }
 
     if (action === 'human-active') {
