@@ -32,6 +32,7 @@ const writeCapabilities = new Set<AutocarCapability>([
 ]);
 
 const defaultEffects: Partial<Record<AutocarCapability, AutocarPolicyEffect>> = {
+  respond_first_contact: 'allow',
   qualify_lead: 'allow',
   consult_stock: 'allow',
   negotiate_price: 'handoff'
@@ -91,7 +92,9 @@ export function evaluateAutocarPolicy(input: {
     effect,
     source: 'default',
     reason: effect === 'allow'
-      ? 'Capacidade de leitura/qualificação permitida pelo padrão AUTOCAR.'
+      ? input.capability === 'respond_first_contact'
+        ? 'Resposta textual segura permitida somente no modo AUTOPILOT; gates Master/Loja e pausa humana são validados pelo runtime antes desta decisão.'
+        : 'Capacidade de leitura/qualificação permitida pelo padrão AUTOCAR.'
       : 'Capacidade não liberada por padrão.'
   };
 }
