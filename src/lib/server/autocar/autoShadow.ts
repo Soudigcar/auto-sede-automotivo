@@ -9,6 +9,7 @@ import { resolveBookingContext } from '@/lib/server/autocar/bookingContextResolv
 import { evaluateBookingConfirmationGuard } from '@/lib/server/autocar/bookingConfirmationGuard';
 import { attemptAutocarLiveTextPilot } from '@/lib/server/autocar/liveTextPilot';
 import { attemptAutocarLivePhotoPilot } from '@/lib/server/autocar/livePhotoPilot';
+import { attemptAutocarLiveLocationPilot } from '@/lib/server/autocar/liveLocationPilot';
 import type { AutocarCapability, AutocarPolicyDecision } from '@/lib/server/autocar/types';
 
 function bookingDecision(bookingGuard: any): { decision: AutocarPolicyDecision; simulation: string } {
@@ -204,9 +205,26 @@ export async function processAutocarShadowInbound(input: {
         skipped: true,
         reason: 'A última mensagem não exige envio de fotos.'
       };
-
       if (shadow?.operational_preview?.plan?.needs_photos === true) {
         livePhotos = await attemptAutocarLivePhotoPilot({
+          productionSupabase: input.productionSupabase,
+          storeId: input.storeId,
+          conversationId: input.conversation.id,
+          whatsappNumberId: input.conversation.whatsapp_number_id,
+          leadId: input.conversation.lead_id || null,
+          inboundMessageId: input.message.id,
+          integration: integration || {},
+          shadowResult: baseResult
+        });
+      }
+
+      let liveLocation: any = {
+        sent: false,
+        skipped: true,
+        reason: 'A última mensagem não exige envio de localização.'
+      };
+      if (shadow?.operational_preview?.plan?.needs_location === true) {
+        liveLocation = await attemptAutocarLiveLocationPilot({
           productionSupabase: input.productionSupabase,
           storeId: input.storeId,
           conversationId: input.conversation.id,
@@ -221,9 +239,10 @@ export async function processAutocarShadowInbound(input: {
       return {
         ...baseResult,
         live_pilot: {
-          sent: Boolean(liveText?.sent || livePhotos?.sent),
+          sent: Boolean(liveText?.sent || livePhotos?.sent || liveLocation?.sent),
           text: liveText,
-          photos: livePhotos
+          photos: livePhotos,
+          location: liveLocation
         }
       };
     } catch (liveError: any) {
