@@ -1,6 +1,7 @@
 import { searchAutocarKnowledge } from '@/lib/server/autocar/knowledgeLibrary';
 import { searchTrainingScenarios } from '@/lib/server/autocar/trainingLab';
 import { autocarHardPolicyInstructions, autocarHardPolicyManifest } from '@/lib/server/autocar/policyEngine';
+import { loadAutocarInventory } from '@/lib/server/autocar/inventory';
 
 export type AutocarIntelligenceMode = 'copilot' | 'autopilot';
 
@@ -8,6 +9,7 @@ export async function buildAutocarIntelligenceContext(input: {
   storeId: string;
   query: string;
   mode: AutocarIntelligenceMode;
+  inventorySupabase?: any;
 }) {
   const query = String(input.query || '').trim().slice(0, 6000);
   if (!query) {
@@ -18,13 +20,23 @@ export async function buildAutocarIntelligenceContext(input: {
       training: [],
       knowledge: [],
       methodKnowledge: [],
-      storeKnowledge: []
+      storeKnowledge: [],
+      inventory: null
     };
   }
 
-  const [training, knowledge] = await Promise.all([
+  const [training, knowledge, inventory] = await Promise.all([
     searchTrainingScenarios(query, input.storeId, 6),
-    searchAutocarKnowledge(input.storeId, query, 10)
+    searchAutocarKnowledge(input.storeId, query, 10),
+    input.inventorySupabase
+      ? loadAutocarInventory({
+          supabase: input.inventorySupabase,
+          storeId: input.storeId,
+          query,
+          matchLimit: 12,
+          indexLimit: 80
+        })
+      : Promise.resolve(null)
   ]);
 
   const methodKnowledge = (knowledge || []).filter((item: any) => item.scope === 'method');
@@ -37,7 +49,8 @@ export async function buildAutocarIntelligenceContext(input: {
     training: training || [],
     knowledge: knowledge || [],
     methodKnowledge,
-    storeKnowledge
+    storeKnowledge,
+    inventory
   };
 }
 
@@ -81,6 +94,31 @@ export function serializeAutocarIntelligenceContext(context: Awaited<ReturnType<
       title: item.title,
       excerpt: item.content,
       similarity: item.similarity
-    }))
+    })),
+    store_inventory: context.inventory ? {
+      source: context.inventory.source,
+      store_id: context.inventory.store_id,
+      available_count: context.inventory.available_count,
+      matched_count: context.inventory.matched_count,
+      query_constraints: context.inventory.constraints,
+      matching_vehicles: context.inventory.matching_vehicles.map((vehicle: any) => ({
+        id: vehicle.id,
+        brand: vehicle.brand,
+        model: vehicle.model,
+        version: vehicle.version,
+        year: vehicle.year,
+        manufacture_year: vehicle.manufacture_year,
+        model_year: vehicle.model_year,
+        mileage: vehicle.mileage,
+        color: vehicle.color,
+        transmission: vehicle.transmission,
+        fuel: vehicle.fuel,
+        price: vehicle.price,
+        primary_photo: vehicle.primary_photo,
+        photos: vehicle.photos,
+        portal_url: vehicle.portal_url,
+        published: vehicle.published
+      }))
+    } : null
   };
 }
