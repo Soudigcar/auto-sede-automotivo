@@ -8,6 +8,7 @@ import { evaluateAutocarOperationalShadowPolicy } from '@/lib/server/autocar/ope
 import { resolveBookingContext } from '@/lib/server/autocar/bookingContextResolver';
 import { evaluateBookingConfirmationGuard } from '@/lib/server/autocar/bookingConfirmationGuard';
 import { attemptAutocarLiveTextPilot } from '@/lib/server/autocar/liveTextPilot';
+import { attemptAutocarLivePhotoPilot } from '@/lib/server/autocar/livePhotoPilot';
 import type { AutocarCapability, AutocarPolicyDecision } from '@/lib/server/autocar/types';
 
 function bookingDecision(bookingGuard: any): { decision: AutocarPolicyDecision; simulation: string } {
@@ -187,7 +188,7 @@ export async function processAutocarShadowInbound(input: {
         .maybeSingle();
       if (integrationError) throw integrationError;
 
-      const live = await attemptAutocarLiveTextPilot({
+      const liveText = await attemptAutocarLiveTextPilot({
         productionSupabase: input.productionSupabase,
         storeId: input.storeId,
         conversationId: input.conversation.id,
@@ -198,7 +199,33 @@ export async function processAutocarShadowInbound(input: {
         shadowResult: baseResult
       });
 
-      return { ...baseResult, live_pilot: live };
+      let livePhotos: any = {
+        sent: false,
+        skipped: true,
+        reason: 'A última mensagem não exige envio de fotos.'
+      };
+
+      if (shadow?.operational_preview?.plan?.needs_photos === true) {
+        livePhotos = await attemptAutocarLivePhotoPilot({
+          productionSupabase: input.productionSupabase,
+          storeId: input.storeId,
+          conversationId: input.conversation.id,
+          whatsappNumberId: input.conversation.whatsapp_number_id,
+          leadId: input.conversation.lead_id || null,
+          inboundMessageId: input.message.id,
+          integration: integration || {},
+          shadowResult: baseResult
+        });
+      }
+
+      return {
+        ...baseResult,
+        live_pilot: {
+          sent: Boolean(liveText?.sent || livePhotos?.sent),
+          text: liveText,
+          photos: livePhotos
+        }
+      };
     } catch (liveError: any) {
       console.warn('[AUTOCAR LIVE PILOT] Falha best effort após Shadow; Shadow permanece concluído.', {
         storeId: input.storeId,
