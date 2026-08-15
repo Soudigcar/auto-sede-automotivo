@@ -7,6 +7,7 @@ import {
   saveTrainingScenario,
   simulateTraining
 } from '@/lib/server/autocar/trainingLab';
+import { ensureAutocarDevStore, getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,17 +18,17 @@ function stringList(value: unknown, max = 20) {
   return [];
 }
 
-async function master(request: Request) {
+async function masterContext(request: Request) {
   const production = getAdminClient();
   const profile = await requireMaster(request, production);
   if (!profile) return null;
-  return profile;
+  return { production, profile };
 }
 
 export async function GET(request: Request) {
   try {
-    const profile = await master(request);
-    if (!profile) return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
+    const context = await masterContext(request);
+    if (!context) return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
     const data = await listTrainingLab();
     return NextResponse.json({ success: true, environment: 'autocar-dev', ...data });
   } catch (error: any) {
@@ -37,8 +38,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const profile = await master(request);
-    if (!profile) return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
+    const context = await masterContext(request);
+    if (!context) return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
     const body = await request.json().catch(() => ({}));
     const action = cleanText(body?.action, 60);
 
@@ -54,16 +55,28 @@ export async function POST(request: Request) {
         examples: stringList(body?.examples, 20),
         priority: Number(body?.priority || 100),
         status: body?.status === 'approved' ? 'approved' : 'draft',
-        actorProfileId: profile.id
+        actorProfileId: context.profile.id
       }, cleanText(body?.scenario_id, 100) || null);
       return NextResponse.json({ success: true, scenario });
     }
 
     if (action === 'simulate') {
+      const storeId = cleanText(body?.store_id, 100) || null;
+      if (storeId) {
+        const { data: store, error } = await context.production
+          .from('stores')
+          .select('id,store_name,slug,status,portal_enabled')
+          .eq('id', storeId)
+          .maybeSingle();
+        if (error) throw error;
+        if (!store) return NextResponse.json({ error: 'Loja não encontrada no CRM.' }, { status: 404 });
+        await ensureAutocarDevStore(getAutocarDevClient(), store);
+      }
+
       const result = await simulateTraining({
         customerInput: cleanText(body?.customer_input, 5000),
-        storeId: cleanText(body?.store_id, 100) || null,
-        actorProfileId: profile.id
+        storeId,
+        actorProfileId: context.profile.id
       });
       return NextResponse.json({ success: true, ...result });
     }
@@ -84,7 +97,7 @@ export async function POST(request: Request) {
         nextAction: cleanText(body?.next_action, 2000) || null,
         restrictions: stringList(body?.restrictions),
         tags: stringList(body?.tags, 30),
-        actorProfileId: profile.id
+        actorProfileId: context.profile.id
       });
       return NextResponse.json({ success: true, ...result });
     }
@@ -98,12 +111,12 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const profile = await master(request);
-    if (!profile) return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
+    const context = await masterContext(request);
+    if (!context) return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
     const body = await request.json().catch(() => ({}));
     const scenarioId = cleanText(body?.scenario_id, 100);
     if (!scenarioId) return NextResponse.json({ error: 'Aprendizado obrigatório.' }, { status: 400 });
-    await archiveTrainingScenario(scenarioId, profile.id);
+    await archiveTrainingScenario(scenarioId, context.profile.id);
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Não foi possível arquivar o aprendizado.' }, { status: 500 });
