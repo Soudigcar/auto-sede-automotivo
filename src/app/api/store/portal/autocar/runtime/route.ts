@@ -3,13 +3,17 @@ import { authorizeStorePortal } from '@/lib/server/storePortal';
 import { cleanText } from '@/lib/server/storeTeam';
 import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 import {
+  completeAutocarShadowClaim,
+  failAutocarShadowClaim,
   markAutocarHumanActive,
   prepareAutocarSafeInbound,
   resumeAutocarConversation
 } from '@/lib/server/autocar/safeRuntime';
+import { generateAutocarShadowReply } from '@/lib/server/autocar/shadowReply';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 async function contextFor(request: Request, slug: string) {
   const context = await authorizeStorePortal(request, slug);
@@ -54,6 +58,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       success: true,
+      shadow_mode: true,
       no_external_execution: true,
       runtime: runtimeState.data || null,
       claims: claims.data || []
@@ -77,7 +82,7 @@ export async function POST(request: Request) {
 
     if (action === 'process-inbound') {
       if (!context.permissions.includes('manage_autocar')) {
-        return NextResponse.json({ error: 'Somente Gestor ou Master pode executar o dry-run do runtime.' }, { status: 403 });
+        return NextResponse.json({ error: 'Somente Gestor ou Master pode executar o Shadow Mode.' }, { status: 403 });
       }
       const messageId = cleanText(body?.message_id, 100);
       if (!messageId) return NextResponse.json({ error: 'Mensagem obrigatória.' }, { status: 400 });
@@ -93,7 +98,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Informe uma mensagem inbound real desta conversa.' }, { status: 400 });
       }
 
-      const result = await prepareAutocarSafeInbound({
+      const prepared = await prepareAutocarSafeInbound({
         productionSupabase: context.supabase,
         storeId: context.store.id,
         conversationId: conversation.id,
@@ -103,11 +108,45 @@ export async function POST(request: Request) {
         messageType: message.message_type
       });
 
-      return NextResponse.json({
-        success: true,
-        no_external_execution: true,
-        result
-      });
+      if (prepared.duplicate || !prepared.ready || !prepared.claim?.id) {
+        return NextResponse.json({
+          success: true,
+          shadow_mode: true,
+          no_external_execution: true,
+          result: prepared
+        });
+      }
+
+      try {
+        const shadow = await generateAutocarShadowReply({
+          productionSupabase: context.supabase,
+          storeId: context.store.id,
+          conversationId: conversation.id
+        });
+        const completedClaim = await completeAutocarShadowClaim({
+          storeId: context.store.id,
+          claimId: prepared.claim.id,
+          shadow: shadow as unknown as Record<string, unknown>
+        });
+        return NextResponse.json({
+          success: true,
+          shadow_mode: true,
+          no_external_execution: true,
+          result: { ...prepared, claim: completedClaim, shadow }
+        });
+      } catch (shadowError: any) {
+        const failedClaim = await failAutocarShadowClaim({
+          storeId: context.store.id,
+          claimId: prepared.claim.id,
+          error: shadowError
+        });
+        return NextResponse.json({
+          error: shadowError?.message || 'Falha ao gerar resposta Shadow.',
+          shadow_mode: true,
+          no_external_execution: true,
+          claim: failedClaim
+        }, { status: 500 });
+      }
     }
 
     if (action === 'human-active') {
@@ -124,7 +163,7 @@ export async function POST(request: Request) {
         profileId: context.profile.id,
         source: 'inbox'
       });
-      return NextResponse.json({ success: true, no_external_execution: true, runtime: state });
+      return NextResponse.json({ success: true, shadow_mode: true, no_external_execution: true, runtime: state });
     }
 
     if (action === 'resume') {
@@ -138,7 +177,7 @@ export async function POST(request: Request) {
         whatsappNumberId: conversation.whatsapp_number_id,
         leadId: conversation.lead_id
       });
-      return NextResponse.json({ success: true, no_external_execution: true, runtime: state });
+      return NextResponse.json({ success: true, shadow_mode: true, no_external_execution: true, runtime: state });
     }
 
     return NextResponse.json({ error: 'Ação de runtime AUTOCAR inválida.' }, { status: 400 });
