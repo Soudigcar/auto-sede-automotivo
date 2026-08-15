@@ -19,7 +19,7 @@ type Analysis = {
 type ShadowAction = {
   capability: string;
   reason: string;
-  simulation?: 'would_execute' | 'deny' | 'approval' | 'handoff' | string;
+  simulation?: 'would_execute' | 'waiting_confirmation' | 'ready_to_schedule' | 'slot_unavailable' | 'deny' | 'approval' | 'handoff' | string;
   decision?: { effect?: string; source?: string; reason?: string };
 };
 type OperationalPreview = {
@@ -29,11 +29,20 @@ type OperationalPreview = {
   location?: { configured?: boolean; address?: string | null; city?: string | null; state?: string | null; maps_url?: string | null; waze_url?: string | null } | null;
   photos?: { configured?: boolean; vehicle?: string; photos?: string[] } | null;
 };
+type BookingGuard = {
+  state?: 'WAITING_CONFIRMATION' | 'READY_TO_SCHEDULE' | 'SLOT_UNAVAILABLE' | 'NOT_APPLICABLE' | string;
+  explicit_confirmation?: boolean;
+  reason?: string;
+  booking_type?: string;
+  requested_date?: string;
+  requested_time?: string;
+  revalidated?: boolean;
+};
 type ShadowResult = {
   response?: string; summary?: string; next_best_action?: string; proposed_actions?: ShadowAction[];
   referenced_vehicles?: Vehicle[]; response_policy?: { effect?: string; source?: string; reason?: string };
   intelligence?: { inventory_available_count?: number; inventory_matches?: number; hard_policies_applied?: boolean };
-  operational_preview?: OperationalPreview; no_external_execution?: boolean;
+  operational_preview?: OperationalPreview; booking_guard?: BookingGuard; no_external_execution?: boolean;
 };
 
 function money(value: unknown) {
@@ -51,7 +60,17 @@ function formatDateTime(value?: string) {
 
 function actionLabel(action: ShadowAction) {
   if (action.simulation === 'would_execute') return 'WOULD EXECUTE';
+  if (action.simulation === 'waiting_confirmation') return 'WAITING CONFIRMATION';
+  if (action.simulation === 'ready_to_schedule') return 'READY TO SCHEDULE';
+  if (action.simulation === 'slot_unavailable') return 'SLOT UNAVAILABLE';
   return String(action.decision?.effect || action.simulation || 'deny').toUpperCase();
+}
+
+function actionBadgeClass(action: ShadowAction) {
+  if (action.simulation === 'would_execute' || action.simulation === 'ready_to_schedule') return 'bg-emerald-100 text-emerald-700';
+  if (action.simulation === 'waiting_confirmation') return 'bg-amber-100 text-amber-800';
+  if (action.simulation === 'slot_unavailable') return 'bg-red-100 text-red-700';
+  return 'bg-white text-zinc-600';
 }
 
 export default function AutocarCopilotInline({ slug, conversationId, conversationName, onUseReply }: {
@@ -116,6 +135,7 @@ export default function AutocarCopilotInline({ slug, conversationId, conversatio
 
   function useReply() { const text = reply.trim(); if (text) onUseReply(text); }
   const op = shadow?.operational_preview;
+  const booking = shadow?.booking_guard;
 
   return (
     <section className="border-t border-zinc-200 bg-white px-2.5 pt-2.5">
@@ -138,6 +158,17 @@ export default function AutocarCopilotInline({ slug, conversationId, conversatio
             <div className="mt-1 rounded-xl bg-zinc-50 p-3 text-xs font-semibold leading-relaxed text-zinc-800">{shadow.response || 'Sem resposta gerada.'}</div>
             {shadow.next_best_action ? <p className="mt-2 text-[10px] font-bold text-zinc-600">Próxima ação: <b className="text-zinc-900">{shadow.next_best_action}</b></p> : null}
 
+            {booking && booking.state !== 'NOT_APPLICABLE' ? (
+              <div className={`mt-3 rounded-xl border p-3 ${booking.state === 'READY_TO_SCHEDULE' ? 'border-emerald-200 bg-emerald-50' : booking.state === 'SLOT_UNAVAILABLE' ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="flex items-center gap-2 text-[9px] font-black uppercase text-zinc-700"><CalendarClock size={13} /> Booking Confirmation Guard</p>
+                  <span className="rounded-full bg-white px-2 py-1 text-[8px] font-black uppercase text-zinc-700">{booking.state?.replaceAll('_', ' ')}</span>
+                </div>
+                <p className="mt-1 text-[10px] font-bold text-zinc-700">{booking.reason}</p>
+                {(booking.requested_date || booking.requested_time) ? <p className="mt-1 text-[9px] text-zinc-500">Slot: {[booking.requested_date, booking.requested_time].filter(Boolean).join(' · ')}{booking.revalidated ? ' · Calendário revalidado' : ''}</p> : null}
+              </div>
+            ) : null}
+
             {op && (op.availability || op.location || op.photos || op.hours) ? (
               <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                 {op.availability ? <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-2.5"><p className="flex items-center gap-1.5 text-[9px] font-black uppercase text-blue-700"><CalendarClock size={13} /> Disponibilidade consultada</p><p className="mt-1 text-[10px] font-bold text-zinc-700">{op.availability.available ? 'HORÁRIO LIVRE' : 'NÃO DISPONÍVEL'}{op.plan?.requested_date && op.plan?.requested_time ? ` · ${op.plan.requested_date} ${op.plan.requested_time}` : ''}</p><p className="mt-1 text-[9px] text-zinc-500">{op.availability.reason || 'Consulta no calendário real'}</p>{op.availability.conflicts?.length ? <p className="mt-1 text-[9px] text-zinc-500">Conflito: {op.availability.conflicts[0]?.title} · {formatDateTime(op.availability.conflicts[0]?.starts_at)}</p> : null}</div> : null}
@@ -146,7 +177,7 @@ export default function AutocarCopilotInline({ slug, conversationId, conversatio
               </div>
             ) : null}
 
-            <div className="mt-3 grid gap-2 md:grid-cols-2">{(shadow.proposed_actions || []).map((action, index) => <div key={`${action.capability}-${index}`} className="rounded-xl border border-zinc-200 bg-zinc-50 p-2.5"><div className="flex items-center justify-between gap-2"><b className="text-[9px] uppercase text-zinc-800">{action.capability}</b><span className={`rounded-full px-2 py-1 text-[8px] font-black uppercase ${action.simulation === 'would_execute' ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-zinc-600'}`}>{actionLabel(action)}</span></div><p className="mt-1 text-[9px] font-semibold leading-relaxed text-zinc-500">{action.decision?.reason || action.reason}</p></div>)}</div>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">{(shadow.proposed_actions || []).map((action, index) => <div key={`${action.capability}-${index}`} className="rounded-xl border border-zinc-200 bg-zinc-50 p-2.5"><div className="flex items-center justify-between gap-2"><b className="text-[9px] uppercase text-zinc-800">{action.capability}</b><span className={`rounded-full px-2 py-1 text-[8px] font-black uppercase ${actionBadgeClass(action)}`}>{actionLabel(action)}</span></div><p className="mt-1 text-[9px] font-semibold leading-relaxed text-zinc-500">{action.decision?.reason || action.reason}</p></div>)}</div>
           </div>
         ) : null}
 
