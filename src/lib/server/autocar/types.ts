@@ -10,6 +10,7 @@ export const autocarCapabilities = [
   'consult_stock',
   'send_vehicles',
   'send_photos',
+  'send_location',
   'respond_audio_with_audio',
   'schedule_visit',
   'schedule_test_drive',
