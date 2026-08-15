@@ -146,6 +146,61 @@ export async function prepareAutocarSafeInbound(input: {
   return { claimed: true, duplicate: false, runtime, claim, effectiveMode, policy, ready };
 }
 
+export async function completeAutocarShadowClaim(input: {
+  storeId: string;
+  claimId: string;
+  shadow: Record<string, unknown>;
+}) {
+  const autocar = getAutocarDevClient();
+  const now = new Date().toISOString();
+  const { data, error } = await autocar.from('ai_runtime_message_claims')
+    .update({
+      status: 'completed',
+      result: {
+        shadow_mode_version: 'v1',
+        no_external_execution: true,
+        ...input.shadow
+      },
+      completed_at: now,
+      updated_at: now
+    })
+    .eq('id', input.claimId)
+    .eq('store_id', input.storeId)
+    .eq('purpose', 'autopilot_reply')
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function failAutocarShadowClaim(input: {
+  storeId: string;
+  claimId: string;
+  error: unknown;
+}) {
+  const autocar = getAutocarDevClient();
+  const now = new Date().toISOString();
+  const message = String((input.error as any)?.message || input.error || 'Falha desconhecida').slice(0, 1000);
+  const { data, error } = await autocar.from('ai_runtime_message_claims')
+    .update({
+      status: 'failed',
+      result: {
+        shadow_mode_version: 'v1',
+        no_external_execution: true,
+        error: message
+      },
+      completed_at: now,
+      updated_at: now
+    })
+    .eq('id', input.claimId)
+    .eq('store_id', input.storeId)
+    .eq('purpose', 'autopilot_reply')
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 export async function markAutocarHumanActive(input: {
   productionSupabase: any;
   storeId: string;
