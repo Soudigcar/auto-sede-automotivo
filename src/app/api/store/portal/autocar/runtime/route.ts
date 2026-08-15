@@ -2,18 +2,8 @@ import { NextResponse } from 'next/server';
 import { authorizeStorePortal } from '@/lib/server/storePortal';
 import { cleanText } from '@/lib/server/storeTeam';
 import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
-import {
-  completeAutocarShadowClaim,
-  failAutocarShadowClaim,
-  markAutocarHumanActive,
-  prepareAutocarSafeInbound,
-  resumeAutocarConversation
-} from '@/lib/server/autocar/safeRuntime';
-import { generateAutocarShadowReply } from '@/lib/server/autocar/shadowReply';
-import { evaluateAutocarOperationalShadowPolicy } from '@/lib/server/autocar/operationalPolicy';
-import { resolveBookingContext } from '@/lib/server/autocar/bookingContextResolver';
-import { evaluateBookingConfirmationGuard } from '@/lib/server/autocar/bookingConfirmationGuard';
-import type { AutocarCapability, AutocarPolicyDecision } from '@/lib/server/autocar/types';
+import { markAutocarHumanActive, resumeAutocarConversation } from '@/lib/server/autocar/safeRuntime';
+import { processAutocarShadowInbound } from '@/lib/server/autocar/autoShadow';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,162 +27,6 @@ async function canonicalConversation(context: any, conversationId: string) {
   if (error) throw error;
   if (!data) throw new Error('Conversa não encontrada nesta loja.');
   return data;
-}
-
-function bookingDecision(bookingGuard: any): { decision: AutocarPolicyDecision; simulation: string } {
-  if (bookingGuard?.state === 'READY_TO_SCHEDULE') {
-    return {
-      decision: {
-        effect: 'allow',
-        source: 'operational_guard',
-        reason: 'Confirmação explícita recebida e Calendário revalidado imediatamente antes da ação simulada.'
-      },
-      simulation: 'ready_to_schedule'
-    };
-  }
-  if (bookingGuard?.state === 'SLOT_UNAVAILABLE') {
-    return {
-      decision: {
-        effect: 'deny',
-        source: 'operational_guard',
-        reason: 'O cliente confirmou, mas o horário ficou indisponível na revalidação do Calendário.'
-      },
-      simulation: 'slot_unavailable'
-    };
-  }
-  return {
-    decision: {
-      effect: 'deny',
-      source: 'operational_guard',
-      reason: 'Aguardando confirmação explícita do cliente antes de qualquer agendamento.'
-    },
-    simulation: 'waiting_confirmation'
-  };
-}
-
-function finalizeOperationalShadow(shadow: any, bookingGuard: any) {
-  const preview = shadow?.operational_preview || {};
-  const existing = Array.isArray(shadow?.proposed_actions) ? shadow.proposed_actions : [];
-  const byCapability = new Map<string, any>();
-
-  for (const action of existing) {
-    const capability = String(action?.capability || '') as AutocarCapability;
-    if (!capability) continue;
-    if (capability === 'schedule_visit' || capability === 'schedule_test_drive') {
-      const guarded = bookingDecision(bookingGuard);
-      byCapability.set(capability, { ...action, capability, ...guarded });
-      continue;
-    }
-    const decision = evaluateAutocarOperationalShadowPolicy({ capability, operationalPreview: preview });
-    byCapability.set(capability, {
-      ...action,
-      capability,
-      decision,
-      simulation: decision.effect === 'allow' ? 'would_execute' : decision.effect
-    });
-  }
-
-  const inferred: Array<{ capability: AutocarCapability; reason: string }> = [];
-  if (preview?.plan?.needs_photos) inferred.push({ capability: 'send_photos', reason: 'Cliente solicitou fotos do veículo identificado no estoque.' });
-  if (preview?.plan?.needs_location) inferred.push({ capability: 'send_location', reason: 'Cliente solicitou a localização da loja.' });
-  if (preview?.plan?.needs_availability || bookingGuard?.state !== 'NOT_APPLICABLE') {
-    inferred.push({
-      capability: bookingGuard?.booking_type === 'test_drive' ? 'schedule_test_drive' : 'schedule_visit',
-      reason: 'Intenção de agendamento detectada; execução condicionada à confirmação explícita e revalidação do Calendário.'
-    });
-  }
-
-  for (const action of inferred) {
-    if (action.capability === 'schedule_visit' || action.capability === 'schedule_test_drive') {
-      const guarded = bookingDecision(bookingGuard);
-      byCapability.set(action.capability, { capability: action.capability, reason: action.reason, ...guarded });
-      continue;
-    }
-    const decision = evaluateAutocarOperationalShadowPolicy({ capability: action.capability, operationalPreview: preview });
-    byCapability.set(action.capability, {
-      capability: action.capability,
-      reason: action.reason,
-      decision,
-      simulation: decision.effect === 'allow' ? 'would_execute' : decision.effect
-    });
-  }
-
-  const finalPreview = bookingGuard?.revalidated && bookingGuard?.revalidation
-    ? { ...preview, availability_revalidation: bookingGuard.revalidation }
-    : preview;
-
-  return {
-    ...shadow,
-    operational_preview: finalPreview,
-    booking_guard: bookingGuard,
-    proposed_actions: Array.from(byCapability.values()),
-    operational_policy_version: 'autocar-operational-policy-v1',
-    booking_guard_version: 'autocar-booking-confirmation-v1',
-    no_external_execution: true
-  };
-}
-
-async function processShadowInbound(context: any, conversation: any, message: any) {
-  const prepared = await prepareAutocarSafeInbound({
-    productionSupabase: context.supabase,
-    storeId: context.store.id,
-    conversationId: conversation.id,
-    whatsappNumberId: conversation.whatsapp_number_id,
-    leadId: conversation.lead_id,
-    messageId: message.id,
-    messageType: message.message_type
-  });
-
-  if (prepared.duplicate || !prepared.ready || !prepared.claim?.id) {
-    return { success: true, shadow_mode: true, no_external_execution: true, result: prepared };
-  }
-
-  try {
-    const [generated, bookingContext] = await Promise.all([
-      generateAutocarShadowReply({
-        productionSupabase: context.supabase,
-        storeId: context.store.id,
-        conversationId: conversation.id
-      }),
-      resolveBookingContext({
-        productionSupabase: context.supabase,
-        storeId: context.store.id,
-        conversationId: conversation.id
-      })
-    ]);
-
-    const bookingGuard = await evaluateBookingConfirmationGuard({
-      productionSupabase: context.supabase,
-      storeId: context.store.id,
-      leadId: conversation.lead_id,
-      bookingContext
-    });
-
-    const shadow = finalizeOperationalShadow(generated, bookingGuard);
-    const completedClaim = await completeAutocarShadowClaim({
-      storeId: context.store.id,
-      claimId: prepared.claim.id,
-      shadow: shadow as unknown as Record<string, unknown>
-    });
-    return {
-      success: true,
-      shadow_mode: true,
-      no_external_execution: true,
-      result: { ...prepared, claim: completedClaim, shadow }
-    };
-  } catch (shadowError: any) {
-    const failedClaim = await failAutocarShadowClaim({
-      storeId: context.store.id,
-      claimId: prepared.claim.id,
-      error: shadowError
-    });
-    return {
-      error: shadowError?.message || 'Falha ao gerar resposta Shadow.',
-      shadow_mode: true,
-      no_external_execution: true,
-      claim: failedClaim
-    };
-  }
 }
 
 export async function GET(request: Request) {
@@ -275,7 +109,12 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'A conversa não possui uma mensagem inbound real para testar.' }, { status: 400 });
       }
 
-      const result = await processShadowInbound(context, conversation, message);
+      const result = await processAutocarShadowInbound({
+        productionSupabase: context.supabase,
+        storeId: context.store.id,
+        conversation,
+        message
+      });
       return NextResponse.json(result, { status: result.error ? 500 : 200 });
     }
 
