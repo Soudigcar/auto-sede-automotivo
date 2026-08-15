@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, Loader2, MapPin, Save } from 'lucide-react';
+import { CalendarClock, Loader2, MapPin, Plus, Save, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
 const days = [
@@ -9,6 +9,7 @@ const days = [
   ['friday', 'Sexta'], ['saturday', 'Sábado'], ['sunday', 'Domingo']
 ] as const;
 
+type SpecialHour = { date: string; closed?: boolean; open?: string; close?: string; label?: string };
 type Profile = {
   timezone: string;
   address_text: string;
@@ -21,7 +22,7 @@ type Profile = {
   maps_url: string;
   waze_url: string;
   weekly_hours: Record<string, Array<{ open: string; close: string }>>;
-  special_hours: Array<{ date: string; closed?: boolean; open?: string; close?: string; label?: string }>;
+  special_hours: SpecialHour[];
   default_visit_duration_minutes: number;
 };
 
@@ -72,6 +73,24 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
     }));
   }
 
+  function addSpecial() {
+    setProfile((current) => ({
+      ...current,
+      special_hours: [...current.special_hours, { date: '', closed: true, open: '09:00', close: '18:00', label: '' }]
+    }));
+  }
+
+  function updateSpecial(index: number, patch: Partial<SpecialHour>) {
+    setProfile((current) => ({
+      ...current,
+      special_hours: current.special_hours.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item)
+    }));
+  }
+
+  function removeSpecial(index: number) {
+    setProfile((current) => ({ ...current, special_hours: current.special_hours.filter((_, itemIndex) => itemIndex !== index) }));
+  }
+
   async function save() {
     if (!canManage || saving) return;
     setSaving(true);
@@ -110,9 +129,12 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
             <div className="rounded-2xl border border-zinc-200 p-4">
               <h3 className="flex items-center gap-2 text-sm font-black text-zinc-900"><MapPin size={17} className="text-red-600" /> Localização da loja</h3>
               <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <input className="premium-input md:col-span-2" placeholder="Nome do local / referência" value={profile.location_label || ''} disabled={!canManage} onChange={(e) => setProfile({ ...profile, location_label: e.target.value })} />
                 <input className="premium-input md:col-span-2" placeholder="Endereço completo" value={profile.address_text || ''} disabled={!canManage} onChange={(e) => setProfile({ ...profile, address_text: e.target.value })} />
                 <input className="premium-input" placeholder="Cidade" value={profile.city || ''} disabled={!canManage} onChange={(e) => setProfile({ ...profile, city: e.target.value })} />
                 <input className="premium-input" placeholder="UF" value={profile.state || ''} disabled={!canManage} onChange={(e) => setProfile({ ...profile, state: e.target.value })} />
+                <input className="premium-input" placeholder="CEP" value={profile.postal_code || ''} disabled={!canManage} onChange={(e) => setProfile({ ...profile, postal_code: e.target.value })} />
+                <div />
                 <input className="premium-input" placeholder="Latitude" value={profile.latitude ?? ''} disabled={!canManage} onChange={(e) => setProfile({ ...profile, latitude: e.target.value })} />
                 <input className="premium-input" placeholder="Longitude" value={profile.longitude ?? ''} disabled={!canManage} onChange={(e) => setProfile({ ...profile, longitude: e.target.value })} />
                 <input className="premium-input md:col-span-2" placeholder="Link Google Maps" value={profile.maps_url || ''} disabled={!canManage} onChange={(e) => setProfile({ ...profile, maps_url: e.target.value })} />
@@ -141,7 +163,27 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
               </label>
             </div>
           </div>
-          <p className="mt-4 text-[10px] font-bold text-zinc-400">Feriados e horários especiais já são suportados pela estrutura de dados e serão expostos na próxima evolução visual. Nenhuma alteração aqui muda o cadastro Production da loja.</p>
+
+          <div className="mt-5 rounded-2xl border border-zinc-200 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div><h3 className="flex items-center gap-2 text-sm font-black text-zinc-900"><CalendarClock size={17} className="text-red-600" /> Feriados e horários especiais</h3><p className="mt-1 text-xs text-zinc-500">Uma exceção desta lista tem prioridade sobre o horário semanal.</p></div>
+              <button type="button" onClick={addSpecial} disabled={!canManage} className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-[10px] font-black uppercase text-zinc-700 disabled:opacity-50"><Plus size={14} /> Adicionar exceção</button>
+            </div>
+            <div className="mt-4 space-y-2">
+              {profile.special_hours.map((item, index) => (
+                <div key={`${item.date}-${index}`} className="grid gap-2 rounded-xl bg-zinc-50 p-3 lg:grid-cols-[150px_1fr_auto_auto_auto] lg:items-center">
+                  <input type="date" className="premium-input !py-2" disabled={!canManage} value={item.date || ''} onChange={(e) => updateSpecial(index, { date: e.target.value })} />
+                  <input className="premium-input !py-2" placeholder="Motivo (ex.: Natal)" disabled={!canManage} value={item.label || ''} onChange={(e) => updateSpecial(index, { label: e.target.value })} />
+                  <label className="flex items-center gap-1 text-[10px] font-black uppercase text-zinc-500"><input type="checkbox" checked={Boolean(item.closed)} disabled={!canManage} onChange={(e) => updateSpecial(index, { closed: e.target.checked })} /> Fechado</label>
+                  <div className="flex gap-2"><input type="time" className="premium-input !py-2" disabled={!canManage || Boolean(item.closed)} value={item.open || '09:00'} onChange={(e) => updateSpecial(index, { open: e.target.value })} /><input type="time" className="premium-input !py-2" disabled={!canManage || Boolean(item.closed)} value={item.close || '18:00'} onChange={(e) => updateSpecial(index, { close: e.target.value })} /></div>
+                  <button type="button" onClick={() => removeSpecial(index)} disabled={!canManage} className="flex h-9 w-9 items-center justify-center rounded-xl border border-red-100 bg-white text-red-600 disabled:opacity-50"><Trash2 size={14} /></button>
+                </div>
+              ))}
+              {!profile.special_hours.length ? <div className="rounded-xl border border-dashed border-zinc-200 p-4 text-center text-xs font-bold text-zinc-400">Nenhum feriado ou horário especial configurado.</div> : null}
+            </div>
+          </div>
+
+          <p className="mt-4 text-[10px] font-bold text-zinc-400">Nenhuma alteração neste Perfil Operacional muda o cadastro Production da loja. Os dados permanecem isolados na autocar-dev.</p>
         </>
       )}
     </section>
