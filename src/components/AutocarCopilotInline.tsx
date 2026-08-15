@@ -1,0 +1,156 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import { Car, ExternalLink, Loader2, Sparkles, WandSparkles } from 'lucide-react';
+import { createClient } from '@/lib/supabase';
+
+type Vehicle = {
+  id: string;
+  brand?: string | null;
+  model?: string | null;
+  version?: string | null;
+  year?: string | null;
+  mileage?: string | null;
+  color?: string | null;
+  transmission?: string | null;
+  fuel?: string | null;
+  price?: number | null;
+  primary_photo?: string | null;
+  portal_url?: string | null;
+};
+
+type Analysis = {
+  summary: string;
+  next_best_question: string;
+  suggested_reply: string;
+  score: number;
+  temperature: 'FRIO' | 'MORNO' | 'QUENTE';
+  referenced_vehicles?: Vehicle[];
+  intelligence?: {
+    inventory_available_count?: number;
+    inventory_matches?: number;
+  };
+};
+
+function money(value: unknown) {
+  const number = Number(value || 0);
+  if (!number) return 'Preço não informado';
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(number);
+}
+
+export default function AutocarCopilotInline({
+  slug,
+  conversationId,
+  conversationName,
+  onUseReply
+}: {
+  slug: string;
+  conversationId: string;
+  conversationName?: string;
+  onUseReply: (text: string) => void;
+}) {
+  const supabase = useMemo(() => createClient(), []);
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [reply, setReply] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    setAnalysis(null);
+    setReply('');
+    setError('');
+    setExpanded(false);
+  }, [conversationId]);
+
+  async function analyze() {
+    if (!conversationId || !slug) return;
+    setLoading(true);
+    setError('');
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token || '';
+      if (!token) throw new Error('Sessão não encontrada.');
+      const response = await fetch('/api/store/portal/autocar/copilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ slug, conversation_id: conversationId }),
+        cache: 'no-store'
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Não foi possível analisar a conversa.');
+      setAnalysis(result.analysis || null);
+      setReply(String(result.analysis?.suggested_reply || ''));
+      setExpanded(true);
+    } catch (err: any) {
+      setError(err?.message || 'Erro ao analisar conversa com a AUTOCAR.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function useReply() {
+    const text = reply.trim();
+    if (!text) return;
+    onUseReply(text);
+  }
+
+  return (
+    <section className="border-t border-zinc-200 bg-white px-2.5 pt-2.5">
+      <div className="rounded-2xl border border-red-100 bg-red-50/40 p-2.5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.14em] text-red-600"><Sparkles size={13} /> AUTOCAR COPILOT V2</p>
+            <p className="mt-1 truncate text-[11px] font-bold text-zinc-600">Conversa ativa: <b className="text-zinc-900">{conversationName || 'Cliente WhatsApp'}</b></p>
+          </div>
+          <button type="button" onClick={() => void analyze()} disabled={loading || !conversationId} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#071020] px-4 text-[10px] font-black uppercase text-white disabled:opacity-50">
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <WandSparkles size={14} />} {loading ? 'Analisando...' : 'Analisar com AUTOCAR'}
+          </button>
+        </div>
+
+        {error ? <div className="mt-2 rounded-xl border border-red-100 bg-white px-3 py-2 text-[10px] font-bold text-red-700">{error}</div> : null}
+
+        {analysis && expanded ? (
+          <div className="mt-2 grid gap-2">
+            <div className="grid gap-2 lg:grid-cols-[1fr_auto]">
+              <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[9px] font-black uppercase text-zinc-400">Resposta sugerida · editável</p>
+                  <span className="rounded-full bg-zinc-100 px-2 py-1 text-[8px] font-black text-zinc-600">{analysis.score} · {analysis.temperature}</span>
+                </div>
+                <textarea value={reply} onChange={(event) => setReply(event.target.value)} className="mt-2 min-h-20 w-full resize-y rounded-xl border border-zinc-200 bg-zinc-50 p-2.5 text-xs font-semibold leading-relaxed text-zinc-800 outline-none focus:border-red-300 focus:bg-white" />
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[9px] font-bold text-zinc-400">A AUTOCAR não envia. O botão apenas preenche o campo abaixo.</p>
+                  <button type="button" onClick={useReply} disabled={!reply.trim()} className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 text-[10px] font-black uppercase text-white disabled:opacity-50"><Sparkles size={13} /> Usar resposta</button>
+                </div>
+              </div>
+              <div className="min-w-[190px] rounded-xl border border-zinc-200 bg-white p-3 text-[10px] font-bold text-zinc-600">
+                <p className="text-[9px] font-black uppercase text-zinc-400">Contexto real</p>
+                <p className="mt-2">Estoque disponível: <b className="text-zinc-900">{analysis.intelligence?.inventory_available_count ?? 0}</b></p>
+                <p className="mt-1">Pré-matches: <b className="text-zinc-900">{analysis.intelligence?.inventory_matches ?? 0}</b></p>
+                {analysis.next_best_question ? <p className="mt-2 leading-relaxed text-zinc-500">Próxima pergunta: <b className="text-zinc-800">{analysis.next_best_question}</b></p> : null}
+              </div>
+            </div>
+
+            {analysis.referenced_vehicles?.length ? (
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {analysis.referenced_vehicles.map((vehicle) => (
+                  <article key={vehicle.id} className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
+                    {vehicle.primary_photo ? <img src={vehicle.primary_photo} alt={`${vehicle.brand || ''} ${vehicle.model || ''}`} className="h-28 w-full object-cover" /> : <div className="flex h-20 items-center justify-center bg-zinc-100 text-zinc-400"><Car size={25} /></div>}
+                    <div className="p-3">
+                      <p className="text-[10px] font-black uppercase text-zinc-950">{vehicle.brand} {vehicle.model}</p>
+                      <p className="mt-0.5 text-[9px] font-bold text-zinc-500">{vehicle.version || 'Versão não informada'} · {vehicle.year || 'Ano não informado'}</p>
+                      <p className="mt-2 text-sm font-black text-red-600">{money(vehicle.price)}</p>
+                      <p className="mt-1 text-[9px] font-bold text-zinc-500">{[vehicle.mileage, vehicle.transmission, vehicle.fuel].filter(Boolean).join(' · ')}</p>
+                      {vehicle.portal_url ? <a href={vehicle.portal_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-[9px] font-black uppercase text-zinc-700 hover:text-red-600">Ver anúncio <ExternalLink size={11} /></a> : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
