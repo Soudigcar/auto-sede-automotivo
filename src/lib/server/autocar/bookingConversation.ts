@@ -236,7 +236,7 @@ export async function enhanceAutocarBookingConversation(input: {
   }
 
   const activeVehicleId = String(parsed.active_vehicle_id || '').trim();
-  const activeVehicle = activeVehicleId
+  const activeVehicle: any = activeVehicleId
     ? vehicleCandidates.find((vehicle: any) => String(vehicle.id) === activeVehicleId) || null
     : null;
 
