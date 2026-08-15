@@ -113,7 +113,8 @@ export async function POST(request: Request) {
         productionSupabase: context.supabase,
         storeId: context.store.id,
         conversation,
-        message
+        message,
+        allowLivePilot: false
       });
       return NextResponse.json(result, { status: result.error ? 500 : 200 });
     }
