@@ -1,4 +1,5 @@
 import { autocarModelName } from '@/lib/server/autocar/client';
+import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 
 const schema = {
   type: 'object',
@@ -41,16 +42,29 @@ export async function resolveBookingContext(input: {
   storeId: string;
   conversationId: string;
 }) {
-  const { data: messages, error } = await input.productionSupabase.from('whatsapp_messages')
-    .select('id,direction,body,sent_at,created_at')
-    .eq('store_id', input.storeId)
-    .eq('conversation_id', input.conversationId)
-    .order('sent_at', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(12);
-  if (error) throw error;
+  const autocar = getAutocarDevClient();
+  const [messageResult, claimResult] = await Promise.all([
+    input.productionSupabase.from('whatsapp_messages')
+      .select('id,direction,body,sent_at,created_at')
+      .eq('store_id', input.storeId)
+      .eq('conversation_id', input.conversationId)
+      .order('sent_at', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(12),
+    autocar.from('ai_runtime_message_claims')
+      .select('id,result,created_at,status')
+      .eq('store_id', input.storeId)
+      .eq('production_conversation_id', input.conversationId)
+      .eq('purpose', 'autopilot_reply')
+      .eq('status', 'completed')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+  ]);
+  if (messageResult.error) throw messageResult.error;
+  if (claimResult.error) throw claimResult.error;
 
-  const ordered = (messages || []).reverse().map((message: any) => ({
+  const ordered = (messageResult.data || []).reverse().map((message: any) => ({
     id: message.id,
     direction: String(message.direction || ''),
     body: String(message.body || '').trim(),
@@ -59,9 +73,23 @@ export async function resolveBookingContext(input: {
 
   const latestInboundIndex = [...ordered].map((message: any) => message.direction).lastIndexOf('inbound');
   const latestInbound = latestInboundIndex >= 0 ? ordered[latestInboundIndex] : null;
-  const previousOutbound = latestInboundIndex > 0
+  const productionPreviousOutbound = latestInboundIndex > 0
     ? [...ordered.slice(0, latestInboundIndex)].reverse().find((message: any) => message.direction === 'outbound') || null
     : null;
+
+  const previousShadow = claimResult.data?.result || null;
+  const shadowResponse = String(previousShadow?.response || '').trim();
+  const shadowBooking = previousShadow?.booking_guard || null;
+  const shadowOperational = previousShadow?.operational_preview || null;
+  const shadowProposal = shadowResponse ? {
+    response: shadowResponse,
+    booking_state: shadowBooking?.state || null,
+    booking_type: shadowBooking?.booking_type || null,
+    requested_date: shadowBooking?.requested_date || shadowOperational?.plan?.requested_date || '',
+    requested_time: shadowBooking?.requested_time || shadowOperational?.plan?.requested_time || ''
+  } : null;
+
+  const previousOutboundText = shadowResponse || productionPreviousOutbound?.body || null;
 
   if (!latestInbound) {
     return {
@@ -72,17 +100,19 @@ export async function resolveBookingContext(input: {
       requested_date: '',
       requested_time: '',
       latest_inbound: '',
-      previous_outbound: null
+      previous_outbound: previousOutboundText,
+      shadow_proposal: shadowProposal
     };
   }
 
   const instructions = [
     'Analise somente se a ÚLTIMA mensagem inbound confirma ou solicita um agendamento de visita/test-drive.',
     `Agora em America/Sao_Paulo: ${saoPauloNow()}.`,
+    'Use a proposta Shadow anterior quando existir como se fosse a resposta que a AUTOCAR teria enviado; ela é memória de simulação, não prova de execução.',
     'Use o histórico imediatamente anterior apenas para resolver referências como "sim", "pode ser", "fechado" e para recuperar data/hora já propostas.',
     'planner_confirmed só pode ser true quando a última mensagem inbound demonstrar concordância inequívoca com um horário concreto ou disser explicitamente para agendar/marcar/confirmar.',
     'Perguntas como "tem horário?", "posso ir?", "10h está livre?" NÃO são confirmação.',
-    'Se houver confirmação de um horário citado na mensagem anterior, preserve esse requested_date YYYY-MM-DD e requested_time HH:MM.',
+    'Se houver confirmação de um horário citado na proposta anterior, preserve esse requested_date YYYY-MM-DD e requested_time HH:MM.',
     'Se não houver data/hora concreta suficiente, use string vazia.',
     'booking_type deve ser test_drive apenas quando o contexto indicar test-drive; caso contrário visit para visita à loja; none se não houver intenção de agendamento.',
     'confirmation_evidence deve resumir em poucas palavras o trecho que sustentou a decisão. Não invente.'
@@ -96,7 +126,12 @@ export async function resolveBookingContext(input: {
       store: false,
       max_output_tokens: 500,
       instructions,
-      input: JSON.stringify({ latest_inbound: latestInbound, previous_outbound: previousOutbound, recent_messages: ordered.slice(-8) }),
+      input: JSON.stringify({
+        latest_inbound: latestInbound,
+        previous_outbound: productionPreviousOutbound,
+        previous_shadow_proposal: shadowProposal,
+        recent_messages: ordered.slice(-8)
+      }),
       text: { format: { type: 'json_schema', name: 'autocar_booking_context', strict: true, schema } }
     }),
     cache: 'no-store'
@@ -110,6 +145,7 @@ export async function resolveBookingContext(input: {
   return {
     ...parsed,
     latest_inbound: latestInbound.body,
-    previous_outbound: previousOutbound?.body || null
+    previous_outbound: previousOutboundText,
+    shadow_proposal: shadowProposal
   };
 }
