@@ -188,6 +188,7 @@ export async function processAutocarShadowInbound(input: {
     const conversationalGenerated = await enhanceAutocarBookingConversation({
       productionSupabase: input.productionSupabase,
       storeId: input.storeId,
+      conversationId: input.conversation.id,
       leadId: input.conversation.lead_id || null,
       shadow: generated,
       bookingGuard,
