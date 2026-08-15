@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Car, ExternalLink, Loader2, Sparkles, WandSparkles } from 'lucide-react';
+import { Car, ExternalLink, Eye, Loader2, ShieldCheck, Sparkles, WandSparkles } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
 type Vehicle = {
@@ -26,10 +26,24 @@ type Analysis = {
   score: number;
   temperature: 'FRIO' | 'MORNO' | 'QUENTE';
   referenced_vehicles?: Vehicle[];
-  intelligence?: {
-    inventory_available_count?: number;
-    inventory_matches?: number;
-  };
+  intelligence?: { inventory_available_count?: number; inventory_matches?: number };
+};
+
+type ShadowAction = {
+  capability: string;
+  reason: string;
+  decision?: { effect?: string; source?: string; reason?: string };
+};
+
+type ShadowResult = {
+  response?: string;
+  summary?: string;
+  next_best_action?: string;
+  proposed_actions?: ShadowAction[];
+  referenced_vehicles?: Vehicle[];
+  response_policy?: { effect?: string; source?: string; reason?: string };
+  intelligence?: { inventory_available_count?: number; inventory_matches?: number; hard_policies_applied?: boolean };
+  no_external_execution?: boolean;
 };
 
 function money(value: unknown) {
@@ -53,27 +67,37 @@ export default function AutocarCopilotInline({
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [reply, setReply] = useState('');
   const [loading, setLoading] = useState(false);
+  const [shadowLoading, setShadowLoading] = useState(false);
+  const [shadow, setShadow] = useState<ShadowResult | null>(null);
+  const [shadowMeta, setShadowMeta] = useState('');
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     setAnalysis(null);
     setReply('');
+    setShadow(null);
+    setShadowMeta('');
     setError('');
     setExpanded(false);
   }, [conversationId]);
+
+  async function token() {
+    const { data } = await supabase.auth.getSession();
+    const access = data.session?.access_token || '';
+    if (!access) throw new Error('Sessão não encontrada.');
+    return access;
+  }
 
   async function analyze() {
     if (!conversationId || !slug) return;
     setLoading(true);
     setError('');
     try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token || '';
-      if (!token) throw new Error('Sessão não encontrada.');
+      const access = await token();
       const response = await fetch('/api/store/portal/autocar/copilot', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${access}` },
         body: JSON.stringify({ slug, conversation_id: conversationId }),
         cache: 'no-store'
       });
@@ -89,6 +113,36 @@ export default function AutocarCopilotInline({
     }
   }
 
+  async function testShadow() {
+    if (!conversationId || !slug) return;
+    setShadowLoading(true);
+    setError('');
+    setShadow(null);
+    setShadowMeta('');
+    try {
+      const access = await token();
+      const response = await fetch('/api/store/portal/autocar/runtime', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${access}` },
+        body: JSON.stringify({ slug, conversation_id: conversationId, action: 'process-latest-inbound' }),
+        cache: 'no-store'
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Não foi possível executar o Shadow Mode.');
+      const claimResult = result?.result?.claim?.result || {};
+      const generated = result?.result?.shadow || (claimResult?.shadow_mode_version ? claimResult : null);
+      setShadow(generated || null);
+      if (result?.result?.duplicate) setShadowMeta('Esta mensagem já havia sido processada. Resultado reutilizado por idempotência.');
+      else if (!result?.result?.ready) setShadowMeta(result?.result?.claim?.result?.reason || `Shadow não executável no modo ${String(result?.result?.effectiveMode || 'off').toUpperCase()}.`);
+      else setShadowMeta('Shadow concluído. Nenhuma mensagem foi enviada.');
+      setExpanded(true);
+    } catch (err: any) {
+      setError(err?.message || 'Erro ao executar Shadow Mode.');
+    } finally {
+      setShadowLoading(false);
+    }
+  }
+
   function useReply() {
     const text = reply.trim();
     if (!text) return;
@@ -100,15 +154,42 @@ export default function AutocarCopilotInline({
       <div className="rounded-2xl border border-red-100 bg-red-50/40 p-2.5">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <p className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.14em] text-red-600"><Sparkles size={13} /> AUTOCAR COPILOT V2</p>
+            <p className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.14em] text-red-600"><Sparkles size={13} /> AUTOCAR</p>
             <p className="mt-1 truncate text-[11px] font-bold text-zinc-600">Conversa ativa: <b className="text-zinc-900">{conversationName || 'Cliente WhatsApp'}</b></p>
           </div>
-          <button type="button" onClick={() => void analyze()} disabled={loading || !conversationId} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#071020] px-4 text-[10px] font-black uppercase text-white disabled:opacity-50">
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <WandSparkles size={14} />} {loading ? 'Analisando...' : 'Analisar com AUTOCAR'}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => void testShadow()} disabled={shadowLoading || loading || !conversationId} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 text-[10px] font-black uppercase text-amber-800 disabled:opacity-50">
+              {shadowLoading ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />} {shadowLoading ? 'Simulando...' : 'Testar Shadow'}
+            </button>
+            <button type="button" onClick={() => void analyze()} disabled={loading || shadowLoading || !conversationId} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#071020] px-4 text-[10px] font-black uppercase text-white disabled:opacity-50">
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <WandSparkles size={14} />} {loading ? 'Analisando...' : 'Copilot'}
+            </button>
+          </div>
         </div>
 
         {error ? <div className="mt-2 rounded-xl border border-red-100 bg-white px-3 py-2 text-[10px] font-bold text-red-700">{error}</div> : null}
+
+        {shadowMeta ? <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-900">{shadowMeta}</div> : null}
+
+        {shadow ? (
+          <div className="mt-2 rounded-xl border border-amber-200 bg-white p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.12em] text-amber-700"><ShieldCheck size={13} /> AUTOPILOT SHADOW MODE</p>
+              <span className="rounded-full bg-amber-100 px-2 py-1 text-[8px] font-black uppercase text-amber-800">não envia WhatsApp</span>
+            </div>
+            <p className="mt-3 text-[9px] font-black uppercase text-zinc-400">Resposta que seria enviada</p>
+            <div className="mt-1 rounded-xl bg-zinc-50 p-3 text-xs font-semibold leading-relaxed text-zinc-800">{shadow.response || 'Sem resposta gerada.'}</div>
+            {shadow.next_best_action ? <p className="mt-2 text-[10px] font-bold text-zinc-600">Próxima ação: <b className="text-zinc-900">{shadow.next_best_action}</b></p> : null}
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              {(shadow.proposed_actions || []).map((action, index) => (
+                <div key={`${action.capability}-${index}`} className="rounded-xl border border-zinc-200 bg-zinc-50 p-2.5">
+                  <div className="flex items-center justify-between gap-2"><b className="text-[9px] uppercase text-zinc-800">{action.capability}</b><span className="rounded-full bg-white px-2 py-1 text-[8px] font-black uppercase text-zinc-600">{action.decision?.effect || 'deny'}</span></div>
+                  <p className="mt-1 text-[9px] font-semibold leading-relaxed text-zinc-500">{action.decision?.reason || action.reason}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {analysis && expanded ? (
           <div className="mt-2 grid gap-2">
@@ -120,7 +201,7 @@ export default function AutocarCopilotInline({
                 </div>
                 <textarea value={reply} onChange={(event) => setReply(event.target.value)} className="mt-2 min-h-20 w-full resize-y rounded-xl border border-zinc-200 bg-zinc-50 p-2.5 text-xs font-semibold leading-relaxed text-zinc-800 outline-none focus:border-red-300 focus:bg-white" />
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[9px] font-bold text-zinc-400">A AUTOCAR não envia. O botão apenas preenche o campo abaixo.</p>
+                  <p className="text-[9px] font-bold text-zinc-400">O Copilot não envia. Este botão apenas preenche o campo do Inbox.</p>
                   <button type="button" onClick={useReply} disabled={!reply.trim()} className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 text-[10px] font-black uppercase text-white disabled:opacity-50"><Sparkles size={13} /> Usar resposta</button>
                 </div>
               </div>
