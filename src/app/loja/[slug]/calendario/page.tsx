@@ -256,29 +256,23 @@ export default function StoreCalendarPage() {
   const monthDays = buildMonthDays(monthDate);
 
   async function hasConflict(start: Date, end: Date) {
-    if (!store?.id) return true;
-
-    const [leadConflict, taskConflict] = await Promise.all([
-      supabase
-        .from('leads')
-        .select('id, customer_name, scheduled_at')
-        .eq('assigned_store_id', store.id)
-        .not('scheduled_at', 'is', null)
-        .gte('scheduled_at', start.toISOString())
-        .lt('scheduled_at', end.toISOString())
-        .limit(1),
-      supabase
-        .from('store_calendar_tasks')
-        .select('id, title, starts_at')
-        .eq('store_id', store.id)
-        .gte('starts_at', start.toISOString())
-        .lt('starts_at', end.toISOString())
-        .limit(1)
-    ]);
-
-    if (leadConflict.error || taskConflict.error) return true;
-
-    return Boolean((leadConflict.data || []).length || (taskConflict.data || []).length);
+    if (!store?.id || !slug) return true;
+    const { data } = await supabase.auth.getSession();
+    const accessToken = data.session?.access_token || '';
+    if (!accessToken) return true;
+    const durationMinutes = Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000));
+    const query = new URLSearchParams({
+      slug,
+      starts_at: start.toISOString(),
+      duration_minutes: String(durationMinutes)
+    });
+    const response = await fetch(`/api/store/calendar/availability?${query.toString()}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store'
+    });
+    if (!response.ok) return true;
+    const result = await response.json().catch(() => ({}));
+    return !result.available;
   }
 
   async function createTask() {
@@ -447,7 +441,7 @@ export default function StoreCalendarPage() {
             <div className="grid gap-5">
               <div className="premium-card p-6">
                 <h2 className="text-2xl font-black text-zinc-950">Nova tarefa futura</h2>
-                <p className="mt-1 text-sm text-zinc-500">O sistema bloqueia horários já ocupados por lead ou tarefa.</p>
+                <p className="mt-1 text-sm text-zinc-500">A mesma validação central usada pela AUTOCAR bloqueia horários ocupados por lead ou tarefa.</p>
 
                 <div className="mt-5 grid gap-3">
                   <input className="rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-red-500" placeholder="Título da tarefa" value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} />
