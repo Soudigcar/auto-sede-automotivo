@@ -58,11 +58,13 @@ function liveGateReason(shadow: any) {
   for (const action of actions) {
     const capability = String(action?.capability || '');
     const effect = String(action?.decision?.effect || '');
-    if (blockedLiveCapabilities.has(capability)) {
-      return `Capability ${capability} não está liberada para execução LIVE V1.`;
-    }
+
     if (effect === 'approval' || effect === 'handoff') {
       return `A resposta requer ${effect}; o LIVE PILOT V1 não envia automaticamente nesses casos.`;
+    }
+
+    if (blockedLiveCapabilities.has(capability) && effect === 'allow') {
+      return `Capability ${capability} foi liberada pelo Shadow, mas não está habilitada para execução LIVE V1.`;
     }
   }
 
