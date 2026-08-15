@@ -54,7 +54,8 @@ export async function POST(request: Request) {
       storeId: store.id,
       customerInput,
       mode,
-      actorProfileId: context.master.id
+      actorProfileId: context.master.id,
+      inventorySupabase: context.production
     });
 
     return NextResponse.json({ success: true, store, ...result });
