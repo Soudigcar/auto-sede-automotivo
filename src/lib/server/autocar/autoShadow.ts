@@ -1,0 +1,189 @@
+import {
+  completeAutocarShadowClaim,
+  failAutocarShadowClaim,
+  prepareAutocarSafeInbound
+} from '@/lib/server/autocar/safeRuntime';
+import { generateAutocarShadowReply } from '@/lib/server/autocar/shadowReply';
+import { evaluateAutocarOperationalShadowPolicy } from '@/lib/server/autocar/operationalPolicy';
+import { resolveBookingContext } from '@/lib/server/autocar/bookingContextResolver';
+import { evaluateBookingConfirmationGuard } from '@/lib/server/autocar/bookingConfirmationGuard';
+import type { AutocarCapability, AutocarPolicyDecision } from '@/lib/server/autocar/types';
+
+function bookingDecision(bookingGuard: any): { decision: AutocarPolicyDecision; simulation: string } {
+  if (bookingGuard?.state === 'READY_TO_SCHEDULE') {
+    return {
+      decision: {
+        effect: 'allow',
+        source: 'operational_guard',
+        reason: 'Confirmação semântica recebida e Calendário revalidado imediatamente antes da ação simulada.'
+      },
+      simulation: 'ready_to_schedule'
+    };
+  }
+
+  if (bookingGuard?.state === 'SLOT_UNAVAILABLE') {
+    return {
+      decision: {
+        effect: 'deny',
+        source: 'operational_guard',
+        reason: 'O cliente confirmou, mas o horário ficou indisponível na revalidação do Calendário.'
+      },
+      simulation: 'slot_unavailable'
+    };
+  }
+
+  return {
+    decision: {
+      effect: 'deny',
+      source: 'operational_guard',
+      reason: 'Aguardando confirmação semântica inequívoca do cliente antes de qualquer agendamento.'
+    },
+    simulation: 'waiting_confirmation'
+  };
+}
+
+function finalizeOperationalShadow(shadow: any, bookingGuard: any) {
+  const preview = shadow?.operational_preview || {};
+  const existing = Array.isArray(shadow?.proposed_actions) ? shadow.proposed_actions : [];
+  const byCapability = new Map<string, any>();
+
+  for (const action of existing) {
+    const capability = String(action?.capability || '') as AutocarCapability;
+    if (!capability) continue;
+
+    if (capability === 'schedule_visit' || capability === 'schedule_test_drive') {
+      const guarded = bookingDecision(bookingGuard);
+      byCapability.set(capability, { ...action, capability, ...guarded });
+      continue;
+    }
+
+    const decision = evaluateAutocarOperationalShadowPolicy({ capability, operationalPreview: preview });
+    byCapability.set(capability, {
+      ...action,
+      capability,
+      decision,
+      simulation: decision.effect === 'allow' ? 'would_execute' : decision.effect
+    });
+  }
+
+  const inferred: Array<{ capability: AutocarCapability; reason: string }> = [];
+  if (preview?.plan?.needs_photos) {
+    inferred.push({ capability: 'send_photos', reason: 'Cliente solicitou fotos do veículo identificado no estoque.' });
+  }
+  if (preview?.plan?.needs_location) {
+    inferred.push({ capability: 'send_location', reason: 'Cliente solicitou a localização da loja.' });
+  }
+  if (preview?.plan?.needs_availability || bookingGuard?.state !== 'NOT_APPLICABLE') {
+    inferred.push({
+      capability: bookingGuard?.booking_type === 'test_drive' ? 'schedule_test_drive' : 'schedule_visit',
+      reason: 'Intenção de agendamento detectada; execução condicionada à confirmação semântica e revalidação do Calendário.'
+    });
+  }
+
+  for (const action of inferred) {
+    if (action.capability === 'schedule_visit' || action.capability === 'schedule_test_drive') {
+      const guarded = bookingDecision(bookingGuard);
+      byCapability.set(action.capability, { capability: action.capability, reason: action.reason, ...guarded });
+      continue;
+    }
+
+    const decision = evaluateAutocarOperationalShadowPolicy({ capability: action.capability, operationalPreview: preview });
+    byCapability.set(action.capability, {
+      capability: action.capability,
+      reason: action.reason,
+      decision,
+      simulation: decision.effect === 'allow' ? 'would_execute' : decision.effect
+    });
+  }
+
+  const finalPreview = bookingGuard?.revalidated && bookingGuard?.revalidation
+    ? { ...preview, availability_revalidation: bookingGuard.revalidation }
+    : preview;
+
+  return {
+    ...shadow,
+    operational_preview: finalPreview,
+    booking_guard: bookingGuard,
+    proposed_actions: Array.from(byCapability.values()),
+    operational_policy_version: 'autocar-operational-policy-v1',
+    booking_guard_version: 'autocar-booking-confirmation-v2-semantic',
+    no_external_execution: true
+  };
+}
+
+export async function processAutocarShadowInbound(input: {
+  productionSupabase: any;
+  storeId: string;
+  conversation: {
+    id: string;
+    whatsapp_number_id: string;
+    lead_id?: string | null;
+  };
+  message: {
+    id: string;
+    message_type?: string | null;
+  };
+}) {
+  const prepared = await prepareAutocarSafeInbound({
+    productionSupabase: input.productionSupabase,
+    storeId: input.storeId,
+    conversationId: input.conversation.id,
+    whatsappNumberId: input.conversation.whatsapp_number_id,
+    leadId: input.conversation.lead_id || null,
+    messageId: input.message.id,
+    messageType: input.message.message_type || null
+  });
+
+  if (prepared.duplicate || !prepared.ready || !prepared.claim?.id) {
+    return { success: true, shadow_mode: true, no_external_execution: true, result: prepared };
+  }
+
+  try {
+    const [generated, bookingContext] = await Promise.all([
+      generateAutocarShadowReply({
+        productionSupabase: input.productionSupabase,
+        storeId: input.storeId,
+        conversationId: input.conversation.id
+      }),
+      resolveBookingContext({
+        productionSupabase: input.productionSupabase,
+        storeId: input.storeId,
+        conversationId: input.conversation.id
+      })
+    ]);
+
+    const bookingGuard = await evaluateBookingConfirmationGuard({
+      productionSupabase: input.productionSupabase,
+      storeId: input.storeId,
+      leadId: input.conversation.lead_id || null,
+      bookingContext
+    });
+
+    const shadow = finalizeOperationalShadow(generated, bookingGuard);
+    const completedClaim = await completeAutocarShadowClaim({
+      storeId: input.storeId,
+      claimId: prepared.claim.id,
+      shadow: shadow as unknown as Record<string, unknown>
+    });
+
+    return {
+      success: true,
+      shadow_mode: true,
+      no_external_execution: true,
+      result: { ...prepared, claim: completedClaim, shadow }
+    };
+  } catch (shadowError: any) {
+    const failedClaim = await failAutocarShadowClaim({
+      storeId: input.storeId,
+      claimId: prepared.claim.id,
+      error: shadowError
+    });
+
+    return {
+      error: shadowError?.message || 'Falha ao gerar resposta Shadow.',
+      shadow_mode: true,
+      no_external_execution: true,
+      claim: failedClaim
+    };
+  }
+}
