@@ -12,6 +12,7 @@ import { attemptAutocarLiveTextPilot } from '@/lib/server/autocar/liveTextPilot'
 import { attemptAutocarLivePhotoPilot } from '@/lib/server/autocar/livePhotoPilot';
 import { attemptAutocarLiveLocationPilot } from '@/lib/server/autocar/liveLocationPilot';
 import { attemptAutocarLiveVisitPilot } from '@/lib/server/autocar/liveVisitPilot';
+import { attemptAutocarVehicleStatePilot } from '@/lib/server/autocar/liveVehicleStatePilot';
 import type { AutocarCapability, AutocarPolicyDecision } from '@/lib/server/autocar/types';
 
 function bookingDecision(bookingGuard: any): { decision: AutocarPolicyDecision; simulation: string } {
@@ -221,6 +222,35 @@ export async function processAutocarShadowInbound(input: {
         .maybeSingle();
       if (integrationError) throw integrationError;
 
+      let vehicleState: any = {
+        updated: false,
+        skipped: true,
+        reason: 'Nenhum veículo principal foi alterado nesta mensagem.'
+      };
+      try {
+        vehicleState = await attemptAutocarVehicleStatePilot({
+          productionSupabase: input.productionSupabase,
+          storeId: input.storeId,
+          conversationId: input.conversation.id,
+          leadId: input.conversation.lead_id || null,
+          inboundMessageId: input.message.id,
+          shadowResult: baseResult
+        });
+      } catch (vehicleStateError: any) {
+        console.warn('[AUTOCAR VEHICLE STATE V1] Falha best effort; demais ações LIVE continuam.', {
+          storeId: input.storeId,
+          conversationId: input.conversation.id,
+          inboundMessageId: input.message.id,
+          error: vehicleStateError?.message || String(vehicleStateError)
+        });
+        vehicleState = {
+          updated: false,
+          failed: true,
+          best_effort: true,
+          reason: String(vehicleStateError?.message || vehicleStateError || 'Falha no Vehicle State V1.').slice(0, 500)
+        };
+      }
+
       const liveText = await attemptAutocarLiveTextPilot({
         productionSupabase: input.productionSupabase,
         storeId: input.storeId,
@@ -291,6 +321,7 @@ export async function processAutocarShadowInbound(input: {
         ...baseResult,
         live_pilot: {
           sent: Boolean(liveText?.sent || livePhotos?.sent || liveLocation?.sent || liveVisit?.sent),
+          vehicle_state: vehicleState,
           text: liveText,
           photos: livePhotos,
           location: liveLocation,
