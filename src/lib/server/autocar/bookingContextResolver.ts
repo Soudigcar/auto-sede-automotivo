@@ -42,10 +42,27 @@ function validTime(value: unknown) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(text) ? text : '';
 }
 
-async function requestBookingContext(instructions: string, payload: unknown, maxOutputTokens: number) {
+function bookingContextNeedsEscalation(value: any) {
+  if (!value) return false;
+  const confirmed = value.planner_confirmed === true;
+  const contextual = String(value.confirmation_mode || '') === 'contextual_acceptance';
+  const reference = String(value.reference_source || 'none');
+  if (confirmed && String(value.booking_type || 'none') === 'none') return true;
+  if (confirmed && (!validDate(value.requested_date) || !validTime(value.requested_time))) return true;
+  if (contextual && !['previous_shadow', 'production_history'].includes(reference)) return true;
+  return false;
+}
+
+async function requestBookingContext(
+  instructions: string,
+  payload: unknown,
+  maxOutputTokens: number,
+  ambiguous = false
+) {
   try {
     const result = await createAutocarStructuredResponse({
       task: 'semantic_extraction',
+      ambiguous,
       instructions,
       input: payload,
       schemaName: 'autocar_booking_context',
@@ -155,7 +172,8 @@ export async function resolveBookingContext(input: {
       recent_messages: recentMessages,
       resolver_fallback: false,
       resolver_version: 'autocar-booking-context-v4-router',
-      model_routing: null
+      model_routing: null,
+      model_escalation_triggered: false
     };
   }
 
@@ -188,6 +206,7 @@ export async function resolveBookingContext(input: {
   let resolved: any = null;
   let routing: any = null;
   let firstError = '';
+  let escalationTriggered = false;
   for (const maxOutputTokens of [850, 1300]) {
     const attempt = await requestBookingContext(instructions, requestPayload, maxOutputTokens);
     if (attempt.parsed) {
@@ -196,6 +215,17 @@ export async function resolveBookingContext(input: {
       break;
     }
     if (!firstError) firstError = attempt.error || '';
+  }
+
+  if (resolved && bookingContextNeedsEscalation(resolved)) {
+    escalationTriggered = true;
+    const escalation = await requestBookingContext(instructions, requestPayload, 1300, true);
+    if (escalation.parsed) {
+      resolved = escalation.parsed;
+      routing = escalation.routing;
+    } else if (!firstError) {
+      firstError = escalation.error || '';
+    }
   }
 
   const parsed = resolved || safeContextFallback(shadowProposal);
@@ -209,6 +239,7 @@ export async function resolveBookingContext(input: {
     resolver_fallback: Boolean(parsed?.resolver_fallback),
     resolver_error: resolved ? null : firstError || 'Falha na interpretação estruturada do contexto.',
     resolver_version: 'autocar-booking-context-v4-router',
+    model_escalation_triggered: escalationTriggered,
     model_routing: routing
       ? {
           version: routing.version,
