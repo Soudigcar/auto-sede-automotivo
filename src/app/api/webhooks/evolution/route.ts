@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import {
   evolutionWebhookSignatureHeader,
   getEvolutionConnectionState,
@@ -6,9 +6,12 @@ import {
 } from '@/lib/server/evolution';
 import { evolutionMessageContent, evolutionMessageType } from '@/lib/server/evolutionMessage';
 import { cleanText, createAdminClient } from '@/lib/server/storeTeam';
+import { processAutocarShadowInbound } from '@/lib/server/autocar/autoShadow';
+import { markAutocarHumanActive } from '@/lib/server/autocar/safeRuntime';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 function normalizePhone(value: unknown) {
   const jid = cleanText(value, 180).split('@')[0].split(':')[0];
@@ -40,6 +43,13 @@ function messageDate(value: unknown) {
 
   if (!Number.isFinite(seconds) || seconds <= 0) return new Date().toISOString();
   return new Date(seconds > 10_000_000_000 ? seconds : seconds * 1_000).toISOString();
+}
+
+function scopedEvolutionMessageId(whatsappNumberId: unknown, providerMessageId: unknown) {
+  const numberId = cleanText(whatsappNumberId, 120);
+  const rawMessageId = cleanText(providerMessageId, 250);
+  if (!rawMessageId) return '';
+  return numberId ? `evolution:${numberId}:${rawMessageId}` : `evolution:${rawMessageId}`;
 }
 
 async function reconcileConnectedStatusFromMessage(supabase: any, integration: any, now: string) {
@@ -157,9 +167,7 @@ async function findOrCreateLead(supabase: any, integration: any, contactName: st
       .maybeSingle();
 
     if (exactBaseError) throw exactBaseError;
-    if (exactBase?.id) {
-      return { leadId: exactBase.routed_lead_id || null, baseLeadId: exactBase.id };
-    }
+    if (exactBase?.id) return { leadId: exactBase.routed_lead_id || null, baseLeadId: exactBase.id };
 
     const { data: candidates, error: candidateError } = await supabase
       .from('leads_base')
@@ -171,9 +179,7 @@ async function findOrCreateLead(supabase: any, integration: any, contactName: st
 
     if (candidateError) throw candidateError;
     const existing = candidates?.find((candidate: any) => localPhone(candidate.phone) === leadPhone);
-    if (existing?.id) {
-      return { leadId: existing.routed_lead_id || null, baseLeadId: existing.id };
-    }
+    if (existing?.id) return { leadId: existing.routed_lead_id || null, baseLeadId: existing.id };
 
     const { data: baseLead, error: baseError } = await supabase
       .from('leads_base')
@@ -184,16 +190,8 @@ async function findOrCreateLead(supabase: any, integration: any, contactName: st
         campaign_name: 'WhatsApp central da Master',
         status: 'Novo lead',
         routing_strategy: 'whatsapp_evolution_master',
-        notes: firstMessage
-          ? `Primeira mensagem: ${firstMessage}`
-          : 'Lead criado pelo WhatsApp central da Master.',
-        metadata: {
-          whatsapp: {
-            provider: 'evolution',
-            instance_name: integration.instance_name,
-            scope: 'master'
-          }
-        }
+        notes: firstMessage ? `Primeira mensagem: ${firstMessage}` : 'Lead criado pelo WhatsApp central da Master.',
+        metadata: { whatsapp: { provider: 'evolution', instance_name: integration.instance_name, scope: 'master' } }
       })
       .select('id')
       .single();
@@ -207,7 +205,6 @@ async function findOrCreateLead(supabase: any, integration: any, contactName: st
     .select('id, store_name, event_id')
     .eq('id', integration.store_id)
     .single();
-
   if (storeError) throw storeError;
 
   const { data: exactLead, error: exactLeadError } = await supabase
@@ -218,11 +215,9 @@ async function findOrCreateLead(supabase: any, integration: any, contactName: st
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
-
   if (exactLeadError) throw exactLeadError;
 
   let leadId = exactLead?.id || null;
-
   if (!leadId) {
     const { data: candidates, error: candidateError } = await supabase
       .from('leads')
@@ -231,7 +226,6 @@ async function findOrCreateLead(supabase: any, integration: any, contactName: st
       .not('customer_phone', 'is', null)
       .order('created_at', { ascending: false })
       .limit(2_000);
-
     if (candidateError) throw candidateError;
     leadId = candidates?.find((candidate: any) => localPhone(candidate.customer_phone) === leadPhone)?.id || null;
   }
@@ -255,7 +249,6 @@ async function findOrCreateLead(supabase: any, integration: any, contactName: st
       })
       .select('id')
       .single();
-
     if (leadError) throw leadError;
     leadId = lead?.id || null;
   }
@@ -268,11 +261,9 @@ async function findOrCreateLead(supabase: any, integration: any, contactName: st
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
-
   if (exactBaseError) throw exactBaseError;
 
   let baseLeadId = exactBase?.id || null;
-
   if (!baseLeadId) {
     const { data: baseCandidates, error: baseCandidateError } = await supabase
       .from('leads_base')
@@ -281,7 +272,6 @@ async function findOrCreateLead(supabase: any, integration: any, contactName: st
       .not('phone', 'is', null)
       .order('created_at', { ascending: false })
       .limit(2_000);
-
     if (baseCandidateError) throw baseCandidateError;
     baseLeadId = baseCandidates?.find((candidate: any) => localPhone(candidate.phone) === leadPhone)?.id || null;
   }
@@ -302,16 +292,11 @@ async function findOrCreateLead(supabase: any, integration: any, contactName: st
         routing_strategy: 'whatsapp_evolution_store',
         notes: firstMessage ? `Primeira mensagem: ${firstMessage}` : 'Lead criado pelo WhatsApp Evolution.',
         metadata: {
-          whatsapp: {
-            provider: 'evolution',
-            instance_name: integration.instance_name,
-            store_id: integration.store_id
-          }
+          whatsapp: { provider: 'evolution', instance_name: integration.instance_name, store_id: integration.store_id }
         }
       })
       .select('id')
       .single();
-
     if (baseError) throw baseError;
     baseLeadId = baseLead?.id || null;
   }
@@ -332,20 +317,23 @@ async function processMessage(supabase: any, integration: any, data: any) {
   const phone = normalizePhone(remoteJid);
   if (phone.length < 8) return { skipped: true, reason: 'Mensagem sem telefone resolvido.' };
 
-  const { data: duplicate, error: duplicateError } = await supabase
-    .from('whatsapp_messages')
-    .select('id')
-    .eq('wa_message_id', messageId)
-    .maybeSingle();
-
-  if (duplicateError) throw duplicateError;
-  if (duplicate) return { skipped: true, reason: 'Mensagem já registrada.' };
-
   const fromMe = key.fromMe === true;
   const body = evolutionMessageContent(data);
   const sentAt = messageDate(data?.messageTimestamp);
   const profileName = fromMe ? phone : cleanText(data?.pushName, 180) || phone;
   const number = await ensureCrmNumber(supabase, integration);
+  const scopedMessageId = scopedEvolutionMessageId(number.id, messageId);
+
+  const { data: duplicate, error: duplicateError } = await supabase
+    .from('whatsapp_messages')
+    .select('id')
+    .eq('whatsapp_number_id', number.id)
+    .in('wa_message_id', [messageId, scopedMessageId])
+    .limit(1)
+    .maybeSingle();
+  if (duplicateError) throw duplicateError;
+  if (duplicate) return { skipped: true, reason: 'Mensagem já registrada neste canal.' };
+
   const { leadId, baseLeadId } = await findOrCreateLead(supabase, integration, profileName, phone, body);
 
   const { data: contact, error: contactError } = await supabase
@@ -363,7 +351,6 @@ async function processMessage(supabase: any, integration: any, data: any) {
     }, { onConflict: 'whatsapp_number_id,wa_id' })
     .select('*')
     .single();
-
   if (contactError) throw contactError;
 
   const { data: existingConversation, error: conversationReadError } = await supabase
@@ -372,44 +359,29 @@ async function processMessage(supabase: any, integration: any, data: any) {
     .eq('whatsapp_number_id', number.id)
     .eq('contact_id', contact.id)
     .maybeSingle();
-
   if (conversationReadError) throw conversationReadError;
 
-  const conversationPayload = {
-    store_id: integration.store_id,
-    whatsapp_number_id: number.id,
-    contact_id: contact.id,
-    lead_id: leadId,
-    base_lead_id: baseLeadId,
-    status: 'open',
-    last_message: body,
-    last_message_at: sentAt,
-    unread_count: fromMe ? (existingConversation?.unread_count || 0) : (existingConversation?.unread_count || 0) + 1,
-    metadata: { provider: 'evolution', profile_name: profileName, phone },
-    updated_at: new Date().toISOString()
-  };
-
   let conversation = existingConversation;
-
-  if (conversation) {
-    const { data: updated, error } = await supabase
-      .from('whatsapp_conversations')
-      .update(conversationPayload)
-      .eq('id', conversation.id)
-      .select('*')
-      .single();
-    if (error) throw error;
-    conversation = updated;
-  } else {
+  if (!conversation) {
     const { data: created, error } = await supabase
       .from('whatsapp_conversations')
-      .insert(conversationPayload)
+      .insert({
+        store_id: integration.store_id,
+        whatsapp_number_id: number.id,
+        contact_id: contact.id,
+        lead_id: leadId,
+        base_lead_id: baseLeadId,
+        status: 'open',
+        unread_count: 0,
+        metadata: { provider: 'evolution', profile_name: profileName, phone }
+      })
       .select('*')
       .single();
     if (error) throw error;
     conversation = created;
   }
 
+  const messageType = evolutionMessageType(data);
   const { data: savedMessage, error: messageError } = await supabase
     .from('whatsapp_messages')
     .insert({
@@ -419,9 +391,9 @@ async function processMessage(supabase: any, integration: any, data: any) {
       contact_id: contact.id,
       lead_id: leadId,
       base_lead_id: baseLeadId,
-      wa_message_id: messageId,
+      wa_message_id: scopedMessageId,
       direction: fromMe ? 'outbound' : 'inbound',
-      message_type: evolutionMessageType(data),
+      message_type: messageType,
       body,
       status: fromMe ? 'sent' : 'received',
       raw_payload: data,
@@ -429,9 +401,79 @@ async function processMessage(supabase: any, integration: any, data: any) {
     })
     .select('id')
     .single();
-
   if (messageError) throw messageError;
-  return { success: true, message_id: savedMessage.id, direction: fromMe ? 'outbound' : 'inbound' };
+
+  const { error: conversationUpdateError } = await supabase
+    .from('whatsapp_conversations')
+    .update({
+      lead_id: leadId,
+      base_lead_id: baseLeadId,
+      status: 'open',
+      last_message: body,
+      last_message_at: sentAt,
+      unread_count: fromMe ? (conversation.unread_count || 0) : (conversation.unread_count || 0) + 1,
+      metadata: { provider: 'evolution', profile_name: profileName, phone },
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', conversation.id);
+  if (conversationUpdateError) throw conversationUpdateError;
+
+  return {
+    success: true,
+    message_id: savedMessage.id,
+    direction: fromMe ? 'outbound' : 'inbound',
+    message_type: messageType,
+    store_id: integration.store_id,
+    conversation_id: conversation.id,
+    whatsapp_number_id: number.id,
+    lead_id: leadId
+  };
+}
+
+function scheduleAutocarBestEffort(supabase: any, integration: any, result: any) {
+  if (integration.scope !== 'store' || !integration.store_id || !result?.success || !result?.conversation_id || !result?.message_id) return;
+
+  after(async () => {
+    try {
+      if (result.direction === 'inbound') {
+        await processAutocarShadowInbound({
+          productionSupabase: supabase,
+          storeId: integration.store_id,
+          conversation: {
+            id: result.conversation_id,
+            whatsapp_number_id: result.whatsapp_number_id,
+            lead_id: result.lead_id || null
+          },
+          message: {
+            id: result.message_id,
+            message_type: result.message_type || null
+          }
+        });
+        return;
+      }
+
+      if (result.direction === 'outbound') {
+        await markAutocarHumanActive({
+          productionSupabase: supabase,
+          storeId: integration.store_id,
+          conversationId: result.conversation_id,
+          whatsappNumberId: result.whatsapp_number_id,
+          leadId: result.lead_id || null,
+          messageId: result.message_id,
+          profileId: null,
+          source: 'webhook_outbound'
+        });
+      }
+    } catch (error: any) {
+      console.warn('[AUTOCAR auto-shadow] Pós-processamento best effort falhou sem bloquear o WhatsApp.', {
+        storeId: integration.store_id,
+        conversationId: result.conversation_id,
+        messageId: result.message_id,
+        direction: result.direction,
+        error: error?.message || String(error)
+      });
+    }
+  });
 }
 
 export async function POST(request: Request) {
@@ -446,7 +488,6 @@ export async function POST(request: Request) {
       .select('*')
       .eq('instance_name', instanceName)
       .maybeSingle();
-
     if (integrationError) throw integrationError;
     if (!integration) return NextResponse.json({ error: 'Instância não reconhecida.' }, { status: 404 });
 
@@ -460,21 +501,11 @@ export async function POST(request: Request) {
 
     if (event === 'connection.update') {
       const status = normalizeStatus(payload?.data?.state || payload?.data?.status);
-      const update: Record<string, unknown> = {
-        status,
-        last_webhook_at: now,
-        last_error: null,
-        updated_at: now
-      };
-
+      const update: Record<string, unknown> = { status, last_webhook_at: now, last_error: null, updated_at: now };
       if (status === 'connected') update.last_connected_at = now;
       if (status === 'disconnected') update.last_disconnected_at = now;
 
-      const { error } = await supabase
-        .from('store_whatsapp_integrations')
-        .update(update)
-        .eq('id', integration.id);
-
+      const { error } = await supabase.from('store_whatsapp_integrations').update(update).eq('id', integration.id);
       if (error) throw error;
 
       if (integration.crm_number_id) {
@@ -483,7 +514,6 @@ export async function POST(request: Request) {
           .update({ status, is_active: status === 'connected', updated_at: now })
           .eq('id', integration.crm_number_id);
       }
-
       return NextResponse.json({ success: true, event, status });
     }
 
@@ -496,25 +526,22 @@ export async function POST(request: Request) {
       const validMessages = messages.filter(Boolean);
       const hasIdentifiedMessage = validMessages.some((message: any) => {
         const key = message?.key || {};
-        return Boolean(
-          cleanText(key.id, 250) && cleanText(key.remoteJidAlt || key.remoteJid, 180)
-        );
+        return Boolean(cleanText(key.id, 250) && cleanText(key.remoteJidAlt || key.remoteJid, 180));
       });
 
-      if (hasIdentifiedMessage) {
-        await reconcileConnectedStatusFromMessage(supabase, integration, now);
-      }
+      if (hasIdentifiedMessage) await reconcileConnectedStatusFromMessage(supabase, integration, now);
 
       const results = [];
       for (const message of validMessages) {
-        results.push(await processMessage(supabase, integration, message));
+        const result = await processMessage(supabase, integration, message);
+        results.push(result);
+        scheduleAutocarBestEffort(supabase, integration, result);
       }
 
       await supabase
         .from('store_whatsapp_integrations')
         .update({ last_webhook_at: now, last_error: null, updated_at: now })
         .eq('id', integration.id);
-
       return NextResponse.json({ success: true, event, processed: results });
     }
 
@@ -522,12 +549,8 @@ export async function POST(request: Request) {
       .from('store_whatsapp_integrations')
       .update({ last_webhook_at: now, updated_at: now })
       .eq('id', integration.id);
-
     return NextResponse.json({ success: true, ignored: true, event });
   } catch (error: any) {
-    return NextResponse.json(
-      { error: error?.message || 'Erro ao processar webhook da Evolution API.' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error?.message || 'Erro ao processar webhook da Evolution API.' }, { status: 500 });
   }
 }

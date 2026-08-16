@@ -1,8 +1,10 @@
 'use client';
 
 import { useRef, useState, type ChangeEvent } from 'react';
-import { FileText, Image as ImageIcon, Loader2, Paperclip, Send, Video, Volume2, X } from 'lucide-react';
+import { useParams } from 'next/navigation';
+import { FileText, Image as ImageIcon, Loader2, Paperclip, Send, Sparkles, Video, Volume2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import AutocarCopilotInline from '@/components/AutocarCopilotInline';
 
 const MAX_MEDIA_BYTES = 4 * 1024 * 1024;
 
@@ -28,6 +30,17 @@ function MediaIcon({ file }: { file: File }) {
   return <FileText size={18} />;
 }
 
+function fillWhatsappDraft(text: string) {
+  const textarea = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Digite sua mensagem..."]');
+  if (!textarea) throw new Error('Campo de mensagem do Inbox não encontrado.');
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+  if (!setter) throw new Error('Não foi possível preparar o campo de mensagem.');
+  setter.call(textarea, text);
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  textarea.dispatchEvent(new Event('change', { bubbles: true }));
+  textarea.focus();
+}
+
 export function WhatsappAttachmentButton({
   conversationId,
   onRefresh,
@@ -38,10 +51,13 @@ export function WhatsappAttachmentButton({
   onStatus: (message: string) => void;
 }) {
   const supabase = createClient();
+  const params = useParams();
+  const slug = String(params?.slug || '');
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [caption, setCaption] = useState('');
   const [open, setOpen] = useState(false);
+  const [autocarOpen, setAutocarOpen] = useState(false);
   const [sending, setSending] = useState(false);
 
   function reset() {
@@ -97,9 +113,28 @@ export function WhatsappAttachmentButton({
     }
   }
 
+  function useAutocarReply(text: string) {
+    try {
+      fillWhatsappDraft(text);
+      onStatus('Resposta da AUTOCAR inserida como rascunho. Revise antes de enviar.');
+      setAutocarOpen(false);
+    } catch (error: any) {
+      onStatus(error?.message || 'Não foi possível inserir a resposta no campo de mensagem.');
+    }
+  }
+
   return (
     <>
       <input ref={inputRef} type="file" className="hidden" onChange={chooseFile} disabled={sending} />
+      <button
+        type="button"
+        onClick={() => setAutocarOpen(true)}
+        disabled={!conversationId}
+        className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 text-[10px] font-black uppercase text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+        title="Analisar conversa ativa com a I.A AUTOCAR"
+      >
+        <Sparkles size={14} /> AUTOCAR
+      </button>
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
@@ -109,6 +144,19 @@ export function WhatsappAttachmentButton({
       >
         <Paperclip size={14} /> Anexar
       </button>
+
+      {autocarOpen ? (
+        <div className="fixed inset-0 z-[555] flex items-end justify-center bg-black/25 p-3 backdrop-blur-[1px] lg:items-center" onMouseDown={(event) => { if (event.currentTarget === event.target) setAutocarOpen(false); }}>
+          <div className="max-h-[88vh] w-full max-w-5xl overflow-y-auto rounded-[24px] border border-zinc-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+              <div><p className="text-[9px] font-black uppercase tracking-[0.15em] text-red-600">Inbox WhatsApp · conversa ativa</p><h3 className="mt-1 text-base font-black text-zinc-950">I.A AUTOCAR COPILOT V2</h3></div>
+              <button type="button" onClick={() => setAutocarOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200 text-zinc-500"><X size={17} /></button>
+            </div>
+            <AutocarCopilotInline slug={slug} conversationId={conversationId} onUseReply={useAutocarReply} />
+            <div className="px-4 pb-4 pt-2 text-center text-[9px] font-bold text-zinc-400">Nenhuma mensagem é enviada por esta janela. O vendedor continua responsável pelo botão Enviar do Inbox.</div>
+          </div>
+        </div>
+      ) : null}
 
       {open && file ? (
         <div className="fixed inset-0 z-[560] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[2px]" onMouseDown={(event) => { if (event.currentTarget === event.target && !sending) reset(); }}>

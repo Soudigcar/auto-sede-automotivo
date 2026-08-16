@@ -11,7 +11,7 @@ export function StoreCalendarRealtimeSync() {
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const route = pathname.match(/^\/loja\/([^/]+)\/calendar\/?$/i);
+    const route = pathname.match(/^\/loja\/([^/]+)\/calendario\/?$/i);
     if (!route) return;
 
     const slug = decodeURIComponent(route[1]);

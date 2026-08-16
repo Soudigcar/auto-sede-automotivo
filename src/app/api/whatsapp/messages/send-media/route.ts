@@ -1,7 +1,8 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendEvolutionMedia } from '@/lib/server/evolutionMedia';
 import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import { markAutocarHumanActive } from '@/lib/server/autocar/safeRuntime';
 
 export const runtime = 'nodejs';
 
@@ -67,11 +68,7 @@ export async function POST(request: Request) {
 
     let lead: any = null;
     if (conversation?.lead_id) {
-      const { data, error } = await supabase
-        .from('leads')
-        .select('id, assigned_store_id, assigned_user_id')
-        .eq('id', conversation.lead_id)
-        .maybeSingle();
+      const { data, error } = await supabase.from('leads').select('id, assigned_store_id, assigned_user_id').eq('id', conversation.lead_id).maybeSingle();
       if (error) throw error;
       lead = data;
     }
@@ -145,6 +142,29 @@ export async function POST(request: Request) {
     }
 
     await supabase.from('whatsapp_conversations').update({ last_message: `[${mediaUrls.length} foto${mediaUrls.length > 1 ? 's' : ''}] ${caption}`.trim(), last_message_at: sentAt, unread_count: 0, updated_at: sentAt }).eq('id', conversation.id);
+
+    if (conversation.store_id && saved.length) {
+      after(async () => {
+        try {
+          await markAutocarHumanActive({
+            productionSupabase: supabase,
+            storeId: conversation.store_id,
+            conversationId: conversation.id,
+            whatsappNumberId: conversation.whatsapp_number_id,
+            leadId: conversation.lead_id || null,
+            messageId: saved[saved.length - 1]?.id || null,
+            profileId: profile.id || null,
+            source: 'inbox'
+          });
+        } catch (error: any) {
+          console.warn('[AUTOCAR human takeover] Falha best effort após envio humano de mídia.', {
+            storeId: conversation.store_id,
+            conversationId: conversation.id,
+            error: error?.message || String(error)
+          });
+        }
+      });
+    }
 
     return NextResponse.json({ success: true, sent_count: saved.length, messages: saved, provider });
   } catch (error: any) {
