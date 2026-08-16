@@ -140,7 +140,7 @@ export async function prepareAutocarInboundAudio(input: {
   if (!providerId) return { ready: false, skipped: true, reason: 'Áudio sem identificador do provedor.' };
 
   const mime = audioMime(message.raw_payload);
-  const media = await getEvolutionAudioBase64(String(integration.instance_name), providerId);
+  const media = await getEvolutionAudioBase64(String(integration.instance_name), message.raw_payload);
   const bytes = decodeBase64(media.base64);
   const result = await transcribe(bytes, mime);
   const now = new Date().toISOString();
