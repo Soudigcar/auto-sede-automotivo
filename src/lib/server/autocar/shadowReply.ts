@@ -1,4 +1,4 @@
-import { autocarModelName } from '@/lib/server/autocar/client';
+import { createAutocarStructuredResponse } from '@/lib/server/autocar/client';
 import {
   autocarModeInstructions,
   buildAutocarIntelligenceContext,
@@ -51,37 +51,16 @@ const operationalPlanSchema = {
   required: ['needs_hours', 'needs_availability', 'needs_location', 'needs_photos', 'requested_date', 'requested_time', 'photo_vehicle_id']
 };
 
-function openAiKey() {
-  const key = String(process.env.OPENAI_API_KEY || '').trim();
-  if (!key) throw new Error('OPENAI_API_KEY não disponível no ambiente de Preview.');
-  return key;
-}
-
-function outputText(payload: any) {
-  if (typeof payload?.output_text === 'string' && payload.output_text.trim()) return payload.output_text.trim();
-  for (const item of Array.isArray(payload?.output) ? payload.output : []) {
-    for (const content of Array.isArray(item?.content) ? item.content : []) {
-      if (content?.type === 'output_text' && typeof content.text === 'string') return content.text.trim();
-    }
-  }
-  return '';
-}
-
-async function structuredResponse(model: string, name: string, schema: any, instructions: string, input: unknown, maxOutputTokens = 1200) {
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${openAiKey()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model, store: false, max_output_tokens: maxOutputTokens, instructions,
-      input: JSON.stringify(input), text: { format: { type: 'json_schema', name, strict: true, schema } }
-    }),
-    cache: 'no-store'
-  });
-  const raw = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(String(raw?.error?.message || `OpenAI respondeu com HTTP ${response.status}.`).slice(0, 500));
-  const text = outputText(raw);
-  if (!text) throw new Error(`A OpenAI não retornou ${name}.`);
-  try { return { parsed: JSON.parse(text), raw }; } catch { throw new Error(`A resposta estruturada ${name} não pôde ser interpretada.`); }
+function routingSummary(routing: any) {
+  if (!routing) return null;
+  return {
+    version: routing.version,
+    task: routing.task,
+    lane: routing.lane,
+    model: routing.model,
+    reason: routing.reason,
+    escalated: routing.escalated
+  };
 }
 
 function realReferencedVehicles(intelligence: Awaited<ReturnType<typeof buildAutocarIntelligenceContext>>, ids: unknown) {
@@ -105,7 +84,6 @@ async function buildOperationalPreview(input: {
   lastInbound: string;
   recentConversation: Array<{ direction: string; type: string; body: string; sent_at?: string | null }>;
   intelligence: Awaited<ReturnType<typeof buildAutocarIntelligenceContext>>;
-  model: string;
 }) {
   const plannerInstructions = [
     'Extraia somente necessidades operacionais da mensagem atual do cliente, interpretando-a semanticamente no contexto da conversa recente.',
@@ -122,13 +100,28 @@ async function buildOperationalPreview(input: {
     'Se não for possível identificar o veículo com segurança, deixe photo_vehicle_id vazio.',
     'Não responda ao cliente e não invente dados.'
   ].join(' ');
-  const planResult = await structuredResponse(input.model, 'autocar_operational_plan', operationalPlanSchema, plannerInstructions, {
-    mensagem_atual: input.lastInbound,
-    conversa_recente: input.recentConversation.slice(-12),
-    inventory: input.intelligence.inventory || null
-  }, 650);
+
+  const planResult = await createAutocarStructuredResponse({
+    task: 'operational_planning',
+    instructions: plannerInstructions,
+    input: {
+      mensagem_atual: input.lastInbound,
+      conversa_recente: input.recentConversation.slice(-12),
+      inventory: input.intelligence.inventory || null
+    },
+    schemaName: 'autocar_operational_plan',
+    schema: operationalPlanSchema,
+    maxOutputTokens: 650
+  });
   const plan = planResult.parsed;
-  const preview: any = { plan, hours: null, availability: null, location: null, photos: null };
+  const preview: any = {
+    plan,
+    hours: null,
+    availability: null,
+    location: null,
+    photos: null,
+    planner_model_routing: routingSummary(planResult.routing)
+  };
 
   if (plan.needs_hours && plan.requested_date) preview.hours = await consultAutocarStoreHours(input.storeId, plan.requested_date);
   if (plan.needs_availability && plan.requested_date && /^([01]\d|2[0-3]):[0-5]\d$/.test(plan.requested_time || '')) {
@@ -184,7 +177,6 @@ export async function generateAutocarShadowReply(input: {
   const intelligence = await buildAutocarIntelligenceContext({
     storeId: input.storeId, query: String(lastInbound.body).slice(0, 6000), mode: 'autopilot', inventorySupabase: input.productionSupabase
   });
-  const model = autocarModelName();
   const recentConversation = transcript.slice(-12).map((message: any) => ({
     direction: String(message.direction || ''),
     type: String(message.type || 'text'),
@@ -193,7 +185,7 @@ export async function generateAutocarShadowReply(input: {
   }));
   const operationalPreview = await buildOperationalPreview({
     productionSupabase: input.productionSupabase, storeId: input.storeId, leadId: lead?.id || null,
-    lastInbound: String(lastInbound.body), recentConversation, intelligence, model
+    lastInbound: String(lastInbound.body), recentConversation, intelligence
   });
 
   const instructions = [
@@ -213,15 +205,22 @@ export async function generateAutocarShadowReply(input: {
     'proposed_actions deve listar todas as capacidades operacionais que a resposta ou o próximo passo implicariam. O backend decidirá a permissão.'
   ].join(' ');
 
-  const finalResult = await structuredResponse(model, 'autocar_shadow_reply', responseSchema, instructions, {
-    loja: store,
-    crm: { lead: lead || null, base_lead: baseLead || null, commercial: commercial || null },
-    conversa: transcript,
-    intelligence: serializeAutocarIntelligenceContext(intelligence),
-    operational_preview: operationalPreview
-  }, 1400);
+  const finalResult = await createAutocarStructuredResponse({
+    task: 'commercial_reply',
+    instructions,
+    input: {
+      loja: store,
+      crm: { lead: lead || null, base_lead: baseLead || null, commercial: commercial || null },
+      conversa: transcript,
+      intelligence: serializeAutocarIntelligenceContext(intelligence),
+      operational_preview: operationalPreview
+    },
+    schemaName: 'autocar_shadow_reply',
+    schema: responseSchema,
+    maxOutputTokens: 1400
+  });
   const parsed = finalResult.parsed;
-  const raw = finalResult.raw;
+  const raw = finalResult.payload;
 
   const actions = (Array.isArray(parsed.proposed_actions) ? parsed.proposed_actions : []).slice(0, 12).map((action: any) => {
     const capability = String(action?.capability || '') as AutocarCapability;
@@ -242,7 +241,11 @@ export async function generateAutocarShadowReply(input: {
       inventory_available_count: intelligence.inventory?.available_count ?? 0,
       inventory_matches: intelligence.inventory?.matched_count ?? 0, hard_policies_applied: true
     },
-    model,
+    model: finalResult.routing.model,
+    model_routing: {
+      planner: operationalPreview.planner_model_routing || null,
+      commercial: routingSummary(finalResult.routing)
+    },
     usage: { input_tokens: Number(raw?.usage?.input_tokens || 0), output_tokens: Number(raw?.usage?.output_tokens || 0) },
     no_external_execution: true
   };
