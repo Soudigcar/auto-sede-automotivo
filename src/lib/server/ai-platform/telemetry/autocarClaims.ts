@@ -64,6 +64,8 @@ export async function readAutocarClaimTelemetry(autocar: any) {
     human_blocks: 0,
     input_tokens: 0,
     output_tokens: 0,
+    vision_input_tokens: 0,
+    vision_output_tokens: 0,
     model_calls: {} as Record<string, number>,
     lane_calls: {} as Record<string, number>,
     purpose_counts: {} as Record<string, number>,
@@ -71,6 +73,7 @@ export async function readAutocarClaimTelemetry(autocar: any) {
     sol_escalations: 0,
     audio_inbound: 0,
     audio_outbound: 0,
+    image_inbound: 0,
     latency_ms_total: 0,
     latency_samples: 0
   };
@@ -81,9 +84,9 @@ export async function readAutocarClaimTelemetry(autocar: any) {
     if (!value) {
       value = {
         claims: 0, completed: 0, skipped: 0, failed: 0, external_executions: 0, human_blocks: 0,
-        input_tokens: 0, output_tokens: 0, model_calls: {}, lane_calls: {}, purpose_counts: {},
-        message_type_counts: {}, sol_escalations: 0, audio_inbound: 0, audio_outbound: 0,
-        latency_ms_total: 0, latency_samples: 0
+        input_tokens: 0, output_tokens: 0, vision_input_tokens: 0, vision_output_tokens: 0,
+        model_calls: {}, lane_calls: {}, purpose_counts: {}, message_type_counts: {}, sol_escalations: 0,
+        audio_inbound: 0, audio_outbound: 0, image_inbound: 0, latency_ms_total: 0, latency_samples: 0
       };
       byStore.set(storeId, value);
     }
@@ -95,6 +98,8 @@ export async function readAutocarClaimTelemetry(autocar: any) {
     const models = modelEntries(row);
     const latency = durationMs(row);
     const usage = row.result?.usage || {};
+    const visionUsage = row.result?.vision?.usage || {};
+    const visionReady = row.result?.vision?.ready === true;
     const isHumanBlock = /pausada nesta conversa|human_active|atendimento humano/i.test(String(row.result?.reason || ''));
     const externalExecution = row.result?.external_execution === true;
 
@@ -107,10 +112,13 @@ export async function readAutocarClaimTelemetry(autocar: any) {
       if (isHumanBlock) target.human_blocks += 1;
       target.input_tokens += positiveNumber(usage.input_tokens);
       target.output_tokens += positiveNumber(usage.output_tokens);
+      target.vision_input_tokens += positiveNumber(visionUsage.input_tokens);
+      target.vision_output_tokens += positiveNumber(visionUsage.output_tokens);
       increment(target.purpose_counts, row.purpose);
       increment(target.message_type_counts, row.message_type || 'unknown');
       if (row.purpose === 'autopilot_reply' && row.message_type === 'audio') target.audio_inbound += 1;
       if (row.purpose === 'live_audio_send' && externalExecution) target.audio_outbound += 1;
+      if (row.purpose === 'autopilot_reply' && row.message_type === 'image' && visionReady) target.image_inbound += 1;
       for (const model of models) {
         increment(target.model_calls, model.model);
         increment(target.lane_calls, model.lane);
@@ -124,6 +132,10 @@ export async function readAutocarClaimTelemetry(autocar: any) {
   }
 
   function present(value: typeof global) {
+    const modelInput = value.input_tokens;
+    const modelOutput = value.output_tokens;
+    const visionInput = value.vision_input_tokens;
+    const visionOutput = value.vision_output_tokens;
     return {
       claims: value.claims,
       completed: value.completed,
@@ -131,11 +143,18 @@ export async function readAutocarClaimTelemetry(autocar: any) {
       failed: value.failed,
       external_executions: value.external_executions,
       human_blocks: value.human_blocks,
-      tokens: { input: value.input_tokens, output: value.output_tokens, total: value.input_tokens + value.output_tokens },
+      tokens: {
+        input: modelInput + visionInput,
+        output: modelOutput + visionOutput,
+        total: modelInput + modelOutput + visionInput + visionOutput,
+        vision_input: visionInput,
+        vision_output: visionOutput
+      },
       model_calls: value.model_calls,
       lane_calls: value.lane_calls,
       sol_escalations: value.sol_escalations,
       audio: { inbound: value.audio_inbound, outbound: value.audio_outbound },
+      images: { inbound: value.image_inbound },
       purposes: value.purpose_counts,
       message_types: value.message_type_counts,
       average_claim_latency_ms: value.latency_samples ? Math.round(value.latency_ms_total / value.latency_samples) : null
