@@ -165,7 +165,7 @@ export default function StoreSlugHomePage() {
             <MessageCircle size={20} className="text-zinc-400" />
             <div className="aura-dark-surface flex items-center gap-3 rounded-2xl border border-white/10 bg-[#0d1725] px-3 py-2 text-white">
               <div className="flex h-10 w-10 items-center justify-center rounded-full border border-red-500/50 bg-red-500/10 text-red-400">AI</div>
-              <div><p className="text-xs font-black text-white">AURA</p><p className="text-[10px] font-bold text-zinc-400">Sua assistente IA</p></div>
+              <div><p className="text-xs font-black text-white">AUTOCAR</p><p className="text-[10px] font-bold text-zinc-400">Assistente comercial</p></div>
             </div>
           </div>
         </div>
