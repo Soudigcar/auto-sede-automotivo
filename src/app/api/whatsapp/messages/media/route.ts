@@ -37,6 +37,12 @@ function canAccessMessage(profile: any, message: any, lead: any) {
   return canAccessStoreLead(profile, role, lead);
 }
 
+function evolutionMessagePayload(rawPayload: any) {
+  const nested = rawPayload?.evolution;
+  if (nested && typeof nested === 'object' && nested.message) return nested;
+  return rawPayload;
+}
+
 function mediaPayload(rawPayload: any, messageType: string) {
   const message = rawPayload?.message || {};
   if (messageType === 'image') return message.imageMessage || null;
@@ -103,14 +109,15 @@ export async function GET(request: Request) {
     if (integration.status !== 'connected') return NextResponse.json({ error: 'WhatsApp está desconectado. Reconecte para recuperar esta mídia.' }, { status: 409 });
     if (!message.raw_payload) return NextResponse.json({ error: 'Payload original da mídia não está disponível.' }, { status: 404 });
 
+    const evolutionMessage = evolutionMessagePayload(message.raw_payload);
     const result = await evolutionRequest(`/chat/getBase64FromMediaMessage/${encodeURIComponent(integration.instance_name)}`, {
       method: 'POST',
-      body: { message: message.raw_payload, convertToMp4: messageType === 'video' }
+      body: { message: evolutionMessage, convertToMp4: messageType === 'video' }
     });
     const base64 = resolveBase64(result);
     if (!base64) return NextResponse.json({ error: 'A Evolution não retornou o conteúdo desta mídia.' }, { status: 502 });
 
-    const source = mediaPayload(message.raw_payload, messageType) || {};
+    const source = mediaPayload(evolutionMessage, messageType) || {};
     const mime = String(result?.mimetype || result?.data?.mimetype || source?.mimetype || fallbackMime(messageType));
     const filename = sanitizeFilename(source?.fileName || source?.title || (messageType === 'document' ? message.body : `${messageType}-${message.id}`));
     const buffer = Buffer.from(base64, 'base64');
