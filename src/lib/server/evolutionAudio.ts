@@ -37,11 +37,11 @@ export function normalizeEvolutionMediaBase64(result: any) {
   return '';
 }
 
-export async function getEvolutionAudioBase64(instanceName: string, providerMessageId: string) {
+export async function getEvolutionAudioBase64(instanceName: string, rawMessage: any) {
   const result = await evolutionRequest(`/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName)}`, {
     method: 'POST',
     body: {
-      message: { key: { id: providerMessageId } },
+      message: rawMessage,
       convertToMp4: false
     }
   });
