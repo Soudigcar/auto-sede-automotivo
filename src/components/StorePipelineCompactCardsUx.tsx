@@ -120,24 +120,27 @@ export function StorePipelineCompactCardsUx() {
   return (
     <style jsx global>{`
       [data-pipeline-compact-card='true'] {
-        padding: 10px !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+        padding: 9px !important;
         border-radius: 14px !important;
       }
 
       [data-pipeline-card-head='true'] {
         align-items: flex-start !important;
-        gap: 4px !important;
+        gap: 3px !important;
       }
 
       [data-pipeline-card-head='true'] h3 {
-        font-size: 13px !important;
-        line-height: 1.2 !important;
+        font-size: 12px !important;
+        line-height: 1.18 !important;
       }
 
       [data-pipeline-card-head='true'] p {
-        margin-top: 3px !important;
-        font-size: 10px !important;
-        line-height: 1.25 !important;
+        margin-top: 2px !important;
+        font-size: 9px !important;
+        line-height: 1.2 !important;
       }
 
       [data-pipeline-card-status-badge='true'] {
@@ -145,36 +148,49 @@ export function StorePipelineCompactCardsUx() {
       }
 
       [data-pipeline-card-meta='true'] {
-        margin-top: 7px !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        margin-top: 6px !important;
         display: flex !important;
-        flex-wrap: nowrap !important;
+        flex-flow: row nowrap !important;
         align-items: center !important;
-        gap: 4px !important;
+        gap: 3px !important;
         overflow: hidden !important;
       }
 
       [data-pipeline-card-meta='true'] > * {
         min-width: 0 !important;
-        padding: 4px 7px !important;
+        box-sizing: border-box !important;
+        padding: 3px 6px !important;
         border-radius: 9999px !important;
-        font-size: 9px !important;
+        font-size: 8px !important;
         line-height: 1 !important;
         white-space: nowrap !important;
       }
 
       [data-pipeline-card-meta='true'] > button {
-        flex: 0 1 auto !important;
-        max-width: 47% !important;
+        flex: 0 1 38% !important;
+        max-width: 38% !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
       }
 
+      [data-pipeline-card-meta='true'] > span:nth-child(2) {
+        flex: 1 1 auto !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+      }
+
+      [data-pipeline-card-meta='true'] > span:last-child {
+        flex: 0 0 auto !important;
+      }
+
       [data-pipeline-card-detail='true'] {
-        margin-top: 7px !important;
+        margin-top: 6px !important;
         padding: 6px 7px !important;
-        border-radius: 10px !important;
-        font-size: 10px !important;
-        line-height: 1.35 !important;
+        border-radius: 9px !important;
+        font-size: 9px !important;
+        line-height: 1.3 !important;
       }
 
       [data-pipeline-card-detail='true'] p {
@@ -189,19 +205,30 @@ export function StorePipelineCompactCardsUx() {
       }
 
       [data-pipeline-card-actions='true'] {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
         margin-top: 8px !important;
         display: flex !important;
-        flex-wrap: nowrap !important;
+        flex-flow: row nowrap !important;
         align-items: center !important;
-        gap: 4px !important;
+        justify-content: flex-start !important;
+        gap: 3px !important;
+        overflow: hidden !important;
       }
 
       button[data-pipeline-card-action] {
-        width: 26px !important;
-        min-width: 26px !important;
-        height: 26px !important;
+        flex: 0 0 23px !important;
+        width: 23px !important;
+        min-width: 23px !important;
+        max-width: 23px !important;
+        height: 23px !important;
+        min-height: 23px !important;
+        max-height: 23px !important;
+        box-sizing: border-box !important;
+        margin: 0 !important;
         padding: 0 !important;
-        border-radius: 7px !important;
+        border-radius: 6px !important;
         display: inline-flex !important;
         align-items: center !important;
         justify-content: center !important;
@@ -211,14 +238,15 @@ export function StorePipelineCompactCardsUx() {
       }
 
       button[data-pipeline-card-action] svg {
-        width: 12px !important;
-        height: 12px !important;
+        flex: 0 0 auto !important;
+        width: 11px !important;
+        height: 11px !important;
         margin: 0 !important;
       }
 
       button[data-pipeline-card-action][data-pipeline-action-has-icon='false']::before {
         content: attr(data-pipeline-action-symbol);
-        font-size: 14px;
+        font-size: 12px;
         font-weight: 900;
         line-height: 1;
       }
@@ -229,7 +257,7 @@ export function StorePipelineCompactCardsUx() {
 
       button[data-pipeline-card-action]:focus-visible {
         outline: 2px solid rgba(239, 68, 68, 0.45);
-        outline-offset: 2px;
+        outline-offset: 1px;
       }
     `}</style>
   );
