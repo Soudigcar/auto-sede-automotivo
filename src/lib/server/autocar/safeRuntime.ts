@@ -79,7 +79,7 @@ export async function prepareAutocarSafeInbound(input: {
   leadId?: string | null;
   messageId: string;
   messageType?: string | null;
-}) {
+}): Promise<any> {
   let audioPreparation: any = null;
   if (String(input.messageType || '') === 'audio') {
     try {
