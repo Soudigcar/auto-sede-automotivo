@@ -51,6 +51,12 @@ function extensionForMime(mime: string) {
   return 'ogg';
 }
 
+function blobSafeBuffer(bytes: Uint8Array) {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 function decodeBase64(base64: string) {
   const bytes = Buffer.from(base64, 'base64');
   if (!bytes.length) throw new Error('Áudio recebido está vazio após decodificação.');
@@ -60,7 +66,7 @@ function decodeBase64(base64: string) {
 
 async function transcribe(bytes: Buffer, mime: string) {
   const form = new FormData();
-  form.set('file', new Blob([bytes], { type: mime }), `autocar-inbound.${extensionForMime(mime)}`);
+  form.set('file', new Blob([blobSafeBuffer(bytes)], { type: mime }), `autocar-inbound.${extensionForMime(mime)}`);
   form.set('model', transcribeModel());
   form.set('language', 'pt');
 
