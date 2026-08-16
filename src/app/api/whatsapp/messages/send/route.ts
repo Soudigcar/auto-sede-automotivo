@@ -1,4 +1,4 @@
-import { after, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendEvolutionText } from '@/lib/server/evolution';
 import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
@@ -109,10 +109,38 @@ export async function POST(request: Request) {
       }
       const recipient = normalizePhone(contact?.phone || contact?.wa_id);
       if (!recipient) return NextResponse.json({ error: 'Contato sem telefone válido para envio.' }, { status: 400 });
+    } else if (!number?.access_token || !number?.phone_number_id) {
+      return NextResponse.json({ error: 'Número WhatsApp sem token ou Phone Number ID.' }, { status: 400 });
+    }
+
+    if (conversation.store_id) {
+      try {
+        const takeover = await markAutocarHumanActive({
+          productionSupabase: supabase,
+          storeId: conversation.store_id,
+          conversationId: conversation.id,
+          whatsappNumberId: conversation.whatsapp_number_id,
+          leadId: conversation.lead_id || null,
+          messageId: null,
+          profileId: profile.id || null,
+          source: 'inbox'
+        });
+        if (takeover?.human_state !== 'human_active') {
+          return NextResponse.json({ error: 'Não foi possível confirmar o atendimento humano antes do envio.' }, { status: 409 });
+        }
+      } catch (error: any) {
+        return NextResponse.json({
+          error: 'Não foi possível assumir a conversa com segurança antes do envio.',
+          detail: String(error?.message || error || '').slice(0, 300)
+        }, { status: 500 });
+      }
+    }
+
+    if (provider === 'evolution') {
+      const recipient = normalizePhone(contact?.phone || contact?.wa_id);
       result = await sendEvolutionText(integration.instance_name, recipient, messageBody);
       waMessageId = result?.key?.id || result?.message?.key?.id || result?.id || null;
     } else {
-      if (!number?.access_token || !number?.phone_number_id) return NextResponse.json({ error: 'Número WhatsApp sem token ou Phone Number ID.' }, { status: 400 });
       const graphVersion = number.graph_version || 'v20.0';
       const response = await fetch(`https://graph.facebook.com/${graphVersion}/${number.phone_number_id}/messages`, {
         method: 'POST',
@@ -145,26 +173,24 @@ export async function POST(request: Request) {
     await supabase.from('whatsapp_conversations').update({ last_message: messageBody, last_message_at: sentAt, unread_count: 0, updated_at: sentAt }).eq('id', conversation.id);
 
     if (conversation.store_id) {
-      after(async () => {
-        try {
-          await markAutocarHumanActive({
-            productionSupabase: supabase,
-            storeId: conversation.store_id,
-            conversationId: conversation.id,
-            whatsappNumberId: conversation.whatsapp_number_id,
-            leadId: conversation.lead_id || null,
-            messageId: savedMessage.id,
-            profileId: profile.id || null,
-            source: 'inbox'
-          });
-        } catch (error: any) {
-          console.warn('[AUTOCAR human takeover] Falha best effort após envio humano.', {
-            storeId: conversation.store_id,
-            conversationId: conversation.id,
-            error: error?.message || String(error)
-          });
-        }
-      });
+      try {
+        await markAutocarHumanActive({
+          productionSupabase: supabase,
+          storeId: conversation.store_id,
+          conversationId: conversation.id,
+          whatsappNumberId: conversation.whatsapp_number_id,
+          leadId: conversation.lead_id || null,
+          messageId: savedMessage.id,
+          profileId: profile.id || null,
+          source: 'inbox'
+        });
+      } catch (error: any) {
+        console.warn('[AUTOCAR human takeover] Atendimento humano já confirmado, mas não foi possível vincular a mensagem enviada.', {
+          storeId: conversation.store_id,
+          conversationId: conversation.id,
+          error: error?.message || String(error)
+        });
+      }
     }
 
     return NextResponse.json({ success: true, message: savedMessage, provider, meta: result });
