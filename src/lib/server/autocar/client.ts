@@ -18,9 +18,19 @@ export type AutocarResponseRequest = {
   risk?: 'normal' | 'high';
 };
 
+export type AutocarStructuredResponseRequest = Omit<AutocarResponseRequest, 'input'> & {
+  input: unknown;
+  schemaName: string;
+  schema: Record<string, unknown>;
+};
+
 export type AutocarResponsePayload = {
   payload: any;
   routing: AutocarModelRoutingDecision;
+};
+
+export type AutocarStructuredResponsePayload = AutocarResponsePayload & {
+  parsed: any;
 };
 
 function requiredOpenAiKey() {
@@ -32,6 +42,16 @@ function requiredOpenAiKey() {
 function safeProviderMessage(payload: any, status: number) {
   const value = String(payload?.error?.message || `OpenAI respondeu com HTTP ${status}.`).trim();
   return value.slice(0, 500);
+}
+
+export function autocarOutputText(payload: any) {
+  if (typeof payload?.output_text === 'string' && payload.output_text.trim()) return payload.output_text.trim();
+  for (const item of Array.isArray(payload?.output) ? payload.output : []) {
+    for (const content of Array.isArray(item?.content) ? item.content : []) {
+      if (content?.type === 'output_text' && typeof content.text === 'string' && content.text.trim()) return content.text.trim();
+    }
+  }
+  return '';
 }
 
 export function autocarModelName(explicit?: string) {
@@ -58,7 +78,7 @@ export function resolveAutocarModel(input: {
   });
 }
 
-export async function createAutocarResponse(request: AutocarResponseRequest): Promise<AutocarResponsePayload> {
+async function requestAutocarResponse(request: AutocarResponseRequest, extraBody: Record<string, unknown> = {}): Promise<AutocarResponsePayload> {
   const routing = resolveAutocarModel({
     task: request.task || 'commercial_reply',
     model: request.model,
@@ -79,7 +99,8 @@ export async function createAutocarResponse(request: AutocarResponseRequest): Pr
       max_output_tokens: Math.max(128, Math.min(Number(request.maxOutputTokens || 1200), 4000)),
       instructions: request.instructions,
       input: request.input,
-      ...(request.includeReadTools === false ? {} : { tools: openAiAutocarReadTools() })
+      ...(request.includeReadTools === false ? {} : { tools: openAiAutocarReadTools() }),
+      ...extraBody
     }),
     cache: 'no-store'
   });
@@ -87,4 +108,34 @@ export async function createAutocarResponse(request: AutocarResponseRequest): Pr
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(safeProviderMessage(payload, response.status));
   return { payload, routing };
+}
+
+export async function createAutocarResponse(request: AutocarResponseRequest): Promise<AutocarResponsePayload> {
+  return requestAutocarResponse(request);
+}
+
+export async function createAutocarStructuredResponse(request: AutocarStructuredResponseRequest): Promise<AutocarStructuredResponsePayload> {
+  const result = await requestAutocarResponse({
+    ...request,
+    input: JSON.stringify(request.input),
+    includeReadTools: false
+  }, {
+    text: {
+      format: {
+        type: 'json_schema',
+        name: request.schemaName,
+        strict: true,
+        schema: request.schema
+      }
+    }
+  });
+
+  const text = autocarOutputText(result.payload);
+  if (!text) throw new Error(`A OpenAI não retornou ${request.schemaName}.`);
+
+  try {
+    return { ...result, parsed: JSON.parse(text) };
+  } catch {
+    throw new Error(`A resposta estruturada ${request.schemaName} não pôde ser interpretada.`);
+  }
 }
