@@ -93,10 +93,10 @@ function currentSegment(pathname: string, slug: string) {
 }
 
 function desktopMenuClass(active: boolean, collapsed = false) {
-  const alignment = collapsed ? 'justify-center px-0' : 'gap-3 px-4';
+  const alignment = collapsed ? 'justify-center px-0' : 'gap-2.5 px-3';
   return active
-    ? `flex w-full items-center ${alignment} rounded-2xl py-4 text-left font-bold text-white bg-red-600 shadow-lg shadow-red-600/20`
-    : `flex w-full items-center ${alignment} rounded-2xl py-4 text-left font-bold text-zinc-400 transition hover:bg-white/5 hover:text-white`;
+    ? `flex w-full items-center ${alignment} rounded-xl py-3 text-left text-[13px] font-bold text-white bg-red-600 shadow-lg shadow-red-600/20`
+    : `flex w-full items-center ${alignment} rounded-xl py-3 text-left text-[13px] font-bold text-zinc-400 transition hover:bg-white/5 hover:text-white`;
 }
 
 function mobileMenuClass(active: boolean, dark: boolean) {
@@ -200,48 +200,48 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
     <PortalContext.Provider value={portalValue}>
       <main className={`premium-page store-portal-theme store-theme-${theme}`} style={{ paddingTop: '4px' }}>
         <section className="premium-shell flex min-h-screen items-stretch">
-          <div className={`relative hidden shrink-0 transition-[width] duration-200 lg:block ${sidebarCollapsed ? 'w-[76px]' : 'w-72'}`}>
+          <div className={`relative hidden shrink-0 rounded-l-[28px] bg-[#071020] transition-[width] duration-200 lg:block ${sidebarCollapsed ? 'w-[76px]' : 'w-[236px]'}`}>
             <button
               type="button"
               onClick={() => setSidebarCollapsed((current) => !current)}
-              className="absolute -right-4 top-5 z-[120] flex h-10 w-10 items-center justify-center rounded-full border-2 border-white bg-red-600 text-white shadow-xl shadow-black/30 transition hover:scale-105 hover:bg-red-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-200"
+              className="absolute -right-4 top-4 z-[120] flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-red-600 text-white shadow-xl shadow-black/30 transition hover:scale-105 hover:bg-red-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-200"
               aria-label={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
               title={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
             >
-              {sidebarCollapsed ? <ChevronRight size={19} strokeWidth={3} /> : <ChevronLeft size={19} strokeWidth={3} />}
+              {sidebarCollapsed ? <ChevronRight size={17} strokeWidth={3} /> : <ChevronLeft size={17} strokeWidth={3} />}
             </button>
 
-            <aside className={`sticky top-6 flex h-[calc(100vh-48px)] w-full self-start flex-col overflow-y-auto bg-[#071020] py-7 text-white transition-[padding] duration-200 ${sidebarCollapsed ? 'px-3' : 'px-6'}`}>
-              <div className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'gap-3'}`}>
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-red-600/15 text-red-500"><Car size={22} /></div>
-                {!sidebarCollapsed ? <div><p className="text-sm font-black tracking-wide">AUTO CONTROLE</p><p className="text-[10px] uppercase tracking-[0.35em] text-zinc-500">Automotivo</p></div> : null}
+            <aside className={`sticky top-0 flex h-screen w-full self-start flex-col overflow-y-auto rounded-l-[28px] bg-[#071020] py-5 text-white transition-[padding] duration-200 ${sidebarCollapsed ? 'px-3' : 'px-4'}`}>
+              <div className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'gap-2.5'}`}>
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-600/15 text-red-500"><Car size={19} /></div>
+                {!sidebarCollapsed ? <div><p className="text-[13px] font-black tracking-wide">AUTO CONTROLE</p><p className="text-[9px] uppercase tracking-[0.3em] text-zinc-500">Automotivo</p></div> : null}
               </div>
 
-              <div className={`mt-9 rounded-2xl border border-white/10 bg-white/[0.04] ${sidebarCollapsed ? 'p-2' : 'p-4'}`} title={sidebarCollapsed ? `${context.profile.full_name} · ${context.store.store_name}` : undefined}>
-                <div className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'gap-3'}`}>
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-600/20 text-sm font-black text-red-400">{initials(context.profile.full_name)}</div>
+              <div className={`mt-6 rounded-xl border border-white/10 bg-white/[0.04] ${sidebarCollapsed ? 'p-2' : 'p-3'}`} title={sidebarCollapsed ? `${context.profile.full_name} · ${context.store.store_name}` : undefined}>
+                <div className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'gap-2.5'}`}>
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-600/20 text-xs font-black text-red-400">{initials(context.profile.full_name)}</div>
                   {!sidebarCollapsed ? <div className="min-w-0">
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500">Logado como</p>
-                    <p className="mt-1 truncate text-sm font-black text-white">{context.profile.full_name}</p>
-                    <p className="mt-0.5 truncate text-[11px] font-bold text-red-400">{context.profile.role_label}</p>
+                    <p className="text-[8px] font-black uppercase tracking-[0.18em] text-zinc-500">Logado como</p>
+                    <p className="mt-1 truncate text-[13px] font-black text-white">{context.profile.full_name}</p>
+                    <p className="mt-0.5 truncate text-[10px] font-bold text-red-400">{context.profile.role_label}</p>
                   </div> : null}
                 </div>
-                {!sidebarCollapsed ? <div className="mt-3 border-t border-white/10 pt-3">
-                  <p className="text-[9px] font-black uppercase tracking-[0.18em] text-zinc-600">Loja vinculada</p>
-                  <p className="mt-1 truncate text-xs font-bold text-zinc-300">{context.store.store_name}</p>
+                {!sidebarCollapsed ? <div className="mt-2.5 border-t border-white/10 pt-2.5">
+                  <p className="text-[8px] font-black uppercase tracking-[0.16em] text-zinc-600">Loja vinculada</p>
+                  <p className="mt-1 truncate text-[11px] font-bold text-zinc-300">{context.store.store_name}</p>
                 </div> : null}
               </div>
 
-              <nav className="mt-7 space-y-2 text-sm">
+              <nav className="mt-5 space-y-1.5">
                 {context.menu.map((item) => {
                   const Icon = menuIcons[item.key] || LayoutDashboard;
-                  return <Link key={item.key} href={item.href} title={sidebarCollapsed ? item.label : undefined} aria-label={sidebarCollapsed ? item.label : undefined} className={desktopMenuClass(segment === item.segment, sidebarCollapsed)}><Icon size={18} /> {!sidebarCollapsed ? item.label : null}</Link>;
+                  return <Link key={item.key} href={item.href} title={sidebarCollapsed ? item.label : undefined} aria-label={sidebarCollapsed ? item.label : undefined} className={desktopMenuClass(segment === item.segment, sidebarCollapsed)}><Icon size={16} /> {!sidebarCollapsed ? item.label : null}</Link>;
                 })}
               </nav>
 
-              <div className="mt-auto space-y-1 pt-7">
-                <button type="button" onClick={toggleTheme} title={sidebarCollapsed ? themeLabel : undefined} className={desktopMenuClass(false, sidebarCollapsed)} aria-label={themeLabel}><ThemeIcon size={18} /> {!sidebarCollapsed ? themeLabel : null}</button>
-                <Link href="/logout" title={sidebarCollapsed ? 'Sair' : undefined} aria-label={sidebarCollapsed ? 'Sair' : undefined} className={desktopMenuClass(false, sidebarCollapsed)}><LogOut size={18} /> {!sidebarCollapsed ? 'Sair' : null}</Link>
+              <div className="mt-auto space-y-1 pt-5">
+                <button type="button" onClick={toggleTheme} title={sidebarCollapsed ? themeLabel : undefined} className={desktopMenuClass(false, sidebarCollapsed)} aria-label={themeLabel}><ThemeIcon size={16} /> {!sidebarCollapsed ? themeLabel : null}</button>
+                <Link href="/logout" title={sidebarCollapsed ? 'Sair' : undefined} aria-label={sidebarCollapsed ? 'Sair' : undefined} className={desktopMenuClass(false, sidebarCollapsed)}><LogOut size={16} /> {!sidebarCollapsed ? 'Sair' : null}</Link>
               </div>
             </aside>
           </div>
@@ -319,6 +319,13 @@ export function StorePortalShell({ children }: { children: ReactNode }) {
 
         .store-pipeline-page [class*='min-w-[1760px]'] {
           padding-bottom: 8px;
+        }
+
+        @media (min-width: 1024px) {
+          .store-portal-theme {
+            padding-top: 0 !important;
+            padding-left: 0 !important;
+          }
         }
 
         @media (max-width: 1023px) {
