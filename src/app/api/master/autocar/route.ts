@@ -6,6 +6,8 @@ import {
   prepareAutocarKnowledgeUpload
 } from '@/lib/server/autocar/knowledgeLibrary';
 import { getAutocarDevClient, setAutocarMasterAccess } from '@/lib/server/autocar/devAdmin';
+import { aiPlatformModelRegistry } from '@/lib/server/ai-platform/models/registry';
+import { readAutocarClaimTelemetry } from '@/lib/server/ai-platform/telemetry/autocarClaims';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,14 +39,15 @@ export async function GET(request: Request) {
     if ('error' in context) return context.error;
 
     const autocar = getAutocarDevClient();
-    const [storesResult, agentsResult, documentsResult] = await Promise.all([
+    const [storesResult, agentsResult, documentsResult, telemetry] = await Promise.all([
       context.production.from('stores').select('id,store_name,slug,status,portal_enabled,city,state').order('store_name', { ascending: true }),
       autocar.from('ai_store_agents')
         .select('id,store_id,name,status,mode,tone,language,version,master_enabled,master_autopilot_allowed,store_selected_mode,updated_at')
         .order('updated_at', { ascending: false }),
       autocar.from('ai_knowledge_documents')
         .select('id,scope,store_id,title,original_filename,mime_type,file_size_bytes,status,extracted_characters,chunk_count,embedding_model,extraction_error,metadata,created_at,updated_at')
-        .eq('scope', 'method').neq('status', 'archived').order('created_at', { ascending: false })
+        .eq('scope', 'method').neq('status', 'archived').order('created_at', { ascending: false }),
+      readAutocarClaimTelemetry(autocar)
     ]);
 
     if (storesResult.error) throw storesResult.error;
@@ -54,11 +57,20 @@ export async function GET(request: Request) {
     const agentMap = new Map((agentsResult.data || []).map((agent: any) => [agent.store_id, agent]));
     const stores = (storesResult.data || [])
       .filter((store: any) => !['deleted', 'excluido'].includes(String(store.status || '').toLowerCase()))
-      .map((store: any) => ({ ...store, autocar: agentMap.get(store.id) || null }));
+      .map((store: any) => ({
+        ...store,
+        autocar: agentMap.get(store.id) || null,
+        ai_telemetry: telemetry.stores[store.id] || null
+      }));
 
     return NextResponse.json({
       success: true,
       environment: 'autocar-dev',
+      ai_platform: {
+        version: 'ai-control-plane-v1',
+        model_registry: aiPlatformModelRegistry(),
+        telemetry
+      },
       stores,
       documents: documentsResult.data || [],
       summary: {

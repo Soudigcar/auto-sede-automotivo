@@ -8,6 +8,7 @@ import { StoreCalendarRealtimeSync } from '@/components/StoreCalendarRealtimeSyn
 import { StoreTeamManualMember } from '@/components/StoreTeamManualMember';
 import { OlxSharedTextNormalizerBridge } from '@/components/OlxSharedTextNormalizerBridge';
 import { StorePipelineAuraTheme } from '@/components/StorePipelineAuraTheme';
+import { StoreAiIdentityBoundary } from '@/components/StoreAiIdentityBoundary';
 import { StorePipelineCockpitUx } from '@/components/StorePipelineCockpitUx';
 import { StorePipelineResponsibleTopbar } from '@/components/StorePipelineResponsibleTopbar';
 import { StorePipelineSidebarToggle } from '@/components/StorePipelineSidebarToggle';
@@ -36,6 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StoreTeamManualMember />
         <OlxSharedTextNormalizerBridge />
         <StorePipelineAuraTheme />
+        <StoreAiIdentityBoundary />
         <StorePipelineCockpitUx />
         <StorePipelineResponsibleTopbar />
         <StorePipelineSidebarToggle />
