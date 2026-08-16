@@ -1,5 +1,6 @@
 import { ensureAutocarDevStore, getAutocarDevClient, type AutocarStoreMode } from '@/lib/server/autocar/devAdmin';
 import { evaluateAutocarPolicy } from '@/lib/server/autocar/policyEngine';
+import { prepareAutocarInboundAudio } from '@/lib/server/autocar/audioPipeline';
 
 export type AutocarRuntimeState = 'autocar_active' | 'human_active' | 'paused';
 
@@ -78,7 +79,40 @@ export async function prepareAutocarSafeInbound(input: {
   leadId?: string | null;
   messageId: string;
   messageType?: string | null;
-}) {
+}): Promise<any> {
+  let audioPreparation: any = null;
+  if (String(input.messageType || '') === 'audio') {
+    try {
+      audioPreparation = await prepareAutocarInboundAudio({
+        productionSupabase: input.productionSupabase,
+        storeId: input.storeId,
+        conversationId: input.conversationId,
+        whatsappNumberId: input.whatsappNumberId,
+        messageId: input.messageId
+      });
+    } catch (error: any) {
+      return {
+        claimed: false,
+        duplicate: false,
+        ready: false,
+        audio: {
+          ready: false,
+          failed: true,
+          reason: String(error?.message || error || 'Falha ao transcrever áudio.').slice(0, 500)
+        }
+      };
+    }
+
+    if (!audioPreparation?.ready) {
+      return {
+        claimed: false,
+        duplicate: false,
+        ready: false,
+        audio: audioPreparation
+      };
+    }
+  }
+
   const { autocar } = await ensureRuntimeStore(input.productionSupabase, input.storeId);
   const effectiveMode = await readEffectiveMode(autocar, input.storeId);
   const ref: ProductionConversationRef = {
@@ -121,7 +155,16 @@ export async function prepareAutocarSafeInbound(input: {
       safe_core_version: 'v1',
       no_external_execution: true,
       human_state: runtime.human_state,
-      reason
+      reason,
+      audio: audioPreparation
+        ? {
+            ready: true,
+            version: audioPreparation.version || null,
+            model: audioPreparation.model || null,
+            seconds: audioPreparation.seconds || null,
+            bytes: audioPreparation.bytes || null
+          }
+        : null
     },
     completed_at: ready ? null : new Date().toISOString(),
     updated_at: new Date().toISOString()
@@ -134,7 +177,7 @@ export async function prepareAutocarSafeInbound(input: {
         .eq('idempotency_key', key)
         .maybeSingle();
       if (existingError) throw existingError;
-      return { claimed: false, duplicate: true, runtime, claim: existing, effectiveMode, policy, ready: false };
+      return { claimed: false, duplicate: true, runtime, claim: existing, effectiveMode, policy, ready: false, audio: audioPreparation };
     }
     throw claimError;
   }
@@ -143,7 +186,7 @@ export async function prepareAutocarSafeInbound(input: {
     last_processed_message_id: input.messageId
   });
 
-  return { claimed: true, duplicate: false, runtime, claim, effectiveMode, policy, ready };
+  return { claimed: true, duplicate: false, runtime, claim, effectiveMode, policy, ready, audio: audioPreparation };
 }
 
 export async function completeAutocarShadowClaim(input: {
@@ -234,10 +277,10 @@ async function isOwnAutocarLiveOutbound(input: {
     .select('id,status,purpose,result,created_at')
     .eq('store_id', input.storeId)
     .eq('production_conversation_id', input.conversationId)
-    .in('purpose', ['live_text_send', 'live_photo_send', 'live_location_send', 'live_visit_schedule'])
+    .in('purpose', ['live_text_send', 'live_audio_send', 'live_photo_send', 'live_location_send', 'live_visit_schedule'])
     .gte('created_at', since)
     .order('created_at', { ascending: false })
-    .limit(14);
+    .limit(16);
   if (claimsError) throw claimsError;
 
   const body = String(message.body || '').trim();
@@ -246,7 +289,7 @@ async function isOwnAutocarLiveOutbound(input: {
   return (claims || []).some((claim: any) => {
     const result = claim?.result || {};
 
-    if (claim.purpose === 'live_text_send' || claim.purpose === 'live_location_send' || claim.purpose === 'live_visit_schedule') {
+    if (claim.purpose === 'live_text_send' || claim.purpose === 'live_audio_send' || claim.purpose === 'live_location_send' || claim.purpose === 'live_visit_schedule') {
       if (String(result?.production_outbound_message_id || '') === input.messageId) return true;
       if (providerMessageId && String(result?.provider_message_id || '') === providerMessageId) return true;
       const planned = String(result?.planned_text || '').trim();
