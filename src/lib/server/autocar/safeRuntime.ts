@@ -1,6 +1,7 @@
 import { ensureAutocarDevStore, getAutocarDevClient, type AutocarStoreMode } from '@/lib/server/autocar/devAdmin';
 import { evaluateAutocarPolicy } from '@/lib/server/autocar/policyEngine';
 import { prepareAutocarInboundAudio } from '@/lib/server/autocar/audioPipeline';
+import { prepareAutocarInboundImage } from '@/lib/server/autocar/visionPipeline';
 
 export type AutocarRuntimeState = 'autocar_active' | 'human_active' | 'paused';
 
@@ -81,6 +82,8 @@ export async function prepareAutocarSafeInbound(input: {
   messageType?: string | null;
 }): Promise<any> {
   let audioPreparation: any = null;
+  let visionPreparation: any = null;
+
   if (String(input.messageType || '') === 'audio') {
     try {
       audioPreparation = await prepareAutocarInboundAudio({
@@ -109,6 +112,38 @@ export async function prepareAutocarSafeInbound(input: {
         duplicate: false,
         ready: false,
         audio: audioPreparation
+      };
+    }
+  }
+
+  if (String(input.messageType || '') === 'image') {
+    try {
+      visionPreparation = await prepareAutocarInboundImage({
+        productionSupabase: input.productionSupabase,
+        storeId: input.storeId,
+        conversationId: input.conversationId,
+        whatsappNumberId: input.whatsappNumberId,
+        messageId: input.messageId
+      });
+    } catch (error: any) {
+      return {
+        claimed: false,
+        duplicate: false,
+        ready: false,
+        vision: {
+          ready: false,
+          failed: true,
+          reason: String(error?.message || error || 'Falha ao interpretar imagem.').slice(0, 500)
+        }
+      };
+    }
+
+    if (!visionPreparation?.ready) {
+      return {
+        claimed: false,
+        duplicate: false,
+        ready: false,
+        vision: visionPreparation
       };
     }
   }
@@ -164,6 +199,18 @@ export async function prepareAutocarSafeInbound(input: {
             seconds: audioPreparation.seconds || null,
             bytes: audioPreparation.bytes || null
           }
+        : null,
+      vision: visionPreparation
+        ? {
+            ready: true,
+            version: visionPreparation.version || null,
+            model: visionPreparation.model || null,
+            bytes: visionPreparation.bytes || null,
+            mimetype: visionPreparation.mimetype || null,
+            usage: visionPreparation.usage || null,
+            scene_type: visionPreparation.analysis?.scene_type || null,
+            document_like: visionPreparation.analysis?.document_like === true
+          }
         : null
     },
     completed_at: ready ? null : new Date().toISOString(),
@@ -177,7 +224,17 @@ export async function prepareAutocarSafeInbound(input: {
         .eq('idempotency_key', key)
         .maybeSingle();
       if (existingError) throw existingError;
-      return { claimed: false, duplicate: true, runtime, claim: existing, effectiveMode, policy, ready: false, audio: audioPreparation };
+      return {
+        claimed: false,
+        duplicate: true,
+        runtime,
+        claim: existing,
+        effectiveMode,
+        policy,
+        ready: false,
+        audio: audioPreparation,
+        vision: visionPreparation
+      };
     }
     throw claimError;
   }
@@ -186,7 +243,17 @@ export async function prepareAutocarSafeInbound(input: {
     last_processed_message_id: input.messageId
   });
 
-  return { claimed: true, duplicate: false, runtime, claim, effectiveMode, policy, ready, audio: audioPreparation };
+  return {
+    claimed: true,
+    duplicate: false,
+    runtime,
+    claim,
+    effectiveMode,
+    policy,
+    ready,
+    audio: audioPreparation,
+    vision: visionPreparation
+  };
 }
 
 export async function completeAutocarShadowClaim(input: {
