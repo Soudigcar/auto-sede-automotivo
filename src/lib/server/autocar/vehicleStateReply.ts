@@ -1,22 +1,4 @@
-import { autocarModelName } from '@/lib/server/autocar/client';
-
-function openAiKey() {
-  const key = String(process.env.OPENAI_API_KEY || '').trim();
-  if (!key) throw new Error('OPENAI_API_KEY não disponível no ambiente de Preview.');
-  return key;
-}
-
-function outputText(payload: any) {
-  if (typeof payload?.output_text === 'string' && payload.output_text.trim()) return payload.output_text.trim();
-  for (const item of Array.isArray(payload?.output) ? payload.output : []) {
-    for (const content of Array.isArray(item?.content) ? item.content : []) {
-      if (content?.type === 'output_text' && typeof content.text === 'string' && content.text.trim()) {
-        return content.text.trim();
-      }
-    }
-  }
-  return '';
-}
+import { createAutocarResponse, autocarOutputText } from '@/lib/server/autocar/client';
 
 function formatAppointment(value: unknown) {
   const raw = String(value || '').trim();
@@ -41,34 +23,25 @@ function formatAppointment(value: unknown) {
 }
 
 async function requestReply(instructions: string, payload: unknown, maxOutputTokens: number) {
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${openAiKey()}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: autocarModelName(),
-      store: false,
-      max_output_tokens: maxOutputTokens,
+  try {
+    const result = await createAutocarResponse({
+      task: 'post_action_confirmation',
       instructions,
-      input: JSON.stringify(payload)
-    }),
-    cache: 'no-store'
-  });
-
-  const raw = await response.json().catch(() => ({}));
-  if (!response.ok) {
+      input: JSON.stringify(payload),
+      maxOutputTokens,
+      includeReadTools: false
+    });
+    const text = autocarOutputText(result.payload).slice(0, 1800);
+    return text
+      ? { text, routing: result.routing, error: null }
+      : { text: '', routing: result.routing, error: 'A OpenAI retornou uma confirmação pós-ação vazia.' };
+  } catch (error: any) {
     return {
       text: '',
-      error: String(raw?.error?.message || `OpenAI respondeu com HTTP ${response.status}.`).slice(0, 500)
+      routing: null,
+      error: String(error?.message || 'Falha ao gerar confirmação pós-ação.').slice(0, 500)
     };
   }
-
-  const text = outputText(raw).slice(0, 1800);
-  return text
-    ? { text, error: null }
-    : { text: '', error: 'A OpenAI retornou uma confirmação pós-ação vazia.' };
 }
 
 export async function generateAutocarVehicleStatePostActionReply(input: {
@@ -160,7 +133,17 @@ export async function generateAutocarVehicleStatePostActionReply(input: {
       return {
         generated: true,
         response: attempt.text,
-        model: autocarModelName(),
+        model: attempt.routing?.model || null,
+        model_routing: attempt.routing
+          ? {
+              version: attempt.routing.version,
+              task: attempt.routing.task,
+              lane: attempt.routing.lane,
+              model: attempt.routing.model,
+              reason: attempt.routing.reason,
+              escalated: attempt.routing.escalated
+            }
+          : null,
         operation: updated ? 'updated' : 'noop'
       };
     }

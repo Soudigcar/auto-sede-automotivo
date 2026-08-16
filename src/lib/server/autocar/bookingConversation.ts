@@ -1,4 +1,4 @@
-import { autocarModelName } from '@/lib/server/autocar/client';
+import { createAutocarStructuredResponse } from '@/lib/server/autocar/client';
 import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 import { consultAutocarDayAvailability } from '@/lib/server/autocar/operationalTools';
 
@@ -13,22 +13,6 @@ function responseSchema(candidateVehicleIds: string[]) {
     },
     required: ['response', 'next_best_action', 'active_vehicle_id']
   };
-}
-
-function openAiKey() {
-  const key = String(process.env.OPENAI_API_KEY || '').trim();
-  if (!key) throw new Error('OPENAI_API_KEY não disponível no ambiente de Preview.');
-  return key;
-}
-
-function outputText(payload: any) {
-  if (typeof payload?.output_text === 'string' && payload.output_text.trim()) return payload.output_text.trim();
-  for (const item of Array.isArray(payload?.output) ? payload.output : []) {
-    for (const content of Array.isArray(item?.content) ? item.content : []) {
-      if (content?.type === 'output_text' && typeof content.text === 'string') return content.text.trim();
-    }
-  }
-  return '';
 }
 
 function dateFrom(shadow: any, bookingGuard: any) {
@@ -88,47 +72,21 @@ async function requestBookingConversation(input: {
   candidateVehicleIds: string[];
   maxOutputTokens: number;
 }) {
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${openAiKey()}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: autocarModelName(),
-      store: false,
-      max_output_tokens: input.maxOutputTokens,
-      instructions: input.instructions,
-      input: JSON.stringify(input.payload),
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'autocar_booking_conversation',
-          strict: true,
-          schema: responseSchema(input.candidateVehicleIds)
-        }
-      }
-    }),
-    cache: 'no-store'
-  });
-
-  const raw = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    return {
-      parsed: null,
-      error: String(raw?.error?.message || `OpenAI respondeu com HTTP ${response.status}.`).slice(0, 500)
-    };
-  }
-
-  const text = outputText(raw);
-  if (!text) return { parsed: null, error: 'A OpenAI retornou resposta estruturada vazia.' };
-
   try {
-    return { parsed: JSON.parse(text), error: null };
+    const result = await createAutocarStructuredResponse({
+      task: 'commercial_followup',
+      instructions: input.instructions,
+      input: input.payload,
+      schemaName: 'autocar_booking_conversation',
+      schema: responseSchema(input.candidateVehicleIds),
+      maxOutputTokens: input.maxOutputTokens
+    });
+    return { parsed: result.parsed, routing: result.routing, error: null };
   } catch (error: any) {
     return {
       parsed: null,
-      error: String(error?.message || 'JSON incompleto na conversa de agendamento.').slice(0, 500)
+      routing: null,
+      error: String(error?.message || 'Falha na conversa estruturada de agendamento.').slice(0, 500)
     };
   }
 }
@@ -210,6 +168,7 @@ export async function enhanceAutocarBookingConversation(input: {
   };
 
   let parsed: any = null;
+  let routing: any = null;
   let firstError = '';
   for (const maxOutputTokens of [850, 1400]) {
     const attempt = await requestBookingConversation({
@@ -220,6 +179,7 @@ export async function enhanceAutocarBookingConversation(input: {
     });
     if (attempt.parsed) {
       parsed = attempt.parsed;
+      routing = attempt.routing;
       break;
     }
     if (!firstError) firstError = attempt.error || '';
@@ -229,7 +189,7 @@ export async function enhanceAutocarBookingConversation(input: {
     return {
       ...input.shadow,
       operational_preview: enrichedPreview,
-      booking_conversation_version: 'autocar-booking-conversation-v2-resilient',
+      booking_conversation_version: 'autocar-booking-conversation-v3-router',
       booking_conversation_fallback: true,
       booking_conversation_error: firstError || 'A continuação estruturada não ficou íntegra; resposta Shadow preservada.'
     };
@@ -246,8 +206,18 @@ export async function enhanceAutocarBookingConversation(input: {
     next_best_action: String(parsed.next_best_action || input.shadow?.next_best_action || '').trim(),
     referenced_vehicles: activeVehicle ? [activeVehicle] : [],
     operational_preview: enrichedPreview,
-    booking_conversation_version: 'autocar-booking-conversation-v2-resilient',
+    booking_conversation_version: 'autocar-booking-conversation-v3-router',
     booking_conversation_fallback: false,
+    booking_model_routing: routing
+      ? {
+          version: routing.version,
+          task: routing.task,
+          lane: routing.lane,
+          model: routing.model,
+          reason: routing.reason,
+          escalated: routing.escalated
+        }
+      : null,
     active_vehicle_resolution: {
       vehicle_id: activeVehicle?.id || null,
       candidate_count: vehicleCandidates.length,
