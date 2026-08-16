@@ -263,10 +263,19 @@ export async function completeAutocarShadowClaim(input: {
 }) {
   const autocar = getAutocarDevClient();
   const now = new Date().toISOString();
+  const { data: current, error: currentError } = await autocar.from('ai_runtime_message_claims')
+    .select('result')
+    .eq('id', input.claimId)
+    .eq('store_id', input.storeId)
+    .eq('purpose', 'autopilot_reply')
+    .maybeSingle();
+  if (currentError) throw currentError;
+
   const { data, error } = await autocar.from('ai_runtime_message_claims')
     .update({
       status: 'completed',
       result: {
+        ...(current?.result || {}),
         shadow_mode_version: 'v1',
         no_external_execution: true,
         ...input.shadow
@@ -291,10 +300,17 @@ export async function failAutocarShadowClaim(input: {
   const autocar = getAutocarDevClient();
   const now = new Date().toISOString();
   const message = String((input.error as any)?.message || input.error || 'Falha desconhecida').slice(0, 1000);
+  const { data: current } = await autocar.from('ai_runtime_message_claims')
+    .select('result')
+    .eq('id', input.claimId)
+    .eq('store_id', input.storeId)
+    .eq('purpose', 'autopilot_reply')
+    .maybeSingle();
   const { data, error } = await autocar.from('ai_runtime_message_claims')
     .update({
       status: 'failed',
       result: {
+        ...(current?.result || {}),
         shadow_mode_version: 'v1',
         no_external_execution: true,
         error: message
