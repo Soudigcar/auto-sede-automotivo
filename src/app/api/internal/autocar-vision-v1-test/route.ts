@@ -11,6 +11,16 @@ const CONVERSATION_ID = '0e7218c4-993e-43f8-ba1e-43b7d91e581a';
 const MESSAGE_ID = '774ea580-7b23-4dd5-b4a5-4875e9a5def6';
 const EXPECTED_BRANCH = 'feat/autocar-vision-v1';
 
+function envPresence() {
+  return {
+    openai_api_key: Boolean(String(process.env.OPENAI_API_KEY || '').trim()),
+    autocar_supabase_url: Boolean(String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_URL || '').trim()),
+    autocar_supabase_service_role: Boolean(String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY || '').trim()),
+    evolution_api_url: Boolean(String(process.env.EVOLUTION_API_URL || '').trim()),
+    evolution_api_key: Boolean(String(process.env.EVOLUTION_API_KEY || '').trim())
+  };
+}
+
 export async function GET() {
   try {
     if (process.env.VERCEL_ENV !== 'preview' || process.env.VERCEL_GIT_COMMIT_REF !== EXPECTED_BRANCH) {
@@ -57,8 +67,13 @@ export async function GET() {
       test_scope: 'a4-single-image-preview',
       message_id: MESSAGE_ID,
       no_external_execution: true,
+      environment_present: envPresence(),
       vision: vision ? {
         ready: vision.ready === true,
+        failed: vision.failed === true,
+        skipped: vision.skipped === true,
+        gated: vision.gated === true,
+        reason: vision.reason || null,
         version: vision.version || null,
         model: vision.model || null,
         bytes: vision.bytes || null,
@@ -73,12 +88,15 @@ export async function GET() {
         model: shadow.model || null
       } : null,
       duplicate: Boolean(result?.result?.duplicate),
+      prepared_ready: result?.result?.ready === true,
+      prepared_reason: result?.result?.reason || null,
       error: result?.error || null
     }, { status: result?.error ? 500 : 200 });
   } catch (error: any) {
     return NextResponse.json({
       error: String(error?.message || error || 'Falha no teste controlado Vision V1.').slice(0, 1000),
-      no_external_execution: true
+      no_external_execution: true,
+      environment_present: envPresence()
     }, { status: 500 });
   }
 }
