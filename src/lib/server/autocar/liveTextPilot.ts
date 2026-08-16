@@ -1,5 +1,6 @@
 import { evaluateAutocarPolicy } from '@/lib/server/autocar/policyEngine';
 import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
+import { attemptAutocarLiveAudioPilot } from '@/lib/server/autocar/liveAudioPilot';
 import { sendEvolutionText } from '@/lib/server/evolution';
 
 const LIVE_PURPOSE = 'live_text_send';
@@ -209,6 +210,19 @@ export async function attemptAutocarLiveTextPilot(input: {
   }
   if (input.integration?.scope !== 'store' || input.integration?.status !== 'connected' || !input.integration?.instance_name) {
     return { sent: false, skipped: true, reason: 'Integração Evolution da loja não está conectada.' };
+  }
+
+  const { data: inbound, error: inboundError } = await input.productionSupabase
+    .from('whatsapp_messages')
+    .select('id,message_type')
+    .eq('id', input.inboundMessageId)
+    .eq('store_id', input.storeId)
+    .eq('conversation_id', input.conversationId)
+    .maybeSingle();
+  if (inboundError) throw inboundError;
+
+  if (String(inbound?.message_type || '') === 'audio') {
+    return attemptAutocarLiveAudioPilot(input);
   }
 
   const shadow = shadowFrom(input.shadowResult);
