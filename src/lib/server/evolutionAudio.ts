@@ -62,9 +62,7 @@ export async function sendEvolutionAudio(input: {
   const fileName = String(input.fileName || 'autocar.mp3').trim();
   const form = new FormData();
   form.set('number', input.number);
-  form.set('mediatype', 'audio');
-  form.set('media', new Blob([blobSafeBuffer(input.bytes)], { type: mimetype }), fileName);
-  form.set('fileName', fileName);
+  form.set('file', new Blob([blobSafeBuffer(input.bytes)], { type: mimetype }), fileName);
 
-  return evolutionMultipartRequest(`/message/sendMedia/${encodeURIComponent(input.instanceName)}`, form);
+  return evolutionMultipartRequest(`/message/sendWhatsAppAudio/${encodeURIComponent(input.instanceName)}`, form);
 }
