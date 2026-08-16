@@ -138,7 +138,7 @@ export async function POST(request: Request) {
 
     if (provider === 'evolution') {
       const recipient = normalizePhone(contact?.phone || contact?.wa_id);
-      result = await sendEvolutionText(integration.instance_name, recipient, messageBody);
+      result = await sendEvolutionText(integration!.instance_name, recipient, messageBody);
       waMessageId = result?.key?.id || result?.message?.key?.id || result?.id || null;
     } else {
       const graphVersion = number.graph_version || 'v20.0';
