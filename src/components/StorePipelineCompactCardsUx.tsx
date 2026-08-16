@@ -188,21 +188,28 @@ export function StorePipelineCompactCardsUx() {
         -webkit-line-clamp: 2 !important;
       }
 
-      [data-pipeline-card-actions='true'] {
+      [data-pipeline-card-actions='true'],
+      [data-pipeline-card-actions='true'].pipeline-card-actions-uniform {
         margin-top: 8px !important;
         display: flex !important;
         flex-wrap: nowrap !important;
         align-items: center !important;
+        justify-content: flex-start !important;
         gap: 4px !important;
+        overflow: hidden !important;
       }
 
-      button[data-pipeline-card-action] {
+      button[data-pipeline-card-action],
+      button[data-pipeline-card-action].pipeline-card-action-uniform {
         width: 26px !important;
         min-width: 26px !important;
+        max-width: 26px !important;
         height: 26px !important;
+        min-height: 26px !important;
         padding: 0 !important;
         border-radius: 7px !important;
         display: inline-flex !important;
+        flex: 0 0 26px !important;
         align-items: center !important;
         justify-content: center !important;
         gap: 0 !important;
