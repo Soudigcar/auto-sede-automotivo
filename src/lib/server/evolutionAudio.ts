@@ -12,6 +12,12 @@ function base64Text(value: unknown): string {
   return '';
 }
 
+function blobSafeBuffer(bytes: Uint8Array) {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 export function normalizeEvolutionMediaBase64(result: any) {
   const candidates = [
     result?.base64,
@@ -57,7 +63,7 @@ export async function sendEvolutionAudio(input: {
   const form = new FormData();
   form.set('number', input.number);
   form.set('mediatype', 'audio');
-  form.set('media', new Blob([input.bytes], { type: mimetype }), fileName);
+  form.set('media', new Blob([blobSafeBuffer(input.bytes)], { type: mimetype }), fileName);
   form.set('fileName', fileName);
 
   return evolutionMultipartRequest(`/message/sendMedia/${encodeURIComponent(input.instanceName)}`, form);
