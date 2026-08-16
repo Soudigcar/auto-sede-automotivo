@@ -7,6 +7,8 @@ const WHATSAPP_STORE_PATH = /^\/loja\/[^/]+\/whatsapp\/?$/;
 const TRANSFER_PROXY_ATTR = 'data-whatsapp-transfer-header-proxy';
 const HIDDEN_TRANSFER_ATTR = 'data-whatsapp-transfer-composer-hidden';
 const HIDDEN_READ_ATTR = 'data-whatsapp-mark-read-hidden';
+const HIDDEN_WINDOW_NOTICE_ATTR = 'data-whatsapp-window-notice-hidden';
+const WINDOW_NOTICE_TEXT = 'janela de 24h: fora dela, a meta pode exigir template aprovado.';
 
 const STAGE_TONES: Record<string, { background: string; border: string; color: string; ring: string }> = {
   new_lead: { background: '#eff6ff', border: '#bfdbfe', color: '#1d4ed8', ring: '#dbeafe' },
@@ -30,14 +32,31 @@ function findMarkReadButton() {
   }) || null;
 }
 
-function findComposerTransferButton() {
+function findComposerForm() {
   const textarea = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Digite sua mensagem..."]');
-  const form = textarea?.closest('form');
+  return textarea?.closest('form') || null;
+}
+
+function findComposerTransferButton() {
+  const form = findComposerForm();
   if (!form) return null;
 
   return Array.from(form.querySelectorAll<HTMLButtonElement>('button')).find((button) =>
     normalizedText(button.textContent) === 'transferir lead'
   ) || null;
+}
+
+function hideWindowNotice() {
+  const form = findComposerForm();
+  if (!form) return;
+
+  const notice = Array.from(form.querySelectorAll<HTMLElement>('p, span, small')).find((element) =>
+    normalizedText(element.textContent) === WINDOW_NOTICE_TEXT
+  );
+  if (!notice) return;
+
+  notice.setAttribute(HIDDEN_WINDOW_NOTICE_ATTR, 'true');
+  notice.style.setProperty('display', 'none', 'important');
 }
 
 function transferIcon() {
@@ -94,6 +113,7 @@ function applyWhatsappHeaderActions() {
   const markReadButton = findMarkReadButton();
   const transferButton = findComposerTransferButton();
   if (markReadButton && transferButton) ensureTransferProxy(markReadButton, transferButton);
+  hideWindowNotice();
   applyStageTone();
 }
 
@@ -106,6 +126,10 @@ function cleanupWhatsappHeaderActions() {
   document.querySelectorAll<HTMLElement>(`[${HIDDEN_TRANSFER_ATTR}="true"]`).forEach((element) => {
     element.style.removeProperty('display');
     element.removeAttribute(HIDDEN_TRANSFER_ATTR);
+  });
+  document.querySelectorAll<HTMLElement>(`[${HIDDEN_WINDOW_NOTICE_ATTR}="true"]`).forEach((element) => {
+    element.style.removeProperty('display');
+    element.removeAttribute(HIDDEN_WINDOW_NOTICE_ATTR);
   });
   document.querySelectorAll<HTMLLabelElement>('label[data-whatsapp-stage-tone]').forEach((label) => {
     label.style.removeProperty('background-color');
