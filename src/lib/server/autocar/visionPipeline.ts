@@ -1,5 +1,6 @@
 import { aiPlatformDefaultModel } from '@/lib/server/ai-platform/models/registry';
 import { autocarOutputText } from '@/lib/server/autocar/client';
+import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 import { normalizeEvolutionMediaBase64 } from '@/lib/server/evolutionAudio';
 import { evolutionRequest } from '@/lib/server/evolution';
 
@@ -95,6 +96,48 @@ async function getEvolutionImageBase64(instanceName: string, rawMessage: any) {
   const base64 = normalizeEvolutionMediaBase64(result);
   if (!base64) throw new Error('Evolution não retornou a imagem em base64.');
   return base64;
+}
+
+async function visionRuntimeEligibility(storeId: string, conversationId: string) {
+  const autocar = getAutocarDevClient();
+  const [agentResult, runtimeResult] = await Promise.all([
+    autocar.from('ai_store_agents')
+      .select('mode,status,master_enabled,master_autopilot_allowed,store_selected_mode')
+      .eq('store_id', storeId)
+      .maybeSingle(),
+    autocar.from('ai_runtime_conversations')
+      .select('effective_mode,human_state,pause_reason')
+      .eq('store_id', storeId)
+      .eq('production_conversation_id', conversationId)
+      .maybeSingle()
+  ]);
+  if (agentResult.error) throw agentResult.error;
+  if (runtimeResult.error) throw runtimeResult.error;
+
+  const agent = agentResult.data;
+  const runtime = runtimeResult.data;
+  const agentAllowed = Boolean(
+    agent?.master_enabled &&
+    agent?.master_autopilot_allowed &&
+    agent?.store_selected_mode === 'autopilot' &&
+    agent?.mode === 'autopilot' &&
+    agent?.status === 'active'
+  );
+
+  if (!agentAllowed) {
+    return { allowed: false, reason: 'Vision V1 não executa porque a AUTOCAR não está efetivamente em AUTOPILOT.' };
+  }
+  if (runtime && runtime.effective_mode !== 'autopilot') {
+    return { allowed: false, reason: `Vision V1 bloqueada pelo modo efetivo ${String(runtime.effective_mode || 'off').toUpperCase()}.` };
+  }
+  if (runtime && runtime.human_state !== 'autocar_active') {
+    return {
+      allowed: false,
+      reason: `Vision V1 bloqueada durante takeover humano: ${runtime.pause_reason || runtime.human_state || 'estado humano'}.`
+    };
+  }
+
+  return { allowed: true, reason: 'AUTOCAR em AUTOPILOT e sem takeover humano.' };
 }
 
 async function analyzeImage(input: { base64: string; mime: string; caption: string }) {
@@ -200,6 +243,22 @@ export async function prepareAutocarInboundImage(input: {
       bytes: existing.bytes || null,
       analysis: existing.analysis,
       usage: existing.usage || null
+    };
+  }
+
+  const eligibility = await visionRuntimeEligibility(input.storeId, input.conversationId);
+  if (!eligibility.allowed) {
+    return {
+      ready: true,
+      skipped: true,
+      gated: true,
+      version: VISION_PIPELINE_VERSION,
+      model: null,
+      bytes: null,
+      mimetype: imageMime(message.raw_payload),
+      analysis: null,
+      usage: null,
+      reason: eligibility.reason
     };
   }
 
