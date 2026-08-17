@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import {
   ArrowRightLeft,
@@ -101,6 +101,7 @@ type PipelinePayload = {
   capabilities: { can_delete: boolean; can_transfer: boolean; can_confirm_sale: boolean };
   metrics: { total: number; scheduled: number; cancelled: number; sold: number; lost: number };
   leads: PipelineLead[];
+  pagination: { offset: number; limit: number; total: number; has_more: boolean };
 };
 
 type LeadNote = { id: string; note_type: string; content: string; author_name: string | null; created_at: string };
@@ -162,6 +163,10 @@ export default function StoreSlugPipelinePage() {
   const [leads, setLeads] = useState<PipelineLead[]>([]);
   const [message, setMessage] = useState('Carregando Pipeline seguro...');
   const [busy, setBusy] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadInFlight = useRef<Promise<PipelinePayload> | null>(null);
+  const realtimeRefreshTimer = useRef<number | null>(null);
+  const hiddenAt = useRef<number | null>(null);
   const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
 
@@ -224,11 +229,47 @@ export default function StoreSlugPipelinePage() {
   }
 
   async function loadData(silent = false) {
+    if (loadInFlight.current) return loadInFlight.current;
     if (!silent) setMessage('Atualizando Pipeline seguro...');
-    const data = await request(`/api/store/portal/pipeline?slug=${encodeURIComponent(slug)}`) as PipelinePayload;
-    setPayload(data);
-    setLeads(data.leads || []);
-    if (!silent) setMessage('');
+
+    const pending = request(`/api/store/portal/pipeline?slug=${encodeURIComponent(slug)}&offset=0&limit=200`) as Promise<PipelinePayload>;
+    loadInFlight.current = pending;
+
+    try {
+      const data = await pending;
+      setPayload(data);
+      setLeads(data.leads || []);
+      if (!silent) setMessage('');
+      return data;
+    } finally {
+      loadInFlight.current = null;
+    }
+  }
+
+  async function loadMore() {
+    if (!payload?.pagination.has_more || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const offset = leads.length;
+      const data = await request(`/api/store/portal/pipeline?slug=${encodeURIComponent(slug)}&offset=${offset}&limit=200`) as PipelinePayload;
+      setLeads((current) => {
+        const known = new Set(current.map((lead) => lead.id));
+        return [...current, ...data.leads.filter((lead) => !known.has(lead.id))];
+      });
+      setPayload((current) => current ? {
+        ...current,
+        pagination: {
+          ...data.pagination,
+          offset: 0,
+          total: data.pagination.total,
+          has_more: offset + data.leads.length < data.pagination.total
+        }
+      } : data);
+    } catch (error: any) {
+      setMessage(error?.message || 'Não foi possível carregar mais leads.');
+    } finally {
+      setLoadingMore(false);
+    }
   }
 
   async function runCommand(command: string, lead: PipelineLead, extra: Record<string, any> = {}, loadingMessage = 'Atualizando lead...') {
@@ -252,16 +293,49 @@ export default function StoreSlugPipelinePage() {
 
   useEffect(() => {
     void loadData().catch((error) => setMessage(error?.message || 'Não foi possível carregar o Pipeline.'));
-    const interval = window.setInterval(() => void loadData(true).catch(() => undefined), 30_000);
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') void loadData(true).catch(() => undefined);
+  }, [slug]);
+
+  useEffect(() => {
+    const storeId = payload?.store.id;
+    if (!storeId) return;
+
+    const scheduleRefresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (realtimeRefreshTimer.current !== null) window.clearTimeout(realtimeRefreshTimer.current);
+      realtimeRefreshTimer.current = window.setTimeout(() => {
+        realtimeRefreshTimer.current = null;
+        void loadData(true).catch(() => undefined);
+      }, 750);
     };
+
+    const channel = supabase
+      .channel(`pipeline-leads-${storeId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'leads',
+        filter: `assigned_store_id=eq.${storeId}`
+      }, scheduleRefresh)
+      .subscribe();
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt.current = Date.now();
+        return;
+      }
+      const wasHiddenFor = hiddenAt.current ? Date.now() - hiddenAt.current : 0;
+      hiddenAt.current = null;
+      if (wasHiddenFor >= 60_000) scheduleRefresh();
+    };
+
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
-      window.clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibility);
+      if (realtimeRefreshTimer.current !== null) window.clearTimeout(realtimeRefreshTimer.current);
+      realtimeRefreshTimer.current = null;
+      void supabase.removeChannel(channel);
     };
-  }, [slug]);
+  }, [payload?.store.id, slug, supabase]);
 
   const grouped = useMemo(() => columns.map((column) => ({
     ...column,
@@ -577,6 +651,14 @@ export default function StoreSlugPipelinePage() {
               })}
             </div>
           </div>
+
+          {payload.pagination.has_more ? (
+            <div className="mt-4 flex justify-center">
+              <button type="button" onClick={() => void loadMore()} disabled={loadingMore} className="rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-black text-zinc-700 shadow-sm disabled:opacity-50">
+                {loadingMore ? 'Carregando...' : `Carregar mais leads (${leads.length} de ${payload.pagination.total})`}
+              </button>
+            </div>
+          ) : null}
 
           <section className="premium-card mt-5 p-5">
             <div className="grid gap-3 md:grid-cols-4">
