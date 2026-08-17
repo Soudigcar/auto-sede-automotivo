@@ -175,8 +175,7 @@ export function StorePipelineScheduleUxBridge() {
     };
 
     normalize();
-    const observer = new MutationObserver(normalize);
-    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('pipeline-dom-sync', normalize);
 
     const clickCapture = (event: MouseEvent) => {
       const button = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>('button');
@@ -219,7 +218,7 @@ export function StorePipelineScheduleUxBridge() {
     document.addEventListener('drop', dropCapture, true);
 
     return () => {
-      observer.disconnect();
+      window.removeEventListener('pipeline-dom-sync', normalize);
       document.removeEventListener('click', clickCapture, true);
       document.removeEventListener('drop', dropCapture, true);
     };
