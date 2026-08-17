@@ -16,29 +16,27 @@ function maskPhone(value: unknown) {
 
 export async function GET(request: Request) {
   try {
-    const slug = cleanText(new URL(request.url).searchParams.get('slug'), 120);
+    const searchParams = new URL(request.url).searchParams;
+    const slug = cleanText(searchParams.get('slug'), 120);
+    const offset = Math.max(0, Number.parseInt(searchParams.get('offset') || '0', 10) || 0);
+    const pageSize = Math.min(200, Math.max(25, Number.parseInt(searchParams.get('limit') || '200', 10) || 200));
     const context = await authorizeStorePortal(request, slug);
     if ('error' in context) return context.error;
 
     let query = context.supabase
       .from('leads')
       .select([
-        'id', 'event_id', 'assigned_store_id', 'assigned_user_id', 'assigned_user_role',
-        'pre_sales_user_id', 'seller_user_id', 'captured_by_user_id', 'prospector_id',
-        'customer_name', 'customer_phone', 'customer_bank', 'interested_vehicle',
-        'interested_vehicle_id', 'interested_vehicle_price', 'vehicle_category_interest',
-        'origin', 'status', 'notes', 'scheduled_at', 'appointment_notes',
-        'appointment_cancelled_at', 'appointment_cancelled_reason', 'lost_reason',
-        'created_at', 'updated_at', 'first_viewed_at', 'first_phone_viewed_at',
-        'first_whatsapp_clicked_at', 'last_activity_at', 'last_activity_label', 'last_activity_by_name'
-      ].join(','))
+        'id', 'customer_name', 'customer_phone', 'interested_vehicle', 'origin', 'status',
+        'notes', 'scheduled_at', 'appointment_notes', 'appointment_cancelled_at',
+        'appointment_cancelled_reason', 'lost_reason', 'created_at'
+      ].join(','), { count: 'exact' })
       .eq('assigned_store_id', context.store.id)
       .neq('status', 'deleted')
       .order('created_at', { ascending: false })
-      .limit(1000);
+      .range(offset, offset + pageSize - 1);
 
     query = applyStoreLeadScope(query, context.profile, context.role);
-    const { data, error } = await query;
+    const { data, error, count } = await query;
     if (error) throw error;
 
     const leads = (data || []).map((lead: any) => ({
@@ -111,7 +109,13 @@ export async function GET(request: Request) {
       },
       metrics,
       team,
-      leads
+      leads,
+      pagination: {
+        offset,
+        limit: pageSize,
+        total: count || leads.length,
+        has_more: offset + leads.length < (count || leads.length)
+      }
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Não foi possível carregar o pipeline.' }, { status: 500 });
