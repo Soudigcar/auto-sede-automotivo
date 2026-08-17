@@ -132,7 +132,7 @@ export function WhatsappMediaMessage({ message, outbound = false, compact = fals
         </a>
       ) : null}
 
-      {body && !isPlaceholder && type !== 'document' ? <p className={`whitespace-pre-wrap font-semibold ${compact ? 'text-[13px] leading-snug' : 'text-sm leading-relaxed'}`}>{body}</p> : null}
+      {body && !isPlaceholder && type !== 'document' && !(compact && type === 'audio') ? <p className={`whitespace-pre-wrap font-semibold ${compact ? 'text-[13px] leading-snug' : 'text-sm leading-relaxed'}`}>{body}</p> : null}
     </div>
   );
 }
