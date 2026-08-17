@@ -62,7 +62,7 @@ export async function GET(request: Request) {
               .select('id', { count: 'exact', head: true })
               .eq('assigned_store_id', context.store.id)
               .eq('status', status);
-            statusQuery = applyStoreLeadScope(statusQuery, context.profile, context.role);
+            statusQuery = applyStoreLeadScope(statusQuery, context.profile, context.role!);
             const { count: statusCount, error: statusError } = await statusQuery;
             if (statusError) throw statusError;
             return statusCount || 0;
