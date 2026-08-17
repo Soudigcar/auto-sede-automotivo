@@ -57,12 +57,11 @@ export function StorePipelineNewLeadButton() {
     };
 
     attach();
-    const observer = new MutationObserver(attach);
-    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('pipeline-dom-sync', attach);
     window.addEventListener('resize', attach);
 
     return () => {
-      observer.disconnect();
+      window.removeEventListener('pipeline-dom-sync', attach);
       window.removeEventListener('resize', attach);
       window.cancelAnimationFrame(animationFrame);
       document.querySelector('[data-pipeline-new-lead-host]')?.remove();
