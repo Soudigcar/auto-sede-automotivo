@@ -462,11 +462,14 @@ export default function StoreWhatsappPage() {
                     const unread = Number(conversation.unread_count || 0);
                     const hasLead = Boolean(conversation.lead_id || conversation.base_lead_id);
                     const pipelineStage = String(conversation.lead?.status || conversation.base_lead?.status || '').trim();
+                    const profilePicture =
+                      profilePictures[String(conversation?.contact?.id || '')] ||
+                      conversationPicture(conversation);
                     return (
                       <button key={conversation.id} className={`group block w-full border-b border-zinc-100 px-3 py-3 text-left transition ${isSelected ? 'bg-red-50/70' : 'bg-white hover:bg-zinc-50'}`} type="button" onClick={() => selectConversation(conversation.id)}>
                         <div className={`rounded-2xl border p-3 transition ${isSelected ? 'border-red-200 bg-white shadow-sm' : 'border-transparent group-hover:border-zinc-200'}`}>
                           <div className="flex items-start gap-3">
-                            <div className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-black ${isSelected ? 'bg-red-600 text-white' : 'bg-zinc-100 text-zinc-600'}`}>{initials(name)}<span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-emerald-500 text-white"><MessageCircle size={8} /></span></div>
+                            <div className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-black ${isSelected ? 'bg-red-600 text-white' : 'bg-zinc-100 text-zinc-600'}`}>{profilePicture ? <img src={profilePicture} alt={name} className="h-full w-full rounded-full object-cover" /> : initials(name)}<span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-emerald-500 text-white"><MessageCircle size={8} /></span></div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate text-sm font-black text-zinc-950">{name}</h3><p className="mt-0.5 truncate text-[11px] font-bold text-zinc-500">{formatPhone(phone)}</p></div><span className="shrink-0 text-[10px] font-bold text-zinc-400">{formatTime(conversation.last_message_at)}</span></div>
                               <p className="mt-2 line-clamp-2 text-xs font-semibold leading-relaxed text-zinc-600">{conversation.last_message || 'Sem mensagem'}</p>
@@ -495,7 +498,7 @@ export default function StoreWhatsappPage() {
                             aria-expanded={detailsOpen}
                             title={detailsOpen ? 'Fechar detalhes do lead' : 'Abrir detalhes do lead'}
                           >
-                            <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-sm font-black text-zinc-700 transition group-hover:bg-red-50 group-hover:text-red-600">{initials(conversationName(selectedConversation))}<span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" /></div>
+                            <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-sm font-black text-zinc-700 transition group-hover:bg-red-50 group-hover:text-red-600">{selectedProfilePicture ? <img src={selectedProfilePicture} alt={conversationName(selectedConversation)} className="h-full w-full rounded-full object-cover" /> : initials(conversationName(selectedConversation))}<span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" /></div>
                             <div className="min-w-0 pr-2">
                               <div className="flex flex-wrap items-center gap-2"><h2 className="truncate text-lg font-black text-zinc-950 group-hover:text-red-600">{conversationName(selectedConversation)}</h2>{selectedConversation.lead_id || selectedConversation.base_lead_id ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead</span> : null}</div>
                               <p className="mt-0.5 text-xs font-bold text-zinc-500">{formatPhone(conversationPhone(selectedConversation))}</p>
