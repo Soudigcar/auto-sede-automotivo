@@ -248,7 +248,7 @@ export async function prepareAutocarSafeInbound(input: {
         : null,
       document: documentPreparation
         ? {
-            ready: true,
+            ready: documentPreparation.ready === true && Boolean(String(documentPreparation.analysis?.document_type || '').trim()),
             version: documentPreparation.version || null,
             model: documentPreparation.model || null,
             bytes: documentPreparation.bytes || null,
@@ -258,6 +258,7 @@ export async function prepareAutocarSafeInbound(input: {
             document_type: documentPreparation.analysis?.document_type || null,
             contains_personal_data: documentPreparation.analysis?.contains_personal_data === true,
             contains_financial_data: documentPreparation.analysis?.contains_financial_data === true,
+            contains_vehicle_identifiers: documentPreparation.analysis?.contains_vehicle_identifiers === true,
             requires_human_review: documentPreparation.analysis?.requires_human_review === true
           }
         : null
