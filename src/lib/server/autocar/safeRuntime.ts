@@ -2,6 +2,7 @@ import { ensureAutocarDevStore, getAutocarDevClient, type AutocarStoreMode } fro
 import { evaluateAutocarPolicy } from '@/lib/server/autocar/policyEngine';
 import { prepareAutocarInboundAudio } from '@/lib/server/autocar/audioPipeline';
 import { prepareAutocarInboundImage } from '@/lib/server/autocar/visionPipeline';
+import { prepareAutocarInboundDocument } from '@/lib/server/autocar/documentPipeline';
 
 export type AutocarRuntimeState = 'autocar_active' | 'human_active' | 'paused';
 
@@ -83,6 +84,7 @@ export async function prepareAutocarSafeInbound(input: {
 }): Promise<any> {
   let audioPreparation: any = null;
   let visionPreparation: any = null;
+  let documentPreparation: any = null;
 
   if (String(input.messageType || '') === 'audio') {
     try {
@@ -144,6 +146,38 @@ export async function prepareAutocarSafeInbound(input: {
         duplicate: false,
         ready: false,
         vision: visionPreparation
+      };
+    }
+  }
+
+  if (String(input.messageType || '') === 'document') {
+    try {
+      documentPreparation = await prepareAutocarInboundDocument({
+        productionSupabase: input.productionSupabase,
+        storeId: input.storeId,
+        conversationId: input.conversationId,
+        whatsappNumberId: input.whatsappNumberId,
+        messageId: input.messageId
+      });
+    } catch (error: any) {
+      return {
+        claimed: false,
+        duplicate: false,
+        ready: false,
+        document: {
+          ready: false,
+          failed: true,
+          reason: String(error?.message || error || 'Falha ao interpretar documento.').slice(0, 500)
+        }
+      };
+    }
+
+    if (!documentPreparation?.ready) {
+      return {
+        claimed: false,
+        duplicate: false,
+        ready: false,
+        document: documentPreparation
       };
     }
   }
@@ -211,6 +245,22 @@ export async function prepareAutocarSafeInbound(input: {
             scene_type: visionPreparation.analysis?.scene_type || null,
             document_like: visionPreparation.analysis?.document_like === true
           }
+        : null,
+      document: documentPreparation
+        ? {
+            ready: documentPreparation.ready === true && Boolean(String(documentPreparation.analysis?.document_type || '').trim()),
+            version: documentPreparation.version || null,
+            model: documentPreparation.model || null,
+            bytes: documentPreparation.bytes || null,
+            mimetype: documentPreparation.mimetype || null,
+            file_name: documentPreparation.file_name || null,
+            usage: documentPreparation.usage || null,
+            document_type: documentPreparation.analysis?.document_type || null,
+            contains_personal_data: documentPreparation.analysis?.contains_personal_data === true,
+            contains_financial_data: documentPreparation.analysis?.contains_financial_data === true,
+            contains_vehicle_identifiers: documentPreparation.analysis?.contains_vehicle_identifiers === true,
+            requires_human_review: documentPreparation.analysis?.requires_human_review === true
+          }
         : null
     },
     completed_at: ready ? null : new Date().toISOString(),
@@ -233,7 +283,8 @@ export async function prepareAutocarSafeInbound(input: {
         policy,
         ready: false,
         audio: audioPreparation,
-        vision: visionPreparation
+        vision: visionPreparation,
+        document: documentPreparation
       };
     }
     throw claimError;
@@ -252,7 +303,8 @@ export async function prepareAutocarSafeInbound(input: {
     policy,
     ready,
     audio: audioPreparation,
-    vision: visionPreparation
+    vision: visionPreparation,
+    document: documentPreparation
   };
 }
 
