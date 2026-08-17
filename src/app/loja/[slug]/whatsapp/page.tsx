@@ -175,6 +175,7 @@ export default function StoreWhatsappPage() {
   const [filter, setFilter] = useState<'all' | 'unread' | 'leads' | 'priority'>('all');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [profilePictures, setProfilePictures] = useState<Record<string, string>>({});
 
   async function getAuthToken() {
     const { data } = await supabase.auth.getSession();
@@ -311,6 +312,49 @@ export default function StoreWhatsappPage() {
   useEffect(() => { loadData(); }, [slug]);
 
   const selectedConversation = useMemo(() => conversations.find((conversation) => conversation.id === selectedId) || null, [conversations, selectedId]);
+  const selectedContactId = String(selectedConversation?.contact?.id || '');
+  const selectedProfilePicture = profilePictures[selectedContactId] || conversationPicture(selectedConversation);
+  const selectedUsesEvolution = isEvolutionConversation(selectedConversation);
+
+  useEffect(() => {
+    if (!selectedId || !selectedContactId || !selectedUsesEvolution || selectedProfilePicture) return;
+
+    let cancelled = false;
+
+    async function loadSelectedProfilePicture() {
+      try {
+        const token = await getAuthToken();
+        if (!token || cancelled) return;
+
+        const response = await fetch('/api/store-whatsapp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            action: 'load-profile-picture',
+            slug,
+            conversation_id: selectedId
+          })
+        });
+        const result = await response.json();
+        const profilePictureUrl = String(result?.profile_picture_url || '').trim();
+
+        if (!response.ok || !profilePictureUrl || cancelled) return;
+
+        setProfilePictures((current) =>
+          current[selectedContactId] === profilePictureUrl
+            ? current
+            : { ...current, [selectedContactId]: profilePictureUrl }
+        );
+      } catch {
+        // Foto é best effort; as iniciais permanecem como fallback.
+      }
+    }
+
+    void loadSelectedProfilePicture();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedContactId, selectedId, selectedProfilePicture, selectedUsesEvolution, slug]);
 
   const stats = useMemo(() => {
     const unread = conversations.reduce((sum, item) => sum + Number(item.unread_count || 0), 0);
@@ -482,7 +526,7 @@ export default function StoreWhatsappPage() {
                       <div className="mx-auto mb-3 w-fit rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase text-zinc-400 shadow-sm">Histórico da conversa</div>
                       {messages.map((message) => {
                         const outbound = message.direction === 'outbound';
-                        const avatarUrl = outbound ? '' : conversationPicture(selectedConversation);
+                        const avatarUrl = outbound ? '' : selectedProfilePicture;
                         const avatarName = outbound ? String(store?.store_name || 'Loja') : conversationName(selectedConversation);
                         return (
                           <div key={message.id} className={`flex items-end gap-1.5 ${outbound ? 'justify-end' : 'justify-start'}`}>
