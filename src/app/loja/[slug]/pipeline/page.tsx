@@ -239,6 +239,7 @@ export default function StoreSlugPipelinePage() {
       const data = await pending;
       setPayload(data);
       setLeads(data.leads || []);
+      window.dispatchEvent(new CustomEvent('pipeline-data-updated', { detail: data }));
       if (!silent) setMessage('');
       return data;
     } finally {
