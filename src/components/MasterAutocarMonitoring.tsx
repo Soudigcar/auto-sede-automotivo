@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, AudioLines, Bot, BrainCircuit, Building2, Gauge, Image as ImageIcon, Loader2, ShieldCheck, Sparkles, TriangleAlert, Zap } from 'lucide-react';
+import { Activity, AudioLines, Bot, BrainCircuit, Building2, FileText, Gauge, Image as ImageIcon, Loader2, ShieldCheck, Sparkles, TriangleAlert, Zap } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
 type Telemetry = {
@@ -15,12 +15,21 @@ type Telemetry = {
     failed?: number;
     external_executions?: number;
     human_blocks?: number;
-    tokens?: { input?: number; output?: number; total?: number; vision_input?: number; vision_output?: number };
+    tokens?: {
+      input?: number;
+      output?: number;
+      total?: number;
+      vision_input?: number;
+      vision_output?: number;
+      document_input?: number;
+      document_output?: number;
+    };
     model_calls?: Record<string, number>;
     lane_calls?: Record<string, number>;
     sol_escalations?: number;
     audio?: { inbound?: number; outbound?: number };
     images?: { inbound?: number };
+    documents?: { inbound?: number };
     average_claim_latency_ms?: number | null;
   };
 };
@@ -92,7 +101,7 @@ export function MasterAutocarMonitoring({ telemetry, modelRegistry }: { telemetr
   const lanes = modelRegistry?.lanes || {};
   const modelRows = [
     ['Luna', lanes.luna?.model || 'gpt-5.6-luna', global.lane_calls?.luna || 0, 'Estruturação e planejamento'],
-    ['Terra', lanes.terra?.model || 'gpt-5.6-terra', global.lane_calls?.terra || 0, 'Conversa comercial principal + visão'],
+    ['Terra', lanes.terra?.model || 'gpt-5.6-terra', global.lane_calls?.terra || 0, 'Conversa, visão e documentos'],
     ['Sol', lanes.sol?.model || 'gpt-5.6-sol', global.lane_calls?.sol || 0, 'Escalada seletiva']
   ];
 
@@ -126,7 +135,7 @@ export function MasterAutocarMonitoring({ telemetry, modelRegistry }: { telemetr
 
   return <section className="mt-6 space-y-5">
     <div className="flex flex-col gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 md:flex-row md:items-center md:justify-between">
-      <div><p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700"><ShieldCheck size={14}/> AI Control Plane V1</p><h2 className="mt-2 text-2xl font-black text-zinc-950">Governança, modelos e telemetria</h2><p className="mt-2 max-w-3xl text-xs font-bold leading-5 text-zinc-600">O Master enxerga o estado real da AUTOCAR, inclusive áudio e Vision V1. Esta área é somente leitura e não altera CRM, agentes ou providers.</p></div>
+      <div><p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700"><ShieldCheck size={14}/> AI Control Plane V1</p><h2 className="mt-2 text-2xl font-black text-zinc-950">Governança, modelos e telemetria</h2><p className="mt-2 max-w-3xl text-xs font-bold leading-5 text-zinc-600">O Master enxerga o estado real da AUTOCAR, inclusive áudio, Vision V1 e Documents V1. Esta área é somente leitura e não altera CRM, agentes ou providers.</p></div>
       <div className="rounded-xl border border-emerald-200 bg-white px-4 py-3 text-right"><p className="text-[9px] font-black uppercase text-zinc-400">Control Plane</p><p className="mt-1 text-xs font-black text-zinc-800">{governance?.platform?.version || 'ai-control-plane-v1'}</p><p className="mt-1 text-[9px] font-bold text-zinc-400">{governance?.platform?.environment || 'autocar-dev'}</p></div>
     </div>
 
@@ -151,7 +160,7 @@ export function MasterAutocarMonitoring({ telemetry, modelRegistry }: { telemetr
       <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
         <div className="flex items-center gap-2"><Sparkles size={18} className="text-red-600"/><h3 className="text-lg font-black text-zinc-950">Custos e uso</h3></div>
         <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4"><p className="text-xs font-black text-amber-900">Custo estimado ainda não configurado</p><p className="mt-2 text-[11px] font-bold leading-5 text-amber-800">O V1 exibe apenas consumo comprovado pelos claims. Não atribuímos preço por token enquanto a tabela de preços/modelos não estiver versionada e governada pelo Master.</p></div>
-        <div className="mt-4 grid grid-cols-2 gap-3"><div className="rounded-xl bg-zinc-50 p-4"><p className="text-[9px] font-black uppercase text-zinc-400">Entrada</p><p className="mt-1 text-xl font-black">{number(global.tokens?.input)}</p><p className="mt-1 text-[9px] font-bold text-zinc-400">Vision: {number(global.tokens?.vision_input)}</p></div><div className="rounded-xl bg-zinc-50 p-4"><p className="text-[9px] font-black uppercase text-zinc-400">Saída</p><p className="mt-1 text-xl font-black">{number(global.tokens?.output)}</p><p className="mt-1 text-[9px] font-bold text-zinc-400">Vision: {number(global.tokens?.vision_output)}</p></div></div>
+        <div className="mt-4 grid grid-cols-2 gap-3"><div className="rounded-xl bg-zinc-50 p-4"><p className="text-[9px] font-black uppercase text-zinc-400">Entrada</p><p className="mt-1 text-xl font-black">{number(global.tokens?.input)}</p><p className="mt-1 text-[9px] font-bold text-zinc-400">Vision: {number(global.tokens?.vision_input)}</p><p className="mt-1 text-[9px] font-bold text-zinc-400">Documents: {number(global.tokens?.document_input)}</p></div><div className="rounded-xl bg-zinc-50 p-4"><p className="text-[9px] font-black uppercase text-zinc-400">Saída</p><p className="mt-1 text-xl font-black">{number(global.tokens?.output)}</p><p className="mt-1 text-[9px] font-bold text-zinc-400">Vision: {number(global.tokens?.vision_output)}</p><p className="mt-1 text-[9px] font-bold text-zinc-400">Documents: {number(global.tokens?.document_output)}</p></div></div>
       </div>
     </div>
 
@@ -159,6 +168,7 @@ export function MasterAutocarMonitoring({ telemetry, modelRegistry }: { telemetr
       <Metric label="Claims observados" value={number(global.claims)} helper={`${number(global.completed)} concluídos · ${number(global.skipped)} ignorados`} icon={<Activity size={19}/>} />
       <Metric label="Tokens registrados" value={number(global.tokens?.total)} helper={`${number(global.tokens?.input)} entrada · ${number(global.tokens?.output)} saída`} icon={<BrainCircuit size={19}/>} />
       <Metric label="Imagens interpretadas" value={number(global.images?.inbound)} helper="Imagens inbound processadas pelo AUTOCAR Vision V1." icon={<ImageIcon size={19}/>} />
+      <Metric label="PDFs interpretados" value={number(global.documents?.inbound)} helper="Documentos PDF inbound processados pelo AUTOCAR Documents V1." icon={<FileText size={19}/>} />
       <Metric label="Execuções externas" value={number(global.external_executions)} helper="Ações que efetivamente chegaram ao provider após os gates de segurança." icon={<Zap size={19}/>} />
       <Metric label="Latência média do claim" value={milliseconds(global.average_claim_latency_ms)} helper={`Amostra limitada aos ${number(telemetry?.sample_limit || 500)} claims mais recentes.`} icon={<Gauge size={19}/>} />
       <Metric label="Áudios recebidos" value={number(global.audio?.inbound)} helper="Mensagens de áudio processadas pelo fluxo AUTOCAR." icon={<AudioLines size={19}/>} />
