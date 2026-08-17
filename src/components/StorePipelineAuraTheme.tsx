@@ -108,11 +108,10 @@ export function StorePipelineAuraTheme() {
     };
 
     decorate();
-    const observer = new MutationObserver(decorate);
-    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('pipeline-dom-sync', decorate);
 
     return () => {
-      observer.disconnect();
+      window.removeEventListener('pipeline-dom-sync', decorate);
       document.body.classList.remove('pipeline-aura-active');
     };
   }, [active]);
