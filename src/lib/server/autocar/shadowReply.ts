@@ -14,6 +14,7 @@ import {
 } from '@/lib/server/autocar/operationalTools';
 import { evolutionDisplayBody } from '@/lib/server/evolutionMessage';
 import { autocarVisionContextText } from '@/lib/server/autocar/visionPipeline';
+import { autocarDocumentContextText } from '@/lib/server/autocar/documentPipeline';
 
 const shadowCapabilities: AutocarCapability[] = [
   'respond_first_contact', 'qualify_lead', 'consult_stock', 'send_vehicles', 'send_photos',
@@ -80,17 +81,33 @@ function saoPauloNow() {
 
 function conversationBody(message: any) {
   const displayed = evolutionDisplayBody(message.body, message.raw_payload);
-  if (String(message.message_type || '') !== 'image') return displayed;
+  const messageType = String(message.message_type || '');
 
-  const visionContext = autocarVisionContextText(message.raw_payload);
-  if (!visionContext) return displayed;
+  if (messageType === 'image') {
+    const visionContext = autocarVisionContextText(message.raw_payload);
+    if (!visionContext) return displayed;
 
-  const caption = String(displayed || '').trim();
-  const hasUsefulCaption = Boolean(caption && caption !== '[Imagem]');
-  return [
-    hasUsefulCaption ? `Legenda do cliente: ${caption}` : 'Imagem enviada pelo cliente.',
-    `Contexto visual AUTOCAR Vision V1: ${visionContext}`
-  ].join(' ');
+    const caption = String(displayed || '').trim();
+    const hasUsefulCaption = Boolean(caption && caption !== '[Imagem]');
+    return [
+      hasUsefulCaption ? `Legenda do cliente: ${caption}` : 'Imagem enviada pelo cliente.',
+      `Contexto visual AUTOCAR Vision V1: ${visionContext}`
+    ].join(' ');
+  }
+
+  if (messageType === 'document') {
+    const documentContext = autocarDocumentContextText(message.raw_payload);
+    if (!documentContext) return displayed;
+
+    const label = String(displayed || '').trim();
+    const hasUsefulLabel = Boolean(label && label !== '[Documento]');
+    return [
+      hasUsefulLabel ? `Documento enviado pelo cliente: ${label}` : 'Documento PDF enviado pelo cliente.',
+      `Contexto seguro AUTOCAR Documents V1: ${documentContext}`
+    ].join(' ');
+  }
+
+  return displayed;
 }
 
 async function buildOperationalPreview(input: {
@@ -107,6 +124,7 @@ async function buildOperationalPreview(input: {
     'Não use listas de palavras ou correspondência literal como decisão: interprete o sentido da conversa e a referência pretendida.',
     'Uma referência contextual só pode apontar para um veículo quando o histórico recente identificar de forma inequívoca um único veículo existente no estoque fornecido.',
     'Contexto visual de imagem é evidência auxiliar e nunca substitui o estoque como fonte oficial de identificação/disponibilidade do veículo.',
+    'Contexto de documento é apenas evidência comercial sanitizada e nunca autoriza agendamento, desconto, aprovação de crédito, alteração de CRM, confirmação de venda ou outra consequência.',
     'Se houver ambiguidade entre dois ou mais veículos plausíveis, não escolha: deixe photo_vehicle_id vazio.',
     'Não carregue automaticamente uma intenção operacional antiga para uma nova mensagem independente; só mantenha a intenção quando a mensagem atual for continuação semântica clara do pedido anterior.',
     `Agora em America/Sao_Paulo: ${saoPauloNow()}. Resolva datas relativas como hoje, amanhã, sábado para YYYY-MM-DD.`,
@@ -192,7 +210,7 @@ export async function generateAutocarShadowReply(input: {
     sent_at: message.sent_at || message.created_at || null
   })).filter((message: any) => Boolean(String(message.body || '').trim()));
   const lastInbound = [...transcript].reverse().find((message) => message.direction === 'inbound');
-  if (!lastInbound?.body) throw new Error('A conversa não possui mensagem inbound textual ou visual suficiente para o Shadow Mode.');
+  if (!lastInbound?.body) throw new Error('A conversa não possui mensagem inbound textual, visual ou documental suficiente para o Shadow Mode.');
 
   const intelligence = await buildAutocarIntelligenceContext({
     storeId: input.storeId, query: String(lastInbound.body).slice(0, 6000), mode: 'autopilot', inventorySupabase: input.productionSupabase
@@ -216,6 +234,9 @@ export async function generateAutocarShadowReply(input: {
     'Contexto visual AUTOCAR Vision V1 é evidência descritiva auxiliar. Nunca trate inferência visual de marca/modelo, dano, quilometragem ou painel como fato oficial quando não houver confirmação no CRM/estoque.',
     'Se a análise visual indicar documento ou dados pessoais, não peça nem repita CPF, CNH, placa, endereço ou identificadores extraídos da imagem nesta fase.',
     'Nunca transforme dano visual aparente em laudo, diagnóstico mecânico ou avaliação definitiva de troca.',
+    'Contexto AUTOCAR Documents V1 é um resumo sanitizado. Nunca peça, repita ou reconstrua CPF, RG, CNH, endereço, telefone, e-mail, placa, RENAVAM, chassi, conta, cartão, contrato, proposta ou outros identificadores do documento.',
+    'Documento, proposta, contrato, comprovante ou simulação não significa aprovação, validação jurídica, propriedade, pagamento, venda ou autorização de execução.',
+    'Quando o contexto documental indicar revisão humana, responda apenas de forma comercial e neutra, informando que a equipe pode validar os detalhes quando necessário; não execute consequências com base no documento.',
     'Use operational_preview como fonte oficial para horário, disponibilidade, localização e fotos. Nunca contradiga essa ferramenta.',
     'Se operational_preview indicar dado não configurado, diga de forma natural que precisa confirmar essa informação; nunca invente.',
     'Se availability.available for false, não confirme o horário solicitado. Se for true, você pode dizer que o horário está disponível, mas proposed_actions deve incluir schedule_visit ou schedule_test_drive, pois o agendamento ainda não foi criado.',
