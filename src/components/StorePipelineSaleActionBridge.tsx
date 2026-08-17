@@ -95,11 +95,10 @@ export function StorePipelineSaleActionBridge() {
     };
 
     normalizeCards();
-    const observer = new MutationObserver(normalizeCards);
-    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('pipeline-dom-sync', normalizeCards);
 
     return () => {
-      observer.disconnect();
+      window.removeEventListener('pipeline-dom-sync', normalizeCards);
       window.cancelAnimationFrame(frame);
       document.querySelectorAll('[data-pipeline-sale-action-bridge]').forEach((button) => button.remove());
       document.querySelectorAll('[data-sale-action-bridge-modal]').forEach((modal) => modal.remove());

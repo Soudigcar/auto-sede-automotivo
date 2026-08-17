@@ -38,9 +38,8 @@ export function StoreAiIdentityBoundary() {
     };
 
     applyIdentityBoundary();
-    const observer = new MutationObserver(applyIdentityBoundary);
-    observer.observe(document.body, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    window.addEventListener('pipeline-dom-sync', applyIdentityBoundary);
+    return () => window.removeEventListener('pipeline-dom-sync', applyIdentityBoundary);
   }, [pathname]);
 
   return null;

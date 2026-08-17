@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   CalendarClock,
@@ -21,7 +21,6 @@ import {
   X
 } from 'lucide-react';
 import { usePathname } from 'next/navigation';
-import { createClient } from '@/lib/supabase';
 
 type PipelineLead = {
   id: string;
@@ -253,7 +252,6 @@ export function StorePipelineCockpitUx() {
   const pathname = usePathname() || '';
   const active = isPipeline(pathname);
   const slug = slugFrom(pathname);
-  const supabase = useMemo(() => createClient(), []);
   const [summary, setSummary] = useState<PipelineSummary | null>(null);
   const [heroHost, setHeroHost] = useState<HTMLElement | null>(null);
   const [selectedResponsible, setSelectedResponsible] = useState('all');
@@ -300,27 +298,13 @@ export function StorePipelineCockpitUx() {
 
   useEffect(() => {
     if (!active) return;
-    let cancelled = false;
-
-    async function load() {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      if (!token) return;
-      const response = await fetch(`/api/store/portal/pipeline?slug=${encodeURIComponent(slug)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: 'no-store'
-      });
-      const payload = await response.json().catch(() => null);
-      if (!cancelled && response.ok) setSummary(payload);
-    }
-
-    void load();
-    const interval = window.setInterval(() => void load(), 30_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
+    const onPipelineData = (event: Event) => {
+      const payload = (event as CustomEvent<PipelineSummary>).detail;
+      if (payload?.leads) setSummary(payload);
     };
-  }, [active, slug, supabase]);
+    window.addEventListener('pipeline-data-updated', onPipelineData as EventListener);
+    return () => window.removeEventListener('pipeline-data-updated', onPipelineData as EventListener);
+  }, [active]);
 
   useEffect(() => {
     if (!active) return;
@@ -542,10 +526,7 @@ export function StorePipelineCockpitUx() {
     };
 
     decorate();
-    const observer = new MutationObserver(decorate);
-    observer.observe(document.body, { childList: true, subtree: true });
     return () => {
-      observer.disconnect();
       cancelAnimationFrame(raf);
     };
   }, [active, assignments, selectedResponsible, stages, summary]);

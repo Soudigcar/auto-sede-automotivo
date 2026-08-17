@@ -295,14 +295,13 @@ export function PipelineSaleConfirmation() {
 
     document.addEventListener('click', rememberClick, true);
     document.addEventListener('dragstart', rememberDrag, true);
-    const observer = new MutationObserver(connect);
-    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('pipeline-dom-sync', connect);
     connect();
 
     return () => {
       document.removeEventListener('click', rememberClick, true);
       document.removeEventListener('dragstart', rememberDrag, true);
-      observer.disconnect();
+      window.removeEventListener('pipeline-dom-sync', connect);
       if (legacyModal.current) {
         legacyModal.current.style.display = '';
         legacyModal.current.removeAttribute('aria-hidden');
