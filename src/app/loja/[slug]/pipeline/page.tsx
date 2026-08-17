@@ -24,8 +24,6 @@ import {
   XCircle
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
-import { PipelineAddLeadWithStock } from '@/components/PipelineAddLeadWithStock';
-import { PipelineSaleConfirmation } from '@/components/PipelineSaleConfirmation';
 
 const columns = [
   { key: 'new_lead', title: 'Novo Lead Recebido', tone: 'blue' },
@@ -37,23 +35,6 @@ const columns = [
   { key: 'sale_confirmed', title: 'Venda Confirmada', tone: 'green' },
   { key: 'lost', title: 'Perdido', tone: 'red' }
 ] as const;
-
-const actionSymbols: Record<string, string> = {
-  Editar: '✎',
-  Tarefa: '☷',
-  Transferir: '⇄',
-  WhatsApp: '◉',
-  Atender: '◉',
-  Perda: '×',
-  Agendar: '□',
-  Chegou: '✓',
-  Reagendar: '↻',
-  Cancelou: '×',
-  Faltou: '!',
-  Venda: '✓',
-  'Cancelar venda': '↻',
-  Reabrir: '↻'
-};
 
 const statusLabels: Record<string, string> = {
   new_lead: 'Novo Lead',
@@ -722,8 +703,7 @@ export default function StoreSlugPipelinePage() {
 
       {lostLead ? <Modal title="Registrar perda" onClose={() => setLostLead(null)}><div className="grid gap-4"><Area label="Motivo obrigatório" value={lostReason} onChange={setLostReason} placeholder="Ex.: comprou em outra loja, sem entrada, não respondeu" /><ModalActions onCancel={() => setLostLead(null)} onConfirm={() => void saveLoss()} confirmLabel="Registrar perda" busy={busy} /></div></Modal> : null}
 
-      <PipelineAddLeadWithStock onSaved={() => void loadData(true)} />
-      <PipelineSaleConfirmation requestedLeadId={saleLead?.id || null} onClose={() => setSaleLead(null)} onCompleted={() => void loadData(true)} />
+      {saleLead ? <Modal title="Confirmar venda" onClose={() => setSaleLead(null)}><div className="grid gap-4"><div className="rounded-2xl bg-emerald-50 p-4"><p className="font-black text-emerald-900">{saleLead.customer_name || 'Cliente sem nome'}</p><p className="mt-1 text-sm font-bold text-emerald-700">{saleLead.interested_vehicle || 'Veículo não informado'}</p></div><p className="text-sm font-bold text-zinc-600">O formulário completo e transacional de venda será aberto para selecionar veículo, vendedor e condições comerciais.</p><div className="flex justify-end"><button className="rounded-2xl border border-zinc-200 px-5 py-3 text-sm font-black text-zinc-600" type="button" onClick={() => setSaleLead(null)}>Voltar</button></div></div></Modal> : null}
 
       {taskLead ? <Modal title="Agendar tarefa" onClose={() => setTaskLead(null)}><div className="grid gap-4"><label className="text-sm font-bold text-zinc-700">Tipo de tarefa<select className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3" value={taskType} onChange={(event) => setTaskType(event.target.value)}><option value="call_back">Ligar novamente</option><option value="send_simulation">Enviar simulação</option><option value="request_documents">Solicitar documentos</option><option value="confirm_visit">Confirmar visita</option><option value="whatsapp_followup">Retornar pelo WhatsApp</option><option value="other">Outra tarefa</option></select></label><div className="grid gap-3 sm:grid-cols-2"><Field label="Data" type="date" value={taskDate} onChange={setTaskDate} placeholder="" /><Field label="Hora" type="time" value={taskTime} onChange={setTaskTime} placeholder="" /></div><Area label="Descrição" value={taskDescription} onChange={setTaskDescription} placeholder="O que precisa ser feito" /><ModalActions onCancel={() => setTaskLead(null)} onConfirm={() => void saveTask()} confirmLabel="Agendar tarefa" busy={busy} /></div></Modal> : null}
 
@@ -755,20 +735,20 @@ function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onO
   const phone = lead.customer_phone || lead.customer_phone_masked || 'Sem telefone';
   const stop = (event: any, action: () => void) => { event.stopPropagation(); action(); };
   return (
-    <div data-lead-id={lead.id} role="button" tabIndex={0} draggable onClick={onOpen} onKeyDown={(event) => event.key === 'Enter' && onOpen()} onDragStart={onDragStart} onDragEnd={onDragEnd} className={`cursor-pointer rounded-[14px] border border-zinc-100 bg-white p-2.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${dragging ? 'opacity-50 ring-2 ring-red-300' : ''}`}>
-      <div className="flex items-start justify-between gap-1"><div className="min-w-0 flex-1"><h3 className="break-words text-[13px] font-black text-zinc-950">{lead.customer_name || 'Cliente sem nome'}</h3><p className="mt-1 break-words text-[11px] font-bold text-zinc-500">{lead.interested_vehicle || 'Interesse não informado'}</p></div><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${styles.badge}`}>{statusLabels[lead.status] || lead.status}</span></div>
-      <div className="mt-2 flex items-center gap-1 overflow-hidden"><button type="button" onClick={(event) => stop(event, onReveal)} className="min-w-0 max-w-[47%] overflow-hidden text-ellipsis whitespace-nowrap rounded-full bg-zinc-50 px-2 py-1 text-[9px] font-black text-zinc-500"><Eye size={11} className="mr-1 inline" />{phone}</button><span className="min-w-0 whitespace-nowrap rounded-full bg-zinc-50 px-2 py-1 text-[9px] font-black uppercase text-zinc-500">{readableOrigin(lead.origin)}</span><span className="min-w-0 whitespace-nowrap rounded-full bg-zinc-900 px-2 py-1 text-[9px] font-black uppercase text-white">{formatLeadAge(lead.created_at)}</span></div>
+    <div data-lead-id={lead.id} role="button" tabIndex={0} draggable onClick={onOpen} onKeyDown={(event) => event.key === 'Enter' && onOpen()} onDragStart={onDragStart} onDragEnd={onDragEnd} className={`cursor-pointer rounded-2xl border border-zinc-100 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${dragging ? 'opacity-50 ring-2 ring-red-300' : ''}`}>
+      <div className="flex items-start justify-between gap-2"><div className="min-w-0 flex-1"><h3 className="break-words text-[13px] font-black text-zinc-950">{lead.customer_name || 'Cliente sem nome'}</h3><p className="mt-1 break-words text-[11px] font-bold text-zinc-500">{lead.interested_vehicle || 'Interesse não informado'}</p></div><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${styles.badge}`}>{statusLabels[lead.status] || lead.status}</span></div>
+      <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={(event) => stop(event, onReveal)} className="rounded-full bg-zinc-50 px-2 py-1 text-[10px] font-black text-zinc-500"><Eye size={11} className="mr-1 inline" />{phone}</button><span className="rounded-full bg-zinc-50 px-2 py-1 text-[10px] font-black uppercase text-zinc-500">{readableOrigin(lead.origin)}</span><span className="rounded-full bg-zinc-900 px-2 py-1 text-[10px] font-black uppercase text-white">{formatLeadAge(lead.created_at)}</span></div>
       {lead.scheduled_at ? <div className="mt-2 rounded-xl bg-zinc-50 p-2 text-[11px] text-zinc-600"><p className="flex items-center gap-1.5 font-black text-zinc-900"><CalendarClock size={13} /> {formatDateTime(lead.scheduled_at)}</p>{lead.appointment_notes ? <p className="mt-1">{lead.appointment_notes}</p> : null}</div> : null}
       {columnKey === 'appointment_cancelled' ? <div className="mt-2 rounded-xl bg-orange-50 p-2 text-[11px] text-orange-800"><p className="font-black">Cancelado {formatDateTime(lead.appointment_cancelled_at)}</p><p className="mt-1">{lead.appointment_cancelled_reason}</p></div> : null}
       {columnKey === 'lost' ? <div className="mt-2 rounded-xl bg-red-50 p-2 text-[11px] text-red-700"><p className="font-black">Motivo da perda</p><p className="mt-1">{lead.lost_reason || 'Perda registrada'}</p></div> : null}
-      <div className="mt-2 flex items-center gap-1 overflow-hidden">
+      <div className="mt-3 flex flex-wrap gap-1.5">
         <SmallAction label="Editar" icon={<Edit3 size={12} />} onClick={(event) => stop(event, onOpen)} />
         <SmallAction label="Tarefa" icon={<ListTodo size={12} />} onClick={(event) => stop(event, onTask)} />
         <SmallAction label="Transferir" icon={<ArrowRightLeft size={12} />} onClick={(event) => stop(event, onTransfer)} />
-        {columnKey === 'new_lead' ? <><SmallAction label={lead.has_phone ? 'WhatsApp' : 'Atender'} tone="green" icon={<MessageCircle size={12} />} onClick={(event) => stop(event, onStart)} /><SmallAction label="Agendar" tone="red" icon={<CalendarDays size={12} />} onClick={(event) => stop(event, onSchedule)} /><SmallAction label="Venda" tone="green" onClick={(event) => stop(event, onSale)} /><SmallAction label="Perda" tone="red" onClick={(event) => stop(event, onLost)} /></> : null}
-        {columnKey === 'in_service' ? <><SmallAction label="Agendar" tone="red" icon={<CalendarDays size={12} />} onClick={(event) => stop(event, onSchedule)} /><SmallAction label="Venda" tone="green" onClick={(event) => stop(event, onSale)} /><SmallAction label="Perda" tone="red" onClick={(event) => stop(event, onLost)} /></> : null}
-        {columnKey === 'scheduled' ? <><SmallAction label="Chegou" tone="blue" onClick={(event) => stop(event, () => onMove('showed_up'))} /><SmallAction label="Reagendar" onClick={(event) => stop(event, onSchedule)} /><SmallAction label="Venda" tone="green" onClick={(event) => stop(event, onSale)} /><SmallAction label="Cancelou" tone="orange" onClick={(event) => stop(event, onCancel)} /><SmallAction label="Faltou" onClick={(event) => stop(event, () => onMove('no_show'))} /></> : null}
-        {columnKey === 'appointment_cancelled' || columnKey === 'no_show' ? <><SmallAction label="Reagendar" tone="red" onClick={(event) => stop(event, onSchedule)} /><SmallAction label="Venda" tone="green" onClick={(event) => stop(event, onSale)} /><SmallAction label="Perda" tone="red" onClick={(event) => stop(event, onLost)} /></> : null}
+        {columnKey === 'new_lead' ? <><SmallAction label={lead.has_phone ? 'WhatsApp' : 'Atender'} tone="green" icon={<MessageCircle size={12} />} onClick={(event) => stop(event, onStart)} /><SmallAction label="Perda" tone="red" onClick={(event) => stop(event, onLost)} /></> : null}
+        {columnKey === 'in_service' ? <><SmallAction label="Agendar" tone="red" icon={<CalendarDays size={12} />} onClick={(event) => stop(event, onSchedule)} /><SmallAction label="Perda" tone="red" onClick={(event) => stop(event, onLost)} /></> : null}
+        {columnKey === 'scheduled' ? <><SmallAction label="Chegou" tone="blue" onClick={(event) => stop(event, () => onMove('showed_up'))} /><SmallAction label="Reagendar" onClick={(event) => stop(event, onSchedule)} /><SmallAction label="Cancelou" tone="orange" onClick={(event) => stop(event, onCancel)} /><SmallAction label="Faltou" onClick={(event) => stop(event, () => onMove('no_show'))} /></> : null}
+        {columnKey === 'appointment_cancelled' || columnKey === 'no_show' ? <><SmallAction label="Reagendar" tone="red" onClick={(event) => stop(event, onSchedule)} /><SmallAction label="Perda" tone="red" onClick={(event) => stop(event, onLost)} /></> : null}
         {columnKey === 'showed_up' ? <><SmallAction label="Venda" tone="green" onClick={(event) => stop(event, onSale)} /><SmallAction label="Perda" tone="red" onClick={(event) => stop(event, onLost)} /></> : null}
         {columnKey === 'sale_confirmed' ? <SmallAction label="Cancelar venda" tone="orange" icon={<RotateCcw size={12} />} onClick={(event) => stop(event, onReopen)} /> : null}
         {columnKey === 'lost' ? <SmallAction label="Reabrir" tone="blue" icon={<RotateCcw size={12} />} onClick={(event) => stop(event, onReopen)} /> : null}
@@ -779,7 +759,7 @@ function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onO
 
 function SmallAction({ label, onClick, icon, tone = 'default' }: { label: string; onClick: (event: any) => void; icon?: ReactNode; tone?: 'default' | 'green' | 'red' | 'orange' | 'blue' }) {
   const className = { default: 'border-zinc-200 bg-white text-zinc-600', green: 'border-emerald-600 bg-emerald-600 text-white', red: 'border-red-600 bg-red-600 text-white', orange: 'border-orange-500 bg-orange-500 text-white', blue: 'border-blue-600 bg-blue-600 text-white' }[tone];
-  return <button className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition hover:-translate-y-0.5 ${className}`} type="button" onClick={onClick} title={label} aria-label={label}>{icon || <span aria-hidden="true" className="text-sm font-black leading-none">{actionSymbols[label] || '•'}</span>}<span className="sr-only">{label}</span></button>;
+  return <button className={`inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-[10px] font-black uppercase ${className}`} type="button" onClick={onClick}>{icon} {label}</button>;
 }
 
 function Field({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; type?: string }) {
