@@ -117,10 +117,9 @@ export function StorePipelineResponsibleTopbar() {
     };
 
     attach();
-    const observer = new MutationObserver(attach);
-    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('pipeline-dom-sync', attach);
     return () => {
-      observer.disconnect();
+      window.removeEventListener('pipeline-dom-sync', attach);
       cancelAnimationFrame(raf);
       document.querySelector('[data-pipeline-responsible-host]')?.remove();
       document.querySelector('[data-pipeline-owner-host]')?.remove();
