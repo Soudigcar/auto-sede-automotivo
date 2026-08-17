@@ -12,6 +12,18 @@ function shadowFrom(result: any) {
   return result?.result?.shadow || result?.shadow || null;
 }
 
+function protectedActionGateReason(shadow: any) {
+  const actions = Array.isArray(shadow?.proposed_actions) ? shadow.proposed_actions : [];
+  const protectedAction = actions.find((action: any) => {
+    const effect = String(action?.decision?.effect || '');
+    return effect === 'handoff' || effect === 'approval';
+  });
+  if (!protectedAction) return '';
+
+  const capability = String(protectedAction?.capability || 'ação protegida');
+  return `Vehicle State bloqueado porque ${capability} exige atendimento ou aprovação humana antes de qualquer alteração de CRM.`;
+}
+
 function isLiveRuntimeEnvironment() {
   return ['preview', 'production'].includes(String(process.env.VERCEL_ENV || '').trim());
 }
@@ -170,7 +182,8 @@ export async function attemptAutocarVehicleStatePilot(input: {
   const vehicleId = semanticVehicleId(shadow);
   const shadowClaimId = input.shadowResult?.result?.claim?.id || null;
   const effectiveMode = String(input.shadowResult?.result?.effectiveMode || input.shadowResult?.result?.claim?.effective_mode || 'autopilot');
-  const gateReason = vehicleId ? null : 'Nenhum veículo principal semanticamente inequívoco foi validado no contexto de visita.';
+  const protectedGateReason = protectedActionGateReason(shadow);
+  const gateReason = protectedGateReason || (vehicleId ? null : 'Nenhum veículo principal semanticamente inequívoco foi validado no contexto de visita.');
 
   const claimResult = await createClaim({
     storeId: input.storeId,
@@ -186,7 +199,7 @@ export async function attemptAutocarVehicleStatePilot(input: {
   if (claimResult.duplicate) {
     return { updated: false, duplicate: true, claim: claimResult.claim, reason: 'Claim Vehicle State já existe; nenhuma nova alteração será executada.' };
   }
-  if (!vehicleId || !claimResult.claim?.id) {
+  if (gateReason || !vehicleId || !claimResult.claim?.id) {
     return { updated: false, skipped: true, claim: claimResult.claim, reason: gateReason || 'Vehicle State não ficou elegível.' };
   }
 
