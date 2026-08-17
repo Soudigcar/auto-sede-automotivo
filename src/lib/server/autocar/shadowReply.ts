@@ -13,6 +13,7 @@ import {
   consultAutocarVehiclePhotos
 } from '@/lib/server/autocar/operationalTools';
 import { evolutionDisplayBody } from '@/lib/server/evolutionMessage';
+import { autocarVisionContextText } from '@/lib/server/autocar/visionPipeline';
 
 const shadowCapabilities: AutocarCapability[] = [
   'respond_first_contact', 'qualify_lead', 'consult_stock', 'send_vehicles', 'send_photos',
@@ -77,6 +78,21 @@ function saoPauloNow() {
   }).format(new Date());
 }
 
+function conversationBody(message: any) {
+  const displayed = evolutionDisplayBody(message.body, message.raw_payload);
+  if (String(message.message_type || '') !== 'image') return displayed;
+
+  const visionContext = autocarVisionContextText(message.raw_payload);
+  if (!visionContext) return displayed;
+
+  const caption = String(displayed || '').trim();
+  const hasUsefulCaption = Boolean(caption && caption !== '[Imagem]');
+  return [
+    hasUsefulCaption ? `Legenda do cliente: ${caption}` : 'Imagem enviada pelo cliente.',
+    `Contexto visual AUTOCAR Vision V1: ${visionContext}`
+  ].join(' ');
+}
+
 async function buildOperationalPreview(input: {
   productionSupabase: any;
   storeId: string;
@@ -90,6 +106,7 @@ async function buildOperationalPreview(input: {
     'Use a conversa recente para resolver referências naturais como dele, dela, esse, essa, aquele, aquela, o carro, esse modelo ou expressões equivalentes.',
     'Não use listas de palavras ou correspondência literal como decisão: interprete o sentido da conversa e a referência pretendida.',
     'Uma referência contextual só pode apontar para um veículo quando o histórico recente identificar de forma inequívoca um único veículo existente no estoque fornecido.',
+    'Contexto visual de imagem é evidência auxiliar e nunca substitui o estoque como fonte oficial de identificação/disponibilidade do veículo.',
     'Se houver ambiguidade entre dois ou mais veículos plausíveis, não escolha: deixe photo_vehicle_id vazio.',
     'Não carregue automaticamente uma intenção operacional antiga para uma nova mensagem independente; só mantenha a intenção quando a mensagem atual for continuação semântica clara do pedido anterior.',
     `Agora em America/Sao_Paulo: ${saoPauloNow()}. Resolva datas relativas como hoje, amanhã, sábado para YYYY-MM-DD.`,
@@ -168,11 +185,14 @@ export async function generateAutocarShadowReply(input: {
   if (commercialError) throw commercialError;
 
   const transcript = (messages || []).reverse().map((message: any) => ({
-    id: message.id, direction: String(message.direction || ''), type: String(message.message_type || 'text'),
-    body: evolutionDisplayBody(message.body, message.raw_payload), sent_at: message.sent_at || message.created_at || null
+    id: message.id,
+    direction: String(message.direction || ''),
+    type: String(message.message_type || 'text'),
+    body: conversationBody(message),
+    sent_at: message.sent_at || message.created_at || null
   })).filter((message: any) => Boolean(String(message.body || '').trim()));
   const lastInbound = [...transcript].reverse().find((message) => message.direction === 'inbound');
-  if (!lastInbound?.body) throw new Error('A conversa não possui mensagem inbound textual suficiente para o Shadow Mode.');
+  if (!lastInbound?.body) throw new Error('A conversa não possui mensagem inbound textual ou visual suficiente para o Shadow Mode.');
 
   const intelligence = await buildAutocarIntelligenceContext({
     storeId: input.storeId, query: String(lastInbound.body).slice(0, 6000), mode: 'autopilot', inventorySupabase: input.productionSupabase
@@ -193,6 +213,9 @@ export async function generateAutocarShadowReply(input: {
     autocarModeInstructions('autopilot'),
     'Você é a AUTOCAR em SHADOW MODE: produza exatamente a resposta textual que seria enviada ao cliente, mas não execute nem envie nada.',
     'O backend já determinou a loja e a conversa. Nunca escolha, altere ou peça store_id.',
+    'Contexto visual AUTOCAR Vision V1 é evidência descritiva auxiliar. Nunca trate inferência visual de marca/modelo, dano, quilometragem ou painel como fato oficial quando não houver confirmação no CRM/estoque.',
+    'Se a análise visual indicar documento ou dados pessoais, não peça nem repita CPF, CNH, placa, endereço ou identificadores extraídos da imagem nesta fase.',
+    'Nunca transforme dano visual aparente em laudo, diagnóstico mecânico ou avaliação definitiva de troca.',
     'Use operational_preview como fonte oficial para horário, disponibilidade, localização e fotos. Nunca contradiga essa ferramenta.',
     'Se operational_preview indicar dado não configurado, diga de forma natural que precisa confirmar essa informação; nunca invente.',
     'Se availability.available for false, não confirme o horário solicitado. Se for true, você pode dizer que o horário está disponível, mas proposed_actions deve incluir schedule_visit ou schedule_test_drive, pois o agendamento ainda não foi criado.',
