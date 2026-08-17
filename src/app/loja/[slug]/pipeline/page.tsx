@@ -7,15 +7,14 @@ import {
   ArrowRightLeft,
   BarChart3,
   CalendarCheck,
-  CalendarClock,
   CalendarDays,
   CheckCircle2,
   Clock3,
   Edit3,
-  Eye,
   ListTodo,
   Loader2,
   MessageCircle,
+  Plus,
   RotateCcw,
   Save,
   Trash2,
@@ -101,16 +100,6 @@ function formatDateTime(value: unknown) {
   return date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-function formatLeadAge(value: unknown) {
-  const createdAt = new Date(String(value || '')).getTime();
-  if (Number.isNaN(createdAt)) return 'sem data';
-  const diff = Date.now() - createdAt;
-  if (diff < 60_000) return 'agora';
-  if (diff < 3_600_000) return `há ${Math.max(1, Math.floor(diff / 60_000))} min`;
-  if (diff < 86_400_000) return `há ${Math.floor(diff / 3_600_000)}h`;
-  return `há ${Math.floor(diff / 86_400_000)}d`;
-}
-
 function toInputDate(value: unknown) {
   if (!value) return '';
   const date = new Date(String(value));
@@ -127,6 +116,11 @@ function toInputTime(value: unknown) {
 
 function readableOrigin(value: unknown) {
   return String(value || 'Manual').replace(/_/g, ' ');
+}
+
+function leadInitials(value: unknown) {
+  const parts = String(value || 'Lead').split(' ').map((part) => part.trim()).filter(Boolean);
+  return ((parts[0]?.[0] || 'L') + (parts[1]?.[0] || '')).toUpperCase();
 }
 
 function defaultTaskSlot() {
@@ -335,8 +329,10 @@ export default function StoreSlugPipelinePage() {
       setLeads((current) => current.map((item) => item.id === lead.id ? { ...item, customer_phone: result.phone, customer_phone_masked: result.phone } : item));
       if (editingLead?.id === lead.id) setEditPhone(result.phone || '');
       setMessage('Telefone liberado e visualização registrada.');
+      return String(result.phone || '');
     } catch (error: any) {
       setMessage(error?.message || 'Não foi possível visualizar o telefone.');
+      return '';
     }
   }
 
@@ -349,6 +345,20 @@ export default function StoreSlugPipelinePage() {
     } catch {
       popup?.close();
     }
+  }
+
+  async function openWhatsapp(lead: PipelineLead) {
+    if (lead.status === 'new_lead') {
+      await startService(lead);
+      return;
+    }
+
+    const popup = lead.has_phone ? window.open('about:blank', '_blank', 'noopener,noreferrer') : null;
+    const phone = await revealPhone(lead);
+    const number = phone.replace(/\D/g, '');
+
+    if (number && popup) popup.location.href = `https://wa.me/${number}`;
+    else popup?.close();
   }
 
   function openSchedule(lead: PipelineLead) {
@@ -605,7 +615,7 @@ export default function StoreSlugPipelinePage() {
                         <span className={`rounded-full px-3 py-1 text-xs font-black ${styles.badge}`}>{column.leads.length}</span>
                       </div>
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-1">
                       {column.leads.map((lead) => (
                         <LeadCard
                           key={lead.id}
@@ -617,7 +627,7 @@ export default function StoreSlugPipelinePage() {
                           onDragEnd={() => { setDraggedLeadId(null); setDragOverColumn(null); }}
                           onOpen={() => void openEditor(lead)}
                           onReveal={() => void revealPhone(lead)}
-                          onStart={() => void startService(lead)}
+                          onWhatsapp={() => void openWhatsapp(lead)}
                           onSchedule={() => openSchedule(lead)}
                           onMove={(target) => void moveLead(lead, target)}
                           onCancel={() => { setCancelLead(lead); setCancelReason(''); }}
@@ -712,7 +722,7 @@ export default function StoreSlugPipelinePage() {
   );
 }
 
-function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onOpen, onReveal, onStart, onSchedule, onMove, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
+function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onOpen, onReveal, onWhatsapp, onSchedule, onMove, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
   lead: PipelineLead;
   columnKey: string;
   tone: string;
@@ -721,7 +731,7 @@ function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onO
   onDragEnd: () => void;
   onOpen: () => void;
   onReveal: () => void;
-  onStart: () => void;
+  onWhatsapp: () => void;
   onSchedule: () => void;
   onMove: (target: string) => void;
   onCancel: () => void;
@@ -731,35 +741,163 @@ function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onO
   onTask: () => void;
   onTransfer: () => void;
 }) {
+  const [moreOpen, setMoreOpen] = useState(false);
   const styles = toneStyles[tone];
   const phone = lead.customer_phone || lead.customer_phone_masked || 'Sem telefone';
+  const name = lead.customer_name || 'Cliente sem nome';
+  const canSchedule = ['in_service', 'scheduled', 'appointment_cancelled', 'no_show'].includes(columnKey);
   const stop = (event: any, action: () => void) => { event.stopPropagation(); action(); };
+  const runMoreAction = (event: any, action: () => void) => stop(event, () => {
+    setMoreOpen(false);
+    action();
+  });
+
   return (
-    <div data-lead-id={lead.id} role="button" tabIndex={0} draggable onClick={onOpen} onKeyDown={(event) => event.key === 'Enter' && onOpen()} onDragStart={onDragStart} onDragEnd={onDragEnd} className={`cursor-pointer rounded-2xl border border-zinc-100 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${dragging ? 'opacity-50 ring-2 ring-red-300' : ''}`}>
-      <div className="flex items-start justify-between gap-2"><div className="min-w-0 flex-1"><h3 className="break-words text-[13px] font-black text-zinc-950">{lead.customer_name || 'Cliente sem nome'}</h3><p className="mt-1 break-words text-[11px] font-bold text-zinc-500">{lead.interested_vehicle || 'Interesse não informado'}</p></div><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${styles.badge}`}>{statusLabels[lead.status] || lead.status}</span></div>
-      <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={(event) => stop(event, onReveal)} className="rounded-full bg-zinc-50 px-2 py-1 text-[10px] font-black text-zinc-500"><Eye size={11} className="mr-1 inline" />{phone}</button><span className="rounded-full bg-zinc-50 px-2 py-1 text-[10px] font-black uppercase text-zinc-500">{readableOrigin(lead.origin)}</span><span className="rounded-full bg-zinc-900 px-2 py-1 text-[10px] font-black uppercase text-white">{formatLeadAge(lead.created_at)}</span></div>
-      {lead.scheduled_at ? <div className="mt-2 rounded-xl bg-zinc-50 p-2 text-[11px] text-zinc-600"><p className="flex items-center gap-1.5 font-black text-zinc-900"><CalendarClock size={13} /> {formatDateTime(lead.scheduled_at)}</p>{lead.appointment_notes ? <p className="mt-1">{lead.appointment_notes}</p> : null}</div> : null}
-      {columnKey === 'appointment_cancelled' ? <div className="mt-2 rounded-xl bg-orange-50 p-2 text-[11px] text-orange-800"><p className="font-black">Cancelado {formatDateTime(lead.appointment_cancelled_at)}</p><p className="mt-1">{lead.appointment_cancelled_reason}</p></div> : null}
-      {columnKey === 'lost' ? <div className="mt-2 rounded-xl bg-red-50 p-2 text-[11px] text-red-700"><p className="font-black">Motivo da perda</p><p className="mt-1">{lead.lost_reason || 'Perda registrada'}</p></div> : null}
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        <SmallAction label="Editar" icon={<Edit3 size={12} />} onClick={(event) => stop(event, onOpen)} />
-        <SmallAction label="Tarefa" icon={<ListTodo size={12} />} onClick={(event) => stop(event, onTask)} />
-        <SmallAction label="Transferir" icon={<ArrowRightLeft size={12} />} onClick={(event) => stop(event, onTransfer)} />
-        {columnKey === 'new_lead' ? <><SmallAction label={lead.has_phone ? 'WhatsApp' : 'Atender'} tone="green" icon={<MessageCircle size={12} />} onClick={(event) => stop(event, onStart)} /><SmallAction label="Perda" tone="red" onClick={(event) => stop(event, onLost)} /></> : null}
-        {columnKey === 'in_service' ? <><SmallAction label="Agendar" tone="red" icon={<CalendarDays size={12} />} onClick={(event) => stop(event, onSchedule)} /><SmallAction label="Perda" tone="red" onClick={(event) => stop(event, onLost)} /></> : null}
-        {columnKey === 'scheduled' ? <><SmallAction label="Chegou" tone="blue" onClick={(event) => stop(event, () => onMove('showed_up'))} /><SmallAction label="Reagendar" onClick={(event) => stop(event, onSchedule)} /><SmallAction label="Cancelou" tone="orange" onClick={(event) => stop(event, onCancel)} /><SmallAction label="Faltou" onClick={(event) => stop(event, () => onMove('no_show'))} /></> : null}
-        {columnKey === 'appointment_cancelled' || columnKey === 'no_show' ? <><SmallAction label="Reagendar" tone="red" onClick={(event) => stop(event, onSchedule)} /><SmallAction label="Perda" tone="red" onClick={(event) => stop(event, onLost)} /></> : null}
-        {columnKey === 'showed_up' ? <><SmallAction label="Venda" tone="green" onClick={(event) => stop(event, onSale)} /><SmallAction label="Perda" tone="red" onClick={(event) => stop(event, onLost)} /></> : null}
-        {columnKey === 'sale_confirmed' ? <SmallAction label="Cancelar venda" tone="orange" icon={<RotateCcw size={12} />} onClick={(event) => stop(event, onReopen)} /> : null}
-        {columnKey === 'lost' ? <SmallAction label="Reabrir" tone="blue" icon={<RotateCcw size={12} />} onClick={(event) => stop(event, onReopen)} /> : null}
+    <div
+      data-lead-id={lead.id}
+      data-pipeline-card-v2="true"
+      role="button"
+      tabIndex={0}
+      draggable
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.target === event.currentTarget && event.key === 'Enter') onOpen();
+      }}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className={`cursor-pointer rounded-xl border border-zinc-100 bg-white p-1.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${dragging ? 'opacity-50 ring-2 ring-red-300' : ''}`}
+    >
+      <div className="flex min-h-9 items-start gap-1.5">
+        <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[9px] font-black ${styles.badge}`}>
+          {leadInitials(name)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-[10px] font-black leading-3 text-zinc-950">{name}</h3>
+          <button
+            type="button"
+            onClick={(event) => stop(event, onReveal)}
+            className="mt-0.5 block max-w-full truncate text-left text-[9px] font-bold leading-3 text-zinc-500 hover:text-red-600"
+            title="Visualizar telefone completo"
+          >
+            {phone}
+          </button>
+          <p className="truncate text-[8px] font-black uppercase leading-3 text-zinc-400">{readableOrigin(lead.origin)}</p>
+        </div>
       </div>
+
+      <div className="mt-1 grid grid-cols-4 gap-1">
+        <CompactIconAction
+          label="WhatsApp"
+          tone="green"
+          icon={<MessageCircle size={12} />}
+          disabled={!lead.has_phone}
+          onClick={(event) => stop(event, onWhatsapp)}
+        />
+        <CompactIconAction
+          label="Tarefa"
+          icon={<ListTodo size={12} />}
+          onClick={(event) => stop(event, onTask)}
+        />
+        <CompactIconAction
+          label={columnKey === 'scheduled' ? 'Reagendar' : 'Agendar'}
+          tone="amber"
+          icon={<CalendarDays size={12} />}
+          disabled={!canSchedule}
+          disabledTitle="Disponível após iniciar o atendimento"
+          onClick={(event) => stop(event, onSchedule)}
+        />
+        <CompactIconAction
+          label={moreOpen ? 'Fechar ações' : 'Mais ações'}
+          icon={<Plus size={13} className={moreOpen ? 'rotate-45 transition' : 'transition'} />}
+          expanded={moreOpen}
+          onClick={(event) => stop(event, () => setMoreOpen((current) => !current))}
+        />
+      </div>
+
+      {moreOpen ? (
+        <div
+          className="mt-1.5 grid grid-cols-2 gap-1 rounded-lg border border-zinc-100 bg-zinc-50 p-1.5"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <CompactMenuAction label="Editar" icon={<Edit3 size={11} />} onClick={(event) => runMoreAction(event, onOpen)} />
+          <CompactMenuAction label="Transferir" icon={<ArrowRightLeft size={11} />} onClick={(event) => runMoreAction(event, onTransfer)} />
+          {columnKey === 'new_lead' && !lead.has_phone ? <CompactMenuAction label="Atender" tone="green" onClick={(event) => runMoreAction(event, onWhatsapp)} /> : null}
+          {columnKey === 'new_lead' ? <CompactMenuAction label="Perda" tone="red" onClick={(event) => runMoreAction(event, onLost)} /> : null}
+          {columnKey === 'in_service' ? <CompactMenuAction label="Perda" tone="red" onClick={(event) => runMoreAction(event, onLost)} /> : null}
+          {columnKey === 'scheduled' ? <>
+            <CompactMenuAction label="Chegou" tone="blue" onClick={(event) => runMoreAction(event, () => onMove('showed_up'))} />
+            <CompactMenuAction label="Cancelou" tone="orange" onClick={(event) => runMoreAction(event, onCancel)} />
+            <CompactMenuAction label="Faltou" onClick={(event) => runMoreAction(event, () => onMove('no_show'))} />
+          </> : null}
+          {columnKey === 'appointment_cancelled' || columnKey === 'no_show' ? <CompactMenuAction label="Perda" tone="red" onClick={(event) => runMoreAction(event, onLost)} /> : null}
+          {columnKey === 'showed_up' ? <>
+            <CompactMenuAction label="Venda" tone="green" onClick={(event) => runMoreAction(event, onSale)} />
+            <CompactMenuAction label="Perda" tone="red" onClick={(event) => runMoreAction(event, onLost)} />
+          </> : null}
+          {columnKey === 'sale_confirmed' ? <CompactMenuAction label="Cancelar venda" tone="orange" icon={<RotateCcw size={11} />} onClick={(event) => runMoreAction(event, onReopen)} /> : null}
+          {columnKey === 'lost' ? <CompactMenuAction label="Reabrir" tone="blue" icon={<RotateCcw size={11} />} onClick={(event) => runMoreAction(event, onReopen)} /> : null}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function SmallAction({ label, onClick, icon, tone = 'default' }: { label: string; onClick: (event: any) => void; icon?: ReactNode; tone?: 'default' | 'green' | 'red' | 'orange' | 'blue' }) {
-  const className = { default: 'border-zinc-200 bg-white text-zinc-600', green: 'border-emerald-600 bg-emerald-600 text-white', red: 'border-red-600 bg-red-600 text-white', orange: 'border-orange-500 bg-orange-500 text-white', blue: 'border-blue-600 bg-blue-600 text-white' }[tone];
-  return <button className={`inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-[10px] font-black uppercase ${className}`} type="button" onClick={onClick}>{icon} {label}</button>;
+function CompactIconAction({ label, onClick, icon, tone = 'default', disabled = false, disabledTitle, expanded }: {
+  label: string;
+  onClick: (event: any) => void;
+  icon: ReactNode;
+  tone?: 'default' | 'green' | 'amber';
+  disabled?: boolean;
+  disabledTitle?: string;
+  expanded?: boolean;
+}) {
+  const className = {
+    default: 'border-zinc-200 bg-white text-zinc-600 hover:border-red-200 hover:text-red-600',
+    green: 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
+    amber: 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+  }[tone];
+
+  return (
+    <button
+      className={`flex h-[23px] min-w-0 items-center justify-center rounded-md border transition disabled:cursor-not-allowed disabled:opacity-35 ${className}`}
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={disabled ? disabledTitle || label : label}
+      aria-label={disabled ? disabledTitle || label : label}
+      aria-expanded={expanded}
+    >
+      {icon}
+      <span className="sr-only">{label}</span>
+    </button>
+  );
+}
+
+function CompactMenuAction({ label, onClick, icon, tone = 'default' }: {
+  label: string;
+  onClick: (event: any) => void;
+  icon?: ReactNode;
+  tone?: 'default' | 'green' | 'red' | 'orange' | 'blue';
+}) {
+  const className = {
+    default: 'border-zinc-200 bg-white text-zinc-600',
+    green: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    red: 'border-red-200 bg-red-50 text-red-700',
+    orange: 'border-orange-200 bg-orange-50 text-orange-700',
+    blue: 'border-blue-200 bg-blue-50 text-blue-700'
+  }[tone];
+
+  return (
+    <button
+      className={`inline-flex min-h-7 min-w-0 items-center justify-center gap-1 rounded-md border px-1.5 text-[8px] font-black uppercase leading-none transition hover:brightness-95 ${className}`}
+      type="button"
+      onClick={onClick}
+      title={label}
+    >
+      {icon}
+      <span className="truncate">{label}</span>
+    </button>
+  );
 }
 
 function Field({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; type?: string }) {
