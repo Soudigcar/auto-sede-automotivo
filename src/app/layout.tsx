@@ -16,7 +16,6 @@ import { StorePipelineNewLeadButton } from '@/components/StorePipelineNewLeadBut
 import { StorePipelineScheduleUxBridge } from '@/components/StorePipelineScheduleUxBridge';
 import { StorePipelineNewLeadScheduleButton } from '@/components/StorePipelineNewLeadScheduleButton';
 import { StorePipelineSaleActionBridge } from '@/components/StorePipelineSaleActionBridge';
-import { StorePipelineCompactCardsUx } from '@/components/StorePipelineCompactCardsUx';
 import { StoreWhatsappRealtimeSync } from '@/components/StoreWhatsappRealtimeSync';
 import { StoreWhatsappHeaderActionsUx } from '@/components/StoreWhatsappHeaderActionsUx';
 
@@ -45,7 +44,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StorePipelineScheduleUxBridge />
         <StorePipelineNewLeadScheduleButton />
         <StorePipelineSaleActionBridge />
-        <StorePipelineCompactCardsUx />
         <StoreWhatsappRealtimeSync />
         <StoreWhatsappHeaderActionsUx />
       </body>
