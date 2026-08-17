@@ -66,23 +66,6 @@ const bankOptions = [
 
 const installmentOptions = ['12', '24', '36', '48', '60'];
 
-function normalized(value: unknown) {
-  return String(value || '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('pt-BR');
-}
-
-function findLegacySaleModal() {
-  const candidates = Array.from(document.querySelectorAll<HTMLElement>('div.fixed.inset-0.z-50'));
-  return candidates.find((candidate) =>
-    normalized(candidate.querySelector('h2')?.textContent) === 'confirmar venda'
-  ) || null;
-}
-
-function cardLeadId(target: EventTarget | null) {
-  const element = target instanceof HTMLElement ? target : null;
-  const card = element?.closest<HTMLElement>('[data-pipeline-card="true"], [role="button"][draggable="true"]');
-  return card?.dataset.leadId || '';
-}
-
 function moneyInput(value: unknown) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) return '';
