@@ -106,7 +106,8 @@ export async function readAutocarClaimTelemetry(autocar: any) {
     const visionUsage = row.result?.vision?.usage || {};
     const documentUsage = row.result?.document?.usage || {};
     const visionReady = row.result?.vision?.ready === true;
-    const documentReady = row.result?.document?.ready === true;
+    const documentReady = row.result?.document?.ready === true &&
+      Boolean(String(row.result?.document?.document_type || '').trim());
     const isHumanBlock = /pausada nesta conversa|human_active|atendimento humano/i.test(String(row.result?.reason || ''));
     const externalExecution = row.result?.external_execution === true;
 
