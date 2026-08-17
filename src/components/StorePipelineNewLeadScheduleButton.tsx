@@ -58,12 +58,11 @@ export function StorePipelineNewLeadScheduleButton() {
     };
 
     normalize();
-    const observer = new MutationObserver(normalize);
-    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('pipeline-dom-sync', normalize);
     window.addEventListener('resize', normalize);
 
     return () => {
-      observer.disconnect();
+      window.removeEventListener('pipeline-dom-sync', normalize);
       window.removeEventListener('resize', normalize);
       window.cancelAnimationFrame(frame);
       document.querySelectorAll('[data-new-lead-schedule-button]').forEach((button) => button.remove());

@@ -105,11 +105,10 @@ export function StorePipelineCompactCardsUx() {
     };
 
     sync();
-    const observer = new MutationObserver(sync);
-    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('pipeline-dom-sync', sync);
 
     return () => {
-      observer.disconnect();
+      window.removeEventListener('pipeline-dom-sync', sync);
       if (frame !== null) window.cancelAnimationFrame(frame);
       cleanupCompactCards();
     };

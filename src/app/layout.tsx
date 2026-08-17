@@ -7,6 +7,7 @@ import { PipelineSaleConfirmation } from '@/components/PipelineSaleConfirmation'
 import { StoreCalendarRealtimeSync } from '@/components/StoreCalendarRealtimeSync';
 import { StoreTeamManualMember } from '@/components/StoreTeamManualMember';
 import { OlxSharedTextNormalizerBridge } from '@/components/OlxSharedTextNormalizerBridge';
+import { StorePipelineDomSync } from '@/components/StorePipelineDomSync';
 import { StorePipelineAuraTheme } from '@/components/StorePipelineAuraTheme';
 import { StoreAiIdentityBoundary } from '@/components/StoreAiIdentityBoundary';
 import { StorePipelineCockpitUx } from '@/components/StorePipelineCockpitUx';
@@ -36,6 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StoreCalendarRealtimeSync />
         <StoreTeamManualMember />
         <OlxSharedTextNormalizerBridge />
+        <StorePipelineDomSync />
         <StorePipelineAuraTheme />
         <StoreAiIdentityBoundary />
         <StorePipelineCockpitUx />
