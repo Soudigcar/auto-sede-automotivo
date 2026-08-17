@@ -1,6 +1,7 @@
 import { evaluateAutocarPolicy } from '@/lib/server/autocar/policyEngine';
 import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 import { attemptAutocarLiveAudioPilot } from '@/lib/server/autocar/liveAudioPilot';
+import { attemptAutocarHumanHandoffPilot } from '@/lib/server/autocar/liveHumanHandoffPilot';
 import { sendEvolutionText } from '@/lib/server/evolution';
 
 const LIVE_PURPOSE = 'live_text_send';
@@ -221,12 +222,32 @@ export async function attemptAutocarLiveTextPilot(input: {
     .maybeSingle();
   if (inboundError) throw inboundError;
 
+  const shadow = shadowFrom(input.shadowResult);
+  if (!shadow) return { sent: false, skipped: true, reason: 'AUTO-SHADOW não produziu resposta concluída.' };
+
+  const handoff = await attemptAutocarHumanHandoffPilot({
+    productionSupabase: input.productionSupabase,
+    storeId: input.storeId,
+    conversationId: input.conversationId,
+    whatsappNumberId: input.whatsappNumberId,
+    inboundMessageId: input.inboundMessageId,
+    integration: input.integration,
+    shadowResult: input.shadowResult
+  });
+  if (handoff?.handed_off) {
+    return {
+      sent: handoff?.sent === true,
+      live_pilot: true,
+      handoff: true,
+      human_handoff: handoff,
+      claim: handoff?.claim || null,
+      reason: handoff?.reason || 'Conversa transferida para atendimento humano.'
+    };
+  }
+
   if (String(inbound?.message_type || '') === 'audio') {
     return attemptAutocarLiveAudioPilot(input);
   }
-
-  const shadow = shadowFrom(input.shadowResult);
-  if (!shadow) return { sent: false, skipped: true, reason: 'AUTO-SHADOW não produziu resposta concluída.' };
 
   const response = String(shadow.response || '').trim().slice(0, 3500);
   const gateReason = liveGateReason(shadow);
