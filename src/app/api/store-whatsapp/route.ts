@@ -1,12 +1,31 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import { getEvolutionProfilePictureUrl } from '@/lib/server/evolution';
 import { evolutionDisplayBody } from '@/lib/server/evolutionMessage';
 
 export const runtime = 'nodejs';
 
 function cleanText(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+const PROFILE_PICTURE_CACHE_MS = 24 * 60 * 60 * 1_000;
+
+function profilePictureMetadata(contact: any) {
+  const metadata = contact?.metadata && typeof contact.metadata === 'object'
+    ? contact.metadata
+    : {};
+  const url = cleanText(metadata.profile_picture_url || metadata.profilePictureUrl);
+  const updatedAt = cleanText(metadata.profile_picture_updated_at);
+
+  return { metadata, url, updatedAt };
+}
+
+function hasFreshProfilePicture(url: string, updatedAt: string) {
+  if (!url || !updatedAt) return false;
+  const timestamp = Date.parse(updatedAt);
+  return Number.isFinite(timestamp) && Date.now() - timestamp < PROFILE_PICTURE_CACHE_MS;
 }
 
 function getAdminClient() {
@@ -297,7 +316,7 @@ export async function POST(request: Request) {
 
     const { data: conversation, error: conversationError } = await supabase
       .from('whatsapp_conversations')
-      .select('id, store_id, lead_id')
+      .select('id, store_id, lead_id, contact_id, whatsapp_number_id')
       .eq('id', conversationId)
       .eq('store_id', store.id)
       .maybeSingle();
@@ -319,6 +338,97 @@ export async function POST(request: Request) {
 
     if (!conversation || !canAccessConversation(profile, store, conversation, lead)) {
       return NextResponse.json({ error: 'Conversa não encontrada nesta loja.' }, { status: 404 });
+    }
+
+    if (action === 'load-profile-picture') {
+      if (!conversation.contact_id || !conversation.whatsapp_number_id) {
+        return NextResponse.json({ success: true, profile_picture_url: null });
+      }
+
+      const { data: contact, error: contactError } = await supabase
+        .from('whatsapp_contacts')
+        .select('id, wa_id, phone, metadata')
+        .eq('id', conversation.contact_id)
+        .eq('store_id', store.id)
+        .maybeSingle();
+
+      if (contactError) {
+        return NextResponse.json({ error: contactError.message }, { status: 400 });
+      }
+
+      if (!contact) {
+        return NextResponse.json({ error: 'Contato da conversa não encontrado.' }, { status: 404 });
+      }
+
+      const cached = profilePictureMetadata(contact);
+      if (hasFreshProfilePicture(cached.url, cached.updatedAt)) {
+        return NextResponse.json({
+          success: true,
+          profile_picture_url: cached.url,
+          profile_picture_updated_at: cached.updatedAt,
+          cached: true
+        });
+      }
+
+      const { data: integration, error: integrationError } = await supabase
+        .from('store_whatsapp_integrations')
+        .select('instance_name')
+        .eq('crm_number_id', conversation.whatsapp_number_id)
+        .eq('store_id', store.id)
+        .eq('scope', 'store')
+        .maybeSingle();
+
+      if (integrationError) {
+        return NextResponse.json({ error: integrationError.message }, { status: 400 });
+      }
+
+      let profilePictureUrl = cached.url;
+      const refreshedAt = new Date().toISOString();
+
+      if (integration?.instance_name) {
+        try {
+          profilePictureUrl =
+            (await getEvolutionProfilePictureUrl(
+              integration.instance_name,
+              contact.wa_id || contact.phone
+            )) || cached.url;
+        } catch (profilePictureError: any) {
+          console.warn('[Store WhatsApp] Foto do contato indisponível na Evolution.', {
+            conversationId,
+            contactId: contact.id,
+            error: profilePictureError?.message || String(profilePictureError)
+          });
+        }
+      }
+
+      if (profilePictureUrl && process.env.VERCEL_ENV === 'production') {
+        const { error: cacheError } = await supabase
+          .from('whatsapp_contacts')
+          .update({
+            metadata: {
+              ...cached.metadata,
+              profile_picture_url: profilePictureUrl,
+              profile_picture_updated_at: refreshedAt
+            }
+          })
+          .eq('id', contact.id)
+          .eq('store_id', store.id);
+
+        if (cacheError) {
+          console.warn('[Store WhatsApp] Não foi possível armazenar o cache da foto.', {
+            conversationId,
+            contactId: contact.id,
+            error: cacheError.message
+          });
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        profile_picture_url: profilePictureUrl || null,
+        profile_picture_updated_at: profilePictureUrl ? refreshedAt : null,
+        cached: Boolean(cached.url && profilePictureUrl === cached.url)
+      });
     }
 
     if (action === 'mark-read') {
