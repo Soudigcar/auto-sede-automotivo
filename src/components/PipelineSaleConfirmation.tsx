@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePathname } from 'next/navigation';
 import {
@@ -95,12 +95,10 @@ function parseMoney(value: unknown) {
   return Number.isFinite(number) ? number : null;
 }
 
-export function PipelineSaleConfirmation() {
+export function PipelineSaleConfirmation({ requestedLeadId, onClose, onCompleted }: { requestedLeadId: string | null; onClose: () => void; onCompleted?: () => void }) {
   const pathname = usePathname() || '';
   const active = /^\/loja\/[^/]+\/pipeline\/?$/.test(pathname);
   const supabase = useMemo(() => createClient(), []);
-  const pendingLeadId = useRef('');
-  const legacyModal = useRef<HTMLElement | null>(null);
 
   const [open, setOpen] = useState(false);
   const [leadId, setLeadId] = useState('');
@@ -157,28 +155,12 @@ export function PipelineSaleConfirmation() {
     setOutsideVehicleName('');
   }
 
-  function closeLegacyModal() {
-    const modal = legacyModal.current;
-    if (!modal) return;
-
-    modal.style.display = '';
-    modal.removeAttribute('aria-hidden');
-    modal.removeAttribute('data-sale-flow-replaced');
-
-    const buttons = Array.from(modal.querySelectorAll<HTMLButtonElement>('button'));
-    const closeButton = buttons.find((button) => normalized(button.textContent) === 'voltar')
-      || buttons.find((button) => button.getAttribute('aria-label')?.toLowerCase() === 'fechar')
-      || buttons[0];
-    closeButton?.click();
-    legacyModal.current = null;
-  }
-
   function close() {
     if (saving) return;
     setOpen(false);
     setLeadId('');
     resetForm();
-    closeLegacyModal();
+    onClose();
   }
 
   function changePaymentType(next: string) {
@@ -254,63 +236,17 @@ export function PipelineSaleConfirmation() {
   }
 
   useEffect(() => {
-    if (!active) return;
-
-    function rememberClick(event: MouseEvent) {
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      if (!target) return;
-      const button = target.closest<HTMLButtonElement>('button');
-      if (!button) return;
-      const label = normalized(button.textContent);
-      if (label === 'venda' || label === 'confirmar venda') {
-        const id = cardLeadId(target);
-        if (id) pendingLeadId.current = id;
-      }
+    if (!active || !requestedLeadId) {
+      setOpen(false);
+      setLeadId('');
+      return;
     }
 
-    function rememberDrag(event: DragEvent) {
-      const id = cardLeadId(event.target);
-      if (id) pendingLeadId.current = id;
-    }
-
-    function connect() {
-      const modal = findLegacySaleModal();
-      if (!modal || modal.dataset.saleFlowReplaced === 'true') return;
-
-      const currentLeadId = pendingLeadId.current;
-      modal.dataset.saleFlowReplaced = 'true';
-      modal.setAttribute('aria-hidden', 'true');
-      modal.style.display = 'none';
-      legacyModal.current = modal;
-      setLeadId(currentLeadId);
-      setOpen(true);
-
-      if (!currentLeadId) {
-        setMessage('Não foi possível identificar o lead. Feche esta janela e tente novamente pelo botão Venda do card.');
-        return;
-      }
-
-      void loadSale(currentLeadId);
-    }
-
-    document.addEventListener('click', rememberClick, true);
-    document.addEventListener('dragstart', rememberDrag, true);
-    const observer = new MutationObserver(connect);
-    observer.observe(document.body, { childList: true, subtree: true });
-    connect();
-
-    return () => {
-      document.removeEventListener('click', rememberClick, true);
-      document.removeEventListener('dragstart', rememberDrag, true);
-      observer.disconnect();
-      if (legacyModal.current) {
-        legacyModal.current.style.display = '';
-        legacyModal.current.removeAttribute('aria-hidden');
-        legacyModal.current.removeAttribute('data-sale-flow-replaced');
-      }
-      legacyModal.current = null;
-    };
-  }, [active]);
+    setLeadId(requestedLeadId);
+    setOpen(true);
+    resetForm();
+    void loadSale(requestedLeadId);
+  }, [active, requestedLeadId]);
 
   async function confirmSale(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -376,11 +312,8 @@ export function PipelineSaleConfirmation() {
       window.setTimeout(() => {
         setOpen(false);
         resetForm();
-        closeLegacyModal();
-        const refreshButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((button) =>
-          normalized(button.textContent).includes('atualizar pipeline')
-        );
-        refreshButton?.click();
+        onCompleted?.();
+        onClose();
       }, 900);
     } catch (error: any) {
       setSuccess(false);
