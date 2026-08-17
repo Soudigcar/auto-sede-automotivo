@@ -79,7 +79,7 @@ function money(value: number | null | undefined) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 }
 
-export function PipelineAddLeadWithStock() {
+export function PipelineAddLeadWithStock({ onSaved }: { onSaved?: () => void } = {}) {
   const pathname = usePathname() || '';
   const active = activeRoute(pathname);
   const supabase = useMemo(() => createClient(), []);
@@ -227,7 +227,10 @@ export function PipelineAddLeadWithStock() {
       setMessage(payload.message || 'Lead adicionado com sucesso.');
       const preservedStoreId = context?.role === 'master' ? form.store_id : context?.store?.id || '';
       setForm({ ...emptyForm, store_id: preservedStoreId });
-      window.setTimeout(refreshVisiblePipeline, 250);
+      window.setTimeout(() => {
+        onSaved?.();
+        if (!onSaved) refreshVisiblePipeline();
+      }, 250);
     } catch (error: any) {
       setSuccess(false);
       setMessage(error?.message || 'Não foi possível adicionar o lead.');
