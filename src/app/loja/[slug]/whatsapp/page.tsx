@@ -84,6 +84,22 @@ function conversationPhone(conversation: any) {
   return conversation?.contact?.phone || conversation?.lead?.customer_phone || conversation?.base_lead?.phone || '';
 }
 
+function conversationPicture(conversation: any) {
+  const contact = conversation?.contact || {};
+  const metadata = contact?.metadata || {};
+  return String(
+    contact?.profile_picture_url ||
+    contact?.profile_picture ||
+    contact?.avatar_url ||
+    contact?.photo_url ||
+    metadata?.profile_picture_url ||
+    metadata?.profilePictureUrl ||
+    metadata?.avatar_url ||
+    metadata?.photo_url ||
+    ''
+  ).trim();
+}
+
 function leadStatusLabel(status: any) {
   const labels: Record<string, string> = {
     new_lead: 'Novo Lead',
@@ -462,11 +478,33 @@ export default function StoreWhatsappPage() {
                       </div>
                     </div>
 
-                    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-[#f2f4f7] p-3 md:p-4">
+                    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-[#f2f4f7] p-3 md:p-4">
                       <div className="mx-auto mb-3 w-fit rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase text-zinc-400 shadow-sm">Histórico da conversa</div>
                       {messages.map((message) => {
                         const outbound = message.direction === 'outbound';
-                        return <div key={message.id} className={`flex ${outbound ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[82%] rounded-2xl px-4 py-3 shadow-sm md:max-w-[72%] ${outbound ? 'rounded-br-md bg-red-600 text-white' : 'rounded-bl-md border border-zinc-200 bg-white text-zinc-900'}`}><WhatsappMediaMessage message={message} outbound={outbound} /><div className={`mt-2 flex items-center justify-end gap-2 text-[9px] font-black uppercase ${outbound ? 'text-white/70' : 'text-zinc-400'}`}><span>{formatDateTime(message.sent_at || message.created_at)}</span><span>{message.status}</span></div></div></div>;
+                        const avatarUrl = outbound ? '' : conversationPicture(selectedConversation);
+                        const avatarName = outbound ? String(store?.store_name || 'Loja') : conversationName(selectedConversation);
+                        return (
+                          <div key={message.id} className={`flex items-end gap-1.5 ${outbound ? 'justify-end' : 'justify-start'}`}>
+                            {!outbound ? (
+                              <span className="mb-0.5 flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white bg-zinc-200 text-[9px] font-black text-zinc-600 shadow-sm" title={avatarName}>
+                                {avatarUrl ? <img src={avatarUrl} alt={avatarName} className="h-full w-full object-cover" /> : initials(avatarName)}
+                              </span>
+                            ) : null}
+                            <div className={`w-fit min-w-0 max-w-[78%] rounded-[14px] px-3 py-2 shadow-sm md:max-w-[64%] ${outbound ? 'rounded-br-[4px] bg-red-600 text-white' : 'rounded-bl-[4px] border border-zinc-200 bg-white text-zinc-900'}`}>
+                              <WhatsappMediaMessage message={message} outbound={outbound} />
+                              <div className={`mt-1 flex items-center justify-end gap-1.5 text-[8px] font-black uppercase leading-none ${outbound ? 'text-white/65' : 'text-zinc-400'}`}>
+                                <span>{formatDateTime(message.sent_at || message.created_at)}</span>
+                                <span>{message.status}</span>
+                              </div>
+                            </div>
+                            {outbound ? (
+                              <span className="mb-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100 text-[9px] font-black text-red-700 shadow-sm" title={avatarName}>
+                                {initials(avatarName)}
+                              </span>
+                            ) : null}
+                          </div>
+                        );
                       })}
                       {!messages.length ? <div className="flex h-full min-h-40 items-center justify-center p-6 text-center"><div><MessageCircle size={36} className="mx-auto text-zinc-300" /><p className="mt-3 text-sm font-black text-zinc-700">Nenhuma mensagem carregada</p><p className="mt-1 text-xs font-bold text-zinc-400">O histórico da conversa aparecerá aqui.</p></div></div> : null}
                     </div>
