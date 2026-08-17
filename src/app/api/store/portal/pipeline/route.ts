@@ -46,13 +46,38 @@ export async function GET(request: Request) {
       has_phone: Boolean(String(lead.customer_phone || '').replace(/\D/g, ''))
     }));
 
-    const metrics = {
-      total: leads.length,
+    const loadedMetrics = {
+      total: count || leads.length,
       scheduled: leads.filter((lead: any) => lead.status === 'scheduled').length,
       cancelled: leads.filter((lead: any) => lead.status === 'appointment_cancelled').length,
       sold: leads.filter((lead: any) => lead.status === 'sale_confirmed').length,
       lost: leads.filter((lead: any) => lead.status === 'lost').length
     };
+
+    const metrics = offset === 0 && (count || 0) > leads.length
+      ? await (async () => {
+          async function countStatus(status: string) {
+            let statusQuery = context.supabase
+              .from('leads')
+              .select('id', { count: 'exact', head: true })
+              .eq('assigned_store_id', context.store.id)
+              .eq('status', status);
+            statusQuery = applyStoreLeadScope(statusQuery, context.profile, context.role);
+            const { count: statusCount, error: statusError } = await statusQuery;
+            if (statusError) throw statusError;
+            return statusCount || 0;
+          }
+
+          const [scheduled, cancelled, sold, lost] = await Promise.all([
+            countStatus('scheduled'),
+            countStatus('appointment_cancelled'),
+            countStatus('sale_confirmed'),
+            countStatus('lost')
+          ]);
+
+          return { total: count || leads.length, scheduled, cancelled, sold, lost };
+        })()
+      : loadedMetrics;
 
     let team: Array<{ id: string; full_name: string; role: string; role_label: string }> = [];
 
