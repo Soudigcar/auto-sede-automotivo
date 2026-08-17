@@ -36,6 +36,23 @@ const columns = [
   { key: 'lost', title: 'Perdido', tone: 'red' }
 ] as const;
 
+const actionSymbols: Record<string, string> = {
+  Editar: '✎',
+  Tarefa: '☷',
+  Transferir: '⇄',
+  WhatsApp: '◉',
+  Atender: '◉',
+  Perda: '×',
+  Agendar: '□',
+  Chegou: '✓',
+  Reagendar: '↻',
+  Cancelou: '×',
+  Faltou: '!',
+  Venda: '✓',
+  'Cancelar venda': '↻',
+  Reabrir: '↻'
+};
+
 const statusLabels: Record<string, string> = {
   new_lead: 'Novo Lead',
   in_service: 'Em Atendimento',
@@ -652,13 +669,13 @@ function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onO
   const phone = lead.customer_phone || lead.customer_phone_masked || 'Sem telefone';
   const stop = (event: any, action: () => void) => { event.stopPropagation(); action(); };
   return (
-    <div data-lead-id={lead.id} role="button" tabIndex={0} draggable onClick={onOpen} onKeyDown={(event) => event.key === 'Enter' && onOpen()} onDragStart={onDragStart} onDragEnd={onDragEnd} className={`cursor-pointer rounded-2xl border border-zinc-100 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${dragging ? 'opacity-50 ring-2 ring-red-300' : ''}`}>
-      <div className="flex items-start justify-between gap-2"><div className="min-w-0 flex-1"><h3 className="break-words text-[13px] font-black text-zinc-950">{lead.customer_name || 'Cliente sem nome'}</h3><p className="mt-1 break-words text-[11px] font-bold text-zinc-500">{lead.interested_vehicle || 'Interesse não informado'}</p></div><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${styles.badge}`}>{statusLabels[lead.status] || lead.status}</span></div>
-      <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={(event) => stop(event, onReveal)} className="rounded-full bg-zinc-50 px-2 py-1 text-[10px] font-black text-zinc-500"><Eye size={11} className="mr-1 inline" />{phone}</button><span className="rounded-full bg-zinc-50 px-2 py-1 text-[10px] font-black uppercase text-zinc-500">{readableOrigin(lead.origin)}</span><span className="rounded-full bg-zinc-900 px-2 py-1 text-[10px] font-black uppercase text-white">{formatLeadAge(lead.created_at)}</span></div>
+    <div data-lead-id={lead.id} role="button" tabIndex={0} draggable onClick={onOpen} onKeyDown={(event) => event.key === 'Enter' && onOpen()} onDragStart={onDragStart} onDragEnd={onDragEnd} className={`cursor-pointer rounded-[14px] border border-zinc-100 bg-white p-2.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${dragging ? 'opacity-50 ring-2 ring-red-300' : ''}`}>
+      <div className="flex items-start justify-between gap-1"><div className="min-w-0 flex-1"><h3 className="break-words text-[13px] font-black text-zinc-950">{lead.customer_name || 'Cliente sem nome'}</h3><p className="mt-1 break-words text-[11px] font-bold text-zinc-500">{lead.interested_vehicle || 'Interesse não informado'}</p></div><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${styles.badge}`}>{statusLabels[lead.status] || lead.status}</span></div>
+      <div className="mt-2 flex items-center gap-1 overflow-hidden"><button type="button" onClick={(event) => stop(event, onReveal)} className="min-w-0 max-w-[47%] overflow-hidden text-ellipsis whitespace-nowrap rounded-full bg-zinc-50 px-2 py-1 text-[9px] font-black text-zinc-500"><Eye size={11} className="mr-1 inline" />{phone}</button><span className="min-w-0 whitespace-nowrap rounded-full bg-zinc-50 px-2 py-1 text-[9px] font-black uppercase text-zinc-500">{readableOrigin(lead.origin)}</span><span className="min-w-0 whitespace-nowrap rounded-full bg-zinc-900 px-2 py-1 text-[9px] font-black uppercase text-white">{formatLeadAge(lead.created_at)}</span></div>
       {lead.scheduled_at ? <div className="mt-2 rounded-xl bg-zinc-50 p-2 text-[11px] text-zinc-600"><p className="flex items-center gap-1.5 font-black text-zinc-900"><CalendarClock size={13} /> {formatDateTime(lead.scheduled_at)}</p>{lead.appointment_notes ? <p className="mt-1">{lead.appointment_notes}</p> : null}</div> : null}
       {columnKey === 'appointment_cancelled' ? <div className="mt-2 rounded-xl bg-orange-50 p-2 text-[11px] text-orange-800"><p className="font-black">Cancelado {formatDateTime(lead.appointment_cancelled_at)}</p><p className="mt-1">{lead.appointment_cancelled_reason}</p></div> : null}
       {columnKey === 'lost' ? <div className="mt-2 rounded-xl bg-red-50 p-2 text-[11px] text-red-700"><p className="font-black">Motivo da perda</p><p className="mt-1">{lead.lost_reason || 'Perda registrada'}</p></div> : null}
-      <div className="mt-3 flex flex-wrap gap-1.5">
+      <div className="mt-2 flex items-center gap-1 overflow-hidden">
         <SmallAction label="Editar" icon={<Edit3 size={12} />} onClick={(event) => stop(event, onOpen)} />
         <SmallAction label="Tarefa" icon={<ListTodo size={12} />} onClick={(event) => stop(event, onTask)} />
         <SmallAction label="Transferir" icon={<ArrowRightLeft size={12} />} onClick={(event) => stop(event, onTransfer)} />
@@ -676,7 +693,7 @@ function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onO
 
 function SmallAction({ label, onClick, icon, tone = 'default' }: { label: string; onClick: (event: any) => void; icon?: ReactNode; tone?: 'default' | 'green' | 'red' | 'orange' | 'blue' }) {
   const className = { default: 'border-zinc-200 bg-white text-zinc-600', green: 'border-emerald-600 bg-emerald-600 text-white', red: 'border-red-600 bg-red-600 text-white', orange: 'border-orange-500 bg-orange-500 text-white', blue: 'border-blue-600 bg-blue-600 text-white' }[tone];
-  return <button className={`inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-[10px] font-black uppercase ${className}`} type="button" onClick={onClick}>{icon} {label}</button>;
+  return <button className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition hover:-translate-y-0.5 ${className}`} type="button" onClick={onClick} title={label} aria-label={label}>{icon || <span aria-hidden="true" className="text-sm font-black leading-none">{actionSymbols[label] || '•'}</span>}<span className="sr-only">{label}</span></button>;
 }
 
 function Field({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; type?: string }) {
