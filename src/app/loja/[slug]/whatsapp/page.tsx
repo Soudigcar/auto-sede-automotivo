@@ -492,7 +492,7 @@ export default function StoreWhatsappPage() {
                               </span>
                             ) : null}
                             <div className={`w-fit min-w-0 max-w-[78%] rounded-[14px] px-3 py-2 shadow-sm md:max-w-[64%] ${outbound ? 'rounded-br-[4px] bg-red-600 text-white' : 'rounded-bl-[4px] border border-zinc-200 bg-white text-zinc-900'}`}>
-                              <WhatsappMediaMessage message={message} outbound={outbound} />
+                              <WhatsappMediaMessage message={message} outbound={outbound} compact />
                               <div className={`mt-1 flex items-center justify-end gap-1.5 text-[8px] font-black uppercase leading-none ${outbound ? 'text-white/65' : 'text-zinc-400'}`}>
                                 <span>{formatDateTime(message.sent_at || message.created_at)}</span>
                                 <span>{message.status}</span>
