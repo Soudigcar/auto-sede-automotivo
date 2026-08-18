@@ -185,9 +185,26 @@ begin
     'lead_routing_state',
     'marketing_integrations',
     'portal_settings',
-    'site_campaign_layouts'
+    'site_campaign_layouts',
+    'ai_agent_approvals',
+    'ai_agent_events',
+    'ai_agent_runs',
+    'ai_conversation_memory',
+    'ai_knowledge_chunks',
+    'ai_knowledge_documents',
+    'ai_runtime_conversations',
+    'ai_runtime_message_claims',
+    'ai_store_agents',
+    'ai_store_knowledge',
+    'ai_store_operational_profiles',
+    'ai_store_policies',
+    'ai_training_scenarios',
+    'ai_training_simulations'
   ]
   loop
+    if to_regclass(format('public.%I', table_name)) is null then
+      continue;
+    end if;
     execute format('revoke all on table public.%I from anon, authenticated', table_name);
     execute format('grant select, insert, update, delete on table public.%I to service_role', table_name);
     execute format('drop policy if exists service_only_deny_client_access on public.%I', table_name);
