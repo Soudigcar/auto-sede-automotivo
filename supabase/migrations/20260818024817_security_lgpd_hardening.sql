@@ -3,6 +3,44 @@ begin;
 set local lock_timeout = '5s';
 set local statement_timeout = '2min';
 
+-- Extensões não permanecem no schema exposto pela Data API. As únicas
+-- funções que dependem de unaccent são recriadas com referência qualificada e
+-- search_path fechado, evitando resolução de objetos controlados por terceiros.
+create schema if not exists extensions;
+alter extension unaccent set schema extensions;
+
+create or replace function public.slugify_store_name(input text)
+returns text
+language sql
+immutable
+security invoker
+set search_path = ''
+as $$
+  select trim(both '-' from regexp_replace(lower(extensions.unaccent(coalesce(input, 'loja'))), '[^a-z0-9]+', '-', 'g'));
+$$;
+
+create or replace function public.slugify_text(input text)
+returns text
+language sql
+immutable
+security invoker
+set search_path = ''
+as $$
+  select trim(
+    both '-' from regexp_replace(
+      lower(extensions.unaccent(coalesce(input, ''))),
+      '[^a-z0-9]+',
+      '-',
+      'g'
+    )
+  );
+$$;
+
+revoke execute on function extensions.unaccent(text), extensions.unaccent(regdictionary, text) from public, anon;
+grant execute on function extensions.unaccent(text), extensions.unaccent(regdictionary, text) to authenticated, service_role;
+revoke execute on function public.slugify_store_name(text), public.slugify_text(text) from public, anon;
+grant execute on function public.slugify_store_name(text), public.slugify_text(text) to authenticated, service_role;
+
 -- Prova de consentimento e base legal vinculada ao lead.
 alter table public.leads_base
   add column if not exists consent_given boolean not null default false,
@@ -123,6 +161,43 @@ create policy privacy_retention_runs_master_select on public.privacy_retention_r
 
 grant select on public.privacy_consents, public.privacy_requests, public.privacy_retention_runs to authenticated;
 grant select, insert, update, delete on public.privacy_consents, public.privacy_requests, public.privacy_retention_runs to service_role;
+
+-- As tabelas operacionais sem policy são deliberadamente server-only. Grants
+-- históricos de anon/authenticated são removidos e uma policy restritiva deixa
+-- o bloqueio explícito. O detalhe comercial é a exceção: o Master já o edita
+-- pelo navegador e recebe uma policy limitada por is_master().
+drop policy if exists lead_commercial_details_master_all on public.lead_commercial_details;
+create policy lead_commercial_details_master_all on public.lead_commercial_details
+  for all to authenticated
+  using ((select public.is_master()))
+  with check ((select public.is_master()));
+revoke all on table public.lead_commercial_details from anon;
+grant select, insert, update, delete on table public.lead_commercial_details to authenticated, service_role;
+
+do $$
+declare
+  table_name text;
+begin
+  foreach table_name in array array[
+    'event_lead_routing_state',
+    'lead_ingestion_locks',
+    'lead_notes',
+    'lead_routing_state',
+    'marketing_integrations',
+    'portal_settings',
+    'site_campaign_layouts'
+  ]
+  loop
+    execute format('revoke all on table public.%I from anon, authenticated', table_name);
+    execute format('grant select, insert, update, delete on table public.%I to service_role', table_name);
+    execute format('drop policy if exists service_only_deny_client_access on public.%I', table_name);
+    execute format(
+      'create policy service_only_deny_client_access on public.%I as restrictive for all to anon, authenticated using (false) with check (false)',
+      table_name
+    );
+  end loop;
+end;
+$$;
 
 -- Dados financeiros são exclusivos do Master. Rotas com service_role continuam operacionais.
 drop policy if exists "MVP authenticated can insert financial entries" on public.financial_entries;
