@@ -11,8 +11,8 @@ const defaultForm = {
   app_id: '',
   page_id: '',
   form_id: '',
-  page_access_token: '',
-  verify_token: '',
+  has_page_access_token: false,
+  has_verify_token: false,
   graph_version: 'v20.0'
 };
 
@@ -65,8 +65,8 @@ export default function MetaLeadsIntegrationPage() {
         app_id: settings.app_id || '',
         page_id: settings.page_id || '',
         form_id: settings.form_id || '',
-        page_access_token: settings.page_access_token || '',
-        verify_token: settings.verify_token || defaultForm.verify_token,
+        has_page_access_token: Boolean(settings.has_page_access_token),
+        has_verify_token: Boolean(settings.has_verify_token),
         graph_version: settings.graph_version || defaultForm.graph_version
       });
 
@@ -97,7 +97,13 @@ export default function MetaLeadsIntegrationPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify(form)
+        body: JSON.stringify({
+          is_active: form.is_active,
+          app_id: form.app_id,
+          page_id: form.page_id,
+          form_id: form.form_id,
+          graph_version: form.graph_version
+        })
       });
 
       const result = await response.json();
@@ -160,7 +166,7 @@ export default function MetaLeadsIntegrationPage() {
                   <p className="premium-eyebrow">Configuração</p>
                   <h2 className="mt-2 text-3xl font-black text-zinc-950">Conectar formulário da Meta</h2>
                   <p className="mt-2 text-sm font-bold text-zinc-500">
-                    Salve o Page Access Token e use a URL de webhook abaixo no Meta Developers.
+                    Os segredos são configurados somente na Vercel; este painel nunca os recebe nem exibe.
                   </p>
                 </div>
 
@@ -203,25 +209,10 @@ export default function MetaLeadsIntegrationPage() {
                   />
                 </label>
 
-                <label className="grid gap-2">
-                  <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Page Access Token</span>
-                  <textarea
-                    className="premium-input min-h-28"
-                    value={form.page_access_token}
-                    onChange={(event) => setForm({ ...form, page_access_token: event.target.value.trim() })}
-                    placeholder="Cole aqui o token da Página. Não envie esse token por print ou no chat."
-                  />
-                </label>
-
-                <label className="grid gap-2">
-                  <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Verify Token</span>
-                  <input
-                    className="premium-input"
-                    value={form.verify_token}
-                    onChange={(event) => setForm({ ...form, verify_token: event.target.value.trim() })}
-                    placeholder="Configurado com segurança no ambiente"
-                  />
-                </label>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <SecretStatus label="Page Access Token" configured={form.has_page_access_token} variable="META_PAGE_ACCESS_TOKEN" />
+                  <SecretStatus label="Verify Token" configured={form.has_verify_token} variable="META_LEADS_VERIFY_TOKEN" />
+                </div>
 
                 <label className="grid gap-2">
                   <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Graph API Version</span>
@@ -272,13 +263,7 @@ export default function MetaLeadsIntegrationPage() {
                     </button>
                   </div>
 
-                  <div className="rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
-                    <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Verify Token</p>
-                    <p className="mt-2 break-all text-sm font-black text-zinc-950">{form.verify_token}</p>
-                    <button className="mt-3 inline-flex items-center gap-2 text-xs font-black text-red-600" type="button" onClick={() => copy(form.verify_token)}>
-                      <Copy size={14} /> Copiar token
-                    </button>
-                  </div>
+                  <SecretStatus label="Segredos Meta" configured={form.has_page_access_token && form.has_verify_token} variable="Vercel server-side" />
                 </div>
               </div>
 
@@ -288,7 +273,7 @@ export default function MetaLeadsIntegrationPage() {
                   <p>1. Vá em Webhooks.</p>
                   <p>2. Escolha o objeto Page.</p>
                   <p>3. Cole a Callback URL.</p>
-                  <p>4. Cole o Verify Token.</p>
+                  <p>4. Cole o Verify Token diretamente do gerenciador de segredos.</p>
                   <p>5. Assine o campo leadgen.</p>
                   <p>6. Gere um lead teste e confira na Base.</p>
                 </div>
@@ -298,5 +283,17 @@ export default function MetaLeadsIntegrationPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function SecretStatus({ label, configured, variable }: { label: string; configured: boolean; variable: string }) {
+  return (
+    <div className={`rounded-2xl border p-4 ${configured ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+      <p className="text-xs font-black uppercase tracking-wide text-zinc-500">{label}</p>
+      <p className={`mt-2 text-sm font-black ${configured ? 'text-emerald-700' : 'text-amber-700'}`}>
+        {configured ? 'Configurado com segurança no servidor' : 'Não configurado no servidor'}
+      </p>
+      <p className="mt-1 text-xs font-bold text-zinc-500">{variable} · valor nunca enviado ao navegador</p>
+    </div>
   );
 }

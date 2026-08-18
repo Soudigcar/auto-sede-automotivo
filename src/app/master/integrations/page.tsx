@@ -41,8 +41,8 @@ const defaultMetaLeads = {
   app_id: '',
   page_id: '',
   form_id: '',
-  page_access_token: '',
-  verify_token: '',
+  has_page_access_token: false,
+  has_verify_token: false,
   graph_version: 'v20.0'
 };
 
@@ -174,8 +174,8 @@ export default function MasterIntegrationsPage() {
       app_id: settings.app_id || '',
       page_id: settings.page_id || '',
       form_id: settings.form_id || '',
-      page_access_token: settings.page_access_token || '',
-      verify_token: settings.verify_token || defaultMetaLeads.verify_token,
+      has_page_access_token: Boolean(settings.has_page_access_token),
+      has_verify_token: Boolean(settings.has_verify_token),
       graph_version: settings.graph_version || defaultMetaLeads.graph_version
     });
   }
@@ -254,7 +254,13 @@ export default function MasterIntegrationsPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify(metaLeadsForm)
+        body: JSON.stringify({
+          is_active: metaLeadsForm.is_active,
+          app_id: metaLeadsForm.app_id,
+          page_id: metaLeadsForm.page_id,
+          form_id: metaLeadsForm.form_id,
+          graph_version: metaLeadsForm.graph_version
+        })
       });
       const result = await response.json();
 
@@ -409,12 +415,10 @@ export default function MasterIntegrationsPage() {
                   <FormInput label="Graph API Version" value={metaLeadsForm.graph_version} onChange={(value) => setMetaLeadsForm({ ...metaLeadsForm, graph_version: value.trim() })} placeholder="v20.0" />
                 </div>
 
-                <label className="grid gap-2">
-                  <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Page Access Token</span>
-                  <textarea className="premium-input min-h-28" value={metaLeadsForm.page_access_token} onChange={(event) => setMetaLeadsForm({ ...metaLeadsForm, page_access_token: event.target.value.trim() })} placeholder="Cole aqui o token da Página. Não envie esse token por print ou no chat." />
-                </label>
-
-                <FormInput label="Verify Token" value={metaLeadsForm.verify_token} onChange={(value) => setMetaLeadsForm({ ...metaLeadsForm, verify_token: value.trim() })} placeholder="Configurado com segurança no ambiente" />
+                <div className="grid gap-4 md:grid-cols-2">
+                  <ServerSecretStatus label="Page Access Token" configured={metaLeadsForm.has_page_access_token} variable="META_PAGE_ACCESS_TOKEN" />
+                  <ServerSecretStatus label="Verify Token" configured={metaLeadsForm.has_verify_token} variable="META_LEADS_VERIFY_TOKEN" />
+                </div>
 
                 <ToggleCard title="Ativar recebimento de leads" description="Quando ativo, os leads do formulário entram automaticamente na Base." checked={metaLeadsForm.is_active} onChange={(checked) => setMetaLeadsForm({ ...metaLeadsForm, is_active: checked })} />
 
@@ -430,7 +434,7 @@ export default function MasterIntegrationsPage() {
                 <p>1. No Meta Developers, vá em Webhooks.</p>
                 <p>2. Escolha o objeto Page.</p>
                 <p>3. Cole a Callback URL exibida aqui.</p>
-                <p>4. Cole o Verify Token exibido aqui.</p>
+                <p>4. Cole o Verify Token diretamente do gerenciador de segredos; ele nunca é enviado ao navegador.</p>
                 <p>5. Assine o campo leadgen.</p>
                 <p>6. Gere um lead teste e confira em Base.</p>
               </div>
@@ -441,7 +445,7 @@ export default function MasterIntegrationsPage() {
                 </button>
 
                 <button className="premium-button-secondary justify-center" type="button" onClick={testMetaLeadsConnection} disabled={subscribingMetaLeads || testingMetaLeads || loading}>
-                  <CheckCircle2 size={18} /> {testingMetaLeads ? 'Testando...' : 'Testar token e webhook'}
+                  <CheckCircle2 size={18} /> {testingMetaLeads ? 'Testando...' : 'Testar configuração e webhook'}
                 </button>
               </div>
 
@@ -452,7 +456,9 @@ export default function MasterIntegrationsPage() {
               ) : null}
 
               <InfoBox className="mt-6" label="Callback URL" value={callbackUrl} />
-              <InfoBox className="mt-4" label="Verify Token" value={metaLeadsForm.verify_token} />
+              <div className="mt-4">
+                <ServerSecretStatus label="Segredos Meta" configured={metaLeadsForm.has_page_access_token && metaLeadsForm.has_verify_token} variable="Vercel server-side" />
+              </div>
             </aside>
           </section>
 
@@ -593,6 +599,18 @@ function InfoBox({ label, value, onCopy, className = '' }: { label: string; valu
           <Copy size={14} /> Copiar
         </button>
       ) : null}
+    </div>
+  );
+}
+
+function ServerSecretStatus({ label, configured, variable }: { label: string; configured: boolean; variable: string }) {
+  return (
+    <div className={`rounded-2xl border p-4 ${configured ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+      <p className="text-xs font-black uppercase tracking-wide text-zinc-500">{label}</p>
+      <p className={`mt-2 text-sm font-black ${configured ? 'text-emerald-700' : 'text-amber-700'}`}>
+        {configured ? 'Configurado com segurança no servidor' : 'Não configurado no servidor'}
+      </p>
+      <p className="mt-1 text-xs font-bold text-zinc-500">{variable} · valor nunca enviado ao navegador</p>
     </div>
   );
 }

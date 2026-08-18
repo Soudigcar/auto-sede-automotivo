@@ -9,6 +9,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_server_only_service_role_key
 
 # Webhooks e proteções (server only; use valores aleatórios distintos)
 META_APP_SECRET=your_meta_app_secret
+META_PAGE_ACCESS_TOKEN=your_meta_page_access_token
 META_LEADS_VERIFY_TOKEN=your_random_meta_verify_token
 WHATSAPP_APP_SECRET=your_whatsapp_meta_app_secret
 WHATSAPP_VERIFY_TOKEN=your_random_whatsapp_verify_token

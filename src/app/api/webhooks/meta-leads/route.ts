@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getMetaServerConfig, stripStoredMetaSecrets } from '@/lib/server/metaServerConfig';
 import { RequestSecurityError, publicError, readRawBody, safeEqual, verifySha256Hmac } from '@/lib/server/requestSecurity';
 
 export const runtime = 'nodejs';
@@ -7,8 +8,6 @@ export const maxDuration = 60;
 
 const defaults = {
   page_id: '',
-  page_access_token: '',
-  verify_token: '',
   graph_version: 'v20.0',
   form_mappings: [] as any[]
 };
@@ -30,7 +29,7 @@ function normalizeKey(value: unknown) {
 
 async function integration(supabase: any) {
   const { data } = await supabase.from('marketing_integrations').select('*').eq('integration_type', 'meta_leads').maybeSingle();
-  return { ...(data || {}), settings: { ...defaults, ...(data?.settings || {}) } };
+  return { ...(data || {}), settings: { ...defaults, ...stripStoredMetaSecrets(data?.settings) } };
 }
 
 function mappings(settings: any) {
@@ -75,7 +74,7 @@ function extract(metaLead: any) {
 
 async function pageToken(settings: any) {
   const version = clean(settings.graph_version) || defaults.graph_version;
-  const saved = clean(settings.page_access_token);
+  const saved = getMetaServerConfig().pageAccessToken;
   const pageId = clean(settings.page_id);
   if (!saved || !pageId) return saved;
   const url = new URL(`https://graph.facebook.com/${version}/${pageId}`);
@@ -190,8 +189,8 @@ export async function GET(request: Request) {
     const mode = url.searchParams.get('hub.mode');
     const token = url.searchParams.get('hub.verify_token');
     const challenge = url.searchParams.get('hub.challenge');
-    const verify = clean(process.env.META_LEADS_VERIFY_TOKEN);
-    if (mode === 'subscribe' && verify !== 'auto-controle-meta-leads-2026' && safeEqual(token, verify) && challenge) return new Response(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
+    const verify = getMetaServerConfig().verifyToken;
+    if (mode === 'subscribe' && safeEqual(token, verify) && challenge) return new Response(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
     return NextResponse.json({ error: 'Token de verificação inválido.' }, { status: 403 });
   } catch (error: unknown) {
     const safe = publicError(error, 'Erro ao verificar webhook.');

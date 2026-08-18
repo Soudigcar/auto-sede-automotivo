@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { stripStoredMetaSecrets } from '@/lib/server/metaServerConfig';
 
 export const runtime = 'nodejs';
 
@@ -158,7 +159,7 @@ export async function POST(request: Request) {
     const integration = await getIntegration(supabase);
     if (!integration) return NextResponse.json({ error: 'Configure primeiro a integração Facebook Lead Forms.' }, { status: 400 });
 
-    const settings = { ...(integration.settings || {}), form_mappings: mappings };
+    const settings = { ...stripStoredMetaSecrets(integration.settings), form_mappings: mappings };
     const { data, error } = await supabase
       .from('marketing_integrations')
       .update({ settings, updated_by: master.id, updated_at: new Date().toISOString() })

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getMetaServerConfig, redactMetaSecrets, stripStoredMetaSecrets } from '@/lib/server/metaServerConfig';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -9,8 +10,6 @@ const defaultSettings = {
   page_id: '',
   form_id: '',
   form_mappings: [] as any[],
-  page_access_token: '',
-  verify_token: '',
   graph_version: 'v20.0',
   routing_mode: 'round_robin'
 };
@@ -78,7 +77,7 @@ async function getIntegration(supabase: any) {
 
   return {
     ...(data || {}),
-    settings: { ...defaultSettings, ...(data?.settings || {}) }
+    settings: { ...defaultSettings, ...stripStoredMetaSecrets(data?.settings) }
   };
 }
 
@@ -102,19 +101,21 @@ async function graphGetWithToken(
   params: Record<string, string> = {}
 ) {
   const url = new URL(`https://graph.facebook.com/${graphVersion}/${path.replace(/^\//, '')}`);
-  url.searchParams.set('access_token', token);
   Object.entries(params).forEach(([key, value]) => {
     if (value) url.searchParams.set(key, value);
   });
 
-  const response = await fetch(url.toString(), { cache: 'no-store' });
+  const response = await fetch(url.toString(), {
+    cache: 'no-store',
+    headers: { authorization: `Bearer ${token}` }
+  });
   const data = await response.json();
   return { ok: response.ok, status: response.status, data };
 }
 
-async function resolvePageAccessToken(settings: any) {
+async function resolvePageAccessToken(settings: any, serverToken: string) {
   const graphVersion = cleanText(settings.graph_version) || defaultSettings.graph_version;
-  const savedToken = cleanText(settings.page_access_token);
+  const savedToken = cleanText(serverToken);
   const pageId = cleanText(settings.page_id);
 
   if (!savedToken || !pageId) {
@@ -163,9 +164,10 @@ export async function GET(request: Request) {
     const settings = integration.settings || {};
     const pageId = cleanText(settings.page_id);
     const fallbackFormId = digits(settings.form_id);
-    const pageAccessToken = cleanText(settings.page_access_token);
+    const serverConfig = getMetaServerConfig();
+    const pageAccessToken = serverConfig.pageAccessToken;
     const graphVersion = cleanText(settings.graph_version) || defaultSettings.graph_version;
-    const verifyToken = cleanText(settings.verify_token) || defaultSettings.verify_token;
+    const verifyToken = serverConfig.verifyToken;
     const mappings = normalizeMappings(settings.form_mappings);
     const activeMappings = mappings.filter((item: any) => item.is_active);
     const checks: any[] = [];
@@ -184,19 +186,26 @@ export async function GET(request: Request) {
       checks,
       'Page Access Token configurado',
       Boolean(pageAccessToken),
-      pageAccessToken ? 'Token salvo e mantido oculto no diagnóstico.' : 'Page Access Token não informado.'
+      pageAccessToken ? 'Token configurado somente no ambiente server-side.' : 'META_PAGE_ACCESS_TOKEN não configurado no servidor.'
     );
 
-    if (!pageId || !pageAccessToken) {
-      return NextResponse.json({
+    pushCheck(
+      checks,
+      'Verify Token configurado',
+      Boolean(verifyToken),
+      verifyToken ? 'Token configurado somente no ambiente server-side.' : 'META_LEADS_VERIFY_TOKEN não configurado no servidor.'
+    );
+
+    if (!pageId || !pageAccessToken || !verifyToken) {
+      return NextResponse.json(redactMetaSecrets({
         success: false,
         dry_run: true,
         checks,
-        summary: 'Diagnóstico interrompido: informe Page ID e Page Access Token.'
-      });
+        summary: 'Diagnóstico interrompido: configure Page ID e os segredos Meta server-side.'
+      }, serverConfig));
     }
 
-    const resolvedToken = await resolvePageAccessToken(settings);
+    const resolvedToken = await resolvePageAccessToken(settings, pageAccessToken);
     const tokenToUse = resolvedToken.token || pageAccessToken;
 
     pushCheck(
@@ -470,7 +479,7 @@ export async function GET(request: Request) {
     const failedChecks = checks.filter((check) => !check.ok);
     const success = failedChecks.length === 0;
 
-    return NextResponse.json({
+    return NextResponse.json(redactMetaSecrets({
       success,
       dry_run: true,
       tested_at: new Date().toISOString(),
@@ -479,7 +488,7 @@ export async function GET(request: Request) {
         ? `Diagnóstico completo aprovado: ${checks.length} verificações passaram. Nenhum lead foi criado e o rodízio não foi alterado.`
         : `Diagnóstico reprovado: ${failedChecks.length} de ${checks.length} verificações falharam. Nenhum lead foi criado e o rodízio não foi alterado.`,
       failed_checks: failedChecks.map((check) => check.name)
-    });
+    }, serverConfig));
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || 'Erro ao executar diagnóstico completo da Meta.', dry_run: true },
