@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import {
+  getUmblerServerConfig,
+  publicUmblerSettings,
+  stripStoredUmblerSecrets
+} from '@/lib/server/umblerServerConfig';
 
 export const runtime = 'nodejs';
 
 const defaultSettings = {
-  verify_token: '',
   source_name: 'Umbler Talk / WhatsApp',
   routing_mode: 'round_robin',
   event_id: '',
@@ -87,11 +91,13 @@ async function getOrCreateIntegration(supabase: any) {
 }
 
 function normalizeIntegration(integration: any) {
+  const settings = stripStoredUmblerSecrets(integration?.settings);
+
   return {
     ...integration,
     settings: {
       ...defaultSettings,
-      ...(integration?.settings || {})
+      ...publicUmblerSettings(settings)
     }
   };
 }
@@ -169,8 +175,19 @@ export async function POST(request: Request) {
     }
 
     const current = await getOrCreateIntegration(supabase);
-    const currentSettings = { ...defaultSettings, ...(current?.settings || {}) };
+    const currentSettings = { ...defaultSettings, ...stripStoredUmblerSecrets(current?.settings) };
     const body = await request.json();
+
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return NextResponse.json({ error: 'Payload de configuração inválido.' }, { status: 400 });
+    }
+
+    if ('verify_token' in body) {
+      return NextResponse.json(
+        { error: 'O token Umbler é aceito somente como variável server-side na Vercel.' },
+        { status: 400 }
+      );
+    }
 
     if (cleanText(body.action) === 'clear_error') {
       const { data, error } = await supabase
@@ -189,13 +206,13 @@ export async function POST(request: Request) {
     }
 
     const isActive = Boolean(body.is_active);
-    const verifyToken = cleanText(body.verify_token);
+    const serverConfig = getUmblerServerConfig();
     const sourceName = cleanText(body.source_name) || defaultSettings.source_name;
     const eventId = cleanText(body.event_id);
 
-    if (isActive && verifyToken.length < 16) {
+    if (isActive && !serverConfig.hasVerifyToken) {
       return NextResponse.json(
-        { error: 'Crie um token de segurança com pelo menos 16 caracteres antes de ativar.' },
+        { error: 'Configure UMBLER_WEBHOOK_TOKEN na Vercel antes de ativar.' },
         { status: 400 }
       );
     }
@@ -247,7 +264,6 @@ export async function POST(request: Request) {
       is_active: isActive,
       settings: {
         ...currentSettings,
-        verify_token: verifyToken,
         source_name: sourceName,
         routing_mode: 'round_robin_event',
         event_id: selectedEvent?.id || '',
