@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { calculateCampaignFinance, campaignInstallmentOptions } from '@/lib/campaignFinance';
+import { publicError, readJsonBody } from '@/lib/server/requestSecurity';
+import { recordLeadContactConsent } from '@/lib/server/leadConsent';
+import { enforceRateLimit } from '@/lib/server/rateLimit';
 
 export const runtime = 'nodejs';
 
@@ -93,7 +96,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Origem da solicitação não autorizada.' }, { status: 403 });
     }
 
-    const body = await request.json();
+    await enforceRateLimit(request, 'site-leads', 20, 60 * 60);
+
+    const body = await readJsonBody<any>(request, maxRequestBytes);
     const name = clean(body.name, 160);
     const phone = clean(body.phone, 40);
     const cpf = clean(body.cpf, 30);
@@ -207,6 +212,7 @@ export async function POST(request: Request) {
     }
 
     const result = data && typeof data === 'object' ? data as Record<string, unknown> : {};
+    const baseLeadId = clean(result.base_lead_id, 80);
     const routedLeadId = clean(result.routed_lead_id, 80);
     const assignedStoreId = clean(result.assigned_store_id, 80);
 
@@ -242,21 +248,36 @@ export async function POST(request: Request) {
       }
     }
 
+    if (!isValidUuid(baseLeadId)) {
+      return NextResponse.json({ error: 'Não foi possível vincular a prova de consentimento ao lead.' }, { status: 500 });
+    }
+
+    await recordLeadContactConsent({
+      supabase,
+      leadBaseId: baseLeadId,
+      source: 'event_landing_simulator',
+      proof: {
+        campaign_id: campaignId,
+        vehicle_id: vehicleId,
+        origin: originHeader || requestUrl.origin,
+        user_agent: clean(request.headers.get('user-agent'), 300)
+      }
+    });
+
     return NextResponse.json({
       success: result.success === true,
       duplicate: result.duplicate === true,
       queued_for_manual_assignment: result.queued_for_manual_assignment === true,
       event_id: clean(result.event_id, 80) || null,
+      base_lead_id: baseLeadId,
       assigned_store_id: assignedStoreId || null,
       assigned_store_name: clean(result.assigned_store_name, 180),
       routed_lead_id: routedLeadId || null,
       routing_strategy: clean(result.routing_strategy, 80) || 'event_round_robin',
       simulation
     });
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: clean(error?.message || 'Erro ao salvar lead.', 300) },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const failure = publicError(error, 'Erro ao salvar lead.');
+    return NextResponse.json({ error: failure.message }, { status: failure.status });
   }
 }

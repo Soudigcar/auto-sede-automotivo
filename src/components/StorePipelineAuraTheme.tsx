@@ -149,7 +149,7 @@ export function StorePipelineAuraTheme() {
           <button type="button" aria-label="Visualização em tela" className="aura-monitor"><Monitor size={20} /></button>
           <button type="button" className="aura-profile" onClick={() => setAuraOpen((value) => !value)}>
             <span className="aura-orb"><Sparkles size={18} /></span>
-            <span><strong>AURA</strong><small>Sua assistente IA</small></span>
+            <span><strong>AUTOCAR</strong><small>Assistente comercial</small></span>
             <span className="aura-face">••</span>
           </button>
         </div>
@@ -165,7 +165,7 @@ export function StorePipelineAuraTheme() {
         <div className="aura-sync"><span>Última atualização: agora há pouco</span><i /> Sincronizado com o servidor</div>
         <div className="aura-bottom-actions">
           <button type="button" className="aura-report"><Monitor size={17} /> Relatório do dia</button>
-          <button type="button" className="aura-assistant" onClick={() => setAuraOpen((value) => !value)}><MessageCircle size={18} /> AURA</button>
+          <button type="button" className="aura-assistant" onClick={() => setAuraOpen((value) => !value)}><MessageCircle size={18} /> AUTOCAR</button>
         </div>
       </footer>
 
@@ -173,9 +173,9 @@ export function StorePipelineAuraTheme() {
         <aside className="aura-panel">
           <button type="button" onClick={() => setAuraOpen(false)} aria-label="Fechar">×</button>
           <span className="aura-panel-orb"><Sparkles size={24} /></span>
-          <p>AURA</p>
-          <h3>Assistente da loja</h3>
-          <small>A interface está preparada para receber comandos, alertas e resumos inteligentes da operação.</small>
+          <p>AUTOCAR</p>
+          <h3>Assistente comercial</h3>
+          <small>A AUTOCAR apoia o atendimento comercial da loja conforme as permissões e o modo definidos pelo Master.</small>
         </aside>
       ) : null}
     </>,

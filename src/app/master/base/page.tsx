@@ -343,7 +343,7 @@ export default function MasterBasePage() {
     if (!filtered.length) return setMessage('Não há leads no filtro atual para exportar.');
     setExporting(true);
     try {
-      const XLSX = await import('xlsx');
+      const ExcelJS = (await import('exceljs')).default;
       const rows = filtered.map((lead) => ({
         'ID do lead': lead.id,
         Nome: lead.name || '',
@@ -361,11 +361,24 @@ export default function MasterBasePage() {
         Veículo: lead.vehicle_name || '',
         'Criado em': lead.created_at ? new Date(lead.created_at).toLocaleString('pt-BR') : ''
       }));
-      const worksheet = XLSX.utils.json_to_sheet(rows);
-      worksheet['!cols'] = [{ wch: 38 }, { wch: 28 }, { wch: 18 }, { wch: 16 }, { wch: 18 }, { wch: 22 }, { wch: 30 }, { wch: 24 }, { wch: 20 }, { wch: 28 }, { wch: 26 }, { wch: 26 }, { wch: 20 }, { wch: 32 }, { wch: 20 }];
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Leads');
-      XLSX.writeFile(workbook, `base-leads-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Leads');
+      worksheet.columns = Object.keys(rows[0]).map((header, index) => ({
+        header,
+        key: header,
+        width: [38, 28, 18, 16, 18, 22, 30, 24, 20, 28, 26, 26, 20, 32, 20][index] || 20
+      }));
+      worksheet.addRows(rows);
+      const output = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([new Uint8Array(output)], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = href;
+      link.download = `base-leads-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(href);
     } catch (error: any) {
       setMessage(error?.message || 'Não foi possível exportar o Excel.');
     } finally {

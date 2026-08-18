@@ -20,6 +20,7 @@ import { StorePipelineSaleActionBridge } from '@/components/StorePipelineSaleAct
 import { StorePipelineCompactCardsUx } from '@/components/StorePipelineCompactCardsUx';
 import { StoreWhatsappRealtimeSync } from '@/components/StoreWhatsappRealtimeSync';
 import { StoreWhatsappHeaderActionsUx } from '@/components/StoreWhatsappHeaderActionsUx';
+import { PrivacyConsentCenter } from '@/components/PrivacyConsentCenter';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.autosede.com.br'),
@@ -50,6 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StorePipelineCompactCardsUx />
         <StoreWhatsappRealtimeSync />
         <StoreWhatsappHeaderActionsUx />
+        <PrivacyConsentCenter />
       </body>
     </html>
   );

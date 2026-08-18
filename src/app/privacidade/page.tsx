@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { PublicInformationPage } from '@/components/marketplace/PublicInformationPage';
 import { loadPortalSettings } from '@/lib/server/portalSettings';
+import { PrivacyRightsRequestForm } from '@/components/PrivacyRightsRequestForm';
 
 const canonical = 'https://www.autosede.com.br/privacidade';
 
@@ -29,7 +30,7 @@ export default async function PrivacyPage() {
       sections={[
         {
           title: '1. Quem participa do tratamento',
-          content: <p>O Auto Sede opera o portal e encaminha solicitações comerciais. Quando você demonstra interesse em um veículo ou campanha, os dados necessários ao atendimento podem ser enviados à loja proprietária do anúncio ou às lojas participantes da campanha, conforme o fluxo informado na página.</p>
+          content: <p>O Auto Sede é o controlador do portal e encaminha solicitações comerciais. Quando você demonstra interesse em um veículo ou campanha, os dados necessários ao atendimento podem ser enviados à loja proprietária do anúncio ou às lojas participantes da campanha, conforme o fluxo informado na página. O canal de privacidade é <strong>{contact}</strong>.</p>
         },
         {
           title: '2. Dados que podem ser coletados',
@@ -45,19 +46,19 @@ export default async function PrivacyPage() {
         },
         {
           title: '5. Bases legais e retenção',
-          content: <p>O tratamento pode se apoiar em consentimento, procedimentos preliminares relacionados a uma possível contratação, cumprimento de obrigação legal ou regulatória, exercício regular de direitos e legítimo interesse avaliado de forma compatível com os direitos do titular. Os dados são mantidos pelo período necessário às finalidades informadas, às obrigações legais e à defesa de direitos, sendo depois eliminados ou anonimizados quando aplicável.</p>
+          content: <p>O tratamento pode se apoiar em consentimento, procedimentos preliminares relacionados a uma possível contratação, cumprimento de obrigação legal ou regulatória, exercício regular de direitos e legítimo interesse avaliado de forma compatível com os direitos do titular. O padrão técnico de retenção minimiza payloads de webhooks após 90 dias e anonimiza leads finalizados após 24 meses, ressalvados prazos legais, regulatórios, contratuais ou de defesa de direitos.</p>
         },
         {
           title: '6. Direitos do titular',
-          content: <p>Você pode solicitar confirmação de tratamento, acesso, correção, informação sobre compartilhamento, anonimização, bloqueio ou eliminação quando cabíveis, portabilidade nos termos da regulamentação, revisão de decisões automatizadas quando aplicável e revogação do consentimento.</p>
+          content: <><p>Você pode solicitar confirmação de tratamento, acesso, correção, informação sobre compartilhamento, anonimização, bloqueio ou eliminação quando cabíveis, portabilidade nos termos da regulamentação, revisão de decisões automatizadas quando aplicável e revogação do consentimento.</p><PrivacyRightsRequestForm /></>
         },
         {
           title: '7. Cookies e tecnologias semelhantes',
-          content: <p>O portal pode utilizar recursos estritamente necessários ao funcionamento, à segurança e à manutenção da sessão. Ferramentas adicionais de análise ou publicidade podem registrar interações quando estiverem configuradas. As preferências disponíveis no navegador também podem ser usadas para restringir cookies.</p>
+          content: <p>O portal utiliza recursos estritamente necessários ao funcionamento, à segurança e à manutenção da sessão. Tecnologias opcionais de análise ou publicidade permanecem desativadas até uma escolha afirmativa no centro de preferências e podem ser recusadas ou revogadas a qualquer momento.</p>
         },
         {
           title: '8. Segurança e contato',
-          content: <><p>Adotamos medidas técnicas e administrativas proporcionais para reduzir riscos de acesso não autorizado, perda, alteração ou divulgação indevida. Nenhum sistema é totalmente imune a incidentes.</p><p>Para exercer direitos ou esclarecer dúvidas, utilize: <strong>{contact}</strong>.</p><p className="text-xs font-bold text-slate-400">Última atualização: 30 de julho de 2026.</p></>
+          content: <><p>Adotamos medidas técnicas e administrativas proporcionais para reduzir riscos de acesso não autorizado, perda, alteração ou divulgação indevida. Incidentes relevantes são avaliados e comunicados aos titulares e à ANPD quando exigido.</p><p>Fornecedores de nuvem podem processar dados fora do Brasil, especialmente nos Estados Unidos, com salvaguardas contratuais e controles técnicos aplicáveis.</p><p>Para exercer direitos, reclamar ou esclarecer dúvidas, utilize: <strong>{contact}</strong>.</p><p className="text-xs font-bold text-slate-400">Última atualização: 18 de agosto de 2026.</p></>
         }
       ]}
     />

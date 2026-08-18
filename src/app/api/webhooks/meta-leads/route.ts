@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { RequestSecurityError, publicError, readRawBody, safeEqual, verifySha256Hmac } from '@/lib/server/requestSecurity';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -7,7 +8,7 @@ export const maxDuration = 60;
 const defaults = {
   page_id: '',
   page_access_token: '',
-  verify_token: 'auto-controle-meta-leads-2026',
+  verify_token: '',
   graph_version: 'v20.0',
   form_mappings: [] as any[]
 };
@@ -79,8 +80,7 @@ async function pageToken(settings: any) {
   if (!saved || !pageId) return saved;
   const url = new URL(`https://graph.facebook.com/${version}/${pageId}`);
   url.searchParams.set('fields', 'id,name,access_token');
-  url.searchParams.set('access_token', saved);
-  const response = await fetch(url.toString(), { cache: 'no-store' });
+  const response = await fetch(url.toString(), { cache: 'no-store', headers: { authorization: `Bearer ${saved}` } });
   const data = await response.json();
   return response.ok && data?.access_token ? clean(data.access_token) : saved;
 }
@@ -91,8 +91,7 @@ async function fetchLead(id: string, settings: any) {
   const version = clean(settings.graph_version) || defaults.graph_version;
   const url = new URL(`https://graph.facebook.com/${version}/${id}`);
   url.searchParams.set('fields', 'created_time,id,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,form_id,field_data');
-  url.searchParams.set('access_token', token);
-  const response = await fetch(url.toString(), { cache: 'no-store' });
+  const response = await fetch(url.toString(), { cache: 'no-store', headers: { authorization: `Bearer ${token}` } });
   const data = await response.json();
   if (!response.ok) throw new Error(data?.error?.message || 'Erro ao buscar dados do lead na Meta.');
   return data;
@@ -155,7 +154,13 @@ async function ingest(supabase: any, settings: any, event: any) {
     meta_campaign_id: event.campaign_id || metaLead.campaign_id || null, meta_campaign_name: metaLead.campaign_name || null,
     meta_created_time: metaLead.created_time || event.created_time || null, city: lead.city || null, field_map: lead.fieldMap,
     routing: { strategy: 'facebook_event_round_robin', assigned_store_id: store.store_id, assigned_store_name: store.store_name, assigned_at: assignedAt, routed_lead_id: routed?.id || null },
-    raw_meta_lead: metaLead
+    webhook_audit: {
+      leadgen_id: event.leadgen_id,
+      form_id: mapping.form_id,
+      page_id: event.page_id || null,
+      received_at: assignedAt,
+      field_names: Object.keys(lead.fieldMap || {}).slice(0, 40)
+    }
   };
 
   const { data: base, error: baseError } = await supabase.from('leads_base').insert({
@@ -185,11 +190,12 @@ export async function GET(request: Request) {
     const mode = url.searchParams.get('hub.mode');
     const token = url.searchParams.get('hub.verify_token');
     const challenge = url.searchParams.get('hub.challenge');
-    const verify = clean(settings.verify_token) || clean(process.env.META_LEADS_VERIFY_TOKEN) || defaults.verify_token;
-    if (mode === 'subscribe' && token === verify && challenge) return new Response(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
+    const verify = clean(process.env.META_LEADS_VERIFY_TOKEN);
+    if (mode === 'subscribe' && verify !== 'auto-controle-meta-leads-2026' && safeEqual(token, verify) && challenge) return new Response(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
     return NextResponse.json({ error: 'Token de verificação inválido.' }, { status: 403 });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Erro ao verificar webhook.' }, { status: 500 });
+  } catch (error: unknown) {
+    const safe = publicError(error, 'Erro ao verificar webhook.');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }
 
@@ -199,7 +205,19 @@ export async function POST(request: Request) {
     const current = await integration(supabase);
     if (!current?.is_active) return NextResponse.json({ success: true, ignored: true, reason: 'integration_inactive' });
     const settings = current.settings || {};
-    const events = webhookEvents(await request.json());
+    const rawBody = await readRawBody(request, 512 * 1024);
+    const appSecret = clean(process.env.META_APP_SECRET);
+    if (!appSecret) return NextResponse.json({ error: 'Webhook da Meta sem segredo configurado.' }, { status: 503 });
+    if (!verifySha256Hmac(rawBody, request.headers.get('x-hub-signature-256'), appSecret)) {
+      return NextResponse.json({ error: 'Assinatura do webhook inválida.' }, { status: 401 });
+    }
+    let payload: any;
+    try {
+      payload = JSON.parse(rawBody);
+    } catch {
+      throw new RequestSecurityError('Payload JSON inválido.', 400);
+    }
+    const events = webhookEvents(payload);
     const results: any[] = [];
     for (const event of events) {
       try {
@@ -208,12 +226,13 @@ export async function POST(request: Request) {
           continue;
         }
         results.push(await ingest(supabase, settings, event));
-      } catch (error: any) {
-        results.push({ leadgen_id: event.leadgen_id, status: 'error', error: error?.message || 'Erro ao processar lead.' });
+      } catch {
+        results.push({ leadgen_id: event.leadgen_id, status: 'error', error: 'Erro ao processar lead.' });
       }
     }
     return NextResponse.json({ success: true, processed: results.length, results });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Erro ao processar webhook da Meta.' }, { status: 500 });
+  } catch (error: unknown) {
+    const safe = publicError(error, 'Erro ao processar webhook da Meta.');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }

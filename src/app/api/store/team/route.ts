@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { NextResponse } from 'next/server';
 import {
   cleanText,
@@ -17,6 +17,10 @@ export const runtime = 'nodejs';
 const memberStatuses = ['pending', 'active', 'paused', 'inactive'] as const;
 
 type MemberStatus = (typeof memberStatuses)[number];
+
+function hashToken(token: string) {
+  return createHash('sha256').update(token).digest('hex');
+}
 
 function parseNullablePositiveInteger(value: unknown) {
   if (value === null || value === undefined || value === '') return null;
@@ -47,7 +51,7 @@ async function loadTeam(supabase: any, store: any, request: Request) {
       .order('full_name', { ascending: true }),
     supabase
       .from('store_team_registration_links')
-      .select('id, role, token, status, expires_at, usage_count, max_uses, last_used_at, created_at')
+      .select('id, role, status, expires_at, usage_count, max_uses, last_used_at, created_at')
       .eq('store_id', store.id)
       .order('created_at', { ascending: false })
   ]);
@@ -67,7 +71,7 @@ async function loadTeam(supabase: any, store: any, request: Request) {
     links: (links || []).map((link: any) => ({
       ...link,
       role_label: storeTeamRoleLabels[link.role as keyof typeof storeTeamRoleLabels] || link.role,
-      registration_url: `${baseUrl}/equipe/cadastro/${link.token}`
+      registration_url: null
     }))
   };
 }
@@ -279,12 +283,13 @@ export async function POST(request: Request) {
         .insert({
           store_id: store.id,
           role,
-          token,
+          token: null,
+          token_hash: hashToken(token),
           status: 'active',
           expires_at: expiresAt,
           created_by_user_id: profile.id
         })
-        .select('id, role, token, status, expires_at, usage_count, max_uses, last_used_at, created_at')
+        .select('id, role, status, expires_at, usage_count, max_uses, last_used_at, created_at')
         .single();
 
       if (insertError) throw insertError;

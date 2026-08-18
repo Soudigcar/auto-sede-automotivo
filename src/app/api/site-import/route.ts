@@ -4,18 +4,34 @@ import {
   inspectVehiclePage
 } from '@/lib/server/siteVehicleImporter';
 import { autoFillVehicleImport } from '@/lib/server/vehicleImportAutoFill';
+import { createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
+import { publicError, readJsonBody } from '@/lib/server/requestSecurity';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
 function cleanText(value: unknown) {
-  return String(value || '').trim();
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 2048);
+}
+
+async function requireImporterSession(request: Request) {
+  const token = readBearerToken(request);
+  if (!token) return null;
+  const profile = await getProfileFromToken(createAdminClient(), token);
+  if (!profile || profile.status !== 'active') return null;
+  if (!['master', 'store', 'pre_sales', 'seller', 'prospector'].includes(String(profile.role || ''))) return null;
+  return profile;
 }
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const profile = await requireImporterSession(request);
+    if (!profile) {
+      return NextResponse.json({ error: 'Sessão autorizada obrigatória.' }, { status: 401 });
+    }
+
+    const body = await readJsonBody<any>(request, 24 * 1024);
     const action = cleanText(body.action || 'preview');
     const url = cleanText(body.url);
 
@@ -42,7 +58,7 @@ export async function POST(request: Request) {
 
     if (action === 'import') {
       const selectedImages = Array.isArray(body.images) && body.images.length
-        ? body.images.map((value: unknown) => String(value || '')).filter(Boolean)
+        ? body.images.map((value: unknown) => cleanText(value)).filter(Boolean)
         : enrichedPage.images;
 
       const imageResult = await importDistinctVehicleImages(selectedImages.slice(0, 20), 8);
@@ -67,10 +83,8 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ error: 'Ação inválida.' }, { status: 400 });
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error?.message || 'Erro ao importar link.' },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const safe = publicError(error, 'Não foi possível importar o link.');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }

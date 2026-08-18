@@ -44,13 +44,13 @@ const defaultMetaLeads = {
   page_id: '',
   form_id: '',
   page_access_token: '',
-  verify_token: 'auto-controle-meta-leads-2026',
+  verify_token: '',
   graph_version: 'v20.0'
 };
 
 const defaultWatiLeads = {
   is_active: false,
-  verify_token: 'auto-controle-wati-leads-2026',
+  verify_token: '',
   source_name: 'WATI / Click-to-WhatsApp',
   routing_mode: 'round_robin',
   last_webhook_at: '',
@@ -566,7 +566,7 @@ export default function MasterIntegrationsPage() {
                 <label className="grid gap-2">
                   <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Token de segurança</span>
                   <div className="flex gap-2">
-                    <input className="premium-input" value={watiLeadsForm.verify_token} onChange={(event) => setWatiLeadsForm({ ...watiLeadsForm, verify_token: event.target.value.trim() })} placeholder="auto-controle-wati-leads-2026" />
+                    <input className="premium-input" value={watiLeadsForm.verify_token} onChange={(event) => setWatiLeadsForm({ ...watiLeadsForm, verify_token: event.target.value.trim() })} placeholder="Configurado com segurança no ambiente" />
                     <button className="premium-button-secondary shrink-0" type="button" onClick={() => copy(watiLeadsForm.verify_token)}>
                       <Copy size={16} />
                     </button>
@@ -649,7 +649,7 @@ export default function MasterIntegrationsPage() {
                   <textarea className="premium-input min-h-28" value={metaLeadsForm.page_access_token} onChange={(event) => setMetaLeadsForm({ ...metaLeadsForm, page_access_token: event.target.value.trim() })} placeholder="Cole aqui o token da Página. Não envie esse token por print ou no chat." />
                 </label>
 
-                <FormInput label="Verify Token" value={metaLeadsForm.verify_token} onChange={(value) => setMetaLeadsForm({ ...metaLeadsForm, verify_token: value.trim() })} placeholder="auto-controle-meta-leads-2026" />
+                <FormInput label="Verify Token" value={metaLeadsForm.verify_token} onChange={(value) => setMetaLeadsForm({ ...metaLeadsForm, verify_token: value.trim() })} placeholder="Configurado com segurança no ambiente" />
 
                 <ToggleCard title="Ativar recebimento de leads" description="Quando ativo, os leads do formulário entram automaticamente na Base." checked={metaLeadsForm.is_active} onChange={(checked) => setMetaLeadsForm({ ...metaLeadsForm, is_active: checked })} />
 

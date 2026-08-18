@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
 
-const defaultVerifyToken = 'auto-controle-whatsapp-2026';
+const defaultVerifyToken = '';
 const defaultGraphVersion = 'v20.0';
 
 function cleanText(value: unknown) {

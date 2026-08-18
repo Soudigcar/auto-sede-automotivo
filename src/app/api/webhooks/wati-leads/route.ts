@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { publicError, readJsonBody, safeEqual } from '@/lib/server/requestSecurity';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const defaultSettings = {
-  verify_token: 'auto-controle-wati-leads-2026',
+  verify_token: '',
   source_name: 'WATI / Click-to-WhatsApp',
   routing_mode: 'round_robin'
 };
@@ -184,7 +185,7 @@ function extractToken(request: Request, url: URL) {
 }
 
 function validToken(receivedToken: string, expectedToken: string) {
-  return Boolean(receivedToken && expectedToken && receivedToken === expectedToken);
+  return expectedToken !== 'auto-controle-wati-leads-2026' && safeEqual(receivedToken, expectedToken);
 }
 
 function firstValue(payload: any, paths: string[]) {
@@ -275,6 +276,14 @@ function extractLead(payload: any) {
     findNestedValue(payload, ['conversationId', 'conversation_id', 'chatId', 'ticketId']);
 
   return { name, phone, message, vehicle, campaign, conversationId };
+}
+
+function watiAuditPayload(payload: any, lead: ReturnType<typeof extractLead>) {
+  return {
+    event: cleanText(payload?.event || payload?.type || payload?.eventType).slice(0, 120) || null,
+    conversation_id: lead.conversationId || null,
+    received_at: new Date().toISOString()
+  };
 }
 
 async function claimWatiLock(supabase: any, phone: string) {
@@ -383,7 +392,7 @@ async function upsertLeadBase(supabase: any, lead: any, sourceName: string, payl
         campaign: lead.campaign || null,
         conversation_id: lead.conversationId || null,
         extracted_vehicle: lead.vehicle || null,
-        raw_payload: payload
+        webhook_audit: watiAuditPayload(payload, lead)
       },
       routing: route ? {
         strategy: route.routingStrategy,
@@ -443,7 +452,7 @@ async function upsertLeadBase(supabase: any, lead: any, sourceName: string, payl
       campaign: lead.campaign || null,
       conversation_id: lead.conversationId || null,
       extracted_vehicle: lead.vehicle || null,
-      raw_payload: payload
+      webhook_audit: watiAuditPayload(payload, lead)
     },
     routing: {
       strategy: route.routingStrategy,
@@ -526,13 +535,15 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const receivedToken = extractToken(request, url);
 
-    if (!validToken(receivedToken, cleanText(settings.verify_token))) {
+    const expectedToken = cleanText(process.env.WATI_WEBHOOK_TOKEN);
+    if (!validToken(receivedToken, expectedToken)) {
       return NextResponse.json({ error: 'Token de verificação inválido.' }, { status: 403 });
     }
 
     return NextResponse.json({ success: true, status: 'wati_webhook_ready' });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Erro ao verificar webhook WATI.' }, { status: 500 });
+  } catch (error: unknown) {
+    const safe = publicError(error, 'Erro ao verificar webhook WATI.');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }
 
@@ -549,12 +560,13 @@ export async function POST(request: Request) {
     const url = new URL(request.url);
     const receivedToken = extractToken(request, url);
 
-    if (!validToken(receivedToken, cleanText(settings.verify_token))) {
+    const expectedToken = cleanText(process.env.WATI_WEBHOOK_TOKEN);
+    if (!validToken(receivedToken, expectedToken)) {
       await updateIntegrationStatus(supabase, settings, 'Token inválido recebido no webhook WATI.');
       return NextResponse.json({ error: 'Token de verificação inválido.' }, { status: 403 });
     }
 
-    const payload = await request.json();
+    const payload = await readJsonBody<any>(request, 512 * 1024);
     const lead = extractLead(payload);
 
     if (!lead.phone) {
@@ -587,9 +599,7 @@ export async function POST(request: Request) {
       await updateIntegrationStatus(supabase, integration.settings || defaultSettings, error?.message || 'Erro ao receber webhook WATI.');
     } catch {}
 
-    return NextResponse.json(
-      { success: false, error: error?.message || 'Erro ao receber webhook WATI.' },
-      { status: 200 }
-    );
+    const safe = publicError(error, 'Erro ao receber webhook WATI.');
+    return NextResponse.json({ success: false, error: safe.message }, { status: safe.status === 500 ? 200 : safe.status });
   }
 }

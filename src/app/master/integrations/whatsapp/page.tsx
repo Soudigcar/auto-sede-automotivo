@@ -7,7 +7,7 @@ import { MasterSidebar } from '@/components/MasterSidebar';
 import { WhatsappEvolutionPanel } from '@/components/WhatsappEvolutionPanel';
 import { createClient } from '@/lib/supabase';
 
-const defaultVerifyToken = 'auto-controle-whatsapp-2026';
+const defaultVerifyToken = '';
 const defaultGraphVersion = 'v20.0';
 
 type StoreItem = {

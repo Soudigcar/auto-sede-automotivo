@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import Link from 'next/link';
 import { Building2, CheckCircle2, Loader2, Send } from 'lucide-react';
 
 const initialForm = {
@@ -18,11 +19,13 @@ const initialForm = {
   approximate_vehicle_count: '',
   interested_in_events: true,
   notes: '',
-  company_fax: ''
+  company_fax: '',
+  privacy_acknowledged: false,
+  form_started_at: 0
 };
 
 export function StorePortalApplicationForm() {
-  const [form, setForm] = useState(initialForm);
+  const [form, setForm] = useState(() => ({ ...initialForm, form_started_at: Date.now() }));
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [success, setSuccess] = useState(false);
@@ -51,7 +54,7 @@ export function StorePortalApplicationForm() {
       }
 
       setSuccess(true);
-      setForm(initialForm);
+      setForm({ ...initialForm, form_started_at: Date.now() });
       setMessage('Solicitação enviada. A equipe Auto Sede fará a análise antes da publicação da loja.');
     } catch {
       setMessage('Falha de conexão. Tente novamente em alguns instantes.');
@@ -106,9 +109,13 @@ export function StorePortalApplicationForm() {
           <span className="text-xs font-black uppercase tracking-wide text-slate-500">Observações</span>
           <textarea className="mt-1 min-h-28 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-red-400 focus:ring-4 focus:ring-red-100" value={form.notes} onChange={(event) => update('notes', event.target.value)} placeholder="Conte brevemente sobre a loja e o tipo de estoque." />
         </label>
+        <label className="md:col-span-2 flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">
+          <input type="checkbox" checked={form.privacy_acknowledged} onChange={(event) => update('privacy_acknowledged', event.target.checked)} className="mt-0.5 h-5 w-5 accent-red-600" required />
+          <span>Li a <Link href="/privacidade" target="_blank" className="text-red-600 underline">Política de Privacidade</Link> e entendi o uso dos dados para análise e retorno da solicitação.</span>
+        </label>
       </div>
 
-      <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-xs font-semibold leading-relaxed text-slate-500">Ao enviar, você autoriza o contato da equipe Auto Sede para validação comercial. A solicitação não publica automaticamente a loja nem os veículos.</div>
+      <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-xs font-semibold leading-relaxed text-slate-500">Os dados são usados para analisar e responder à solicitação. O interesse opcional em eventos pode ser desmarcado. A solicitação não publica automaticamente a loja nem os veículos.</div>
 
       <button type="submit" disabled={loading} className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-red-600 px-5 text-sm font-black text-white shadow-lg shadow-red-600/20 transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60">
         {loading ? <Loader2 size={19} className="animate-spin" /> : <Send size={19} />}

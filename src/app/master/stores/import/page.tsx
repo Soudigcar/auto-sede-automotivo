@@ -15,7 +15,7 @@ export default function StoreInventoryImportPage() {
           </header>
           <section className="premium-card mt-7 p-6">
             <h2 className="text-2xl font-black text-zinc-950">Importação em implantação</h2>
-            <p className="premium-muted mt-2 text-sm">A estrutura XLS/XLSX já foi preparada no parser e no banco. Falta apenas conectar o botão visual na tela principal.</p>
+            <p className="premium-muted mt-2 text-sm">A estrutura XLSX já foi preparada no parser e no banco. Falta apenas conectar o botão visual na tela principal.</p>
             <Link href="/master/stores" className="premium-button-secondary mt-5"><Store size={18} /> Voltar para lojas</Link>
           </section>
         </div>

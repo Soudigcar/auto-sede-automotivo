@@ -19,20 +19,26 @@ export function InventoryUploadBox({ eventId, stores, initialStoreId, onImported
     }
 
     const extension = file.name.split('.').pop()?.toLowerCase();
-    if (!['xls', 'xlsx', 'csv', 'txt', 'pdf'].includes(extension || '')) {
-      setMessage('Formato nao aceito. Envie XLS, XLSX, CSV, TXT ou PDF.');
+    if (!['xlsx', 'csv', 'txt', 'pdf'].includes(extension || '')) {
+      setMessage('Formato não aceito. Envie XLSX, CSV, TXT ou PDF.');
       event.target.value = '';
       return;
     }
 
     if (extension === 'pdf') {
-      setMessage('PDF recebido. Para leitura automatica dos carros, envie XLS, XLSX, CSV ou TXT.');
+      setMessage('PDF recebido. Para leitura automática dos carros, envie XLSX, CSV ou TXT.');
       event.target.value = '';
       return;
     }
 
-    const rows = ['xls', 'xlsx'].includes(extension || '')
-      ? parseInventoryWorkbook(await file.arrayBuffer(), eventId, storeId)
+    if (file.size > 10 * 1024 * 1024) {
+      setMessage('O arquivo excede o limite de 10 MB.');
+      event.target.value = '';
+      return;
+    }
+
+    const rows = extension === 'xlsx'
+      ? await parseInventoryWorkbook(await file.arrayBuffer(), eventId, storeId)
       : parseInventoryText(await file.text(), eventId, storeId);
 
     if (rows.length === 0) {
@@ -72,15 +78,15 @@ export function InventoryUploadBox({ eventId, stores, initialStoreId, onImported
   return (
     <div className="premium-card p-6">
       <h2 className="text-2xl font-black text-zinc-950">Anexar estoque</h2>
-      <p className="mt-2 text-sm text-zinc-500">Importe o estoque no padrão Lotus. XLS, XLSX, CSV e TXT são lidos automaticamente.</p>
+      <p className="mt-2 text-sm text-zinc-500">Importe o estoque no padrão Lotus. XLSX, CSV e TXT são lidos automaticamente.</p>
       <div className="mt-5 grid gap-3">
         <select className="premium-input" value={storeId} onChange={(event) => setStoreId(event.target.value)}>
           <option value="">Selecione a loja</option>
           {stores.map((store) => <option key={store.id} value={store.id}>{store.store_name}</option>)}
         </select>
         <label className="premium-button-secondary cursor-pointer">
-          <Upload size={16} /> Upload XLS, XLSX, CSV, TXT ou PDF
-          <input className="hidden" type="file" accept=".xls,.xlsx,.csv,.txt,.pdf" onChange={handleUpload} />
+          <Upload size={16} /> Upload XLSX, CSV, TXT ou PDF
+          <input className="hidden" type="file" accept=".xlsx,.csv,.txt,.pdf" onChange={handleUpload} />
         </label>
         <p className="text-xs text-zinc-400">Campos: Vehicle, Localização, Marca, Modelo, Ano Fabricação, Ano Modelo, Cor, Km, Placa, Combustível, Preço FIPE e Preço Web.</p>
         {message ? <p className="rounded-2xl bg-zinc-50 p-3 text-sm font-medium text-zinc-600">{message}</p> : null}

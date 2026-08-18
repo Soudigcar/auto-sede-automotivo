@@ -12,7 +12,7 @@ const defaultForm = {
   page_id: '',
   form_id: '',
   page_access_token: '',
-  verify_token: 'auto-controle-meta-leads-2026',
+  verify_token: '',
   graph_version: 'v20.0'
 };
 
@@ -219,7 +219,7 @@ export default function MetaLeadsIntegrationPage() {
                     className="premium-input"
                     value={form.verify_token}
                     onChange={(event) => setForm({ ...form, verify_token: event.target.value.trim() })}
-                    placeholder="auto-controle-meta-leads-2026"
+                    placeholder="Configurado com segurança no ambiente"
                   />
                 </label>
 

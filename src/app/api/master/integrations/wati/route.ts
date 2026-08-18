@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 export const runtime = 'nodejs';
 
 const defaultSettings = {
-  verify_token: 'auto-controle-wati-leads-2026',
+  verify_token: '',
   source_name: 'WATI / Click-to-WhatsApp',
   routing_mode: 'round_robin',
   api_endpoint: '',

@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 export type InventoryImportRow = {
   event_id: string;
@@ -94,11 +94,34 @@ export function parseInventoryText(text: string, eventId: string, storeId: strin
   }).filter(Boolean) as InventoryImportRow[];
 }
 
-export function parseInventoryWorkbook(buffer: ArrayBuffer, eventId: string, storeId: string) {
-  const workbook = XLSX.read(buffer, { type: 'array' });
-  const firstSheetName = workbook.SheetNames[0];
-  const worksheet = workbook.Sheets[firstSheetName];
-  const rows = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, { defval: '' });
+function excelCellValue(value: ExcelJS.CellValue) {
+  if (value === null || value === undefined) return '';
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value !== 'object') return value;
+  if ('text' in value) return value.text;
+  if ('result' in value) return value.result ?? '';
+  if ('richText' in value) return value.richText.map((part) => part.text).join('');
+  return String(value);
+}
+
+export async function parseInventoryWorkbook(buffer: ArrayBuffer, eventId: string, storeId: string) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer as never);
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) return [];
+  const headerRow = worksheet.getRow(1);
+  const headers = Array.from({ length: worksheet.columnCount }, (_, index) =>
+    String(excelCellValue(headerRow.getCell(index + 1).value)).trim()
+  );
+  const rows: Record<string, unknown>[] = [];
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const record: Record<string, unknown> = {};
+    headers.forEach((header, index) => {
+      if (header) record[header] = excelCellValue(row.getCell(index + 1).value);
+    });
+    rows.push(record);
+  });
   return rows.map((row) => buildRow(row, eventId, storeId)).filter(Boolean) as InventoryImportRow[];
 }
 

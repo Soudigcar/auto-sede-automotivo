@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { RequestSecurityError, publicError, readRawBody, safeEqual, verifySha256Hmac } from '@/lib/server/requestSecurity';
 
 export const runtime = 'nodejs';
 
-const defaultVerifyToken = 'auto-controle-whatsapp-2026';
+const retiredDefaultVerifyToken = 'auto-controle-whatsapp-2026';
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -61,15 +62,8 @@ function getMessageBody(message: any) {
 
 async function verifyToken(supabase: any, requestedToken: string) {
   if (!requestedToken) return false;
-  if (requestedToken === defaultVerifyToken) return true;
-
-  const { data } = await supabase
-    .from('whatsapp_numbers')
-    .select('id')
-    .eq('verify_token', requestedToken)
-    .limit(1);
-
-  return Boolean(data?.length);
+  const configured = text(process.env.WHATSAPP_VERIFY_TOKEN);
+  return configured !== retiredDefaultVerifyToken && safeEqual(requestedToken, configured);
 }
 
 async function findOrCreateLead(supabase: any, numberConfig: any, contactName: string, phone: string, firstMessage: string) {
@@ -305,7 +299,12 @@ async function processInboundMessage(supabase: any, value: any, message: any) {
       body: messageBody,
       media_id: message.image?.id || message.video?.id || message.audio?.id || message.document?.id || message.sticker?.id || null,
       status: 'received',
-      raw_payload: message,
+      raw_payload: {
+        message_id: message.id,
+        message_type: message.type || 'text',
+        received_at: sentAt,
+        has_media: Boolean(message.image || message.video || message.audio || message.document || message.sticker)
+      },
       sent_at: sentAt
     }, { onConflict: 'wa_message_id' });
 
@@ -358,8 +357,9 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({ error: 'Token de verificação inválido.' }, { status: 403 });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Erro no webhook WhatsApp.' }, { status: 500 });
+  } catch (error: unknown) {
+    const safe = publicError(error, 'Erro no webhook WhatsApp.');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }
 
@@ -368,7 +368,18 @@ export async function POST(request: Request) {
 
   try {
     const supabase = getAdminClient();
-    const payload = await request.json();
+    const rawBody = await readRawBody(request, 1024 * 1024);
+    const appSecret = text(process.env.WHATSAPP_APP_SECRET || process.env.META_APP_SECRET);
+    if (!appSecret) return NextResponse.json({ error: 'Webhook do WhatsApp sem segredo configurado.' }, { status: 503 });
+    if (!verifySha256Hmac(rawBody, request.headers.get('x-hub-signature-256'), appSecret)) {
+      return NextResponse.json({ error: 'Assinatura do webhook inválida.' }, { status: 401 });
+    }
+    let payload: any;
+    try {
+      payload = JSON.parse(rawBody);
+    } catch {
+      throw new RequestSecurityError('Payload JSON inválido.', 400);
+    }
     const entries = Array.isArray(payload?.entry) ? payload.entry : [];
 
     for (const entry of entries) {
@@ -382,26 +393,24 @@ export async function POST(request: Request) {
         for (const message of messages) {
           try {
             results.push(await processInboundMessage(supabase, value, message));
-          } catch (error: any) {
-            results.push({ error: error?.message || 'Erro ao processar mensagem.' });
+          } catch {
+            results.push({ error: 'Erro ao processar mensagem.' });
           }
         }
 
         for (const status of statuses) {
           try {
             results.push(await processStatus(supabase, status));
-          } catch (error: any) {
-            results.push({ error: error?.message || 'Erro ao processar status.' });
+          } catch {
+            results.push({ error: 'Erro ao processar status.' });
           }
         }
       }
     }
 
     return NextResponse.json({ success: true, results });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, error: error?.message || 'Erro ao receber webhook WhatsApp.', results },
-      { status: 200 }
-    );
+  } catch (error: unknown) {
+    const safe = publicError(error, 'Erro ao receber webhook WhatsApp.');
+    return NextResponse.json({ success: false, error: safe.message, results }, { status: safe.status === 500 ? 200 : safe.status });
   }
 }

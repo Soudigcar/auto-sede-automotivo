@@ -127,10 +127,21 @@ async function getCampaign(supabase: any, campaignId?: string) {
   return data;
 }
 
-async function importVehicleFromSubmission(origin: string, submission: any) {
+function importerHeaders(request: Request) {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  for (const name of ['authorization', 'cookie', 'x-vercel-protection-bypass', 'x-vercel-set-bypass-cookie']) {
+    const value = request.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  return headers;
+}
+
+async function importVehicleFromSubmission(request: Request, submission: any) {
+  const origin = new URL(request.url).origin;
+  const headers = importerHeaders(request);
   const previewResponse = await fetch(`${origin}/api/site-import`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({
       action: 'preview',
       url: submission.vehicle_url
@@ -147,7 +158,7 @@ async function importVehicleFromSubmission(origin: string, submission: any) {
 
   const importResponse = await fetch(`${origin}/api/site-import`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({
       action: 'import',
       url: submission.vehicle_url,
@@ -180,7 +191,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Nenhum link selecionado.' }, { status: 400 });
     }
 
-    const origin = new URL(request.url).origin;
     const results: any[] = [];
 
     for (const submissionId of submissionIds) {
@@ -215,7 +225,7 @@ export async function POST(request: Request) {
           throw new Error('A loja proprietária está inativa ou sem acesso ao portal.');
         }
 
-        const importedResult = await importVehicleFromSubmission(origin, submission);
+        const importedResult = await importVehicleFromSubmission(request, submission);
         const vehicleData = importedResult.imported?.vehicle || importedResult.preview?.vehicle || {};
         const uploadedImages = Array.isArray(importedResult.imported?.uploadedImages)
           ? importedResult.imported.uploadedImages

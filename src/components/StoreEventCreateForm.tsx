@@ -28,6 +28,11 @@ function generatePublicToken() {
   return `${Date.now()}${Math.random()}`.replace(/\D/g, '');
 }
 
+async function hashPublicToken(token: string) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 type StoreEventCreateFormProps = {
   onSaved?: () => void;
   mode?: 'portal' | 'event' | 'link';
@@ -71,11 +76,22 @@ export function StoreEventCreateForm({ onSaved, mode = 'portal', eventId: contro
     if (!currentEventId || mode !== 'link') { setRegistrationLink(null); return; }
     setRegistrationLink(null);
 
-    const { data } = await supabase.from('store_registration_links').select('*').eq('event_id', currentEventId).maybeSingle();
-    if (data) { setRegistrationLink(data); return; }
+    const { data } = await supabase.from('store_registration_links').select('id,event_id,title,is_active,expires_at').eq('event_id', currentEventId).maybeSingle();
+    setRegistrationLink(data ? { ...data, public_token: '' } : null);
+  }
 
-    const { data: created } = await supabase.from('store_registration_links').insert({ event_id: currentEventId, public_token: generatePublicToken() }).select('*').single();
-    setRegistrationLink(created || null);
+  async function generateRegistrationLink() {
+    if (!eventId) return setMessage('Selecione um evento.');
+    const rawToken = generatePublicToken();
+    const publicTokenHash = await hashPublicToken(rawToken);
+    const payload = { event_id: eventId, public_token: null, public_token_hash: publicTokenHash, is_active: true, updated_at: new Date().toISOString() };
+    const query = registrationLink?.id
+      ? supabase.from('store_registration_links').update(payload).eq('id', registrationLink.id)
+      : supabase.from('store_registration_links').insert(payload);
+    const { data, error } = await query.select('id,event_id,title,is_active,expires_at').single();
+    if (error) return setMessage('Não foi possível gerar o link seguro.');
+    setRegistrationLink({ ...data, public_token: rawToken });
+    setMessage('Novo link gerado. Copie-o agora; o token não fica armazenado no banco.');
   }
 
   useEffect(() => { loadData().catch(() => null); }, []);
@@ -223,8 +239,9 @@ export function StoreEventCreateForm({ onSaved, mode = 'portal', eventId: contro
         <div className="mt-5"><EventSelectField events={events} value={eventId} onChange={selectEvent} label="Evento do convite" /></div>
         <div className="mt-4 rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
           <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Link público de participação</p>
-          <p className="mt-2 break-all text-sm font-black text-zinc-800">{publicRegistrationLink || 'Gerando ou localizando o link deste evento...'}</p>
+          <p className="mt-2 break-all text-sm font-black text-zinc-800">{publicRegistrationLink || 'O token não é armazenado. Gere um novo link para copiá-lo.'}</p>
           <div className="mt-3 flex flex-wrap gap-2">
+            <button className="premium-button-primary text-xs" type="button" onClick={generateRegistrationLink}>Gerar novo link seguro</button>
             <button className="premium-button-secondary text-xs" type="button" onClick={copyRegistrationLink}><Copy size={14} /> Copiar link</button>
             {publicRegistrationLink ? <a className="premium-button-secondary text-xs" href={publicRegistrationLink} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Abrir cadastro</a> : null}
           </div>

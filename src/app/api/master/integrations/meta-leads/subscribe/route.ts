@@ -9,7 +9,7 @@ const defaultSettings = {
   page_id: '',
   form_id: '',
   page_access_token: '',
-  verify_token: 'auto-controle-meta-leads-2026',
+  verify_token: '',
   graph_version: 'v20.0',
   routing_mode: 'base_only'
 };

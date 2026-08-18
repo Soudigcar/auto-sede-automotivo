@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
+import { secureFetchHtml, secureFetchImage } from '@/lib/server/secureRemoteFetch';
 import { normalizeVehicleOption, uniqueVehicleImages } from '@/lib/vehicleCatalogOptions';
 import {
   combineVehicleYears,
@@ -549,16 +550,7 @@ function extractImages(html: string, baseUrl: string) {
 }
 
 async function fetchHtml(url: string) {
-  const response = await fetch(url, {
-    headers: {
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36 AutoControleAutomotivo/1.0',
-      accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'accept-language': 'pt-BR,pt;q=0.9,en;q=0.7'
-    },
-    cache: 'no-store'
-  });
-  if (!response.ok) throw new Error(`Não foi possível acessar o link. Status ${response.status}`);
-  return response.text();
+  return secureFetchHtml(url);
 }
 
 function hammingDistance(left: string, right: string) {
@@ -585,12 +577,10 @@ async function visualHash(buffer: Buffer) {
 }
 
 async function downloadImage(sourceUrl: string, order: number): Promise<DownloadedImage> {
-  const response = await fetch(sourceUrl, { headers: { 'user-agent': 'Mozilla/5.0 (compatible; AutoControleAutomotivo/1.0)' }, cache: 'no-store' });
-  if (!response.ok) throw new Error('Falha ao baixar imagem.');
-  const contentType = response.headers.get('content-type') || 'image/jpeg';
-  if (!contentType.toLowerCase().startsWith('image/')) throw new Error('Arquivo recebido não é uma imagem.');
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.length < 1_500 || buffer.length > 20_000_000) throw new Error('Imagem fora do tamanho permitido.');
+  const remote = await secureFetchImage(sourceUrl);
+  const contentType = remote.contentType;
+  const buffer = remote.body;
+  if (buffer.length < 1_500) throw new Error('Imagem fora do tamanho permitido.');
   const metadata = await sharp(buffer).metadata();
   const width = Number(metadata.width || 0);
   const height = Number(metadata.height || 0);
