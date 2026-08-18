@@ -74,7 +74,7 @@ async function eligibility(storeId: string, conversationId: string) {
       .eq('store_id', storeId)
       .maybeSingle(),
     autocar.from('ai_runtime_conversations')
-      .select('effective_mode,human_state,pause_reason')
+      .select('effective_mode,human_state,pause_reason,production_whatsapp_number_id,last_inbound_message_id')
       .eq('store_id', storeId)
       .eq('production_conversation_id', conversationId)
       .maybeSingle()
@@ -100,6 +100,64 @@ async function eligibility(storeId: string, conversationId: string) {
   }
 
   return { allowed: true, reason: 'Human Handoff V1 elegível no piloto A4 Preview.', runtime, policy };
+}
+
+export async function revalidateAutocarCanonicalInbound(input: {
+  productionSupabase: any;
+  storeId: string;
+  conversationId: string;
+  whatsappNumberId: string;
+  inboundMessageId: string;
+}) {
+  const [conversationResult, inboundResult, latestInboundResult] = await Promise.all([
+    input.productionSupabase
+      .from('whatsapp_conversations')
+      .select('id,store_id,whatsapp_number_id')
+      .eq('id', input.conversationId)
+      .eq('store_id', input.storeId)
+      .eq('whatsapp_number_id', input.whatsappNumberId)
+      .maybeSingle(),
+    input.productionSupabase
+      .from('whatsapp_messages')
+      .select('id,message_type,direction,conversation_id,whatsapp_number_id,created_at')
+      .eq('id', input.inboundMessageId)
+      .eq('store_id', input.storeId)
+      .eq('conversation_id', input.conversationId)
+      .eq('whatsapp_number_id', input.whatsappNumberId)
+      .eq('direction', 'inbound')
+      .maybeSingle(),
+    input.productionSupabase
+      .from('whatsapp_messages')
+      .select('id,created_at')
+      .eq('store_id', input.storeId)
+      .eq('conversation_id', input.conversationId)
+      .eq('whatsapp_number_id', input.whatsappNumberId)
+      .eq('direction', 'inbound')
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+  ]);
+
+  if (conversationResult.error) throw conversationResult.error;
+  if (inboundResult.error) throw inboundResult.error;
+  if (latestInboundResult.error) throw latestInboundResult.error;
+
+  if (!conversationResult.data) {
+    return { allowed: false, reason: 'Conversa canônica não corresponde à loja e ao número WhatsApp informados.' };
+  }
+  if (!inboundResult.data) {
+    return { allowed: false, reason: 'Mensagem canônica não existe como inbound da conversa e do número WhatsApp informados.' };
+  }
+  if (!latestInboundResult.data || latestInboundResult.data.id !== input.inboundMessageId) {
+    return { allowed: false, reason: 'A mensagem inbound não é mais a mais recente da conversa; nenhuma ação será executada.' };
+  }
+
+  return {
+    allowed: true,
+    reason: 'Mensagem inbound canônica e mais recente revalidada.',
+    inbound: inboundResult.data
+  };
 }
 
 async function createClaim(input: {
@@ -238,6 +296,36 @@ export async function attemptAutocarHumanHandoffPilot(input: {
     return { handed_off: false, skipped: true, claim: skipped, reason: eligible.reason };
   }
 
+  const canonicalInbound = await revalidateAutocarCanonicalInbound({
+    productionSupabase: input.productionSupabase,
+    storeId: input.storeId,
+    conversationId: input.conversationId,
+    whatsappNumberId: input.whatsappNumberId,
+    inboundMessageId: input.inboundMessageId
+  });
+  const runtimeMatchesInbound = String(eligible.runtime?.last_inbound_message_id || '') === input.inboundMessageId;
+  const runtimeMatchesNumber = String(eligible.runtime?.production_whatsapp_number_id || '') === input.whatsappNumberId;
+  if (!canonicalInbound.allowed || !runtimeMatchesInbound || !runtimeMatchesNumber) {
+    const reason = !canonicalInbound.allowed
+      ? canonicalInbound.reason
+      : !runtimeMatchesInbound
+        ? 'Runtime da conversa avançou para outra mensagem inbound; nenhuma ação será executada.'
+        : 'Runtime da conversa não corresponde ao número WhatsApp informado; nenhuma ação será executada.';
+    const skipped = await updateClaim(claimResult.claim.id, {
+      status: 'skipped',
+      policy_effect: 'deny',
+      policy_reason: reason,
+      completed_at: new Date().toISOString(),
+      result: {
+        runtime_pause_execution: false,
+        external_execution: false,
+        canonical_inbound_revalidation: false,
+        revalidation_reason: reason
+      }
+    });
+    return { handed_off: false, skipped: true, claim: skipped, reason };
+  }
+
   const autocar = getAutocarDevClient();
   const now = new Date().toISOString();
   const pauseReason = `AUTOCAR encaminhou para atendimento humano: ${transfer.reason}`.slice(0, 500);
@@ -252,6 +340,8 @@ export async function attemptAutocarHumanHandoffPilot(input: {
     })
     .eq('store_id', input.storeId)
     .eq('production_conversation_id', input.conversationId)
+    .eq('production_whatsapp_number_id', input.whatsappNumberId)
+    .eq('last_inbound_message_id', input.inboundMessageId)
     .eq('effective_mode', 'autopilot')
     .eq('human_state', 'autocar_active')
     .select('store_id,production_conversation_id,effective_mode,human_state,pause_reason,paused_at')
@@ -282,6 +372,7 @@ export async function attemptAutocarHumanHandoffPilot(input: {
         .select('id,store_id,whatsapp_number_id,contact_id,lead_id,base_lead_id')
         .eq('id', input.conversationId)
         .eq('store_id', input.storeId)
+        .eq('whatsapp_number_id', input.whatsappNumberId)
         .maybeSingle();
       if (conversationError) throw conversationError;
       if (!conversation) throw new Error('Conversa canônica não encontrada para confirmação do handoff.');
@@ -300,28 +391,47 @@ export async function attemptAutocarHumanHandoffPilot(input: {
       const sentAt = new Date().toISOString();
       const scopedId = scopedEvolutionMessageId(conversation.whatsapp_number_id, providerMessageId);
 
-      const { data: savedMessage, error: saveError } = await input.productionSupabase.from('whatsapp_messages').insert({
-        store_id: conversation.store_id,
-        whatsapp_number_id: conversation.whatsapp_number_id,
-        conversation_id: conversation.id,
-        contact_id: conversation.contact_id,
-        lead_id: conversation.lead_id,
-        base_lead_id: conversation.base_lead_id,
-        wa_message_id: scopedId || providerMessageId || null,
-        direction: 'outbound',
-        message_type: 'text',
-        body: SAFE_ACK,
-        status: 'sent',
-        raw_payload: {
-          provider: 'evolution',
-          autocar_human_handoff: true,
-          inbound_message_id: input.inboundMessageId,
-          live_claim_id: claimResult.claim.id,
-          evolution: evolutionResult
-        },
-        sent_at: sentAt
-      }).select('id').single();
-      if (saveError) throw saveError;
+      let savedMessage: any = null;
+      if (providerMessageId) {
+        const { data: existing, error: existingError } = await input.productionSupabase
+          .from('whatsapp_messages')
+          .select('id')
+          .eq('store_id', input.storeId)
+          .eq('conversation_id', conversation.id)
+          .eq('whatsapp_number_id', conversation.whatsapp_number_id)
+          .eq('direction', 'outbound')
+          .in('wa_message_id', [providerMessageId, scopedId])
+          .limit(1)
+          .maybeSingle();
+        if (existingError) throw existingError;
+        savedMessage = existing;
+      }
+
+      if (!savedMessage) {
+        const { data, error: saveError } = await input.productionSupabase.from('whatsapp_messages').insert({
+          store_id: conversation.store_id,
+          whatsapp_number_id: conversation.whatsapp_number_id,
+          conversation_id: conversation.id,
+          contact_id: conversation.contact_id,
+          lead_id: conversation.lead_id,
+          base_lead_id: conversation.base_lead_id,
+          wa_message_id: scopedId || providerMessageId || null,
+          direction: 'outbound',
+          message_type: 'text',
+          body: SAFE_ACK,
+          status: 'sent',
+          raw_payload: {
+            provider: 'evolution',
+            autocar_human_handoff: true,
+            inbound_message_id: input.inboundMessageId,
+            live_claim_id: claimResult.claim.id,
+            evolution: evolutionResult
+          },
+          sent_at: sentAt
+        }).select('id').single();
+        if (saveError) throw saveError;
+        savedMessage = data;
+      }
 
       const { error: conversationUpdateError } = await input.productionSupabase.from('whatsapp_conversations')
         .update({ last_message: SAFE_ACK, last_message_at: sentAt, updated_at: sentAt })
@@ -354,6 +464,7 @@ export async function attemptAutocarHumanHandoffPilot(input: {
     result: {
       runtime_pause_execution: true,
       external_execution: acknowledgement?.sent === true,
+      canonical_inbound_revalidation: true,
       pause_reason: pauseReason,
       acknowledgement,
       completed_at: completedAt

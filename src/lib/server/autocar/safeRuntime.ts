@@ -405,14 +405,17 @@ async function isOwnAutocarLiveOutbound(input: {
   if (messageError) throw messageError;
   if (!message) return false;
 
-  if (message?.raw_payload?.autocar_live_pilot === true) return true;
+  if (
+    message?.raw_payload?.autocar_live_pilot === true ||
+    message?.raw_payload?.autocar_human_handoff === true
+  ) return true;
 
   const since = new Date(Date.now() - 2 * 60 * 1000).toISOString();
   const { data: claims, error: claimsError } = await input.autocar.from('ai_runtime_message_claims')
     .select('id,status,purpose,result,created_at')
     .eq('store_id', input.storeId)
     .eq('production_conversation_id', input.conversationId)
-    .in('purpose', ['live_text_send', 'live_audio_send', 'live_photo_send', 'live_location_send', 'live_visit_schedule'])
+    .in('purpose', ['live_text_send', 'live_audio_send', 'live_photo_send', 'live_location_send', 'live_visit_schedule', 'live_human_handoff'])
     .gte('created_at', since)
     .order('created_at', { ascending: false })
     .limit(16);
@@ -423,6 +426,19 @@ async function isOwnAutocarLiveOutbound(input: {
 
   return (claims || []).some((claim: any) => {
     const result = claim?.result || {};
+
+    if (claim.purpose === 'live_human_handoff') {
+      const acknowledgement = result?.acknowledgement || {};
+      if (String(acknowledgement?.production_outbound_message_id || '') === input.messageId) return true;
+      if (providerMessageId && String(acknowledgement?.provider_message_id || '') === providerMessageId) return true;
+      const plannedAck = String(result?.planned_ack || '').trim();
+      return Boolean(
+        body &&
+        plannedAck &&
+        body === plannedAck &&
+        (claim.status === 'ready' || claim.status === 'completed')
+      );
+    }
 
     if (claim.purpose === 'live_text_send' || claim.purpose === 'live_audio_send' || claim.purpose === 'live_location_send' || claim.purpose === 'live_visit_schedule') {
       if (String(result?.production_outbound_message_id || '') === input.messageId) return true;

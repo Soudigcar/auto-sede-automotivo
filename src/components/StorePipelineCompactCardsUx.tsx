@@ -27,6 +27,7 @@ function normalizedText(value: string | null | undefined) {
 }
 
 function tagCard(card: HTMLElement) {
+  if (card.dataset.pipelineCardV2 === 'true') return;
   card.dataset.pipelineCompactCard = 'true';
 
   const directChildren = Array.from(card.children) as HTMLElement[];
