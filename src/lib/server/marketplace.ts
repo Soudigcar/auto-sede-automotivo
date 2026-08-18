@@ -1,3 +1,5 @@
+import 'server-only';
+
 import { createClient } from '@supabase/supabase-js';
 import type { MarketplaceFilters, MarketplaceStore, MarketplaceVehicle, PublicStore } from '@/components/marketplace/types';
 import { safeExternalHttpUrl, slugifyPublicText } from '@/lib/publicRoutes';
