@@ -26,3 +26,7 @@ jobs:
       - run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: '1'
+          # Public, non-routable CI placeholders. They only let Supabase's browser
+          # client be instantiated while Next.js prerenders static pages.
+          NEXT_PUBLIC_SUPABASE_URL: 'https://ci-placeholder.invalid'
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: 'ci-placeholder-anon-key'
