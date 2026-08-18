@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { publicError, readJsonBody, safeEqual } from '@/lib/server/requestSecurity';
+import { getUmblerServerConfig, stripStoredUmblerSecrets } from '@/lib/server/umblerServerConfig';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const defaultSettings = {
-  verify_token: '',
   source_name: 'Umbler Talk / WhatsApp',
   routing_mode: 'round_robin_event',
   event_id: '',
@@ -35,7 +35,11 @@ function getAdminClient() {
 
 async function getIntegration(supabase: any) {
   const { data } = await supabase.from('marketing_integrations').select('*').eq('integration_type', 'umbler_talk').maybeSingle();
-  return { ...(data || {}), is_active: Boolean(data?.is_active), settings: { ...defaultSettings, ...(data?.settings || {}) } };
+  return {
+    ...(data || {}),
+    is_active: Boolean(data?.is_active),
+    settings: { ...defaultSettings, ...stripStoredUmblerSecrets(data?.settings) }
+  };
 }
 
 function nested(payload: any, paths: string[]) {
@@ -108,7 +112,7 @@ async function updateIntegrationStatus(supabase: any, current: any, patch: Recor
     .from('marketing_integrations')
     .update({
       ...(deactivate ? { is_active: false } : {}),
-      settings: { ...(current?.settings || {}), ...patch },
+      settings: { ...stripStoredUmblerSecrets(current?.settings), ...patch },
       updated_at: new Date().toISOString()
     })
     .eq('integration_type', 'umbler_talk');
@@ -234,8 +238,10 @@ export async function POST(request: Request) {
     if (!integration.is_active) return NextResponse.json({ ok: false, ignored: 'integration_inactive' }, { status: 202 });
     const url = new URL(request.url);
     const receivedToken = extractToken(request, url);
-    const expectedToken = cleanText(process.env.UMBLER_WEBHOOK_TOKEN);
-    if (!safeEqual(receivedToken, expectedToken)) return NextResponse.json({ error: 'Token inválido.' }, { status: 401 });
+    const serverConfig = getUmblerServerConfig();
+    if (!serverConfig.hasVerifyToken || !safeEqual(receivedToken, serverConfig.verifyToken)) {
+      return NextResponse.json({ error: 'Token inválido.' }, { status: 401 });
+    }
 
     const configuredEventId = cleanText(integration.settings.event_id);
     if (!configuredEventId) {

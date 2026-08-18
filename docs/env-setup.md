@@ -37,3 +37,5 @@ Nenhuma variável desta seção, nem `EVOLUTION_API_KEY`, `EVOLUTION_WEBHOOK_SEC
 Do not commit real credentials to GitHub.
 
 Antes de ativar um webhook, configure o mesmo verify token no provedor e na Vercel. Os tokens previsíveis antigos são deliberadamente rejeitados. Rotacione segredos comprometidos no provedor antes de remover a versão antiga da Vercel.
+
+`UMBLER_WEBHOOK_TOKEN` é exclusivamente server-side: o painel informa apenas se a variável está configurada e nunca aceita, persiste ou exibe seu valor. Configure o mesmo segredo manualmente na Umbler usando um header de webhook suportado pelo provedor; não inclua o token em URLs compartilhadas.
