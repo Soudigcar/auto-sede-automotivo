@@ -11,11 +11,9 @@ import {
   MessageCircle,
   MousePointerClick,
   Plug,
-  RefreshCcw,
   Save,
   ShieldCheck,
-  UploadCloud,
-  XCircle
+  UploadCloud
 } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { createClient } from '@/lib/supabase';
@@ -48,15 +46,6 @@ const defaultMetaLeads = {
   graph_version: 'v20.0'
 };
 
-const defaultWatiLeads = {
-  is_active: false,
-  verify_token: '',
-  source_name: 'WATI / Click-to-WhatsApp',
-  routing_mode: 'round_robin',
-  last_webhook_at: '',
-  last_error: ''
-};
-
 type LandingOption = {
   id: string;
   name: string;
@@ -75,29 +64,12 @@ function parsePixelIds(value: string) {
   );
 }
 
-function formatDateTime(value: string) {
-  if (!value) return 'Nunca';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'Nunca';
-
-  return date.toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-}
-
 export default function MasterIntegrationsPage() {
   const supabase = createClient();
 
   const [loading, setLoading] = useState(true);
   const [savingPixel, setSavingPixel] = useState(false);
   const [savingMetaLeads, setSavingMetaLeads] = useState(false);
-  const [savingWatiLeads, setSavingWatiLeads] = useState(false);
-  const [refreshingWati, setRefreshingWati] = useState(false);
-  const [clearingWatiError, setClearingWatiError] = useState(false);
   const [testingMetaLeads, setTestingMetaLeads] = useState(false);
   const [subscribingMetaLeads, setSubscribingMetaLeads] = useState(false);
   const [metaLeadsDiagnostic, setMetaLeadsDiagnostic] = useState<any>(null);
@@ -115,16 +87,10 @@ export default function MasterIntegrationsPage() {
   });
 
   const [metaLeadsForm, setMetaLeadsForm] = useState(defaultMetaLeads);
-  const [watiLeadsForm, setWatiLeadsForm] = useState(defaultWatiLeads);
 
   const callbackUrl = useMemo(() => {
     return `${origin || 'https://sistemaautomotivo.autosede.com.br'}/api/webhooks/meta-leads`;
   }, [origin]);
-
-  const watiCallbackUrl = useMemo(() => {
-    const token = encodeURIComponent(watiLeadsForm.verify_token || defaultWatiLeads.verify_token);
-    return `${origin || 'https://sistemaautomotivo.autosede.com.br'}/api/webhooks/wati-leads?token=${token}`;
-  }, [origin, watiLeadsForm.verify_token]);
 
   const allPixelIds = useMemo(() => {
     return Array.from(
@@ -214,44 +180,12 @@ export default function MasterIntegrationsPage() {
     });
   }
 
-  async function loadWatiLeads(showStatusMessage = false) {
-    const token = await getAuthToken();
-    if (!token) {
-      setMessage('Sessão expirada. Faça login novamente.');
-      return;
-    }
-
-    const response = await fetch('/api/master/integrations/wati', {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    const result = await response.json();
-
-    if (!response.ok) {
-      setMessage(result.error || 'Não foi possível carregar WATI Leads.');
-      return;
-    }
-
-    const integration = result.integration;
-    const settings = integration?.settings || {};
-
-    setWatiLeadsForm({
-      is_active: Boolean(integration.is_active),
-      verify_token: settings.verify_token || defaultWatiLeads.verify_token,
-      source_name: settings.source_name || defaultWatiLeads.source_name,
-      routing_mode: settings.routing_mode || defaultWatiLeads.routing_mode,
-      last_webhook_at: settings.last_webhook_at || '',
-      last_error: settings.last_error || ''
-    });
-
-    if (showStatusMessage) setMessage('Status do WATI atualizado.');
-  }
-
   async function loadAll() {
     setLoading(true);
     setMessage('Carregando integrações...');
 
     try {
-      await Promise.all([loadPixel(), loadMetaLeads(), loadWatiLeads()]);
+      await Promise.all([loadPixel(), loadMetaLeads()]);
       setMessage('');
     } catch {
       setMessage('Erro ao carregar integrações.');
@@ -337,87 +271,6 @@ export default function MasterIntegrationsPage() {
     }
 
     setSavingMetaLeads(false);
-  }
-
-  async function saveWatiLeads(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSavingWatiLeads(true);
-    setMessage('Salvando WATI Leads...');
-
-    try {
-      const token = await getAuthToken();
-      if (!token) {
-        setMessage('Sessão expirada. Faça login novamente.');
-        setSavingWatiLeads(false);
-        return;
-      }
-
-      const response = await fetch('/api/master/integrations/wati', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify(watiLeadsForm)
-      });
-      const result = await response.json();
-
-      if (!response.ok) {
-        setMessage(result.error || 'Não foi possível salvar WATI Leads.');
-        setSavingWatiLeads(false);
-        return;
-      }
-
-      setMessage('WATI Leads salvo com sucesso.');
-      await loadWatiLeads();
-    } catch {
-      setMessage('Erro ao salvar WATI Leads.');
-    }
-
-    setSavingWatiLeads(false);
-  }
-
-  async function refreshWatiStatus() {
-    setRefreshingWati(true);
-    await loadWatiLeads(true);
-    setRefreshingWati(false);
-  }
-
-  async function clearWatiError() {
-    setClearingWatiError(true);
-    setMessage('Limpando erro do WATI...');
-
-    try {
-      const token = await getAuthToken();
-      if (!token) {
-        setMessage('Sessão expirada. Faça login novamente.');
-        setClearingWatiError(false);
-        return;
-      }
-
-      const response = await fetch('/api/master/integrations/wati', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ action: 'clear_error' })
-      });
-      const result = await response.json();
-
-      if (!response.ok) {
-        setMessage(result.error || 'Não foi possível limpar o erro do WATI.');
-        setClearingWatiError(false);
-        return;
-      }
-
-      setMessage('Erro do WATI limpo com sucesso.');
-      await loadWatiLeads();
-    } catch {
-      setMessage('Erro ao limpar o status do WATI.');
-    }
-
-    setClearingWatiError(false);
   }
 
   function updatePixelEvent(key: string, value: boolean) {
@@ -512,7 +365,7 @@ export default function MasterIntegrationsPage() {
               <p className="premium-eyebrow">Gestão Master</p>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Integração</h1>
               <p className="premium-muted mt-3 max-w-3xl text-sm">
-                Configure Pixel, Facebook Lead Forms, WATI, Webhook, API da Meta e conexões técnicas do sistema.
+                Configure Pixel, Facebook Lead Forms, Webhook, API da Meta e conexões técnicas do sistema.
               </p>
             </div>
 
@@ -532,99 +385,11 @@ export default function MasterIntegrationsPage() {
               <IntegrationCard title="WhatsApp central" status="Abrir QR e números" active icon={<MessageCircle size={22} />} />
             </Link>
             <IntegrationCard title="Facebook Lead Forms" status={metaLeadsForm.is_active ? 'Ativo' : 'Configurar'} active={metaLeadsForm.is_active} icon={<ShieldCheck size={22} />} />
-            <IntegrationCard title="WATI Leads" status={watiLeadsForm.is_active ? 'Ativo' : 'Configurar'} active={watiLeadsForm.is_active} icon={<Plug size={22} />} />
             <IntegrationCard title="Pixel do Facebook" status={pixelForm.is_active ? `${allPixelIds.length} ID(s) ativo(s)` : 'Inativo'} active={pixelForm.is_active} icon={<MousePointerClick size={22} />} />
             {baseItems.map((item) => {
               const Icon = item.icon;
               return <IntegrationCard key={item.title} title={item.title} status={item.status} icon={<Icon size={22} />} />;
             })}
-          </section>
-
-          <section className="mt-7 grid gap-5 xl:grid-cols-[1fr_420px]">
-            <form onSubmit={saveWatiLeads} className="premium-card p-6">
-              <PanelHeader eyebrow="WATI / WhatsApp Ads" title="WATI Leads" description="Receba contatos do WATI, registre na Base Master e distribua automaticamente para as lojas." active={watiLeadsForm.is_active} />
-
-              <div className="mt-6 grid gap-4">
-                <div className="rounded-[24px] border border-emerald-100 bg-emerald-50/60 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-emerald-700">Webhook URL para colar no WATI</p>
-                  <p className="mt-2 break-all text-sm font-black text-zinc-950">{watiCallbackUrl}</p>
-                  <button className="mt-3 inline-flex items-center gap-2 text-xs font-black text-emerald-700" type="button" onClick={() => copy(watiCallbackUrl)}>
-                    <Copy size={14} /> Copiar Webhook URL
-                  </button>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <FormInput label="Nome da origem" value={watiLeadsForm.source_name} onChange={(value) => setWatiLeadsForm({ ...watiLeadsForm, source_name: value })} placeholder="WATI / Click-to-WhatsApp" />
-                  <label className="grid gap-2">
-                    <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Modo de distribuição</span>
-                    <select className="premium-input" value={watiLeadsForm.routing_mode} onChange={(event) => setWatiLeadsForm({ ...watiLeadsForm, routing_mode: event.target.value })}>
-                      <option value="round_robin">Distribuição uniforme / round-robin</option>
-                    </select>
-                  </label>
-                </div>
-
-                <label className="grid gap-2">
-                  <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Token de segurança</span>
-                  <div className="flex gap-2">
-                    <input className="premium-input" value={watiLeadsForm.verify_token} onChange={(event) => setWatiLeadsForm({ ...watiLeadsForm, verify_token: event.target.value.trim() })} placeholder="Configurado com segurança no ambiente" />
-                    <button className="premium-button-secondary shrink-0" type="button" onClick={() => copy(watiLeadsForm.verify_token)}>
-                      <Copy size={16} />
-                    </button>
-                  </div>
-                </label>
-
-                <ToggleCard title="Ativar recebimento de leads WATI" description="Quando ativo, cada novo contato recebido pelo webhook entra na Base e é direcionado para uma loja." checked={watiLeadsForm.is_active} onChange={(checked) => setWatiLeadsForm({ ...watiLeadsForm, is_active: checked })} />
-
-                <button className="premium-button-primary justify-center" type="submit" disabled={savingWatiLeads || loading}>
-                  <Save size={18} /> {savingWatiLeads ? 'Salvando...' : 'Salvar WATI Leads'}
-                </button>
-              </div>
-            </form>
-
-            <aside className="premium-card p-6">
-              <h2 className="text-2xl font-black text-zinc-950">Como configurar no WATI</h2>
-              <div className="mt-5 space-y-4 text-sm font-bold text-zinc-500">
-                <p>1. No WATI, abra a área de Webhooks ou integrações.</p>
-                <p>2. Cole a Webhook URL exibida neste painel.</p>
-                <p>3. Ative apenas o evento de mensagem recebida para evitar duplicidade.</p>
-                <p>4. Salve a integração e envie uma mensagem teste para o número conectado.</p>
-                <p>5. Confira se o lead entrou na Base Master e no Pipeline da loja.</p>
-              </div>
-
-              <div className="mt-6 rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Último webhook WATI</p>
-                <p className="mt-2 text-sm font-black text-zinc-800">{formatDateTime(watiLeadsForm.last_webhook_at)}</p>
-              </div>
-
-              {watiLeadsForm.last_error ? (
-                <div className="mt-4 rounded-2xl border border-red-100 bg-red-50 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-red-600">Último erro</p>
-                  <p className="mt-2 break-words text-xs font-black text-red-700">{watiLeadsForm.last_error}</p>
-                </div>
-              ) : (
-                <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-emerald-700">Status</p>
-                  <p className="mt-2 text-xs font-black text-emerald-700">Sem erro salvo no WATI Leads.</p>
-                </div>
-              )}
-
-              <div className="mt-4 grid gap-3">
-                <button className="premium-button-secondary justify-center" type="button" onClick={refreshWatiStatus} disabled={refreshingWati || loading}>
-                  <RefreshCcw size={18} /> {refreshingWati ? 'Atualizando...' : 'Atualizar status'}
-                </button>
-
-                <button className="premium-button-secondary justify-center" type="button" onClick={clearWatiError} disabled={clearingWatiError || loading || !watiLeadsForm.last_error}>
-                  <XCircle size={18} /> {clearingWatiError ? 'Limpando...' : 'Limpar erro'}
-                </button>
-              </div>
-
-              <div className="mt-4 rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Importante</p>
-                <p className="mt-2 text-xs font-bold leading-relaxed text-zinc-500">
-                  O AUTO CONTROLE agora bloqueia webhooks duplicados do WATI por telefone em uma janela curta de segurança.
-                </p>
-              </div>
-            </aside>
           </section>
 
           <section className="mt-7 grid gap-5 xl:grid-cols-[1fr_420px]">
