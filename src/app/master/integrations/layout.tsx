@@ -9,7 +9,7 @@ const integrationSections = [
   {
     href: '/master/integrations',
     label: 'Central de Integrações',
-    description: 'Meta, WATI, Pixel e conexões técnicas',
+    description: 'Meta, Pixel e conexões técnicas',
     icon: Plug
   },
   {

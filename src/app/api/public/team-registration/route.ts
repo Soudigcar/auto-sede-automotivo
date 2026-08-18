@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
 import {
   cleanText,
   createAdminClient,
@@ -6,14 +7,20 @@ import {
   normalizeEmail,
   storeTeamRoleLabels
 } from '@/lib/server/storeTeam';
+import { enforceRateLimit } from '@/lib/server/rateLimit';
+import { publicError, readJsonBody } from '@/lib/server/requestSecurity';
 
 export const runtime = 'nodejs';
+
+function hashToken(token: string) {
+  return createHash('sha256').update(token).digest('hex');
+}
 
 async function loadValidLink(supabase: any, token: string) {
   const { data: link, error } = await supabase
     .from('store_team_registration_links')
     .select('id, store_id, role, status, expires_at, max_uses, usage_count, last_used_at, created_at')
-    .eq('token', token)
+    .eq('token_hash', hashToken(token))
     .maybeSingle();
 
   if (error) throw error;
@@ -65,14 +72,20 @@ export async function GET(request: Request) {
       role_label: storeTeamRoleLabels[context.link.role as keyof typeof storeTeamRoleLabels],
       expires_at: context.link.expires_at
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Erro ao validar cadastro.' }, { status: 500 });
+  } catch (error: unknown) {
+    const failure = publicError(error, 'Erro ao validar cadastro.');
+    return NextResponse.json({ error: failure.message }, { status: failure.status });
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const origin = request.headers.get('origin');
+    if (origin && origin !== new URL(request.url).origin) {
+      return NextResponse.json({ error: 'Origem não autorizada.' }, { status: 403 });
+    }
+    await enforceRateLimit(request, 'team-registration', 10, 60 * 60);
+    const body = await readJsonBody<any>(request, 16 * 1024);
     const token = cleanText(body.token, 220);
     const fullName = cleanText(body.full_name, 180);
     const email = normalizeEmail(body.email);
@@ -84,8 +97,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Preencha nome e e-mail corretamente.' }, { status: 400 });
     }
 
-    if (password.length < 8) {
-      return NextResponse.json({ error: 'A senha deve ter pelo menos 8 caracteres.' }, { status: 400 });
+    if (password.length < 12 || !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+      return NextResponse.json({ error: 'Use ao menos 12 caracteres, com maiúscula, minúscula, número e símbolo.' }, { status: 400 });
     }
 
     if (password !== passwordConfirmation) {
@@ -111,6 +124,26 @@ export async function POST(request: Request) {
 
     if (existingProfile) {
       return NextResponse.json({ error: 'Já existe um usuário cadastrado com este e-mail.' }, { status: 409 });
+    }
+
+    const currentUsage = Number(link.usage_count || 0);
+    const nextUsage = currentUsage + 1;
+    const reachedLimit = link.max_uses !== null && link.max_uses !== undefined && nextUsage >= link.max_uses;
+    const { data: reservedLink, error: reserveError } = await supabase
+      .from('store_team_registration_links')
+      .update({
+        usage_count: nextUsage,
+        last_used_at: new Date().toISOString(),
+        status: reachedLimit ? 'expired' : 'active',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', link.id)
+      .eq('status', 'active')
+      .eq('usage_count', currentUsage)
+      .select('id')
+      .maybeSingle();
+    if (reserveError || !reservedLink) {
+      return NextResponse.json({ error: 'O link foi utilizado simultaneamente. Tente novamente.' }, { status: 409 });
     }
 
     const { data: lastMember, error: orderError } = await supabase
@@ -174,21 +207,6 @@ export async function POST(request: Request) {
       throw profileError;
     }
 
-    const newUsageCount = Number(link.usage_count || 0) + 1;
-    const reachedLimit = link.max_uses !== null && link.max_uses !== undefined && newUsageCount >= link.max_uses;
-
-    const { error: usageError } = await supabase
-      .from('store_team_registration_links')
-      .update({
-        usage_count: newUsageCount,
-        last_used_at: new Date().toISOString(),
-        status: reachedLimit ? 'expired' : 'active',
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', link.id);
-
-    if (usageError) throw usageError;
-
     return NextResponse.json({
       success: true,
       message: 'Cadastro enviado. O Gestor da loja precisa ativar seu acesso.',
@@ -201,7 +219,8 @@ export async function POST(request: Request) {
         store_name: store.store_name
       }
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Erro ao concluir cadastro.' }, { status: 500 });
+  } catch (error: unknown) {
+    const failure = publicError(error, 'Erro ao concluir cadastro.');
+    return NextResponse.json({ error: failure.message }, { status: failure.status });
   }
 }

@@ -1,6 +1,8 @@
 import { createHash } from 'crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { enforceRateLimit } from '@/lib/server/rateLimit';
+import { publicError, readJsonBody } from '@/lib/server/requestSecurity';
 
 export const runtime = 'nodejs';
 
@@ -25,7 +27,7 @@ async function getValidLink(supabase: any, token: string) {
 
   if (!link) return null;
   if (link.expires_at && new Date(link.expires_at).getTime() < Date.now()) return null;
-  if (link.use_count >= link.max_uses) return null;
+  if (link.max_uses !== null && link.usage_count >= link.max_uses) return null;
   if (!link.stores || link.stores.status !== 'active' || !link.stores.portal_enabled) return null;
   return link;
 }
@@ -42,22 +44,29 @@ export async function GET(request: Request) {
       role: link.role,
       expires_at: link.expires_at
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Erro ao validar link.' }, { status: 500 });
+  } catch (error: unknown) {
+    const failure = publicError(error, 'Erro ao validar link.');
+    return NextResponse.json({ error: failure.message }, { status: failure.status });
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const origin = request.headers.get('origin');
+    if (origin && origin !== new URL(request.url).origin) {
+      return NextResponse.json({ error: 'Origem não autorizada.' }, { status: 403 });
+    }
+    await enforceRateLimit(request, 'team-register-legacy', 10, 60 * 60);
+    const body = await readJsonBody<any>(request, 16 * 1024);
     const token = String(body.token || '');
     const fullName = String(body.full_name || '').replace(/\s+/g, ' ').trim();
     const email = String(body.email || '').trim().toLowerCase();
     const phone = String(body.phone || '').trim();
     const password = String(body.password || '');
 
-    if (!token || fullName.length < 3 || !email.includes('@') || password.length < 8) {
-      return NextResponse.json({ error: 'Preencha nome, e-mail e senha com pelo menos 8 caracteres.' }, { status: 400 });
+    if (!token || fullName.length < 3 || !email.includes('@') || password.length < 12 ||
+        !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+      return NextResponse.json({ error: 'Preencha nome, e-mail e uma senha forte com ao menos 12 caracteres.' }, { status: 400 });
     }
 
     const supabase: any = adminClient();
@@ -66,6 +75,24 @@ export async function POST(request: Request) {
 
     const { data: existing } = await supabase.from('users').select('id').ilike('email', email).maybeSingle();
     if (existing) return NextResponse.json({ error: 'Este e-mail já está cadastrado.' }, { status: 409 });
+
+    const currentUsage = Number(link.usage_count || 0);
+    const nextUsage = currentUsage + 1;
+    const reachedLimit = link.max_uses !== null && link.max_uses !== undefined && nextUsage >= link.max_uses;
+    const { data: reserved } = await supabase
+      .from('store_team_registration_links')
+      .update({
+        usage_count: nextUsage,
+        last_used_at: new Date().toISOString(),
+        status: reachedLimit ? 'expired' : 'active',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', link.id)
+      .eq('status', 'active')
+      .eq('usage_count', currentUsage)
+      .select('id')
+      .maybeSingle();
+    if (!reserved) return NextResponse.json({ error: 'O link foi utilizado simultaneamente. Tente novamente.' }, { status: 409 });
 
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email,
@@ -93,18 +120,14 @@ export async function POST(request: Request) {
       throw profileError;
     }
 
-    await supabase
-      .from('store_team_registration_links')
-      .update({ use_count: link.use_count + 1, last_used_at: new Date().toISOString() })
-      .eq('id', link.id);
-
     return NextResponse.json({
       success: true,
       login_path: '/login',
       store_slug: link.stores.slug,
       message: 'Cadastro concluído. Seu acesso foi criado, mas a participação no rodízio depende da ativação do gestor.'
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Erro ao concluir cadastro.' }, { status: 500 });
+  } catch (error: unknown) {
+    const failure = publicError(error, 'Erro ao concluir cadastro.');
+    return NextResponse.json({ error: failure.message }, { status: failure.status });
   }
 }

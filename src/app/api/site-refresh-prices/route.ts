@@ -71,12 +71,15 @@ function normalizePrice(value: any) {
 
 async function readPriceFromSource(request: Request, sourceUrl: string) {
   const origin = new URL(request.url).origin;
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  for (const name of ['authorization', 'cookie', 'x-vercel-protection-bypass', 'x-vercel-set-bypass-cookie']) {
+    const value = request.headers.get(name);
+    if (value) headers.set(name, value);
+  }
 
   const response = await fetch(`${origin}/api/site-import`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers,
     body: JSON.stringify({
       action: 'preview',
       url: sourceUrl

@@ -39,7 +39,7 @@ export async function GET(request: Request) {
 
     const { data, error } = await supabase
       .from('store_team_registration_links')
-      .select('id,store_id,role,status,expires_at,max_uses,use_count,last_used_at,created_at')
+      .select('id,store_id,role,status,expires_at,max_uses,usage_count,last_used_at,created_at')
       .eq('store_id', storeId)
       .order('created_at', { ascending: false });
     if (error) throw error;
@@ -80,9 +80,10 @@ export async function POST(request: Request) {
         status: 'active',
         expires_at: expiresAt,
         max_uses: 50,
+        token: null,
         created_by_user_id: profile.id
       })
-      .select('id,role,status,expires_at,max_uses,use_count,created_at')
+      .select('id,role,status,expires_at,max_uses,usage_count,created_at')
       .single();
     if (error) throw error;
 

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getMetaServerConfig, redactMetaSecrets, stripStoredMetaSecrets } from '@/lib/server/metaServerConfig';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -8,8 +9,6 @@ const defaultSettings = {
   app_id: '',
   page_id: '',
   form_id: '',
-  page_access_token: '',
-  verify_token: 'auto-controle-meta-leads-2026',
   graph_version: 'v20.0',
   routing_mode: 'base_only'
 };
@@ -75,20 +74,21 @@ async function getIntegration(supabase: any) {
     ...(data || {}),
     settings: {
       ...defaultSettings,
-      ...(data?.settings || {})
+      ...stripStoredMetaSecrets(data?.settings)
     }
   };
 }
 
 async function graphGetWithToken(path: string, token: string, graphVersion: string, params: Record<string, string> = {}) {
   const url = new URL(`https://graph.facebook.com/${graphVersion}/${path.replace(/^\//, '')}`);
-  url.searchParams.set('access_token', token);
-
   Object.entries(params).forEach(([key, value]) => {
     if (value) url.searchParams.set(key, value);
   });
 
-  const response = await fetch(url.toString(), { cache: 'no-store' });
+  const response = await fetch(url.toString(), {
+    cache: 'no-store',
+    headers: { authorization: `Bearer ${token}` }
+  });
   const data = await response.json();
 
   return {
@@ -98,9 +98,9 @@ async function graphGetWithToken(path: string, token: string, graphVersion: stri
   };
 }
 
-async function resolvePageAccessToken(settings: any) {
+async function resolvePageAccessToken(settings: any, serverToken: string) {
   const graphVersion = cleanText(settings.graph_version) || defaultSettings.graph_version;
-  const savedToken = cleanText(settings.page_access_token);
+  const savedToken = cleanText(serverToken);
   const pageId = cleanText(settings.page_id);
 
   if (!savedToken || !pageId) return savedToken;
@@ -135,7 +135,8 @@ export async function POST(request: Request) {
     const integration = await getIntegration(supabase);
     const settings = integration.settings || {};
     const pageId = cleanText(settings.page_id);
-    const pageAccessToken = cleanText(settings.page_access_token);
+    const serverConfig = getMetaServerConfig();
+    const pageAccessToken = serverConfig.pageAccessToken;
     const graphVersion = cleanText(settings.graph_version) || defaultSettings.graph_version;
 
     if (!integration?.is_active) {
@@ -150,29 +151,29 @@ export async function POST(request: Request) {
     }
 
     if (!pageAccessToken) {
-      return NextResponse.json({ error: 'Page Access Token não informado.' }, { status: 400 });
+      return NextResponse.json({ error: 'META_PAGE_ACCESS_TOKEN não configurado no servidor.' }, { status: 400 });
     }
 
-    const tokenToUse = await resolvePageAccessToken(settings);
+    const tokenToUse = await resolvePageAccessToken(settings, pageAccessToken);
 
     const url = new URL(`https://graph.facebook.com/${graphVersion}/${pageId}/subscribed_apps`);
-    url.searchParams.set('access_token', tokenToUse);
     url.searchParams.set('subscribed_fields', 'leadgen');
 
     const response = await fetch(url.toString(), {
       method: 'POST',
-      cache: 'no-store'
+      cache: 'no-store',
+      headers: { authorization: `Bearer ${tokenToUse}` }
     });
 
     const data = await response.json();
 
     if (!response.ok || data?.success !== true) {
       return NextResponse.json(
-        {
+        redactMetaSecrets({
           success: false,
           error: data?.error?.message || 'A Meta não confirmou a inscrição da página.',
           meta_error: data?.error || data
-        },
+        }, serverConfig),
         { status: 400 }
       );
     }

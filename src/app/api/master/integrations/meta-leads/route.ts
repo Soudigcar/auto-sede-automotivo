@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getMetaServerConfig, publicMetaSettings, stripStoredMetaSecrets } from '@/lib/server/metaServerConfig';
 
 export const runtime = 'nodejs';
 
@@ -8,8 +9,6 @@ const defaultSettings = {
   page_id: '',
   form_id: '',
   form_mappings: [],
-  page_access_token: '',
-  verify_token: 'auto-controle-meta-leads-2026',
   graph_version: 'v20.0',
   routing_mode: 'base_only'
 };
@@ -54,11 +53,13 @@ async function getMasterProfile(supabase: any, token: string) {
 }
 
 function normalizeIntegration(integration: any) {
+  const settings = stripStoredMetaSecrets(integration?.settings);
+
   return {
     ...integration,
     settings: {
       ...defaultSettings,
-      ...(integration?.settings || {}),
+      ...publicMetaSettings(settings),
       form_mappings: Array.isArray(integration?.settings?.form_mappings)
         ? integration.settings.form_mappings
         : []
@@ -117,26 +118,36 @@ export async function POST(request: Request) {
     if (!masterProfile) return NextResponse.json({ error: 'Apenas usuário Master pode salvar esta integração.' }, { status: 403 });
 
     const body = await request.json();
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return NextResponse.json({ error: 'Payload de configuração inválido.' }, { status: 400 });
+    }
+
+    if ('page_access_token' in body || 'verify_token' in body) {
+      return NextResponse.json(
+        { error: 'Tokens da Meta são aceitos somente como variáveis server-side na Vercel.' },
+        { status: 400 }
+      );
+    }
+
     const current = await getOrCreateIntegration(supabase);
-    const currentSettings = current?.settings || {};
+    const currentSettings = stripStoredMetaSecrets(current?.settings);
+    const serverConfig = getMetaServerConfig();
 
     const settings = {
       app_id: cleanText(body.app_id),
       page_id: cleanText(body.page_id),
       form_id: cleanText(body.form_id),
       form_mappings: Array.isArray(currentSettings.form_mappings) ? currentSettings.form_mappings : [],
-      page_access_token: cleanText(body.page_access_token),
-      verify_token: cleanText(body.verify_token) || defaultSettings.verify_token,
       graph_version: cleanText(body.graph_version) || defaultSettings.graph_version,
       routing_mode: 'base_only'
     };
 
     const isActive = Boolean(body.is_active);
-    if (isActive && !settings.page_access_token) {
-      return NextResponse.json({ error: 'Informe o Page Access Token antes de ativar a integração.' }, { status: 400 });
+    if (isActive && !serverConfig.hasPageAccessToken) {
+      return NextResponse.json({ error: 'Configure META_PAGE_ACCESS_TOKEN na Vercel antes de ativar a integração.' }, { status: 400 });
     }
-    if (isActive && !settings.verify_token) {
-      return NextResponse.json({ error: 'Informe o Verify Token antes de ativar a integração.' }, { status: 400 });
+    if (isActive && !serverConfig.hasVerifyToken) {
+      return NextResponse.json({ error: 'Configure META_LEADS_VERIFY_TOKEN na Vercel antes de ativar a integração.' }, { status: 400 });
     }
 
     const payload = {

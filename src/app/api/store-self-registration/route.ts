@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
+import { enforceRateLimit } from '@/lib/server/rateLimit';
+import { contentLengthExceeds, publicError } from '@/lib/server/requestSecurity';
 
 export const runtime = 'nodejs';
 
-function cleanText(value: unknown) {
-  return String(value || '').replace(/\s+/g, ' ').trim();
+function cleanText(value: unknown, maxLength = 500) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
 }
 
 function normalizeEmail(value: unknown) {
@@ -34,10 +37,15 @@ function getPasswordClient() {
 }
 
 function normalizeUrl(value: string) {
-  const text = cleanText(value);
+  const text = cleanText(value, 500);
   if (!text) return '';
-  if (/^https?:\/\//i.test(text)) return text;
-  return `https://${text}`;
+  try {
+    const url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return '';
+    return url.toString();
+  } catch {
+    return '';
+  }
 }
 
 function isValidVehicleUrl(value: string) {
@@ -45,7 +53,8 @@ function isValidVehicleUrl(value: string) {
 }
 
 async function getRegistrationContext(supabase: any, token: string) {
-  const { data: link, error: linkError } = await supabase.from('store_registration_links').select('*').eq('public_token', token).eq('is_active', true).maybeSingle();
+  const tokenHash = createHash('sha256').update(token).digest('hex');
+  const { data: link, error: linkError } = await supabase.from('store_registration_links').select('*').eq('public_token_hash', tokenHash).eq('is_active', true).maybeSingle();
   if (linkError || !link) return { error: 'Link de cadastro inválido ou desativado.', link: null, event: null };
   if (link.expires_at && new Date(link.expires_at).getTime() < Date.now()) return { error: 'Link de cadastro expirado.', link: null, event: null };
 
@@ -72,7 +81,9 @@ async function uploadStockFile(supabase: any, storeId: string, file: File) {
   const name = safeFileName(file.name);
   const extension = name.split('.').pop()?.toLowerCase();
   if (!['csv', 'xml', 'txt'].includes(extension || '')) throw new Error('Arquivo inválido. Envie apenas CSV ou XML.');
+  if (file.size <= 0 || file.size > 10 * 1024 * 1024) throw new Error('O arquivo deve ter no máximo 10 MB.');
   const arrayBuffer = await file.arrayBuffer();
+  if (new Uint8Array(arrayBuffer.slice(0, 4096)).includes(0)) throw new Error('O arquivo contém conteúdo binário não permitido.');
   const filePath = `${storeId}/${Date.now()}-${name}`;
   const contentType = file.type || (extension === 'xml' ? 'application/xml' : 'text/csv');
   const { error } = await supabase.storage.from('stock-imports').upload(filePath, arrayBuffer, { contentType, upsert: true });
@@ -123,9 +134,10 @@ export async function GET(request: Request) {
     if (!token) return NextResponse.json({ error: 'Token não informado.' }, { status: 400 });
     const context = await getRegistrationContext(supabase, token);
     if (context.error) return NextResponse.json({ error: context.error }, { status: 404 });
-    return NextResponse.json({ event: context.event, link: { title: context.link.title, public_token: context.link.public_token } });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Erro ao carregar cadastro.' }, { status: 500 });
+    return NextResponse.json({ event: context.event, link: { title: context.link.title } });
+  } catch (error: unknown) {
+    const failure = publicError(error, 'Erro ao carregar cadastro.');
+    return NextResponse.json({ error: failure.message }, { status: failure.status });
   }
 }
 
@@ -134,12 +146,20 @@ export async function POST(request: Request) {
   let createdStoreId = '';
 
   try {
+    const origin = request.headers.get('origin');
+    if (origin && origin !== new URL(request.url).origin) {
+      return NextResponse.json({ error: 'Origem não autorizada.' }, { status: 403 });
+    }
+    if (contentLengthExceeds(request, 12 * 1024 * 1024)) {
+      return NextResponse.json({ error: 'Solicitação acima do limite permitido.' }, { status: 413 });
+    }
+    await enforceRateLimit(request, 'store-self-registration', 10, 60 * 60);
     const supabase = getAdminClient();
     const formData = await request.formData();
-    const token = cleanText(formData.get('token'));
-    const storeName = cleanText(formData.get('store_name'));
-    const responsibleName = cleanText(formData.get('responsible_name'));
-    const phone = cleanText(formData.get('phone'));
+    const token = cleanText(formData.get('token'), 220);
+    const storeName = cleanText(formData.get('store_name'), 160);
+    const responsibleName = cleanText(formData.get('responsible_name'), 160);
+    const phone = cleanText(formData.get('phone'), 40);
     const email = normalizeEmail(formData.get('email'));
     const password = String(formData.get('password') || '');
     const websiteUrl = normalizeUrl(cleanText(formData.get('website_url')));
@@ -148,7 +168,9 @@ export async function POST(request: Request) {
 
     if (!token) return NextResponse.json({ error: 'Link de cadastro inválido.' }, { status: 400 });
     if (!storeName || !responsibleName || !email || !password) return NextResponse.json({ error: 'Preencha nome da loja, responsável, e-mail e senha.' }, { status: 400 });
-    if (password.length < 6) return NextResponse.json({ error: 'A senha precisa ter pelo menos 6 caracteres.' }, { status: 400 });
+    if (password.length < 12 || !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+      return NextResponse.json({ error: 'Use ao menos 12 caracteres, com maiúscula, minúscula, número e símbolo.' }, { status: 400 });
+    }
 
     const context = await getRegistrationContext(supabase, token);
     if (context.error || !context.event || !context.link) return NextResponse.json({ error: context.error || 'Link inválido.' }, { status: 400 });
@@ -226,10 +248,11 @@ export async function POST(request: Request) {
 
     const loginUrl = `/login?redirectedFrom=${encodeURIComponent(`/loja/${store.slug}`)}`;
     return NextResponse.json({ success: true, existing_store: false, event_name: context.event.event_name, store_slug: store.slug, login_url: loginUrl });
-  } catch (error: any) {
+  } catch (error: unknown) {
     const supabase = getAdminClient();
     if (createdStoreId) await supabase.from('stores').update({ status: 'deleted', portal_enabled: false }).eq('id', createdStoreId);
     if (createdAuthUserId) await supabase.auth.admin.deleteUser(createdAuthUserId);
-    return NextResponse.json({ error: error?.message || 'Erro ao finalizar cadastro da loja.' }, { status: 500 });
+    const failure = publicError(error, 'Erro ao finalizar cadastro da loja.');
+    return NextResponse.json({ error: failure.message }, { status: failure.status });
   }
 }

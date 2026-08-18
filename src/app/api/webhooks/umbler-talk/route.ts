@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { publicError, readJsonBody, safeEqual } from '@/lib/server/requestSecurity';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -78,6 +79,16 @@ function extractLead(payload: any) {
   return { phone, name, message, messageId, eventName, direction, channelId, chatId };
 }
 
+function umblerAuditPayload(payload: any, lead: ReturnType<typeof extractLead>) {
+  return {
+    event: cleanText(payload?.event || payload?.type || payload?.eventType).slice(0, 120) || null,
+    message_id: lead.messageId || null,
+    channel_id: lead.channelId || null,
+    chat_id: lead.chatId || null,
+    received_at: new Date().toISOString()
+  };
+}
+
 function isOutbound(payload: any, lead: ReturnType<typeof extractLead>) {
   const normalized = `${lead.direction} ${lead.eventName}`.toLowerCase();
   return normalized.includes('outbound') || normalized.includes('sent') || normalized.includes('fromme') || payload?.fromMe === true || payload?.message?.fromMe === true || payload?.data?.fromMe === true;
@@ -149,7 +160,7 @@ async function appendExistingLead(supabase: any, existing: any, lead: ReturnType
   const timestamp = new Date().toISOString();
   const previousMessages = Array.isArray(existing?.metadata?.messages) ? existing.metadata.messages : [];
   const messages = [...previousMessages.slice(-19), { id: lead.messageId || null, text: lead.message || '', received_at: timestamp, channel_id: lead.channelId || null, chat_id: lead.chatId || null }];
-  await supabase.from('leads_base').update({ notes: [existing.notes || '', lead.message ? `Nova mensagem Umbler: ${lead.message}` : ''].filter(Boolean).join('\n'), metadata: { ...(existing.metadata || {}), messages, last_raw_webhook: payload }, updated_at: timestamp }).eq('id', existing.id);
+  await supabase.from('leads_base').update({ notes: [existing.notes || '', lead.message ? `Nova mensagem Umbler: ${lead.message}` : ''].filter(Boolean).join('\n'), metadata: { ...(existing.metadata || {}), messages, last_webhook_audit: umblerAuditPayload(payload, lead) }, updated_at: timestamp }).eq('id', existing.id);
   if (existing.routed_lead_id && lead.message) {
     const { data: routed } = await supabase.from('leads').select('notes').eq('id', existing.routed_lead_id).maybeSingle();
     await supabase.from('leads').update({ notes: [routed?.notes || '', `Nova mensagem Umbler: ${lead.message}`].filter(Boolean).join('\n'), updated_at: timestamp }).eq('id', existing.routed_lead_id);
@@ -186,7 +197,7 @@ async function createLead(supabase: any, lead: ReturnType<typeof extractLead>, p
     chat_id: lead.chatId || null,
     routing: { strategy: 'umbler_talk_event_round_robin', assigned_store_id: selectedStore.store_id, assigned_store_name: selectedStore.store_name, assigned_at: assignedAt, routed_lead_id: routedLeadId },
     messages: [{ id: lead.messageId || null, text: lead.message || '', received_at: assignedAt, channel_id: lead.channelId || null, chat_id: lead.chatId || null }],
-    raw_webhook: payload
+    webhook_audit: umblerAuditPayload(payload, lead)
   };
 
   const { data: baseLead, error: baseError } = await supabase.from('leads_base').insert({
@@ -223,8 +234,8 @@ export async function POST(request: Request) {
     if (!integration.is_active) return NextResponse.json({ ok: false, ignored: 'integration_inactive' }, { status: 202 });
     const url = new URL(request.url);
     const receivedToken = extractToken(request, url);
-    const expectedToken = cleanText(integration.settings.verify_token);
-    if (!receivedToken || !expectedToken || receivedToken !== expectedToken) return NextResponse.json({ error: 'Token inválido.' }, { status: 401 });
+    const expectedToken = cleanText(process.env.UMBLER_WEBHOOK_TOKEN);
+    if (!safeEqual(receivedToken, expectedToken)) return NextResponse.json({ error: 'Token inválido.' }, { status: 401 });
 
     const configuredEventId = cleanText(integration.settings.event_id);
     if (!configuredEventId) {
@@ -240,7 +251,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `${error?.message || 'Evento inválido.'} A integração foi desativada.` }, { status: 409 });
     }
 
-    const payload = await request.json();
+    const payload = await readJsonBody<any>(request, 512 * 1024);
     const lead = extractLead(payload);
     if (isOutbound(payload, lead)) return NextResponse.json({ ok: true, ignored: 'outbound_message' });
     if (isGroup(payload)) return NextResponse.json({ ok: true, ignored: 'group_message' });
@@ -257,7 +268,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, result });
   } catch (error: any) {
     await updateIntegrationStatus(supabase, integration, { last_webhook_at: new Date().toISOString(), last_error: error?.message || 'Erro desconhecido ao processar webhook.' });
-    return NextResponse.json({ error: error?.message || 'Erro ao processar Umbler Talk.' }, { status: 500 });
+    const safe = publicError(error, 'Erro ao processar Umbler Talk.');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }
 

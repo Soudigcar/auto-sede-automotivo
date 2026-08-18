@@ -17,10 +17,7 @@ const canonicalOrigins = new Set([
   'Facebook Lead Ads',
   'facebook_lead_ads',
   'WhatsApp Oficial',
-  'whatsapp_official',
-  'WATI / Click-to-WhatsApp',
-  'wati_leads',
-  'WATI'
+  'whatsapp_official'
 ]);
 
 function cleanPhone(value: unknown) {

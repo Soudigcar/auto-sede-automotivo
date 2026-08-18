@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { enforceRateLimit } from '@/lib/server/rateLimit';
+import { publicError, readJsonBody } from '@/lib/server/requestSecurity';
 
 export const runtime = 'nodejs';
 
@@ -37,11 +39,24 @@ function getAdminClient() {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const origin = request.headers.get('origin');
+    if (origin && origin !== new URL(request.url).origin) {
+      return NextResponse.json({ error: 'Origem não autorizada.' }, { status: 403 });
+    }
+    await enforceRateLimit(request, 'store-applications', 5, 24 * 60 * 60);
+    const body = await readJsonBody<any>(request, 24 * 1024);
 
     // Honeypot: bots costumam preencher campos invisíveis.
     if (clean(body.company_fax, 100)) {
       return NextResponse.json({ success: true });
+    }
+
+    const elapsed = Date.now() - Number(body.form_started_at || 0);
+    if (!Number.isFinite(elapsed) || elapsed < 2_000 || elapsed > 2 * 60 * 60 * 1000) {
+      return NextResponse.json({ error: 'Reabra o formulário e tente novamente.' }, { status: 400 });
+    }
+    if (body.privacy_acknowledged !== true) {
+      return NextResponse.json({ error: 'Confirme a leitura da Política de Privacidade.' }, { status: 400 });
     }
 
     const storeName = clean(body.store_name, 160);
@@ -117,6 +132,8 @@ export async function POST(request: Request) {
       instagram_url: instagramUrl,
       approximate_vehicle_count: vehicleCount,
       interested_in_events: body.interested_in_events !== false,
+      privacy_notice_version: '2026-08-18',
+      privacy_acknowledged_at: new Date().toISOString(),
       notes,
       status: 'pending'
     });
@@ -129,7 +146,8 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Não foi possível enviar a solicitação.' }, { status: 500 });
+  } catch (error: unknown) {
+    const failure = publicError(error, 'Não foi possível enviar a solicitação.');
+    return NextResponse.json({ error: failure.message }, { status: failure.status });
   }
 }

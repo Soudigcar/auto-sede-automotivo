@@ -3,7 +3,9 @@ node_modules
 out
 dist
 .vercel
+supabase/.temp
 .DS_Store
 coverage
 *.log
+*.tsbuildinfo
 .env.local

@@ -8,6 +8,7 @@ import { evolutionMessageContent, evolutionMessageType } from '@/lib/server/evol
 import { cleanText, createAdminClient } from '@/lib/server/storeTeam';
 import { processAutocarShadowInbound } from '@/lib/server/autocar/autoShadow';
 import { markAutocarHumanActive } from '@/lib/server/autocar/safeRuntime';
+import { publicError, readJsonBody } from '@/lib/server/requestSecurity';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -478,7 +479,7 @@ function scheduleAutocarBestEffort(supabase: any, integration: any, result: any)
 
 export async function POST(request: Request) {
   try {
-    const payload = await request.json();
+    const payload = await readJsonBody<any>(request, 1024 * 1024);
     const instanceName = cleanText(payload?.instance, 160);
     if (!instanceName) return NextResponse.json({ error: 'Instância não informada.' }, { status: 400 });
 
@@ -550,7 +551,8 @@ export async function POST(request: Request) {
       .update({ last_webhook_at: now, updated_at: now })
       .eq('id', integration.id);
     return NextResponse.json({ success: true, ignored: true, event });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Erro ao processar webhook da Evolution API.' }, { status: 500 });
+  } catch (error: unknown) {
+    const safe = publicError(error, 'Erro ao processar webhook da Evolution API.');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }

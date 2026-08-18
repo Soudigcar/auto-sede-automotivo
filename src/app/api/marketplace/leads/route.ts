@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { publicError, readJsonBody } from '@/lib/server/requestSecurity';
+import { recordLeadContactConsent } from '@/lib/server/leadConsent';
+import { enforceRateLimit } from '@/lib/server/rateLimit';
 
 export const runtime = 'nodejs';
 
@@ -92,7 +95,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Origem da solicitação não autorizada.' }, { status: 403 });
     }
 
-    const body = await request.json();
+    await enforceRateLimit(request, 'marketplace-leads', 20, 60 * 60);
+
+    const body = await readJsonBody<any>(request, maxRequestBytes);
     const name = clean(body.name, 160);
     const phone = clean(body.phone, 40);
     const phoneDigits = onlyDigits(phone);
@@ -163,17 +168,43 @@ export async function POST(request: Request) {
     }
 
     const result = data && typeof data === 'object' ? data as Record<string, any> : {};
+    const routedLeadId = clean(result.lead_id, 80);
+    if (!isValidUuid(routedLeadId)) {
+      return NextResponse.json({ error: 'Não foi possível vincular a prova de consentimento ao lead.' }, { status: 500 });
+    }
+
+    const { data: baseLead, error: baseLeadError } = await supabase
+      .from('leads_base')
+      .select('id')
+      .eq('routed_lead_id', routedLeadId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (baseLeadError || !baseLead?.id) {
+      return NextResponse.json({ error: 'Não foi possível vincular a prova de consentimento ao lead.' }, { status: 500 });
+    }
+
+    await recordLeadContactConsent({
+      supabase,
+      leadBaseId: baseLead.id,
+      source: 'public_marketplace',
+      proof: {
+        vehicle_id: vehicleId,
+        form_started_at: formStartedAt,
+        origin: originHeader || requestOrigin,
+        user_agent: clean(request.headers.get('user-agent'), 300)
+      }
+    });
 
     return NextResponse.json({
       success: result.success === true,
       duplicate: result.duplicate === true,
       assigned_store_name: clean(result.assigned_store_name, 180),
+      base_lead_id: baseLead.id,
       routing_strategy: 'vehicle_owner'
     });
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: clean(error?.message || 'Não foi possível enviar seu interesse.', 300) },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const failure = publicError(error, 'Não foi possível enviar seu interesse.');
+    return NextResponse.json({ error: failure.message }, { status: failure.status });
   }
 }

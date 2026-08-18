@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { PRIVACY_CONSENT_EVENT, hasAdvertisingConsent } from '@/lib/privacyConsent';
 
 declare global {
   interface Window {
@@ -69,8 +70,11 @@ function installFacebookPixel(pixelIds: string[]) {
 export function MetaPixelTracker() {
   useEffect(() => {
     let mounted = true;
+    let loading = false;
 
     async function loadPixel() {
+      if (!hasAdvertisingConsent() || loading) return;
+      loading = true;
       try {
         const response = await fetch('/api/public/integrations/meta-pixel', {
           cache: 'no-store'
@@ -87,6 +91,7 @@ export function MetaPixelTracker() {
         if (!mounted || !config?.active || !pixelIds.length) return;
 
         installFacebookPixel(pixelIds);
+        window.fbq?.('consent', 'grant');
 
         const enabledEvents = config.events || {};
 
@@ -119,13 +124,26 @@ export function MetaPixelTracker() {
           pixelIds: [],
           track() {}
         };
+      } finally {
+        loading = false;
       }
     }
 
-    loadPixel();
+    const onConsentChange = () => {
+      if (hasAdvertisingConsent()) {
+        void loadPixel();
+        return;
+      }
+      window.fbq?.('consent', 'revoke');
+      window.autoControleMetaPixel = { active: false, pixelIds: [], track() {} };
+    };
+
+    void loadPixel();
+    window.addEventListener(PRIVACY_CONSENT_EVENT, onConsentChange);
 
     return () => {
       mounted = false;
+      window.removeEventListener(PRIVACY_CONSENT_EVENT, onConsentChange);
     };
   }, []);
 

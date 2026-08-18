@@ -58,6 +58,16 @@ export function proxy(request: NextRequest) {
   const host = requestHost(request);
   const pathname = request.nextUrl.pathname;
 
+  if (pathname.startsWith('/api/')) {
+    const contentLength = Number(request.headers.get('content-length') || 0);
+    if (Number.isFinite(contentLength) && contentLength > 16 * 1024 * 1024) {
+      return NextResponse.json(
+        { error: 'Payload acima do limite permitido.' },
+        { status: 413, headers: { 'Cache-Control': 'private, no-store' } }
+      );
+    }
+  }
+
   // Both public hosts serve the portal. Canonical metadata remains on www,
   // but the application does not redirect between apex and www because the
   // domain provider may already apply its own preferred-domain redirect.
