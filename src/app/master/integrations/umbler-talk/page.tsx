@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { CalendarDays, CheckCircle2, Copy, KeyRound, MessageCircle, RefreshCcw, Save, ShieldCheck, Webhook, XCircle } from 'lucide-react';
+import { CalendarDays, CheckCircle2, Copy, MessageCircle, RefreshCcw, Save, ShieldCheck, Webhook, XCircle } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { createClient } from '@/lib/supabase';
 
 const defaults = {
   is_active: false,
-  verify_token: '',
+  has_verify_token: false,
   source_name: 'Umbler Talk / WhatsApp',
   routing_mode: 'round_robin_event',
   event_id: '',
@@ -39,12 +39,6 @@ function formatDate(value?: string) {
   return year && month && day ? `${day}/${month}/${year}` : value;
 }
 
-function generateToken() {
-  const bytes = new Uint8Array(24);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
 const fieldClassName = 'mt-2 w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-black placeholder:text-zinc-500 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-500/20';
 const compactFieldClassName = 'min-w-0 flex-1 rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-black placeholder:text-zinc-500 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-500/20';
 
@@ -59,9 +53,8 @@ export default function UmblerTalkIntegrationPage() {
 
   const webhookUrl = useMemo(() => {
     const base = origin || 'https://sistemaautomotivo.autosede.com.br';
-    const token = encodeURIComponent(form.verify_token || 'SEU_TOKEN');
-    return `${base}/api/webhooks/umbler-talk?token=${token}`;
-  }, [origin, form.verify_token]);
+    return `${base}/api/webhooks/umbler-talk`;
+  }, [origin]);
 
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === form.event_id) || null,
@@ -102,7 +95,7 @@ export default function UmblerTalkIntegrationPage() {
       setEvents(Array.isArray(result.events) ? result.events : []);
       setForm({
         is_active: Boolean(integration.is_active),
-        verify_token: settings.verify_token || '',
+        has_verify_token: Boolean(settings.has_verify_token),
         source_name: settings.source_name || defaults.source_name,
         routing_mode: 'round_robin_event',
         event_id: settings.event_id || '',
@@ -208,7 +201,7 @@ export default function UmblerTalkIntegrationPage() {
                 <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <div>
                     <p className="font-bold">Integração ativa</p>
-                    <p className="mt-1 text-xs text-zinc-500">Exige token seguro, evento ativo e ao menos uma loja vinculada.</p>
+                    <p className="mt-1 text-xs text-zinc-500">Exige token server-side, evento ativo e ao menos uma loja vinculada.</p>
                   </div>
                   <input type="checkbox" checked={form.is_active} onChange={(event) => setForm((current) => ({ ...current, is_active: event.target.checked }))} className="h-5 w-5 accent-red-600" />
                 </label>
@@ -247,13 +240,17 @@ export default function UmblerTalkIntegrationPage() {
                   <input value={form.source_name} onChange={(event) => setForm((current) => ({ ...current, source_name: event.target.value }))} className={fieldClassName} />
                 </label>
 
-                <label>
-                  <span className="text-sm font-bold text-zinc-300">Token de segurança</span>
-                  <div className="mt-2 flex gap-2">
-                    <input value={form.verify_token} onChange={(event) => setForm((current) => ({ ...current, verify_token: event.target.value }))} placeholder="Gere um token antes de ativar" className={`${compactFieldClassName} font-mono text-sm`} />
-                    <button type="button" onClick={() => setForm((current) => ({ ...current, verify_token: generateToken() }))} className="rounded-2xl border border-white/10 bg-white/5 px-4 hover:bg-white/10" title="Gerar token"><KeyRound size={18} /></button>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-bold text-zinc-300">Token de segurança server-side</p>
+                      <p className="mt-1 text-xs text-zinc-500">Configure manualmente a mesma credencial na Umbler e na variável UMBLER_WEBHOOK_TOKEN da Vercel.</p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-black ${form.has_verify_token ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}>
+                      {form.has_verify_token ? 'Configurado' : 'Não configurado'}
+                    </span>
                   </div>
-                </label>
+                </div>
 
                 <div>
                   <span className="text-sm font-bold text-zinc-300">URL para cadastrar na Umbler Talk</span>
@@ -261,6 +258,7 @@ export default function UmblerTalkIntegrationPage() {
                     <input readOnly value={webhookUrl} className={`${compactFieldClassName} font-mono text-xs`} />
                     <button type="button" onClick={() => copy(webhookUrl)} className="rounded-2xl bg-red-600 px-4 hover:bg-red-500" title="Copiar URL"><Copy size={18} /></button>
                   </div>
+                  <p className="mt-2 text-xs text-zinc-500">O segredo não é incluído na URL nem exibido no navegador. Envie-o pela configuração segura disponível no provedor.</p>
                 </div>
 
                 <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-sm text-zinc-300">
