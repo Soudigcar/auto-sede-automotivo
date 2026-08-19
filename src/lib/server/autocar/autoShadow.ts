@@ -14,6 +14,7 @@ import { attemptAutocarLiveLocationPilot } from '@/lib/server/autocar/liveLocati
 import { attemptAutocarLiveVisitPilot } from '@/lib/server/autocar/liveVisitPilot';
 import { attemptAutocarVehicleStatePilot } from '@/lib/server/autocar/liveVehicleStatePilot';
 import { generateAutocarVehicleStatePostActionReply } from '@/lib/server/autocar/vehicleStateReply';
+import { evaluateAutocarExternalExecutionGate } from '@/lib/server/autocar/runtimeEnvironment';
 import type { AutocarCapability, AutocarPolicyDecision } from '@/lib/server/autocar/types';
 
 function bookingDecision(bookingGuard: any): { decision: AutocarPolicyDecision; simulation: string } {
@@ -258,6 +259,23 @@ export async function processAutocarShadowInbound(input: {
     };
 
     if (input.allowLivePilot === false) return baseResult;
+
+    const externalGate = await evaluateAutocarExternalExecutionGate();
+    if (!externalGate.allowed) {
+      return {
+        ...baseResult,
+        live_pilot: {
+          sent: false,
+          skipped: true,
+          safe_core_blocked: true,
+          reason: externalGate.reason,
+          environment: externalGate.environment,
+          project_ref: externalGate.project_ref,
+          schema_version: externalGate.schema_version,
+          live_enabled: externalGate.live_enabled
+        }
+      };
+    }
 
     try {
       const { data: integration, error: integrationError } = await input.productionSupabase
