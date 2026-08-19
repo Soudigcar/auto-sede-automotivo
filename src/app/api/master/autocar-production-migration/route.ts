@@ -62,6 +62,8 @@ export async function GET(request: Request) {
     success: true,
     environment: autocarPreviewMigrationEnvironment(),
     confirmation_phrase: AUTOCAR_MIGRATION_CONFIRMATION,
+    source_key_stored: false,
+    source_key_logged: false,
     destination_key_stored: false,
     destination_key_logged: false
   });
@@ -77,17 +79,21 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({}));
   const confirmation = String(body?.confirmation || '').trim();
+  const sourceServiceRoleKey = String(body?.source_service_role_key || '').trim();
   const destinationServiceRoleKey = String(body?.destination_service_role_key || '').trim();
 
   if (confirmation !== AUTOCAR_MIGRATION_CONFIRMATION) {
     return NextResponse.json({ error: 'Frase de confirmação inválida.' }, { status: 400 });
+  }
+  if (!sourceServiceRoleKey) {
+    return NextResponse.json({ error: 'Service role do autocar-dev é obrigatória para esta execução única.' }, { status: 400 });
   }
   if (!destinationServiceRoleKey) {
     return NextResponse.json({ error: 'Service role do AUTOCAR Production é obrigatória para esta execução única.' }, { status: 400 });
   }
 
   try {
-    const result = await runAutocarProductionMigration(destinationServiceRoleKey);
+    const result = await runAutocarProductionMigration(sourceServiceRoleKey, destinationServiceRoleKey);
     return NextResponse.json({ success: true, result });
   } catch (error: any) {
     const message = String(error?.message || error || 'Falha na migração AUTOCAR.').slice(0, 800);
