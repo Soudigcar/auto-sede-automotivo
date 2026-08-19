@@ -9,10 +9,11 @@ type StatusPayload = {
   success: boolean;
   environment: {
     vercel_environment: string;
-    source_configured: boolean;
     source_ref: string;
     expected_source_ref: string;
     destination_ref: string;
+    source_key_stored: false;
+    destination_key_stored: false;
   };
   confirmation_phrase: string;
 };
@@ -32,7 +33,8 @@ async function readJson(response: Response) {
 export default function AutocarProductionMigrationPage() {
   const supabase = useMemo(() => createClient(), []);
   const [status, setStatus] = useState<StatusPayload | null>(null);
-  const [serviceRole, setServiceRole] = useState('');
+  const [sourceServiceRole, setSourceServiceRole] = useState('');
+  const [destinationServiceRole, setDestinationServiceRole] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [message, setMessage] = useState('Carregando validações...');
   const [busy, setBusy] = useState(false);
@@ -68,12 +70,12 @@ export default function AutocarProductionMigrationPage() {
 
   async function executeMigration() {
     if (!status || busy) return;
-    if (!status.environment.source_configured || status.environment.source_ref !== status.environment.expected_source_ref) {
-      setMessage('O Preview não está apontando para o autocar-dev esperado. Execução bloqueada.');
+    if (!sourceServiceRole.trim()) {
+      setMessage('Informe a service_role do autocar-dev. Ela será usada somente nesta requisição.');
       return;
     }
-    if (!serviceRole.trim()) {
-      setMessage('Informe a service_role do projeto AUTOCAR Production. Ela será usada somente nesta requisição.');
+    if (!destinationServiceRole.trim()) {
+      setMessage('Informe a service_role do AUTOCAR Production. Ela será usada somente nesta requisição.');
       return;
     }
 
@@ -91,17 +93,20 @@ export default function AutocarProductionMigrationPage() {
         },
         body: JSON.stringify({
           confirmation,
-          destination_service_role_key: serviceRole.trim()
+          source_service_role_key: sourceServiceRole.trim(),
+          destination_service_role_key: destinationServiceRole.trim()
         }),
         cache: 'no-store'
       });
       const body = await readJson(response);
-      setServiceRole('');
+      setSourceServiceRole('');
+      setDestinationServiceRole('');
       if (!response.ok) throw new Error(body.error || 'A migração não foi concluída.');
       setResult(body.result);
-      setMessage('Migração concluída e validada. A service_role foi removida do formulário e não foi persistida.');
+      setMessage('Migração concluída e validada. As duas service_role foram removidas do formulário e não foram persistidas.');
     } catch (error: any) {
-      setServiceRole('');
+      setSourceServiceRole('');
+      setDestinationServiceRole('');
       setMessage(error?.message || 'A migração não foi concluída.');
     } finally {
       setBusy(false);
@@ -109,7 +114,7 @@ export default function AutocarProductionMigrationPage() {
   }
 
   const env = status?.environment;
-  const ready = Boolean(env?.source_configured && env?.source_ref === env?.expected_source_ref && env?.vercel_environment === 'preview');
+  const ready = Boolean(env?.vercel_environment === 'preview' && env?.source_ref === env?.expected_source_ref);
 
   return <main className="premium-page"><section className="premium-shell flex min-h-screen"><MasterSidebar active="/master/autocar"/><div className="premium-canvas min-w-0 flex-1 p-4 md:p-7">
     <header><div className="flex items-center gap-2 text-red-600"><DatabaseZap size={20}/><span className="premium-eyebrow">Ferramenta temporária · Preview</span></div><h1 className="premium-title mt-2 text-4xl">Migração AUTOCAR Production</h1><p className="premium-muted mt-3 max-w-3xl text-sm leading-6">Transfere somente o núcleo AUTOCAR autorizado do autocar-dev para o novo AUTOCAR Production. A ferramenta não altera Vercel Production, WhatsApp, Evolution nem habilita o runtime LIVE.</p></header>
@@ -118,18 +123,19 @@ export default function AutocarProductionMigrationPage() {
       <div className="flex items-center gap-2"><ShieldCheck size={18} className={ready?'text-emerald-600':'text-amber-600'}/><h2 className="text-lg font-black">Travas de segurança</h2></div>
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4 text-xs font-bold">
         <div className="rounded-xl border border-zinc-200 p-3">Vercel<br/><span className="font-black">{env?.vercel_environment || '—'}</span></div>
-        <div className="rounded-xl border border-zinc-200 p-3">Origem<br/><span className="font-black">{env?.source_ref || '—'}</span></div>
-        <div className="rounded-xl border border-zinc-200 p-3">Destino<br/><span className="font-black">{env?.destination_ref || '—'}</span></div>
-        <div className="rounded-xl border border-zinc-200 p-3">Credencial destino<br/><span className="font-black">não armazenada</span></div>
+        <div className="rounded-xl border border-zinc-200 p-3">Origem fixa<br/><span className="font-black">{env?.source_ref || '—'}</span></div>
+        <div className="rounded-xl border border-zinc-200 p-3">Destino fixo<br/><span className="font-black">{env?.destination_ref || '—'}</span></div>
+        <div className="rounded-xl border border-zinc-200 p-3">Credenciais<br/><span className="font-black">não armazenadas</span></div>
       </div>
     </section>
 
     <section className="premium-card mt-5 p-5">
       <div className="flex items-center gap-2"><KeyRound size={18} className="text-red-600"/><h2 className="text-lg font-black">Execução única</h2></div>
-      <p className="mt-2 text-xs leading-5 text-zinc-500">Cole abaixo a <strong>service_role</strong> do projeto <strong>AUTOCAR Production</strong> diretamente nesta página. Não envie essa chave no chat. Ela não é gravada no navegador, GitHub, Vercel ou banco por esta ferramenta e o campo é limpo ao concluir ou falhar.</p>
-      <label className="mt-4 block text-xs font-black">Service role AUTOCAR Production<input type="password" autoComplete="off" spellCheck={false} value={serviceRole} onChange={(event)=>setServiceRole(event.target.value)} className="premium-input mt-1.5" placeholder="cole a chave somente aqui"/></label>
+      <p className="mt-2 text-xs leading-5 text-zinc-500">Cole as duas <strong>service_role</strong> diretamente nesta página. Não envie essas chaves no chat. Elas são usadas apenas nesta requisição HTTPS, não são gravadas por esta ferramenta e os campos são limpos ao concluir ou falhar.</p>
+      <label className="mt-4 block text-xs font-black">Service role autocar-dev<input type="password" autoComplete="off" spellCheck={false} value={sourceServiceRole} onChange={(event)=>setSourceServiceRole(event.target.value)} className="premium-input mt-1.5" placeholder="cole a chave do autocar-dev somente aqui"/></label>
+      <label className="mt-4 block text-xs font-black">Service role AUTOCAR Production<input type="password" autoComplete="off" spellCheck={false} value={destinationServiceRole} onChange={(event)=>setDestinationServiceRole(event.target.value)} className="premium-input mt-1.5" placeholder="cole a chave do AUTOCAR Production somente aqui"/></label>
       <div className="mt-4 rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-800">Confirmação interna: <span className="font-black">{confirmation || 'aguardando validação'}</span></div>
-      <button type="button" disabled={!ready || !serviceRole.trim() || busy} onClick={()=>void executeMigration()} className="premium-button-primary mt-4 justify-center disabled:opacity-50">{busy?<Loader2 size={16} className="animate-spin"/>:<DatabaseZap size={16}/>} {busy?'Migrando e validando...':'Executar migração autorizada'}</button>
+      <button type="button" disabled={!ready || !sourceServiceRole.trim() || !destinationServiceRole.trim() || busy} onClick={()=>void executeMigration()} className="premium-button-primary mt-4 justify-center disabled:opacity-50">{busy?<Loader2 size={16} className="animate-spin"/>:<DatabaseZap size={16}/>} {busy?'Migrando e validando...':'Executar migração autorizada'}</button>
     </section>
 
     <div className="mt-5 rounded-2xl border border-zinc-200 bg-white p-4 text-sm font-bold text-zinc-700">{message}</div>
