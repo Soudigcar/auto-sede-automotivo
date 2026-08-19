@@ -1,4 +1,5 @@
 import { ensureAutocarDevStore, getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
+import { resolveAutocarRuntimeTarget } from '@/lib/server/autocar/runtimeEnvironment';
 
 export type WeeklyHours = Record<string, Array<{ open: string; close: string }>>;
 export type SpecialHour = { date: string; closed?: boolean; open?: string; close?: string; label?: string };
@@ -38,6 +39,14 @@ function normalizeSpecialHours(value: unknown): SpecialHour[] {
 }
 
 export async function getAutocarOperationalProfile(storeId: string) {
+  const target = resolveAutocarRuntimeTarget();
+  if (target.schema === 'production_v2') {
+    // The V2 brain intentionally does not own store business hours/location.
+    // Until CRM receives a canonical operational-hours source, fail safe instead
+    // of silently reintroducing the legacy table into AUTOCAR Production.
+    return null;
+  }
+
   const autocar = getAutocarDevClient();
   const { data, error } = await autocar.from('ai_store_operational_profiles').select('*').eq('store_id', storeId).maybeSingle();
   if (error) throw error;
@@ -49,6 +58,11 @@ export async function saveAutocarOperationalProfile(input: {
   profileId: string;
   payload: Record<string, unknown>;
 }) {
+  const target = resolveAutocarRuntimeTarget();
+  if (target.schema === 'production_v2') {
+    throw new Error('Perfil Operacional da loja precisa ser promovido para a fonte canônica do CRM antes de ser editado em AUTOCAR Production.');
+  }
+
   const autocar = getAutocarDevClient();
   await ensureAutocarDevStore(autocar, input.store);
   const latitudeRaw = input.payload.latitude;
