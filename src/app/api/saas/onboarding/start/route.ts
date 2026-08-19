@@ -66,19 +66,33 @@ export async function POST(request: Request) {
 
     const supabase = adminClient();
 
-    const { data: existingStore } = await supabase
+    const { data: existingStoreByEmail, error: emailLookupError } = await supabase
       .from('stores')
       .select('id')
-      .or(cnpj ? `responsible_email.ilike.${email},cnpj.eq.${cnpj}` : `responsible_email.ilike.${email}`)
+      .ilike('responsible_email', email)
       .neq('status', 'deleted')
       .limit(1)
       .maybeSingle();
+    if (emailLookupError) throw emailLookupError;
 
-    if (existingStore) {
+    let existingStoreByCnpj: { id: string } | null = null;
+    if (cnpj) {
+      const { data, error: cnpjLookupError } = await supabase
+        .from('stores')
+        .select('id')
+        .eq('cnpj', cnpj)
+        .neq('status', 'deleted')
+        .limit(1)
+        .maybeSingle();
+      if (cnpjLookupError) throw cnpjLookupError;
+      existingStoreByCnpj = data;
+    }
+
+    if (existingStoreByEmail || existingStoreByCnpj) {
       return NextResponse.json({ error: 'Já existe uma loja cadastrada com estes dados. Use o login existente ou fale com o suporte.' }, { status: 409 });
     }
 
-    const { data: openOnboarding } = await supabase
+    const { data: openOnboarding, error: onboardingLookupError } = await supabase
       .from('saas_onboarding')
       .select('id,status')
       .eq('normalized_email', email)
@@ -86,6 +100,7 @@ export async function POST(request: Request) {
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
+    if (onboardingLookupError) throw onboardingLookupError;
 
     if (openOnboarding) {
       return NextResponse.json({
