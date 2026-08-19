@@ -20,6 +20,7 @@ const PUBLIC_PREFIXES = [
   '/veiculos',
   '/lojas',
   '/cadastre-sua-loja',
+  '/criar-conta',
   '/campanha',
   '/sobre',
   '/contato',
