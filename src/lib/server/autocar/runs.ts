@@ -1,3 +1,4 @@
+import { currentAutocarExternalReferenceColumns } from '@/lib/server/autocar/runtimeEnvironment';
 import type { AutocarExecutionContext } from '@/lib/server/autocar/context';
 
 export async function createAutocarRun(input: {
@@ -6,16 +7,19 @@ export async function createAutocarRun(input: {
   idempotencyKey: string;
 }) {
   if (!input.context.agentId) throw new Error('Agente AUTOCAR ativo obrigatório para criar run.');
-  const { data, error } = await input.supabase.from('ai_agent_runs').insert({
+  const columns = currentAutocarExternalReferenceColumns();
+  const row: Record<string, unknown> = {
     store_id: input.context.storeId,
     agent_id: input.context.agentId,
-    conversation_id: input.context.conversationId,
-    lead_id: input.context.leadId,
-    trigger_message_id: input.context.triggerMessageId,
     mode: input.context.mode,
     status: 'queued',
     idempotency_key: input.idempotencyKey
-  }).select('*').single();
+  };
+  row[columns.runs.conversationId] = input.context.conversationId;
+  row[columns.runs.leadId] = input.context.leadId;
+  row[columns.runs.triggerMessageId] = input.context.triggerMessageId;
+
+  const { data, error } = await input.supabase.from('ai_agent_runs').insert(row).select('*').single();
   if (error) throw error;
   return data;
 }
@@ -35,12 +39,11 @@ export async function appendAutocarEvent(input: {
   error?: string | null;
 }) {
   if (!input.context.agentId) throw new Error('Agente AUTOCAR ativo obrigatório para registrar evento.');
-  const { data, error } = await input.supabase.from('ai_agent_events').insert({
+  const columns = currentAutocarExternalReferenceColumns();
+  const row: Record<string, unknown> = {
     store_id: input.context.storeId,
     agent_id: input.context.agentId,
     run_id: input.runId,
-    conversation_id: input.context.conversationId,
-    lead_id: input.context.leadId,
     event_type: input.eventType,
     status: input.status || null,
     tool_name: input.toolName || null,
@@ -50,7 +53,11 @@ export async function appendAutocarEvent(input: {
     model: input.model || null,
     duration_ms: input.durationMs ?? null,
     error: input.error ? input.error.slice(0, 1000) : null
-  }).select('id,created_at').single();
+  };
+  row[columns.events.conversationId] = input.context.conversationId;
+  row[columns.events.leadId] = input.context.leadId;
+
+  const { data, error } = await input.supabase.from('ai_agent_events').insert(row).select('id,created_at').single();
   if (error) throw error;
   return data;
 }
