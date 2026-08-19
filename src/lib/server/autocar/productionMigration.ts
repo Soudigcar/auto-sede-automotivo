@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 
 export const AUTOCAR_SOURCE_REF = 'azszzdotbrczlhrmhrlw';
+export const AUTOCAR_SOURCE_URL = `https://${AUTOCAR_SOURCE_REF}.supabase.co`;
 export const AUTOCAR_PRODUCTION_REF = 'icmwdggbvijexjgrvsbl';
 export const AUTOCAR_PRODUCTION_URL = `https://${AUTOCAR_PRODUCTION_REF}.supabase.co`;
 export const A4_STORE_ID = '239755c3-a2d4-4cdd-9502-f1595031c924';
@@ -39,14 +39,6 @@ export type AutocarMigrationSummary = {
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
-}
-
-function projectRefFromUrl(rawUrl: string) {
-  try {
-    return new URL(rawUrl).hostname.split('.')[0] || '';
-  } catch {
-    return '';
-  }
 }
 
 function sha256(input: Buffer | string) {
@@ -107,6 +99,16 @@ async function assertA4Reference(destination: SupabaseClient) {
   assert(data.store_slug === 'a4-multimarcas', 'Referência A4 do destino não corresponde à loja esperada.');
 }
 
+async function assertSourceA4(source: SupabaseClient) {
+  const { data, error } = await source
+    .from('ai_store_agents')
+    .select('id,store_id')
+    .eq('store_id', A4_STORE_ID)
+    .maybeSingle();
+  if (error) throw new Error(`Não foi possível validar a origem autocar-dev: ${error.message}`);
+  assert(data?.store_id === A4_STORE_ID, 'A origem não contém o agente AUTOCAR esperado da A4.');
+}
+
 function destinationDocument(source: KnowledgeDocument): Row {
   const { created_by, updated_by, ...rest } = source;
   return {
@@ -155,27 +157,33 @@ function assertSameIds(sourceRows: Row[], destinationRows: Row[], label: string)
 }
 
 export function autocarPreviewMigrationEnvironment() {
-  const sourceUrl = String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_URL || '').trim();
   return {
     vercel_environment: String(process.env.VERCEL_ENV || ''),
-    source_configured: Boolean(sourceUrl && String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY || '').trim()),
-    source_ref: projectRefFromUrl(sourceUrl),
+    source_ref: AUTOCAR_SOURCE_REF,
     expected_source_ref: AUTOCAR_SOURCE_REF,
-    destination_ref: AUTOCAR_PRODUCTION_REF
+    destination_ref: AUTOCAR_PRODUCTION_REF,
+    source_key_stored: false,
+    destination_key_stored: false
   };
 }
 
-export async function runAutocarProductionMigration(destinationServiceRoleKey: string): Promise<AutocarMigrationSummary> {
+export async function runAutocarProductionMigration(
+  sourceServiceRoleKey: string,
+  destinationServiceRoleKey: string
+): Promise<AutocarMigrationSummary> {
   assert(process.env.VERCEL_ENV === 'preview', 'Migração disponível exclusivamente no Vercel Preview.');
-  const sourceUrl = String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_URL || '').trim();
-  assert(projectRefFromUrl(sourceUrl) === AUTOCAR_SOURCE_REF, 'Preview não aponta para o autocar-dev esperado.');
+  assert(sourceServiceRoleKey.trim().length >= 20, 'Credencial do autocar-dev ausente ou inválida.');
   assert(destinationServiceRoleKey.trim().length >= 20, 'Credencial do AUTOCAR Production ausente ou inválida.');
+  assert(sourceServiceRoleKey.trim() !== destinationServiceRoleKey.trim(), 'As credenciais de origem e destino não podem ser iguais.');
 
-  const source = getAutocarDevClient();
+  const source = createClient(AUTOCAR_SOURCE_URL, sourceServiceRoleKey.trim(), {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
   const destination = createClient(AUTOCAR_PRODUCTION_URL, destinationServiceRoleKey.trim(), {
     auth: { persistSession: false, autoRefreshToken: false }
   });
 
+  await assertSourceA4(source);
   await assertDestinationOffline(destination);
   await assertA4Reference(destination);
 
