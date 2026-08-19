@@ -1,18 +1,18 @@
-import { createClient } from '@supabase/supabase-js';
+import {
+  getAutocarRuntimeClient,
+  resolveAutocarRuntimeTarget
+} from '@/lib/server/autocar/runtimeEnvironment';
 
 export type AutocarStoreMode = 'off' | 'copilot' | 'autopilot';
 
+/**
+ * Kept under the legacy name to avoid a risky broad rename during the cutover.
+ * The returned client is environment-aware:
+ * - Preview/development -> autocar-dev
+ * - Production -> AUTOCAR Production only
+ */
 export function getAutocarDevClient() {
-  const url = String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_URL || '').trim();
-  const serviceRoleKey = String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY || '').trim();
-
-  if (!url || !serviceRoleKey) {
-    throw new Error('Ambiente isolado da AUTOCAR não está configurado neste Preview.');
-  }
-
-  return createClient(url, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
+  return getAutocarRuntimeClient();
 }
 
 export async function ensureAutocarDevStore(
@@ -21,6 +21,21 @@ export async function ensureAutocarDevStore(
 ) {
   const slug = String(store.slug || '').trim() || `autocar-${store.id.slice(0, 8)}`;
   const status = String(store.status || 'active').trim() || 'active';
+  const target = resolveAutocarRuntimeTarget();
+
+  if (target.schema === 'production_v2') {
+    const { error } = await supabase.from('ai_store_refs').upsert({
+      store_id: store.id,
+      store_name: store.store_name,
+      store_slug: slug,
+      crm_status: status,
+      portal_enabled: Boolean(store.portal_enabled ?? true),
+      synced_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'store_id' });
+    if (error) throw error;
+    return;
+  }
 
   const { error } = await supabase.from('stores').upsert({
     id: store.id,
