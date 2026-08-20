@@ -1,5 +1,6 @@
 import { ensureAutocarDevStore, getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 import { resolveAutocarRuntimeTarget } from '@/lib/server/autocar/runtimeEnvironment';
+import { createAdminClient } from '@/lib/server/storeTeam';
 
 export type WeeklyHours = Record<string, Array<{ open: string; close: string }>>;
 export type SpecialHour = { date: string; closed?: boolean; open?: string; close?: string; label?: string };
@@ -38,13 +39,48 @@ function normalizeSpecialHours(value: unknown): SpecialHour[] {
   })).filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item.date) && (item.closed || (item.open && item.close && item.open < item.close)));
 }
 
+function normalizeCoordinates(payload: Record<string, unknown>) {
+  const latitudeRaw = payload.latitude;
+  const longitudeRaw = payload.longitude;
+  const latitude = latitudeRaw === '' || latitudeRaw == null ? null : Number(latitudeRaw);
+  const longitude = longitudeRaw === '' || longitudeRaw == null ? null : Number(longitudeRaw);
+  if (latitude != null && (!Number.isFinite(latitude) || latitude < -90 || latitude > 90)) throw new Error('Latitude inválida.');
+  if (longitude != null && (!Number.isFinite(longitude) || longitude < -180 || longitude > 180)) throw new Error('Longitude inválida.');
+  return { latitude, longitude };
+}
+
+function normalizedOperationalPayload(payload: Record<string, unknown>, profileId: string) {
+  const { latitude, longitude } = normalizeCoordinates(payload);
+  return {
+    timezone: cleanText(payload.timezone, 80) || 'America/Sao_Paulo',
+    address_text: cleanText(payload.address_text, 500) || null,
+    city: cleanText(payload.city, 120) || null,
+    state: cleanText(payload.state, 40) || null,
+    postal_code: cleanText(payload.postal_code, 20) || null,
+    location_label: cleanText(payload.location_label, 160) || null,
+    latitude,
+    longitude,
+    maps_url: cleanText(payload.maps_url, 1000) || null,
+    waze_url: cleanText(payload.waze_url, 1000) || null,
+    weekly_hours: normalizeWeeklyHours(payload.weekly_hours),
+    special_hours: normalizeSpecialHours(payload.special_hours),
+    default_visit_duration_minutes: Math.max(15, Math.min(480, Number(payload.default_visit_duration_minutes || 60))),
+    operational_profile_updated_by: profileId,
+    operational_profile_updated_at: new Date().toISOString()
+  };
+}
+
+function crmOperationalSelect() {
+  return 'id,address_text,city,state,timezone,postal_code,location_label,latitude,longitude,maps_url,waze_url,weekly_hours,special_hours,default_visit_duration_minutes,operational_profile_updated_at,operational_profile_updated_by';
+}
+
 export async function getAutocarOperationalProfile(storeId: string) {
   const target = resolveAutocarRuntimeTarget();
   if (target.schema === 'production_v2') {
-    // The V2 brain intentionally does not own store business hours/location.
-    // Until CRM receives a canonical operational-hours source, fail safe instead
-    // of silently reintroducing the legacy table into AUTOCAR Production.
-    return null;
+    const crm: any = createAdminClient();
+    const { data, error } = await crm.from('stores').select(crmOperationalSelect()).eq('id', storeId).maybeSingle();
+    if (error) throw error;
+    return data || null;
   }
 
   const autocar = getAutocarDevClient();
@@ -59,40 +95,42 @@ export async function saveAutocarOperationalProfile(input: {
   payload: Record<string, unknown>;
 }) {
   const target = resolveAutocarRuntimeTarget();
+  const normalized = normalizedOperationalPayload(input.payload, input.profileId);
+
   if (target.schema === 'production_v2') {
-    throw new Error('Perfil Operacional da loja precisa ser promovido para a fonte canônica do CRM antes de ser editado em AUTOCAR Production.');
+    const crm: any = createAdminClient();
+    const { data, error } = await crm.from('stores')
+      .update(normalized)
+      .eq('id', input.store.id)
+      .select(crmOperationalSelect())
+      .single();
+    if (error) throw error;
+    return data;
   }
 
   const autocar = getAutocarDevClient();
   await ensureAutocarDevStore(autocar, input.store);
-  const latitudeRaw = input.payload.latitude;
-  const longitudeRaw = input.payload.longitude;
-  const latitude = latitudeRaw === '' || latitudeRaw == null ? null : Number(latitudeRaw);
-  const longitude = longitudeRaw === '' || longitudeRaw == null ? null : Number(longitudeRaw);
-  if (latitude != null && (!Number.isFinite(latitude) || latitude < -90 || latitude > 90)) throw new Error('Latitude inválida.');
-  if (longitude != null && (!Number.isFinite(longitude) || longitude < -180 || longitude > 180)) throw new Error('Longitude inválida.');
-
-  const row = {
+  const legacyRow = {
     store_id: input.store.id,
-    timezone: cleanText(input.payload.timezone, 80) || 'America/Sao_Paulo',
-    address_text: cleanText(input.payload.address_text, 500) || null,
-    city: cleanText(input.payload.city, 120) || null,
-    state: cleanText(input.payload.state, 40) || null,
-    postal_code: cleanText(input.payload.postal_code, 20) || null,
-    location_label: cleanText(input.payload.location_label, 160) || null,
-    latitude,
-    longitude,
-    maps_url: cleanText(input.payload.maps_url, 1000) || null,
-    waze_url: cleanText(input.payload.waze_url, 1000) || null,
-    weekly_hours: normalizeWeeklyHours(input.payload.weekly_hours),
-    special_hours: normalizeSpecialHours(input.payload.special_hours),
-    default_visit_duration_minutes: Math.max(15, Math.min(480, Number(input.payload.default_visit_duration_minutes || 60))),
+    timezone: normalized.timezone,
+    address_text: normalized.address_text,
+    city: normalized.city,
+    state: normalized.state,
+    postal_code: normalized.postal_code,
+    location_label: normalized.location_label,
+    latitude: normalized.latitude,
+    longitude: normalized.longitude,
+    maps_url: normalized.maps_url,
+    waze_url: normalized.waze_url,
+    weekly_hours: normalized.weekly_hours,
+    special_hours: normalized.special_hours,
+    default_visit_duration_minutes: normalized.default_visit_duration_minutes,
     updated_by_profile_id: input.profileId,
-    updated_at: new Date().toISOString()
+    updated_at: normalized.operational_profile_updated_at
   };
 
   const { data, error } = await autocar.from('ai_store_operational_profiles')
-    .upsert(row, { onConflict: 'store_id' })
+    .upsert(legacyRow, { onConflict: 'store_id' })
     .select('*')
     .single();
   if (error) throw error;
