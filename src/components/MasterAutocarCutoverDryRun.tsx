@@ -70,6 +70,8 @@ type ExecutionPreflight = {
   destination_environment: 'production';
   destination_schema_version: number;
   destination_live_enabled: false;
+  write_gate_mode: 'code';
+  write_gate_allowed_branch: string;
   write_gate_enabled: boolean;
   delete_operations: false;
   operation: 'upsert';
@@ -284,12 +286,13 @@ export function MasterAutocarCutoverDryRun() {
               <div className="flex items-start gap-3">
                 <LockKeyhole className="mt-0.5 h-5 w-5 text-violet-300" />
                 <div className="min-w-0 flex-1">
-                  <div className="font-semibold">Endpoint de execução preparado · gate atual {executionPreflight.write_gate_enabled ? 'HABILITADO' : 'DESABILITADO'}</div>
+                  <div className="font-semibold">Endpoint de execução preparado · gate por código {executionPreflight.write_gate_enabled ? 'HABILITADO' : 'DESABILITADO'}</div>
                   <p className="mt-1 text-sm text-slate-300/80">
-                    O endpoint sempre refaz o preflight antes de escrever. Deletes são proibidos e `live_enabled` precisa permanecer false antes de cada lote.
+                    Gate controlado por código, fail-closed, restrito ao Preview e à branch {executionPreflight.write_gate_allowed_branch}. Variáveis da Vercel não habilitam escrita.
                   </p>
 
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                    <div className="rounded-xl border border-white/10 bg-slate-950/50 p-4 text-sm"><div className="text-slate-500">Gate</div><div className="mt-1 font-semibold">{executionPreflight.write_gate_mode.toUpperCase()}</div></div>
                     <div className="rounded-xl border border-white/10 bg-slate-950/50 p-4 text-sm"><div className="text-slate-500">Operação</div><div className="mt-1 font-semibold">UPSERT por ID</div></div>
                     <div className="rounded-xl border border-white/10 bg-slate-950/50 p-4 text-sm"><div className="text-slate-500">Batch</div><div className="mt-1 font-semibold">{executionPreflight.batch_size}</div></div>
                     <div className="rounded-xl border border-white/10 bg-slate-950/50 p-4 text-sm"><div className="text-slate-500">Store refs</div><div className="mt-1 font-semibold">{executionPreflight.present_store_ref_count}/{executionPreflight.required_store_ref_count}</div></div>
@@ -321,7 +324,7 @@ export function MasterAutocarCutoverDryRun() {
 
                   <div className="mt-5 rounded-xl border border-red-500/20 bg-slate-950/60 p-4">
                     <div className="font-semibold text-slate-200">Confirmação para uma futura execução</div>
-                    <p className="mt-1 text-xs text-slate-500">Estes controles só ficam utilizáveis quando todos os blockers forem resolvidos e o gate Preview for habilitado sob autorização separada.</p>
+                    <p className="mt-1 text-xs text-slate-500">Os controles só ficam utilizáveis quando todos os blockers forem resolvidos e uma alteração futura explícita habilitar o gate por código.</p>
                     <div className="mt-4 grid gap-3">
                       <input
                         type="password"
