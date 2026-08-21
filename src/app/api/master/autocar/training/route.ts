@@ -8,13 +8,18 @@ import {
   simulateTraining
 } from '@/lib/server/autocar/trainingLab';
 import { ensureAutocarDevStore, getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
+import { getAutocarRuntimePublicStatus } from '@/lib/server/autocar/runtimeEnvironment';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 function stringList(value: unknown, max = 20) {
-  if (Array.isArray(value)) return value.map((item) => cleanText(item, 500)).filter(Boolean).slice(0, max);
-  if (typeof value === 'string') return value.split(/[\n,;]+/).map((item) => cleanText(item, 500)).filter(Boolean).slice(0, max);
+  if (Array.isArray(value)) {
+    return value.map((item) => cleanText(item, 500)).filter(Boolean).slice(0, max);
+  }
+  if (typeof value === 'string') {
+    return value.split(/[\n,;]+/).map((item) => cleanText(item, 500)).filter(Boolean).slice(0, max);
+  }
   return [];
 }
 
@@ -28,18 +33,35 @@ async function masterContext(request: Request) {
 export async function GET(request: Request) {
   try {
     const context = await masterContext(request);
-    if (!context) return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
-    const data = await listTrainingLab();
-    return NextResponse.json({ success: true, environment: 'autocar-dev', ...data });
+    if (!context) {
+      return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
+    }
+
+    const [data, runtimeStatus] = await Promise.all([
+      listTrainingLab(),
+      getAutocarRuntimePublicStatus()
+    ]);
+
+    return NextResponse.json({
+      success: true,
+      environment: runtimeStatus.runtime_environment,
+      runtime: runtimeStatus,
+      ...data
+    });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Não foi possível carregar o laboratório AUTOCAR.' }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || 'Não foi possível carregar o laboratório AUTOCAR.' },
+      { status: 500 }
+    );
   }
 }
 
 export async function POST(request: Request) {
   try {
     const context = await masterContext(request);
-    if (!context) return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
+    if (!context) {
+      return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
+    }
     const body = await request.json().catch(() => ({}));
     const action = cleanText(body?.action, 60);
 
@@ -57,7 +79,13 @@ export async function POST(request: Request) {
         status: body?.status === 'approved' ? 'approved' : 'draft',
         actorProfileId: context.profile.id
       }, cleanText(body?.scenario_id, 100) || null);
-      return NextResponse.json({ success: true, scenario });
+      const runtimeStatus = await getAutocarRuntimePublicStatus();
+      return NextResponse.json({
+        success: true,
+        environment: runtimeStatus.runtime_environment,
+        runtime: runtimeStatus,
+        scenario
+      });
     }
 
     if (action === 'simulate') {
@@ -69,7 +97,9 @@ export async function POST(request: Request) {
           .eq('id', storeId)
           .maybeSingle();
         if (error) throw error;
-        if (!store) return NextResponse.json({ error: 'Loja não encontrada no CRM.' }, { status: 404 });
+        if (!store) {
+          return NextResponse.json({ error: 'Loja não encontrada no CRM.' }, { status: 404 });
+        }
         await ensureAutocarDevStore(getAutocarDevClient(), store);
       }
 
@@ -78,7 +108,13 @@ export async function POST(request: Request) {
         storeId,
         actorProfileId: context.profile.id
       });
-      return NextResponse.json({ success: true, ...result });
+      const runtimeStatus = await getAutocarRuntimePublicStatus();
+      return NextResponse.json({
+        success: true,
+        environment: runtimeStatus.runtime_environment,
+        runtime: runtimeStatus,
+        ...result
+      });
     }
 
     if (action === 'review-simulation') {
@@ -99,26 +135,47 @@ export async function POST(request: Request) {
         tags: stringList(body?.tags, 30),
         actorProfileId: context.profile.id
       });
-      return NextResponse.json({ success: true, ...result });
+      const runtimeStatus = await getAutocarRuntimePublicStatus();
+      return NextResponse.json({
+        success: true,
+        environment: runtimeStatus.runtime_environment,
+        runtime: runtimeStatus,
+        ...result
+      });
     }
 
     return NextResponse.json({ error: 'Ação de treinamento inválida.' }, { status: 400 });
   } catch (error: any) {
     console.error('Master AUTOCAR training error:', error?.message || error);
-    return NextResponse.json({ error: error?.message || 'Não foi possível concluir o treinamento AUTOCAR.' }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || 'Não foi possível concluir o treinamento AUTOCAR.' },
+      { status: 500 }
+    );
   }
 }
 
 export async function DELETE(request: Request) {
   try {
     const context = await masterContext(request);
-    if (!context) return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
+    if (!context) {
+      return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
+    }
     const body = await request.json().catch(() => ({}));
     const scenarioId = cleanText(body?.scenario_id, 100);
-    if (!scenarioId) return NextResponse.json({ error: 'Aprendizado obrigatório.' }, { status: 400 });
+    if (!scenarioId) {
+      return NextResponse.json({ error: 'Aprendizado obrigatório.' }, { status: 400 });
+    }
     await archiveTrainingScenario(scenarioId, context.profile.id);
-    return NextResponse.json({ success: true });
+    const runtimeStatus = await getAutocarRuntimePublicStatus();
+    return NextResponse.json({
+      success: true,
+      environment: runtimeStatus.runtime_environment,
+      runtime: runtimeStatus
+    });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Não foi possível arquivar o aprendizado.' }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || 'Não foi possível arquivar o aprendizado.' },
+      { status: 500 }
+    );
   }
 }
