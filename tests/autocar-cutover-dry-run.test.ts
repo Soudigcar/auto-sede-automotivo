@@ -8,8 +8,11 @@ import {
 import {
   AUTOCAR_CUTOVER_ALLOWED_BRANCH,
   AUTOCAR_CUTOVER_CODE_WRITE_ENABLED,
+  AUTOCAR_CUTOVER_EQUIVALENCE_IGNORED_FIELDS,
   AUTOCAR_CUTOVER_WRITE_GATE_MODE,
-  isAutocarCutoverWriteGateEnabled
+  compareAutocarCutoverRuntimeRows,
+  isAutocarCutoverWriteGateEnabled,
+  normalizeAutocarCutoverRuntimeRow
 } from '../src/lib/server/autocar/cutoverSync.ts';
 
 test('dry-run é bloqueado fora do Vercel Preview', () => {
@@ -22,16 +25,24 @@ test('dry-run é bloqueado fora do Vercel Preview', () => {
   );
 });
 
-test('gate de escrita é controlado por código e permanece fail-closed', () => {
+test('gate de escrita controlado por código exige Preview e branch exata', () => {
   assert.equal(AUTOCAR_CUTOVER_WRITE_GATE_MODE, 'code');
-  assert.equal(AUTOCAR_CUTOVER_CODE_WRITE_ENABLED, false);
+  assert.equal(AUTOCAR_CUTOVER_CODE_WRITE_ENABLED, true);
   assert.equal(AUTOCAR_CUTOVER_ALLOWED_BRANCH, 'agent/autocar-production-cutover-guard');
 
   assert.equal(
     isAutocarCutoverWriteGateEnabled({
       VERCEL_ENV: 'preview',
       VERCEL_GIT_COMMIT_REF: AUTOCAR_CUTOVER_ALLOWED_BRANCH,
-      AUTOCAR_CUTOVER_WRITE_ENABLED: 'true'
+      AUTOCAR_CUTOVER_WRITE_ENABLED: 'false'
+    } as NodeJS.ProcessEnv),
+    true
+  );
+
+  assert.equal(
+    isAutocarCutoverWriteGateEnabled({
+      VERCEL_ENV: 'preview',
+      VERCEL_GIT_COMMIT_REF: 'outra-branch'
     } as NodeJS.ProcessEnv),
     false
   );
@@ -39,8 +50,7 @@ test('gate de escrita é controlado por código e permanece fail-closed', () => 
   assert.equal(
     isAutocarCutoverWriteGateEnabled({
       VERCEL_ENV: 'production',
-      VERCEL_GIT_COMMIT_REF: AUTOCAR_CUTOVER_ALLOWED_BRANCH,
-      AUTOCAR_CUTOVER_WRITE_ENABLED: 'true'
+      VERCEL_GIT_COMMIT_REF: AUTOCAR_CUTOVER_ALLOWED_BRANCH
     } as NodeJS.ProcessEnv),
     false
   );
@@ -51,6 +61,61 @@ test('hash estável ignora ordem das chaves do objeto', () => {
     stableRuntimeHash({ b: 2, a: { y: 2, x: 1 } }),
     stableRuntimeHash({ a: { x: 1, y: 2 }, b: 2 })
   );
+});
+
+test('equivalência do cutover ignora exclusivamente updated_at', () => {
+  assert.deepEqual(AUTOCAR_CUTOVER_EQUIVALENCE_IGNORED_FIELDS, ['updated_at']);
+
+  const source = {
+    id: '1',
+    store_id: 'store-a',
+    effective_mode: 'autopilot',
+    metadata: { source: 'dev' },
+    created_at: '2026-08-20T10:00:00Z',
+    updated_at: '2026-08-21T10:00:00Z'
+  };
+  const destination = {
+    ...source,
+    updated_at: '2026-08-21T19:07:00Z'
+  };
+
+  assert.deepEqual(
+    normalizeAutocarCutoverRuntimeRow(source),
+    normalizeAutocarCutoverRuntimeRow(destination)
+  );
+
+  const result = compareAutocarCutoverRuntimeRows(
+    'ai_runtime_conversations',
+    [source],
+    [destination]
+  );
+  assert.equal(result.changed_count, 0);
+  assert.equal(result.missing_in_destination_count, 0);
+  assert.equal(result.extra_in_destination_count, 0);
+});
+
+test('equivalência do cutover continua estrita para qualquer outro campo', () => {
+  const source = {
+    id: '1',
+    store_id: 'store-a',
+    effective_mode: 'autopilot',
+    metadata: { source: 'dev' },
+    created_at: '2026-08-20T10:00:00Z',
+    updated_at: '2026-08-21T10:00:00Z'
+  };
+  const destination = {
+    ...source,
+    effective_mode: 'off',
+    updated_at: '2026-08-21T19:07:00Z'
+  };
+
+  const result = compareAutocarCutoverRuntimeRows(
+    'ai_runtime_conversations',
+    [source],
+    [destination]
+  );
+  assert.equal(result.changed_count, 1);
+  assert.equal(result.changed[0]?.id, '1');
 });
 
 test('comparação detecta ausentes, alterações e extras sem modificar os arrays', () => {
