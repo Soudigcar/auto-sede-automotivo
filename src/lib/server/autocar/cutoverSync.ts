@@ -12,8 +12,10 @@ const PAGE_SIZE = 1000;
 const MAX_ROWS_PER_TABLE = 50000;
 const UPSERT_BATCH_SIZE = 100;
 
-export const AUTOCAR_CUTOVER_WRITE_ENV = 'AUTOCAR_CUTOVER_WRITE_ENABLED';
 export const AUTOCAR_CUTOVER_CONFIRMATION = 'SINCRONIZAR AUTOCAR PRODUCTION';
+export const AUTOCAR_CUTOVER_WRITE_GATE_MODE = 'code' as const;
+export const AUTOCAR_CUTOVER_ALLOWED_BRANCH = 'agent/autocar-production-cutover-guard';
+export const AUTOCAR_CUTOVER_CODE_WRITE_ENABLED: boolean = false;
 
 const TABLES = ['ai_runtime_conversations', 'ai_runtime_message_claims'] as const;
 type CutoverTable = (typeof TABLES)[number];
@@ -59,6 +61,8 @@ export type AutocarCutoverExecutionPreflight = {
   destination_environment: 'production';
   destination_schema_version: number;
   destination_live_enabled: false;
+  write_gate_mode: typeof AUTOCAR_CUTOVER_WRITE_GATE_MODE;
+  write_gate_allowed_branch: typeof AUTOCAR_CUTOVER_ALLOWED_BRANCH;
   write_gate_enabled: boolean;
   delete_operations: false;
   operation: 'upsert';
@@ -110,8 +114,9 @@ function assertPreview(environment: NodeJS.ProcessEnv) {
 }
 
 export function isAutocarCutoverWriteGateEnabled(environment: NodeJS.ProcessEnv = process.env) {
-  return safeString(environment.VERCEL_ENV) === 'preview'
-    && safeString(environment[AUTOCAR_CUTOVER_WRITE_ENV]).toLowerCase() === 'true';
+  return AUTOCAR_CUTOVER_CODE_WRITE_ENABLED
+    && safeString(environment.VERCEL_ENV) === 'preview'
+    && safeString(environment.VERCEL_GIT_COMMIT_REF) === AUTOCAR_CUTOVER_ALLOWED_BRANCH;
 }
 
 function projectRuntimeRow(table: CutoverTable, row: RuntimeRow) {
@@ -262,6 +267,7 @@ async function buildPreflight(
     blockers.push(`ai_store_refs: faltam ${missingStoreRefIds.length} store_id exigidos pelo runtime de origem.`);
   }
 
+  const writeGateEnabled = isAutocarCutoverWriteGateEnabled(environment);
   const report: AutocarCutoverExecutionPreflight = {
     mode: 'execution-preflight-read-only',
     generated_at: new Date().toISOString(),
@@ -271,7 +277,9 @@ async function buildPreflight(
     destination_environment: 'production',
     destination_schema_version: config.schemaVersion,
     destination_live_enabled: false,
-    write_gate_enabled: isAutocarCutoverWriteGateEnabled(environment),
+    write_gate_mode: AUTOCAR_CUTOVER_WRITE_GATE_MODE,
+    write_gate_allowed_branch: AUTOCAR_CUTOVER_ALLOWED_BRANCH,
+    write_gate_enabled: writeGateEnabled,
     delete_operations: false,
     operation: 'upsert',
     on_conflict: 'id',
@@ -280,7 +288,7 @@ async function buildPreflight(
     present_store_ref_count: presentStoreIds.length,
     missing_store_ref_ids: missingStoreRefIds,
     blockers,
-    ready_for_execution: blockers.length === 0 && isAutocarCutoverWriteGateEnabled(environment),
+    ready_for_execution: blockers.length === 0 && writeGateEnabled,
     tables: snapshots.map((snapshot) => ({
       table: snapshot.table,
       source_count: snapshot.comparison.source_count,
@@ -335,7 +343,7 @@ export async function executeAutocarCutoverSync(
 ): Promise<AutocarCutoverExecutionResult> {
   assertPreview(environment);
   if (!isAutocarCutoverWriteGateEnabled(environment)) {
-    throw new Error(`SAFE CORE: ${AUTOCAR_CUTOVER_WRITE_ENV} não está habilitada no Preview.`);
+    throw new Error('SAFE CORE: gate de escrita controlado por código está DESABILITADO para este Preview/branch.');
   }
   if (safeString(input.confirmation) !== AUTOCAR_CUTOVER_CONFIRMATION) {
     throw new Error('SAFE CORE: frase de confirmação inválida.');
