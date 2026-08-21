@@ -1,9 +1,28 @@
 import { NextResponse } from 'next/server';
-import { getAdminClient, requireMaster } from '@/lib/server/masterApi';
+import { getAdminClient } from '@/lib/server/masterApi';
 import { runAutocarCutoverDryRun } from '@/lib/server/autocar/cutoverDryRun';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+async function requireMasterReadOnly(request: Request, production: ReturnType<typeof getAdminClient>) {
+  const token = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
+  if (!token) return null;
+
+  const { data: authData, error: authError } = await production.auth.getUser(token);
+  if (authError || !authData.user) return null;
+
+  const { data: profile, error: profileError } = await production
+    .from('users')
+    .select('id,auth_user_id,role,status,full_name,email')
+    .eq('auth_user_id', authData.user.id)
+    .maybeSingle();
+
+  if (profileError || !profile) return null;
+  if (String(profile.role || '').toLowerCase() !== 'master') return null;
+  if (String(profile.status || '').toLowerCase() !== 'active') return null;
+  return profile;
+}
 
 export async function POST(request: Request) {
   try {
@@ -15,7 +34,7 @@ export async function POST(request: Request) {
     }
 
     const production = getAdminClient();
-    const master = await requireMaster(request, production);
+    const master = await requireMasterReadOnly(request, production);
     if (!master) {
       return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
     }
