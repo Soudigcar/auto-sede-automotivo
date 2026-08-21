@@ -97,7 +97,7 @@ export function MasterAutocarCutoverDryRun() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <MasterSidebar />
+      <MasterSidebar active="/master/autocar" />
       <main className="lg:pl-64">
         <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
           <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 shadow-2xl">
