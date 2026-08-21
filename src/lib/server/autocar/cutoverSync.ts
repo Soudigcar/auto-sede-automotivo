@@ -16,6 +16,7 @@ export const AUTOCAR_CUTOVER_CONFIRMATION = 'SINCRONIZAR AUTOCAR PRODUCTION';
 export const AUTOCAR_CUTOVER_WRITE_GATE_MODE = 'code' as const;
 export const AUTOCAR_CUTOVER_ALLOWED_BRANCH = 'agent/autocar-production-cutover-guard';
 export const AUTOCAR_CUTOVER_CODE_WRITE_ENABLED: boolean = true;
+export const AUTOCAR_CUTOVER_EQUIVALENCE_IGNORED_FIELDS = ['updated_at'] as const;
 
 const TABLES = ['ai_runtime_conversations', 'ai_runtime_message_claims'] as const;
 type CutoverTable = (typeof TABLES)[number];
@@ -24,6 +25,7 @@ type RuntimeRow = Record<string, unknown> & {
   id: string;
   store_id?: string | null;
   idempotency_key?: string | null;
+  updated_at?: string | null;
 };
 
 type RuntimeComparison = ReturnType<typeof compareRuntimeRows>;
@@ -64,6 +66,7 @@ export type AutocarCutoverExecutionPreflight = {
   write_gate_mode: typeof AUTOCAR_CUTOVER_WRITE_GATE_MODE;
   write_gate_allowed_branch: typeof AUTOCAR_CUTOVER_ALLOWED_BRANCH;
   write_gate_enabled: boolean;
+  equivalence_ignored_fields: ['updated_at'];
   delete_operations: false;
   operation: 'upsert';
   on_conflict: 'id';
@@ -117,6 +120,28 @@ export function isAutocarCutoverWriteGateEnabled(environment: NodeJS.ProcessEnv 
   return AUTOCAR_CUTOVER_CODE_WRITE_ENABLED
     && safeString(environment.VERCEL_ENV) === 'preview'
     && safeString(environment.VERCEL_GIT_COMMIT_REF) === AUTOCAR_CUTOVER_ALLOWED_BRANCH;
+}
+
+export function normalizeAutocarCutoverRuntimeRow(row: RuntimeRow): RuntimeRow {
+  const normalized = { ...row };
+  delete normalized.updated_at;
+  return normalized;
+}
+
+export function compareAutocarCutoverRuntimeRows(
+  table: CutoverTable,
+  sourceRows: RuntimeRow[],
+  destinationRows: RuntimeRow[]
+): RuntimeComparison {
+  return compareRuntimeRows(
+    table,
+    sourceRows.map(normalizeAutocarCutoverRuntimeRow),
+    destinationRows.map(normalizeAutocarCutoverRuntimeRow)
+  );
+}
+
+function stableAutocarCutoverRuntimeHash(row: RuntimeRow) {
+  return stableRuntimeHash(normalizeAutocarCutoverRuntimeRow(row));
 }
 
 function projectRuntimeRow(table: CutoverTable, row: RuntimeRow) {
@@ -204,7 +229,7 @@ function rowsToUpsert(sourceRows: RuntimeRow[], destinationRows: RuntimeRow[]) {
   const destination = new Map(destinationRows.map((row) => [row.id, row]));
   return sourceRows.filter((row) => {
     const target = destination.get(row.id);
-    return !target || stableRuntimeHash(row) !== stableRuntimeHash(target);
+    return !target || stableAutocarCutoverRuntimeHash(row) !== stableAutocarCutoverRuntimeHash(target);
   });
 }
 
@@ -245,7 +270,7 @@ async function buildPreflight(
       readAllRows(sourceClient, table),
       readAllRows(destinationClient, table)
     ]);
-    const comparison = compareRuntimeRows(table, sourceRows, destinationRows);
+    const comparison = compareAutocarCutoverRuntimeRows(table, sourceRows, destinationRows);
     snapshots.push({
       table,
       sourceRows,
@@ -280,6 +305,7 @@ async function buildPreflight(
     write_gate_mode: AUTOCAR_CUTOVER_WRITE_GATE_MODE,
     write_gate_allowed_branch: AUTOCAR_CUTOVER_ALLOWED_BRANCH,
     write_gate_enabled: writeGateEnabled,
+    equivalence_ignored_fields: ['updated_at'],
     delete_operations: false,
     operation: 'upsert',
     on_conflict: 'id',
@@ -383,7 +409,7 @@ export async function executeAutocarCutoverSync(
 
     await assertProductionLocked(destinationClient);
     const destinationAfter = await readAllRows(destinationClient, snapshot.table);
-    const postComparison = compareRuntimeRows(snapshot.table, snapshot.sourceRows, destinationAfter);
+    const postComparison = compareAutocarCutoverRuntimeRows(snapshot.table, snapshot.sourceRows, destinationAfter);
     assertPostSnapshotMatch(postComparison);
 
     applied.push({
