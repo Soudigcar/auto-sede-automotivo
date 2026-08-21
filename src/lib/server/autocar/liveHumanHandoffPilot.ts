@@ -3,7 +3,6 @@ import { evaluateAutocarPolicy } from '@/lib/server/autocar/policyEngine';
 import { sendEvolutionText } from '@/lib/server/evolution';
 
 const PILOT_STORE_ID = '239755c3-a2d4-4cdd-9502-f1595031c924';
-const PILOT_BRANCH = 'feat/autocar-human-handoff-v1';
 const LIVE_PURPOSE = 'live_human_handoff';
 const LIVE_VERSION = 'autocar-human-handoff-v1';
 const SAFE_ACK = 'Vou encaminhar seu atendimento para nossa equipe continuar com você por aqui.';
@@ -27,12 +26,10 @@ function shadowFrom(result: any) {
   return result?.result?.shadow || result?.shadow || null;
 }
 
-function pilotScopeReason(storeId: string) {
-  if (String(process.env.VERCEL_ENV || '').trim() !== 'preview') {
-    return 'Human Handoff V1 está bloqueado fora do ambiente Preview.';
-  }
-  if (String(process.env.VERCEL_GIT_COMMIT_REF || '').trim() !== PILOT_BRANCH) {
-    return 'Human Handoff V1 está bloqueado fora da branch piloto autorizada.';
+export function autocarHumanHandoffScopeReason(storeId: string, vercelEnv = process.env.VERCEL_ENV) {
+  const environment = String(vercelEnv || '').trim();
+  if (!['preview', 'production'].includes(environment)) {
+    return 'Human Handoff V1 está bloqueado fora de Preview/Production.';
   }
   if (storeId !== PILOT_STORE_ID) {
     return 'Human Handoff V1 está restrito à A4 Multimarcas nesta fase.';
@@ -99,7 +96,7 @@ async function eligibility(storeId: string, conversationId: string) {
     return { allowed: false, reason: `Policy transfer_lead não retornou handoff: ${policy.reason}`, runtime, policy };
   }
 
-  return { allowed: true, reason: 'Human Handoff V1 elegível no piloto A4 Preview.', runtime, policy };
+  return { allowed: true, reason: 'Human Handoff V1 elegível no piloto A4.', runtime, policy };
 }
 
 export async function revalidateAutocarCanonicalInbound(input: {
@@ -248,7 +245,7 @@ export async function attemptAutocarHumanHandoffPilot(input: {
   };
   shadowResult: any;
 }) {
-  const scopeReason = pilotScopeReason(input.storeId);
+  const scopeReason = autocarHumanHandoffScopeReason(input.storeId);
   if (scopeReason) return { handed_off: false, skipped: true, reason: scopeReason };
 
   const shadow = shadowFrom(input.shadowResult);
