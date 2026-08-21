@@ -10,10 +10,17 @@ import { AutocarOperationalProfile } from '@/components/AutocarOperationalProfil
 
 type FoundationStatus = {
   phase: string;
+  environment: 'autocar-dev' | 'autocar-production';
+  vercel_environment: string;
+  schema: 'dev_v1' | 'production_v2';
+  schema_version: number | null;
+  live_enabled: boolean;
   execution_mode: 'off' | 'copilot' | 'autopilot';
   database_state: string;
   automatic_replies_enabled: boolean;
-  webhook_hooked: boolean;
+  automatic_replies_reason: string;
+  webhook_hooked: boolean | null;
+  webhook_status: string;
   openai: { configured: boolean; model_route: string };
   permissions: { view: boolean; manage: boolean; approve: boolean };
   store_scope: { store_id: string; store_name: string; slug: string };
@@ -21,7 +28,7 @@ type FoundationStatus = {
   hard_policy_examples: Record<string, { effect: string; source: string; reason: string }>;
 };
 
-const foundationTables = [
+const devFoundationTables = [
   'ai_store_agents',
   'ai_store_knowledge',
   'ai_store_policies',
@@ -29,8 +36,33 @@ const foundationTables = [
   'ai_agent_runs',
   'ai_agent_events',
   'ai_agent_approvals',
-  'ai_store_operational_profiles'
+  'ai_store_operational_profiles',
+  'ai_knowledge_documents',
+  'ai_knowledge_chunks'
 ];
+
+const productionFoundationTables = [
+  'autocar_runtime_config',
+  'ai_store_refs',
+  'ai_store_agents',
+  'ai_store_policies',
+  'ai_conversation_memory',
+  'ai_agent_runs',
+  'ai_agent_events',
+  'ai_agent_approvals',
+  'ai_knowledge_documents',
+  'ai_knowledge_chunks',
+  'ai_training_scenarios',
+  'ai_training_simulations',
+  'ai_runtime_conversations',
+  'ai_runtime_message_claims'
+];
+
+function vercelEnvironmentLabel(value: string | undefined) {
+  if (value === 'production') return 'Production';
+  if (value === 'preview') return 'Preview';
+  return 'Desenvolvimento';
+}
 
 export default function AutocarFoundationPage() {
   const portal = useStorePortal();
@@ -66,6 +98,18 @@ export default function AutocarFoundationPage() {
   }, [portal.store.slug, supabase]);
 
   const mode = status?.execution_mode || 'off';
+  const vercelLabel = vercelEnvironmentLabel(status?.vercel_environment);
+  const runtimeLabel = status?.environment === 'autocar-production'
+    ? 'AUTOCAR Production'
+    : 'AUTOCAR DEV';
+  const foundationTables = status?.schema === 'production_v2'
+    ? productionFoundationTables
+    : devFoundationTables;
+  const automaticHelper = status?.automatic_replies_reason
+    || 'Aguardando validação do SAFE CORE e do ambiente AUTOCAR.';
+  const databaseHelper = status?.schema === 'production_v2'
+    ? `Cérebro oficial separado do CRM · schema v${status.schema_version ?? 'não validado'}.`
+    : 'Ambiente isolado de desenvolvimento e Preview, separado do CRM Production.';
 
   return (
     <main className="premium-page">
@@ -78,7 +122,7 @@ export default function AutocarFoundationPage() {
           </div>
           <div className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
             <span className={`h-3 w-3 rounded-full ${mode === 'autopilot' ? 'bg-emerald-500' : mode === 'copilot' ? 'bg-amber-400' : 'bg-zinc-400'}`} />
-            <div><p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-400">Modo atual</p><p className="text-sm font-black text-zinc-900">{mode.toUpperCase()} · Preview</p></div>
+            <div><p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-400">Modo atual</p><p className="text-sm font-black text-zinc-900">{mode.toUpperCase()} · {vercelLabel}</p></div>
           </div>
         </header>
 
@@ -89,10 +133,10 @@ export default function AutocarFoundationPage() {
         <AutocarKnowledgeLibrary slug={portal.store.slug} canManage={Boolean(status?.permissions.manage)} isMaster={portal.profile.role === 'master'} />
 
         <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatusCard icon={<Bot size={21} />} label="Atendimento automático" value={status?.automatic_replies_enabled ? 'Ativo' : 'Desligado'} ok={!status?.automatic_replies_enabled} helper="Nenhuma mensagem é enviada automaticamente nesta fase." />
-          <StatusCard icon={<KeyRound size={21} />} label="OpenAI server-side" value={status?.openai.configured ? 'Configurada' : 'Não detectada'} ok={Boolean(status?.openai.configured)} helper={status?.openai.configured ? 'A chave permanece privada no servidor.' : 'OPENAI_API_KEY precisa existir no ambiente Preview.'} />
-          <StatusCard icon={<Database size={21} />} label="Banco AUTOCAR" value="Isolado em Preview" ok helper="Dados operacionais da AUTOCAR continuam fora do Supabase Production." />
-          <StatusCard icon={<ShieldCheck size={21} />} label="Segurança" value="Hard Policy ativa" ok helper="Regras globais continuam acima das configurações da loja." />
+          <StatusCard icon={<Bot size={21} />} label="Atendimento automático" value={status?.automatic_replies_enabled ? 'Ativo' : 'Bloqueado'} ok={Boolean(status && (status.automatic_replies_enabled || !status.live_enabled))} helper={automaticHelper} />
+          <StatusCard icon={<KeyRound size={21} />} label="OpenAI server-side" value={status?.openai.configured ? 'Configurada' : 'Não detectada'} ok={Boolean(status?.openai.configured)} helper={status?.openai.configured ? `A chave permanece privada no servidor ${vercelLabel}.` : `OPENAI_API_KEY não foi detectada no ambiente ${vercelLabel}.`} />
+          <StatusCard icon={<Database size={21} />} label="Banco AUTOCAR" value={runtimeLabel} ok={Boolean(status)} helper={databaseHelper} />
+          <StatusCard icon={<ShieldCheck size={21} />} label="Segurança" value="Hard Policy ativa" ok helper="Regras globais e o SAFE CORE continuam acima das configurações da loja." />
         </section>
 
         <section className="mt-6 grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
@@ -111,7 +155,7 @@ export default function AutocarFoundationPage() {
         <details className="mt-6 rounded-3xl border border-zinc-200 bg-white p-5 md:p-6">
           <summary className="cursor-pointer list-none text-sm font-black text-zinc-900">Detalhes técnicos da fundação AUTOCAR</summary>
           <section className="mt-5 grid gap-5 xl:grid-cols-2">
-            <div className="rounded-2xl border border-zinc-200 p-5"><p className="premium-eyebrow">Fundação de dados</p><h2 className="mt-2 flex items-center gap-2 text-xl font-black text-zinc-950"><Database size={20} className="text-red-600" /> Estruturas AUTOCAR</h2><div className="mt-5 grid gap-2 sm:grid-cols-2">{foundationTables.map((table) => <div key={table} className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs font-bold text-zinc-700"><CheckCircle2 size={15} className="shrink-0 text-emerald-600" />{table}</div>)}<div className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs font-bold text-zinc-700"><CheckCircle2 size={15} className="shrink-0 text-emerald-600" />ai_knowledge_documents</div><div className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs font-bold text-zinc-700"><CheckCircle2 size={15} className="shrink-0 text-emerald-600" />ai_knowledge_chunks</div></div></div>
+            <div className="rounded-2xl border border-zinc-200 p-5"><p className="premium-eyebrow">Fundação de dados · {runtimeLabel}</p><h2 className="mt-2 flex items-center gap-2 text-xl font-black text-zinc-950"><Database size={20} className="text-red-600" /> Estruturas AUTOCAR</h2><div className="mt-5 grid gap-2 sm:grid-cols-2">{foundationTables.map((table) => <div key={table} className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs font-bold text-zinc-700"><CheckCircle2 size={15} className="shrink-0 text-emerald-600" />{table}</div>)}</div></div>
             <div className="rounded-2xl border border-zinc-200 p-5"><p className="premium-eyebrow">Tools de leitura</p><h2 className="mt-2 flex items-center gap-2 text-xl font-black text-zinc-950"><Wrench size={20} className="text-red-600" /> Registry</h2><div className="mt-5 max-h-80 space-y-2 overflow-auto pr-1">{(status?.read_tools || []).map((tool) => <div key={tool.name} className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 px-3 py-2.5"><div className="min-w-0"><p className="truncate text-xs font-black text-zinc-800">{tool.name}</p><p className="mt-0.5 text-[10px] font-bold uppercase text-zinc-400">{tool.capability}</p></div><span className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[9px] font-black uppercase ${tool.accepts_store_id ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>{tool.accepts_store_id ? <XCircle size={11} /> : <CheckCircle2 size={11} />}{tool.accepts_store_id ? 'store_id exposto' : 'sem store_id'}</span></div>)}</div></div>
           </section>
           <section className="mt-5 rounded-2xl border border-zinc-200 p-5"><p className="premium-eyebrow">Global Hard Policy</p><h2 className="mt-2 flex items-center gap-2 text-xl font-black text-zinc-950"><BrainCircuit size={20} className="text-red-600" /> Limites que a loja não pode ultrapassar</h2><div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">{Object.entries(status?.hard_policy_examples || {}).map(([key, decision]) => <div key={key} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><p className="break-words text-[10px] font-black uppercase tracking-wide text-zinc-500">{key}</p><div className="mt-2 flex items-center gap-1.5"><Eye size={14} className="text-red-600" /><strong className="text-sm uppercase text-zinc-900">{decision.effect}</strong></div><p className="mt-2 text-xs leading-5 text-zinc-500">{decision.reason}</p></div>)}</div></section>
