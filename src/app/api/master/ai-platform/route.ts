@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAdminClient, requireMaster } from '@/lib/server/masterApi';
 import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
+import { getAutocarRuntimePublicStatus } from '@/lib/server/autocar/runtimeEnvironment';
 import { aiPlatformModelRegistry } from '@/lib/server/ai-platform/models/registry';
 import { readAutocarClaimTelemetry } from '@/lib/server/ai-platform/telemetry/autocarClaims';
 
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
     }
 
     const autocar = getAutocarDevClient();
-    const [storesResult, agentsResult, telemetry] = await Promise.all([
+    const [storesResult, agentsResult, telemetry, runtimeStatus] = await Promise.all([
       production
         .from('stores')
         .select('id,store_name,slug,status,portal_enabled,city,state')
@@ -25,13 +26,16 @@ export async function GET(request: Request) {
         .from('ai_store_agents')
         .select('store_id,status,mode,master_enabled,master_autopilot_allowed,store_selected_mode,updated_at')
         .order('updated_at', { ascending: false }),
-      readAutocarClaimTelemetry(autocar)
+      readAutocarClaimTelemetry(autocar),
+      getAutocarRuntimePublicStatus()
     ]);
 
     if (storesResult.error) throw storesResult.error;
     if (agentsResult.error) throw agentsResult.error;
 
-    const agentMap = new Map((agentsResult.data || []).map((agent: any) => [agent.store_id, agent]));
+    const agentMap = new Map(
+      (agentsResult.data || []).map((agent: any) => [agent.store_id, agent])
+    );
     const stores = (storesResult.data || [])
       .filter((store: any) => !['deleted', 'excluido'].includes(String(store.status || '').toLowerCase()))
       .map((store: any) => ({
@@ -47,9 +51,17 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       generated_at: new Date().toISOString(),
+      runtime: runtimeStatus,
       platform: {
         version: 'ai-control-plane-v1',
-        environment: 'autocar-dev',
+        environment: runtimeStatus.runtime_environment,
+        vercel_environment: runtimeStatus.vercel_environment,
+        database_state: runtimeStatus.database_state,
+        schema: runtimeStatus.schema,
+        schema_version: runtimeStatus.schema_version,
+        live_enabled: runtimeStatus.live_enabled,
+        external_execution_allowed: runtimeStatus.external_execution_allowed,
+        external_execution_reason: runtimeStatus.external_execution_reason,
         execution_policy: 'read_only_master_snapshot',
         models: aiPlatformModelRegistry(),
         telemetry
@@ -64,6 +76,9 @@ export async function GET(request: Request) {
     });
   } catch (error: any) {
     console.error('Master AI Platform snapshot error:', error?.message || error);
-    return NextResponse.json({ error: String(error?.message || 'Não foi possível carregar o AI Control Plane.') }, { status: 500 });
+    return NextResponse.json(
+      { error: String(error?.message || 'Não foi possível carregar o AI Control Plane.') },
+      { status: 500 }
+    );
   }
 }
