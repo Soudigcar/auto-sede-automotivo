@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { decorateAutocarDevClientWithShadowMirror } from '@/lib/server/autocar/shadowMirror';
 
 export type AutocarStoreMode = 'off' | 'copilot' | 'autopilot';
 
@@ -10,9 +11,11 @@ export function getAutocarDevClient() {
     throw new Error('Ambiente isolado da AUTOCAR não está configurado neste Preview.');
   }
 
-  return createClient(url, serviceRoleKey, {
+  const client = createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false }
   });
+
+  return decorateAutocarDevClientWithShadowMirror(client);
 }
 
 export async function ensureAutocarDevStore(
