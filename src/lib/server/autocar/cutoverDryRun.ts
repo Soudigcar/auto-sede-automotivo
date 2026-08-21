@@ -108,7 +108,7 @@ export function stableRuntimeHash(value: unknown) {
 }
 
 function tableHash(rows: RuntimeRow[]) {
-  const ordered = [...rows].sort((left, right) => left.id.localeCompare(right));
+  const ordered = [...rows].sort((left, right) => left.id.localeCompare(right.id));
   return stableRuntimeHash(ordered);
 }
 
