@@ -10,6 +10,7 @@ import {
 const AUTOCAR_PRODUCTION_URL = `https://${AUTOCAR_PRODUCTION_REF}.supabase.co`;
 const PAGE_SIZE = 1000;
 const MAX_ROWS_PER_TABLE = 50000;
+const UPSERT_BATCH_SIZE = 100;
 
 export const AUTOCAR_CUTOVER_TABLES = [
   'ai_runtime_conversations',
@@ -28,6 +29,58 @@ type IdempotencyConflict = {
   key_hash: string;
   source_id: string;
   destination_id: string;
+};
+
+type LogicalIdentityConflict = {
+  identity: 'store_conversation' | 'store_message_purpose';
+  key_hash: string;
+  source_id: string;
+  destination_id: string;
+};
+
+const RUNTIME_COLUMNS: Record<CutoverTable, readonly string[]> = {
+  ai_runtime_conversations: [
+    'id',
+    'store_id',
+    'production_conversation_id',
+    'production_whatsapp_number_id',
+    'production_lead_id',
+    'effective_mode',
+    'human_state',
+    'pause_reason',
+    'paused_by_profile_id',
+    'paused_by_source',
+    'paused_at',
+    'resumed_at',
+    'last_inbound_message_id',
+    'last_human_message_id',
+    'last_processed_message_id',
+    'runtime_version',
+    'metadata',
+    'created_at',
+    'updated_at'
+  ],
+  ai_runtime_message_claims: [
+    'id',
+    'store_id',
+    'production_conversation_id',
+    'production_message_id',
+    'purpose',
+    'idempotency_key',
+    'direction',
+    'message_type',
+    'effective_mode',
+    'status',
+    'policy_capability',
+    'policy_effect',
+    'policy_source',
+    'policy_reason',
+    'result',
+    'claimed_at',
+    'completed_at',
+    'created_at',
+    'updated_at'
+  ]
 };
 
 export type RuntimeTableComparison = {
@@ -51,12 +104,44 @@ export type RuntimeTableComparison = {
   extra_in_destination_ids: string[];
   source_by_store: Array<{ store_id: string; count: number }>;
   destination_by_store: Array<{ store_id: string; count: number }>;
+  logical_identity: {
+    cross_conflict_count: number;
+    cross_conflicts: LogicalIdentityConflict[];
+  };
   idempotency?: {
     source_duplicate_count: number;
     destination_duplicate_count: number;
     cross_conflict_count: number;
     cross_conflicts: IdempotencyConflict[];
   };
+};
+
+export type AutocarCutoverSyncPreparation = {
+  mode: 'prepared-upsert-plan-read-only';
+  execution_authorized: false;
+  execution_available: false;
+  write_operations_available: false;
+  operation: 'upsert';
+  on_conflict: 'id';
+  delete_operations: false;
+  table_order: ['ai_runtime_conversations', 'ai_runtime_message_claims'];
+  batch_size: number;
+  requires_fresh_preflight_before_write: true;
+  requires_post_write_validation: true;
+  destination_must_remain_live_enabled_false: true;
+  ready_for_separate_execution_authorization: boolean;
+  blockers: string[];
+  tables: Array<{
+    table: CutoverTable;
+    column_count: number;
+    insert_count: number;
+    update_count: number;
+    unchanged_count: number;
+    upsert_count: number;
+    source_snapshot_hash: string;
+    destination_snapshot_hash: string;
+    sample_upsert_ids: string[];
+  }>;
 };
 
 export type AutocarCutoverDryRunReport = {
@@ -77,6 +162,7 @@ export type AutocarCutoverDryRunReport = {
   safe_to_prepare_sync: boolean;
   blockers: string[];
   tables: RuntimeTableComparison[];
+  sync_preparation: AutocarCutoverSyncPreparation;
 };
 
 function safeString(value: unknown) {
@@ -105,6 +191,17 @@ function canonicalize(value: unknown): unknown {
 export function stableRuntimeHash(value: unknown) {
   const canonical = JSON.stringify(canonicalize(value)) ?? 'null';
   return createHash('sha256').update(canonical).digest('hex');
+}
+
+function projectRuntimeRow(table: CutoverTable, row: RuntimeRow): RuntimeRow {
+  const projected: Record<string, unknown> = {};
+  for (const column of RUNTIME_COLUMNS[table]) {
+    if (!Object.prototype.hasOwnProperty.call(row, column)) {
+      throw new Error(`SAFE CORE: ${table} não possui a coluna esperada ${column}.`);
+    }
+    projected[column] = row[column];
+  }
+  return projected as RuntimeRow;
 }
 
 function tableHash(rows: RuntimeRow[]) {
@@ -154,6 +251,44 @@ function compareIdempotency(source: RuntimeRow[], destination: RuntimeRow[]) {
   return {
     source_duplicate_count: sourceKeys.duplicates.size,
     destination_duplicate_count: destinationKeys.duplicates.size,
+    cross_conflict_count: conflicts.length,
+    cross_conflicts: conflicts.slice(0, 100)
+  };
+}
+
+function logicalIdentityKey(table: CutoverTable, row: RuntimeRow) {
+  const storeId = safeString(row.store_id);
+  if (table === 'ai_runtime_conversations') {
+    return `${storeId}|${safeString(row.production_conversation_id)}`;
+  }
+  return `${storeId}|${safeString(row.production_message_id)}|${safeString(row.purpose)}`;
+}
+
+function compareLogicalIdentity(
+  table: CutoverTable,
+  source: RuntimeRow[],
+  destination: RuntimeRow[]
+): RuntimeTableComparison['logical_identity'] {
+  const sourceByIdentity = new Map<string, string>();
+  const destinationByIdentity = new Map<string, string>();
+
+  for (const row of source) sourceByIdentity.set(logicalIdentityKey(table, row), row.id);
+  for (const row of destination) destinationByIdentity.set(logicalIdentityKey(table, row), row.id);
+
+  const conflicts: LogicalIdentityConflict[] = [];
+  for (const [key, sourceId] of sourceByIdentity.entries()) {
+    const destinationId = destinationByIdentity.get(key);
+    if (destinationId && destinationId !== sourceId) {
+      conflicts.push({
+        identity: table === 'ai_runtime_conversations' ? 'store_conversation' : 'store_message_purpose',
+        key_hash: stableRuntimeHash(key),
+        source_id: sourceId,
+        destination_id: destinationId
+      });
+    }
+  }
+
+  return {
     cross_conflict_count: conflicts.length,
     cross_conflicts: conflicts.slice(0, 100)
   };
@@ -211,7 +346,8 @@ export function compareRuntimeRows(
     extra_in_destination_count: extra.length,
     extra_in_destination_ids: extra.slice(0, 500),
     source_by_store: rowsByStore(sourceRows),
-    destination_by_store: rowsByStore(destinationRows)
+    destination_by_store: rowsByStore(destinationRows),
+    logical_identity: compareLogicalIdentity(table, sourceRows, destinationRows)
   };
 
   if (table === 'ai_runtime_message_claims') {
@@ -231,7 +367,7 @@ async function readAllRows(client: SupabaseClient, table: CutoverTable): Promise
       .range(from, from + PAGE_SIZE - 1);
 
     if (error) throw new Error(`Falha ao ler ${table}: ${error.message}`);
-    const page = (data || []) as RuntimeRow[];
+    const page = ((data || []) as RuntimeRow[]).map((row) => projectRuntimeRow(table, row));
     rows.push(...page);
     if (page.length < PAGE_SIZE) return rows;
   }
@@ -244,6 +380,62 @@ function productionClient(serviceRoleKey: string) {
   return createClient(AUTOCAR_PRODUCTION_URL, key, {
     auth: { persistSession: false, autoRefreshToken: false }
   });
+}
+
+function tableBlockers(table: RuntimeTableComparison) {
+  const blockers: string[] = [];
+  if (table.extra_in_destination_count > 0) {
+    blockers.push(`${table.table}: existem ${table.extra_in_destination_count} registros apenas no destino; como deletes são proibidos, a paridade não seria garantida.`);
+  }
+  if (table.logical_identity.cross_conflict_count > 0) {
+    blockers.push(`${table.table}: existem ${table.logical_identity.cross_conflict_count} conflitos de identidade lógica com IDs diferentes.`);
+  }
+  if (table.idempotency?.source_duplicate_count) {
+    blockers.push(`${table.table}: existem ${table.idempotency.source_duplicate_count} chaves de idempotência duplicadas na origem.`);
+  }
+  if (table.idempotency?.destination_duplicate_count) {
+    blockers.push(`${table.table}: existem ${table.idempotency.destination_duplicate_count} chaves de idempotência duplicadas no destino.`);
+  }
+  if (table.idempotency?.cross_conflict_count) {
+    blockers.push(`${table.table}: existem ${table.idempotency.cross_conflict_count} conflitos de idempotência entre origem e destino.`);
+  }
+  return blockers;
+}
+
+function buildSyncPreparation(
+  tables: RuntimeTableComparison[],
+  blockers: string[]
+): AutocarCutoverSyncPreparation {
+  return {
+    mode: 'prepared-upsert-plan-read-only',
+    execution_authorized: false,
+    execution_available: false,
+    write_operations_available: false,
+    operation: 'upsert',
+    on_conflict: 'id',
+    delete_operations: false,
+    table_order: ['ai_runtime_conversations', 'ai_runtime_message_claims'],
+    batch_size: UPSERT_BATCH_SIZE,
+    requires_fresh_preflight_before_write: true,
+    requires_post_write_validation: true,
+    destination_must_remain_live_enabled_false: true,
+    ready_for_separate_execution_authorization: blockers.length === 0,
+    blockers,
+    tables: tables.map((table) => {
+      const changedIds = table.changed.map((item) => item.id);
+      return {
+        table: table.table,
+        column_count: RUNTIME_COLUMNS[table.table].length,
+        insert_count: table.missing_in_destination_count,
+        update_count: table.changed_count,
+        unchanged_count: Math.max(0, table.source_count - table.missing_in_destination_count - table.changed_count),
+        upsert_count: table.missing_in_destination_count + table.changed_count,
+        source_snapshot_hash: table.source_hash,
+        destination_snapshot_hash: table.destination_hash,
+        sample_upsert_ids: [...table.missing_in_destination_ids, ...changedIds].slice(0, 100)
+      };
+    })
+  };
 }
 
 export async function runAutocarCutoverDryRun(
@@ -295,21 +487,8 @@ export async function runAutocarCutoverDryRun(
     tables.push(compareRuntimeRows(table, sourceRows, destinationRows));
   }
 
-  const blockers: string[] = [];
-  for (const table of tables) {
-    if (table.extra_in_destination_count > 0) {
-      blockers.push(`${table.table}: existem ${table.extra_in_destination_count} registros apenas no destino; upsert não os removeria.`);
-    }
-    if (table.idempotency?.source_duplicate_count) {
-      blockers.push(`${table.table}: existem ${table.idempotency.source_duplicate_count} chaves de idempotência duplicadas na origem.`);
-    }
-    if (table.idempotency?.destination_duplicate_count) {
-      blockers.push(`${table.table}: existem ${table.idempotency.destination_duplicate_count} chaves de idempotência duplicadas no destino.`);
-    }
-    if (table.idempotency?.cross_conflict_count) {
-      blockers.push(`${table.table}: existem ${table.idempotency.cross_conflict_count} conflitos de idempotência entre origem e destino.`);
-    }
-  }
+  const blockers = tables.flatMap(tableBlockers);
+  const syncPreparation = buildSyncPreparation(tables, blockers);
 
   return {
     mode: 'dry-run-read-only',
@@ -328,6 +507,7 @@ export async function runAutocarCutoverDryRun(
     write_operations_available: false,
     safe_to_prepare_sync: blockers.length === 0,
     blockers,
-    tables
+    tables,
+    sync_preparation: syncPreparation
   };
 }
