@@ -2,6 +2,7 @@ import { searchAutocarKnowledge } from '@/lib/server/autocar/knowledgeLibrary';
 import { searchTrainingScenarios } from '@/lib/server/autocar/trainingLab';
 import { autocarHardPolicyInstructions, autocarHardPolicyManifest } from '@/lib/server/autocar/policyEngine';
 import { loadAutocarInventory } from '@/lib/server/autocar/inventory';
+import { getAutocarStoreKnowledgeConfig } from '@/lib/server/autocar/storeKnowledgeConfig';
 
 export type AutocarIntelligenceMode = 'copilot' | 'autopilot';
 
@@ -21,13 +22,15 @@ export async function buildAutocarIntelligenceContext(input: {
       knowledge: [],
       methodKnowledge: [],
       storeKnowledge: [],
+      storePortalKnowledge: null,
       inventory: null
     };
   }
 
-  const [training, knowledge, inventory] = await Promise.all([
+  const [training, knowledge, storePortalKnowledge, inventory] = await Promise.all([
     searchTrainingScenarios(query, input.storeId, 6),
     searchAutocarKnowledge(input.storeId, query, 10),
+    getAutocarStoreKnowledgeConfig(input.storeId),
     input.inventorySupabase
       ? loadAutocarInventory({ supabase: input.inventorySupabase, storeId: input.storeId, query, matchLimit: 12, indexLimit: 80 })
       : Promise.resolve(null)
@@ -44,6 +47,7 @@ export async function buildAutocarIntelligenceContext(input: {
     knowledge: knowledge || [],
     methodKnowledge,
     storeKnowledge,
+    storePortalKnowledge,
     inventory
   };
 }
@@ -89,6 +93,13 @@ export function serializeAutocarIntelligenceContext(context: Awaited<ReturnType<
       excerpt: item.content,
       similarity: item.similarity
     })),
+    store_portal_configuration: context.storePortalKnowledge?.content
+      ? {
+          content: String(context.storePortalKnowledge.content).slice(0, 12_000),
+          version: context.storePortalKnowledge.version,
+          updated_at: context.storePortalKnowledge.updated_at
+        }
+      : null,
     store_inventory: context.inventory ? {
       source: context.inventory.source,
       store_id: context.inventory.store_id,
