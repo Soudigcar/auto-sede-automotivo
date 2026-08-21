@@ -19,6 +19,7 @@ import {
   Target,
   UsersRound
 } from 'lucide-react';
+import { sanitizeAutocarStoreKnowledgeConfig } from '@/lib/autocar/storeKnowledgeConfig';
 
 type SectionKey = 'metodo' | 'loja' | 'regras' | 'tom' | 'conhecimento' | 'autonomia' | 'teste';
 
@@ -49,29 +50,11 @@ type StoreConfig = {
 };
 
 const initialConfig: StoreConfig = {
-  address: '',
-  city: '',
-  businessHours: '',
-  commercialPhone: '',
-  financePartners: '',
-  paymentMethods: '',
-  tradeInPolicy: '',
-  reservationPolicy: '',
-  warrantyPolicy: '',
-  deliveryPolicy: '',
-  testDrivePolicy: '',
-  documentation: '',
-  differentiators: '',
-  discountPolicy: '',
-  negotiationLimit: '',
-  humanHandoffRules: '',
-  followUpRules: '',
-  tone: 'Consultivo, humano, objetivo e comercial.',
-  preferredWords: '',
-  avoidedWords: '',
-  faq: '',
-  commercialNotes: '',
-  autonomyMode: 'copilot'
+  address: '', city: '', businessHours: '', commercialPhone: '', financePartners: '', paymentMethods: '',
+  tradeInPolicy: '', reservationPolicy: '', warrantyPolicy: '', deliveryPolicy: '', testDrivePolicy: '',
+  documentation: '', differentiators: '', discountPolicy: '', negotiationLimit: '', humanHandoffRules: '',
+  followUpRules: '', tone: 'Consultivo, humano, objetivo e comercial.', preferredWords: '', avoidedWords: '',
+  faq: '', commercialNotes: '', autonomyMode: 'copilot'
 };
 
 const methodStages = [
@@ -99,29 +82,80 @@ export function AutocarIntelligenceCenter({ storeName, slug, canManage }: { stor
   const [section, setSection] = useState<SectionKey>('metodo');
   const [config, setConfig] = useState<StoreConfig>(initialConfig);
   const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
   const [testMessage, setTestMessage] = useState('Cliente: Gostei do carro, mas estou só pesquisando por enquanto.');
   const storageKey = useMemo(() => `autocar-intelligence-draft:${slug}`, [slug]);
 
   useEffect(() => {
+    let active = true;
     try {
       const draft = window.localStorage.getItem(storageKey);
       if (draft) setConfig({ ...initialConfig, ...JSON.parse(draft) });
     } catch {
       // Rascunho local é opcional e nunca bloqueia a tela.
     }
-  }, [storageKey]);
+
+    void fetch(`/api/store/portal/autocar/store-knowledge-config?slug=${encodeURIComponent(slug)}`, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return response.json();
+      })
+      .then((payload) => {
+        if (!active || !payload?.success || Number(payload?.knowledge?.version || 0) < 1) return;
+        const saved = sanitizeAutocarStoreKnowledgeConfig(payload.knowledge.config);
+        setConfig((current) => ({
+          ...current,
+          differentiators: saved.differentiators,
+          faq: saved.faq,
+          commercialNotes: saved.commercialNotes
+        }));
+      })
+      .catch(() => {
+        // Se o ambiente isolado estiver indisponível, preserva o rascunho local sem bloquear a tela.
+      });
+
+    return () => { active = false; };
+  }, [slug, storageKey]);
 
   function update<K extends keyof StoreConfig>(key: K, value: StoreConfig[K]) {
     setConfig((current) => ({ ...current, [key]: value }));
   }
 
-  function saveDraft() {
+  async function saveDraft() {
     if (!canManage) {
       setMessage('Seu perfil pode visualizar a AUTOCAR, mas não alterar a configuração da loja.');
       return;
     }
+
     window.localStorage.setItem(storageKey, JSON.stringify(config));
-    setMessage('Rascunho salvo neste navegador. A persistência definitiva será liberada quando o banco AUTOCAR for ativado.');
+    if (section !== 'conhecimento') {
+      setMessage('Rascunho salvo neste navegador. Esta seção ainda não altera o cérebro da AUTOCAR.');
+      return;
+    }
+
+    setSaving(true);
+    setMessage('');
+    try {
+      const response = await fetch('/api/store/portal/autocar/store-knowledge-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slug,
+          config: {
+            differentiators: config.differentiators,
+            faq: config.faq,
+            commercialNotes: config.commercialNotes
+          }
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Não foi possível salvar o conhecimento da loja.');
+      setMessage('Conhecimento salvo no ambiente isolado da AUTOCAR e disponível para o contexto desta loja.');
+    } catch (error: any) {
+      setMessage(error?.message || 'Não foi possível salvar o conhecimento da loja. O rascunho local foi preservado.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -167,8 +201,11 @@ export function AutocarIntelligenceCenter({ storeName, slug, canManage }: { stor
 
           {section !== 'metodo' && section !== 'teste' ? (
             <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 md:flex-row md:items-center md:justify-between">
-              <div><p className="text-xs font-black text-amber-900">Preview de configuração</p><p className="mt-1 text-xs leading-5 text-amber-800">Nesta etapa, o botão salva apenas um rascunho local neste navegador. Nenhuma informação é gravada no Supabase Production.</p></div>
-              <button type="button" onClick={saveDraft} disabled={!canManage} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-zinc-950 px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"><Save size={15} /> Salvar rascunho</button>
+              <div>
+                <p className="text-xs font-black text-amber-900">{section === 'conhecimento' ? 'Conhecimento da AUTOCAR' : 'Preview de configuração'}</p>
+                <p className="mt-1 text-xs leading-5 text-amber-800">{section === 'conhecimento' ? 'Esta seção salva apenas FAQ, diferenciais e observações no ambiente isolado da AUTOCAR desta loja. Hard Policies e configurações Master permanecem acima deste conteúdo.' : 'Nesta etapa, o botão salva apenas um rascunho local neste navegador. Nenhuma informação é gravada no Supabase Production.'}</p>
+              </div>
+              <button type="button" onClick={() => void saveDraft()} disabled={!canManage || saving} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-zinc-950 px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"><Save size={15} /> {saving ? 'Salvando...' : section === 'conhecimento' ? 'Salvar conhecimento' : 'Salvar rascunho'}</button>
             </div>
           ) : null}
 
