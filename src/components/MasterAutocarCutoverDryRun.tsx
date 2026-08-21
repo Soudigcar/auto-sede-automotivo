@@ -96,9 +96,9 @@ export function MasterAutocarCutoverDryRun() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen bg-slate-950 text-slate-100 lg:flex">
       <MasterSidebar active="/master/autocar" />
-      <main className="lg:pl-64">
+      <main className="min-w-0 flex-1">
         <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
           <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 shadow-2xl">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
