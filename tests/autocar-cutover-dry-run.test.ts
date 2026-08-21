@@ -5,6 +5,12 @@ import {
   compareRuntimeRows,
   stableRuntimeHash
 } from '../src/lib/server/autocar/cutoverDryRun.ts';
+import {
+  AUTOCAR_CUTOVER_ALLOWED_BRANCH,
+  AUTOCAR_CUTOVER_CODE_WRITE_ENABLED,
+  AUTOCAR_CUTOVER_WRITE_GATE_MODE,
+  isAutocarCutoverWriteGateEnabled
+} from '../src/lib/server/autocar/cutoverSync.ts';
 
 test('dry-run é bloqueado fora do Vercel Preview', () => {
   assert.throws(
@@ -13,6 +19,30 @@ test('dry-run é bloqueado fora do Vercel Preview', () => {
   );
   assert.doesNotThrow(
     () => assertCutoverDryRunPreview({ VERCEL_ENV: 'preview' } as NodeJS.ProcessEnv)
+  );
+});
+
+test('gate de escrita é controlado por código e permanece fail-closed', () => {
+  assert.equal(AUTOCAR_CUTOVER_WRITE_GATE_MODE, 'code');
+  assert.equal(AUTOCAR_CUTOVER_CODE_WRITE_ENABLED, false);
+  assert.equal(AUTOCAR_CUTOVER_ALLOWED_BRANCH, 'agent/autocar-production-cutover-guard');
+
+  assert.equal(
+    isAutocarCutoverWriteGateEnabled({
+      VERCEL_ENV: 'preview',
+      VERCEL_GIT_COMMIT_REF: AUTOCAR_CUTOVER_ALLOWED_BRANCH,
+      AUTOCAR_CUTOVER_WRITE_ENABLED: 'true'
+    } as NodeJS.ProcessEnv),
+    false
+  );
+
+  assert.equal(
+    isAutocarCutoverWriteGateEnabled({
+      VERCEL_ENV: 'production',
+      VERCEL_GIT_COMMIT_REF: AUTOCAR_CUTOVER_ALLOWED_BRANCH,
+      AUTOCAR_CUTOVER_WRITE_ENABLED: 'true'
+    } as NodeJS.ProcessEnv),
+    false
   );
 });
 
