@@ -15,7 +15,7 @@ const UPSERT_BATCH_SIZE = 100;
 export const AUTOCAR_CUTOVER_CONFIRMATION = 'SINCRONIZAR AUTOCAR PRODUCTION';
 export const AUTOCAR_CUTOVER_WRITE_GATE_MODE = 'code' as const;
 export const AUTOCAR_CUTOVER_ALLOWED_BRANCH = 'agent/autocar-production-cutover-guard';
-export const AUTOCAR_CUTOVER_CODE_WRITE_ENABLED: boolean = false;
+export const AUTOCAR_CUTOVER_CODE_WRITE_ENABLED: boolean = true;
 
 const TABLES = ['ai_runtime_conversations', 'ai_runtime_message_claims'] as const;
 type CutoverTable = (typeof TABLES)[number];
