@@ -103,7 +103,7 @@ function canonicalize(value: unknown): unknown {
 }
 
 export function stableRuntimeHash(value: unknown) {
-  const canonical = JSON.stringify(canonicalize(value));
+  const canonical = JSON.stringify(canonicalize(value)) ?? 'null';
   return createHash('sha256').update(canonical).digest('hex');
 }
 
