@@ -308,8 +308,10 @@ export type AutocarRuntimePublicStatus = AutocarRuntimePublicDescriptor & {
   external_execution_allowed: boolean;
   external_execution_reason: string;
   automatic_replies_enabled: boolean;
+  automatic_replies_reason: string;
   autopilot_preview_only: boolean;
-  webhook_hooked: boolean;
+  webhook_hooked: boolean | null;
+  webhook_status: 'preview-disabled' | 'server-secret-missing' | 'server-configured-not-externally-verified';
 };
 
 export async function getAutocarRuntimePublicStatus(
@@ -317,6 +319,21 @@ export async function getAutocarRuntimePublicStatus(
 ): Promise<AutocarRuntimePublicStatus> {
   const descriptor = autocarRuntimePublicDescriptor(environment);
   const gate = await evaluateAutocarExternalExecutionGate(environment);
+  const production = descriptor.vercel_environment === 'production';
+  const webhookServerConfigured = Boolean(clean(environment.EVOLUTION_WEBHOOK_SECRET));
+  const automaticRepliesEnabled = gate.allowed && webhookServerConfigured;
+
+  const webhookStatus = !production
+    ? 'preview-disabled'
+    : webhookServerConfigured
+      ? 'server-configured-not-externally-verified'
+      : 'server-secret-missing';
+
+  const automaticRepliesReason = !gate.allowed
+    ? gate.reason
+    : webhookServerConfigured
+      ? 'SAFE CORE e configuração server-side permitem execução; a ligação externa do webhook deve ser confirmada operacionalmente.'
+      : 'Execução bloqueada: segredo server-side do webhook Evolution não está configurado.';
 
   return {
     ...descriptor,
@@ -324,8 +341,10 @@ export async function getAutocarRuntimePublicStatus(
     live_enabled: gate.live_enabled,
     external_execution_allowed: gate.allowed,
     external_execution_reason: gate.reason,
-    automatic_replies_enabled: gate.allowed,
-    autopilot_preview_only: !gate.allowed,
-    webhook_hooked: descriptor.vercel_environment === 'production'
+    automatic_replies_enabled: automaticRepliesEnabled,
+    automatic_replies_reason: automaticRepliesReason,
+    autopilot_preview_only: !automaticRepliesEnabled,
+    webhook_hooked: !production ? false : webhookServerConfigured ? null : false,
+    webhook_status: webhookStatus
   };
 }
