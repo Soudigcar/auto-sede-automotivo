@@ -111,6 +111,29 @@ export function resolveAutocarRuntimeTarget(environment: NodeJS.ProcessEnv = pro
   };
 }
 
+export type AutocarRuntimePublicDescriptor = {
+  vercel_environment: string;
+  runtime_environment: 'autocar-dev' | 'autocar-production';
+  database_state: 'autocar-dev-isolated' | 'autocar-production-v2';
+  project_ref: string;
+  schema: AutocarRuntimeSchema;
+};
+
+export function autocarRuntimePublicDescriptor(
+  environment: NodeJS.ProcessEnv = process.env
+): AutocarRuntimePublicDescriptor {
+  const target = resolveAutocarRuntimeTarget(environment);
+  const production = target.schema === 'production_v2';
+
+  return {
+    vercel_environment: target.vercelEnvironment,
+    runtime_environment: production ? 'autocar-production' : 'autocar-dev',
+    database_state: production ? 'autocar-production-v2' : 'autocar-dev-isolated',
+    project_ref: target.projectRef,
+    schema: target.schema
+  };
+}
+
 export function getAutocarRuntimeClient(environment: NodeJS.ProcessEnv = process.env): SupabaseClient {
   const target = resolveAutocarRuntimeTarget(environment);
   return createClient(target.url, target.serviceRoleKey, {
@@ -277,4 +300,32 @@ export async function evaluateAutocarExternalExecutionGate(
       live_enabled: false
     };
   }
+}
+
+export type AutocarRuntimePublicStatus = AutocarRuntimePublicDescriptor & {
+  schema_version: number | null;
+  live_enabled: boolean;
+  external_execution_allowed: boolean;
+  external_execution_reason: string;
+  automatic_replies_enabled: boolean;
+  autopilot_preview_only: boolean;
+  webhook_hooked: boolean;
+};
+
+export async function getAutocarRuntimePublicStatus(
+  environment: NodeJS.ProcessEnv = process.env
+): Promise<AutocarRuntimePublicStatus> {
+  const descriptor = autocarRuntimePublicDescriptor(environment);
+  const gate = await evaluateAutocarExternalExecutionGate(environment);
+
+  return {
+    ...descriptor,
+    schema_version: gate.schema_version,
+    live_enabled: gate.live_enabled,
+    external_execution_allowed: gate.allowed,
+    external_execution_reason: gate.reason,
+    automatic_replies_enabled: gate.allowed,
+    autopilot_preview_only: !gate.allowed,
+    webhook_hooked: descriptor.vercel_environment === 'production'
+  };
 }
