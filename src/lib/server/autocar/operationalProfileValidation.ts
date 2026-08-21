@@ -18,9 +18,9 @@ const weekdayKeys = [
 ] as const;
 
 const weekdaySet = new Set<string>(weekdayKeys);
-const controlCharacters = /[\u0000-\u001f\u007f]/g;
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type WeekdayKey = (typeof weekdayKeys)[number];
 
@@ -46,9 +46,17 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function replaceControlCharacters(value: string) {
+  let result = '';
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    result += code <= 31 || code === 127 ? ' ' : character;
+  }
+  return result;
+}
+
 function sanitizedText(value: unknown, max: number, label: string) {
-  const normalized = String(value ?? '')
-    .replace(controlCharacters, ' ')
+  const normalized = replaceControlCharacters(String(value ?? ''))
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -77,7 +85,9 @@ function timeToMinutes(value: string) {
 }
 
 function normalizeInterval(value: unknown, label: string) {
-  if (!isPlainObject(value)) throw new Error(`${label} deve ser um intervalo de horário válido.`);
+  if (!isPlainObject(value)) {
+    throw new Error(`${label} deve ser um intervalo de horário válido.`);
+  }
 
   const open = normalizeTime(value.open, `${label}: abertura`);
   const close = normalizeTime(value.close, `${label}: fechamento`);
@@ -95,7 +105,9 @@ function emptyWeeklyHours(): WeeklyHours {
 
 export function normalizeWeeklyHours(value: unknown): WeeklyHours {
   if (value == null || value === '') return emptyWeeklyHours();
-  if (!isPlainObject(value)) throw new Error('Horários semanais devem ser enviados como objeto.');
+  if (!isPlainObject(value)) {
+    throw new Error('Horários semanais devem ser enviados como objeto.');
+  }
 
   const unexpectedKeys = Object.keys(value).filter((key) => !weekdaySet.has(key));
   if (unexpectedKeys.length) {
@@ -106,8 +118,12 @@ export function normalizeWeeklyHours(value: unknown): WeeklyHours {
 
   for (const day of weekdayKeys) {
     const raw = value[day] ?? [];
-    if (!Array.isArray(raw)) throw new Error(`Horários de ${day} devem ser enviados como lista.`);
-    if (raw.length > 3) throw new Error(`Horários de ${day} aceitam no máximo 3 intervalos.`);
+    if (!Array.isArray(raw)) {
+      throw new Error(`Horários de ${day} devem ser enviados como lista.`);
+    }
+    if (raw.length > 3) {
+      throw new Error(`Horários de ${day} aceitam no máximo 3 intervalos.`);
+    }
 
     const intervals = raw
       .map((item, index) => normalizeInterval(item, `${day} intervalo ${index + 1}`))
@@ -138,18 +154,26 @@ function validCalendarDate(value: string) {
 
 export function normalizeSpecialHours(value: unknown): SpecialHour[] {
   if (value == null || value === '') return [];
-  if (!Array.isArray(value)) throw new Error('Horários especiais devem ser enviados como lista.');
-  if (value.length > 100) throw new Error('Horários especiais aceitam no máximo 100 datas.');
+  if (!Array.isArray(value)) {
+    throw new Error('Horários especiais devem ser enviados como lista.');
+  }
+  if (value.length > 100) {
+    throw new Error('Horários especiais aceitam no máximo 100 datas.');
+  }
 
   const dates = new Set<string>();
   const normalized = value.map((item, index) => {
-    if (!isPlainObject(item)) throw new Error(`Horário especial ${index + 1} é inválido.`);
+    if (!isPlainObject(item)) {
+      throw new Error(`Horário especial ${index + 1} é inválido.`);
+    }
 
     const date = sanitizedText(item.date, 10, `Horário especial ${index + 1}: data`);
     if (!validCalendarDate(date)) {
       throw new Error(`Horário especial ${index + 1} possui data inválida.`);
     }
-    if (dates.has(date)) throw new Error(`Existe mais de um horário especial para ${date}.`);
+    if (dates.has(date)) {
+      throw new Error(`Existe mais de um horário especial para ${date}.`);
+    }
     dates.add(date);
 
     if (item.closed != null && typeof item.closed !== 'boolean') {
@@ -240,12 +264,18 @@ export function normalizeAutocarOperationalProfilePayload(
   profileId: string,
   now = new Date()
 ): OperationalProfilePayload {
-  if (!isPlainObject(payload)) throw new Error('Perfil Operacional inválido.');
+  if (!isPlainObject(payload)) {
+    throw new Error('Perfil Operacional inválido.');
+  }
 
   const actorProfileId = sanitizedText(profileId, 100, 'Perfil responsável');
-  if (!actorProfileId) throw new Error('Perfil responsável pela alteração não foi identificado.');
+  if (!uuidPattern.test(actorProfileId)) {
+    throw new Error('Perfil responsável pela alteração não foi identificado corretamente.');
+  }
 
-  if (Number.isNaN(now.getTime())) throw new Error('Data de atualização inválida.');
+  if (Number.isNaN(now.getTime())) {
+    throw new Error('Data de atualização inválida.');
+  }
 
   return {
     timezone: normalizeTimezone(payload.timezone),
