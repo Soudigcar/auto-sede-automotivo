@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, LockKeyhole, RefreshCw, ShieldCheck } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { createClient } from '@/lib/supabase';
 
@@ -18,11 +18,41 @@ type TableReport = {
   extra_in_destination_count: number;
   source_by_store: StoreCount[];
   destination_by_store: StoreCount[];
+  logical_identity: {
+    cross_conflict_count: number;
+  };
   idempotency?: {
     source_duplicate_count: number;
     destination_duplicate_count: number;
     cross_conflict_count: number;
   };
+};
+
+type SyncPreparation = {
+  mode: 'prepared-upsert-plan-read-only';
+  execution_authorized: false;
+  execution_available: false;
+  write_operations_available: false;
+  operation: 'upsert';
+  on_conflict: 'id';
+  delete_operations: false;
+  table_order: ['ai_runtime_conversations', 'ai_runtime_message_claims'];
+  batch_size: number;
+  requires_fresh_preflight_before_write: true;
+  requires_post_write_validation: true;
+  destination_must_remain_live_enabled_false: true;
+  ready_for_separate_execution_authorization: boolean;
+  blockers: string[];
+  tables: Array<{
+    table: string;
+    column_count: number;
+    insert_count: number;
+    update_count: number;
+    unchanged_count: number;
+    upsert_count: number;
+    source_snapshot_hash: string;
+    destination_snapshot_hash: string;
+  }>;
 };
 
 type Report = {
@@ -39,6 +69,7 @@ type Report = {
   safe_to_prepare_sync: boolean;
   blockers: string[];
   tables: TableReport[];
+  sync_preparation: SyncPreparation;
 };
 
 function shortHash(value: string) {
@@ -108,11 +139,11 @@ export function MasterAutocarCutoverDryRun() {
                 </div>
                 <h1 className="text-2xl font-bold">Dry-run DEV → Production</h1>
                 <p className="mt-2 max-w-3xl text-sm text-slate-400">
-                  Ferramenta temporária exclusiva do Preview. Compara runtime, IDs, hashes e idempotência sem disponibilizar nenhuma operação de escrita.
+                  Ferramenta temporária exclusiva do Preview. Compara runtime, IDs, hashes, identidade lógica e idempotência sem disponibilizar nenhuma operação de escrita.
                 </p>
               </div>
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
-                <strong>READ ONLY</strong><br />Nenhum insert, update, upsert ou delete.
+                <strong>READ ONLY</strong><br />Execução de sincronização bloqueada.
               </div>
             </div>
 
@@ -164,6 +195,42 @@ export function MasterAutocarCutoverDryRun() {
                 )}
               </section>
 
+              <section className="rounded-2xl border border-violet-500/30 bg-violet-500/10 p-5">
+                <div className="flex items-start gap-3">
+                  <LockKeyhole className="mt-0.5 h-5 w-5 text-violet-300" />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-violet-100">Plano de sincronização preparado · execução bloqueada</div>
+                    <p className="mt-1 text-sm text-violet-100/70">
+                      O código conhece o plano de upsert, mas não existe endpoint, botão ou operação de escrita disponível nesta etapa. Uma autorização separada é obrigatória antes de qualquer gravação.
+                    </p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="rounded-xl border border-violet-400/20 bg-slate-950/50 p-4 text-sm"><div className="text-violet-200/60">Operação futura</div><div className="mt-1 font-semibold">UPSERT por ID</div></div>
+                      <div className="rounded-xl border border-violet-400/20 bg-slate-950/50 p-4 text-sm"><div className="text-violet-200/60">Batch</div><div className="mt-1 font-semibold">{report.sync_preparation.batch_size}</div></div>
+                      <div className="rounded-xl border border-violet-400/20 bg-slate-950/50 p-4 text-sm"><div className="text-violet-200/60">Deletes</div><div className="mt-1 font-semibold">PROIBIDOS</div></div>
+                      <div className="rounded-xl border border-violet-400/20 bg-slate-950/50 p-4 text-sm"><div className="text-violet-200/60">Execução</div><div className="mt-1 font-semibold">NÃO AUTORIZADA</div></div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      {report.sync_preparation.tables.map((table) => (
+                        <div key={table.table} className="rounded-xl border border-violet-400/20 bg-slate-950/50 p-4">
+                          <div className="font-mono text-xs text-violet-200">{table.table}</div>
+                          <div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                            <div><div className="text-slate-500">Insert</div><div className="font-bold">{table.insert_count}</div></div>
+                            <div><div className="text-slate-500">Update</div><div className="font-bold">{table.update_count}</div></div>
+                            <div><div className="text-slate-500">Inalterados</div><div className="font-bold">{table.unchanged_count}</div></div>
+                            <div><div className="text-slate-500">Upsert total</div><div className="font-bold">{table.upsert_count}</div></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 text-xs text-violet-100/60">
+                      Antes de qualquer execução futura: novo preflight obrigatório, revalidação de identidade/idempotência, `live_enabled=false` e validação pós-write.
+                    </div>
+                  </div>
+                </div>
+              </section>
+
               {report.tables.map((table) => (
                 <section key={table.table} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -193,11 +260,12 @@ export function MasterAutocarCutoverDryRun() {
                     </div>
                   </div>
 
-                  {table.idempotency && (
-                    <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/70 p-4 text-sm text-slate-300">
-                      Idempotência: duplicadas DEV <strong>{table.idempotency.source_duplicate_count}</strong> · duplicadas Production <strong>{table.idempotency.destination_duplicate_count}</strong> · conflitos cruzados <strong>{table.idempotency.cross_conflict_count}</strong>
-                    </div>
-                  )}
+                  <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/70 p-4 text-sm text-slate-300">
+                    Identidade lógica: conflitos cruzados <strong>{table.logical_identity.cross_conflict_count}</strong>
+                    {table.idempotency && (
+                      <> · Idempotência: duplicadas DEV <strong>{table.idempotency.source_duplicate_count}</strong> · duplicadas Production <strong>{table.idempotency.destination_duplicate_count}</strong> · conflitos cruzados <strong>{table.idempotency.cross_conflict_count}</strong></>
+                    )}
+                  </div>
 
                   <div className="mt-4 overflow-x-auto rounded-xl border border-slate-800">
                     <table className="w-full min-w-[620px] text-left text-sm">
