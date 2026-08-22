@@ -38,6 +38,53 @@ set
 where status = 'approved'
   and publication_status = 'unpublished';
 
+create or replace function public.autocar_training_unpublish_on_content_change()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if old.status = 'archived' then
+    return new;
+  end if;
+
+  if (
+    new.situation is distinct from old.situation
+    or new.intent is distinct from old.intent
+    or new.ideal_response is distinct from old.ideal_response
+    or new.objective is distinct from old.objective
+    or new.next_action is distinct from old.next_action
+    or new.restrictions is distinct from old.restrictions
+    or new.tags is distinct from old.tags
+    or new.examples is distinct from old.examples
+    or new.priority is distinct from old.priority
+  ) then
+    new.status := 'draft';
+    new.publication_status := 'unpublished';
+    new.approved_at := null;
+    new.approved_by_profile_id := null;
+    new.published_at := null;
+    new.published_by_profile_id := null;
+  end if;
+
+  if new.status <> 'approved' then
+    new.publication_status := 'unpublished';
+    new.published_at := null;
+    new.published_by_profile_id := null;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists ai_training_scenarios_unpublish_on_content_change
+  on public.ai_training_scenarios;
+
+create trigger ai_training_scenarios_unpublish_on_content_change
+before update on public.ai_training_scenarios
+for each row
+execute function public.autocar_training_unpublish_on_content_change();
+
 create index if not exists ai_training_scenarios_published_lookup_idx
   on public.ai_training_scenarios(scope, store_id, priority)
   where status = 'approved'
