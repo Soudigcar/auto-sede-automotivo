@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 
-const migration = readFileSync('supabase/migrations/20260822151000_autocar_training_publication_governance.sql', 'utf8');
+const migration = readFileSync('supabase/migrations/20260822151932_autocar_training_publication_governance.sql', 'utf8');
 const route = readFileSync('src/app/api/master/autocar/training/route.ts', 'utf8');
 const ui = readFileSync('src/components/MasterAutocarTrainingLab.tsx', 'utf8');
 const governance = readFileSync('src/lib/server/autocar/trainingPublicationGovernance.ts', 'utf8');
@@ -30,7 +30,23 @@ test('API salva cenarios sempre como draft e revisao nunca publica aprendizado a
 test('rascunho nao depende de embedding e aprovacao prepara embedding antes de aprovar', () => {
   assert.match(trainingLab, /status,\n\s+embedding: null,/);
   assert.match(trainingLab, /export async function prepareTrainingScenarioForApproval/);
-  assert.match(route, /await prepareTrainingScenarioForApproval\(scenarioId, context\.profile\.id\);\n\s+const scenario = await approveTrainingScenario/);
+  assert.match(route, /const preparation = await prepareTrainingScenarioForApproval\(scenarioId, context\.profile\.id\);/);
+  assert.match(route, /expectedVersion: preparation\.version/);
+  assert.match(route, /expectedUpdatedAt: preparation\.updated_at/);
+});
+
+test('preparacao do embedding falha se o aprendizado mudar durante a chamada externa', () => {
+  assert.match(trainingLab, /select\('id,scope,situation,intent,ideal_response,objective,next_action,restrictions,tags,examples,priority,status,version,updated_at'\)/);
+  assert.match(trainingLab, /\.eq\('version', expectedVersion\)/);
+  assert.match(trainingLab, /\.eq\('updated_at', expectedUpdatedAt\)/);
+  assert.match(trainingLab, /foi alterado enquanto o embedding era gerado/);
+});
+
+test('aprovacao usa compare-and-swap e falha se versao ou updated_at mudarem', () => {
+  assert.match(governance, /export type TrainingApprovalGuard/);
+  assert.match(governance, /\.eq\('version', guard\.expectedVersion\)/);
+  assert.match(governance, /\.eq\('updated_at', guard\.expectedUpdatedAt\)/);
+  assert.match(governance, /foi alterado durante a aprovação/);
 });
 
 test('publicacao exige aprendizado aprovado e embedding valido', () => {

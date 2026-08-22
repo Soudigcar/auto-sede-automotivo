@@ -112,8 +112,11 @@ export async function POST(request: Request) {
     if (action === 'approve-scenario') {
       const scenarioId = cleanText(body?.scenario_id, 100);
       if (!scenarioId) return NextResponse.json({ error: 'Aprendizado obrigatório.' }, { status: 400 });
-      await prepareTrainingScenarioForApproval(scenarioId, context.profile.id);
-      const scenario = await approveTrainingScenario(autocar, scenarioId, context.profile.id);
+      const preparation = await prepareTrainingScenarioForApproval(scenarioId, context.profile.id);
+      const scenario = await approveTrainingScenario(autocar, scenarioId, context.profile.id, {
+        expectedVersion: preparation.version,
+        expectedUpdatedAt: preparation.updated_at
+      });
       return NextResponse.json(await runtimeResponse({ scenario, governance: 'approved_unpublished' }));
     }
 
