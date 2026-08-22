@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { authorizeStorePortal } from '@/lib/server/storePortal';
 import { cleanText } from '@/lib/server/storeTeam';
-import { getAutocarOperationalProfile, saveAutocarOperationalProfile } from '@/lib/server/autocar/operationalProfile';
+import {
+  getAutocarOperationalProfile,
+  saveAutocarOperationalProfile
+} from '@/lib/server/autocar/operationalProfile';
+import { getAutocarRuntimePublicStatus } from '@/lib/server/autocar/runtimeEnvironment';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,9 +14,18 @@ async function contextFor(request: Request, slug: string) {
   const context = await authorizeStorePortal(request, slug);
   if ('error' in context) return context;
   if (!context.permissions.includes('view_autocar')) {
-    return { error: NextResponse.json({ error: 'Usuário sem permissão para visualizar a AUTOCAR.' }, { status: 403 }) } as const;
+    return {
+      error: NextResponse.json(
+        { error: 'Usuário sem permissão para visualizar a AUTOCAR.' },
+        { status: 403 }
+      )
+    } as const;
   }
   return context;
+}
+
+function sourceFromSchema(schema: string) {
+  return schema === 'production_v2' ? 'crm-production' : 'autocar-dev';
 }
 
 export async function GET(request: Request) {
@@ -21,19 +34,38 @@ export async function GET(request: Request) {
     const slug = cleanText(url.searchParams.get('slug'), 120);
     const context = await contextFor(request, slug);
     if ('error' in context) return context.error;
-    const profile = await getAutocarOperationalProfile(context.store.id);
+
+    const [profile, runtimeStatus] = await Promise.all([
+      getAutocarOperationalProfile(context.store.id),
+      getAutocarRuntimePublicStatus()
+    ]);
+
     return NextResponse.json({
       success: true,
+      environment: runtimeStatus.runtime_environment,
+      profile_source: sourceFromSchema(runtimeStatus.schema),
+      runtime: runtimeStatus,
       profile,
       defaults: {
         timezone: 'America/Sao_Paulo',
         default_visit_duration_minutes: 60,
-        weekly_hours: { monday: [], tuesday: [], wednesday: [], thursday: [], friday: [], saturday: [], sunday: [] },
+        weekly_hours: {
+          monday: [],
+          tuesday: [],
+          wednesday: [],
+          thursday: [],
+          friday: [],
+          saturday: [],
+          sunday: []
+        },
         special_hours: []
       }
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Não foi possível carregar o Perfil Operacional.' }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || 'Não foi possível carregar o Perfil Operacional.' },
+      { status: 500 }
+    );
   }
 }
 
@@ -44,7 +76,10 @@ export async function POST(request: Request) {
     const context = await contextFor(request, slug);
     if ('error' in context) return context.error;
     if (!context.permissions.includes('manage_autocar') || !['store', 'master'].includes(context.role)) {
-      return NextResponse.json({ error: 'Somente Gestor da loja ou Master pode alterar o Perfil Operacional.' }, { status: 403 });
+      return NextResponse.json(
+        { error: 'Somente Gestor da loja ou Master pode alterar o Perfil Operacional.' },
+        { status: 403 }
+      );
     }
 
     const profile = await saveAutocarOperationalProfile({
@@ -52,9 +87,19 @@ export async function POST(request: Request) {
       profileId: context.profile.id,
       payload: body?.profile && typeof body.profile === 'object' ? body.profile : {}
     });
+    const runtimeStatus = await getAutocarRuntimePublicStatus();
 
-    return NextResponse.json({ success: true, profile });
+    return NextResponse.json({
+      success: true,
+      environment: runtimeStatus.runtime_environment,
+      profile_source: sourceFromSchema(runtimeStatus.schema),
+      runtime: runtimeStatus,
+      profile
+    });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Não foi possível salvar o Perfil Operacional.' }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || 'Não foi possível salvar o Perfil Operacional.' },
+      { status: 500 }
+    );
   }
 }

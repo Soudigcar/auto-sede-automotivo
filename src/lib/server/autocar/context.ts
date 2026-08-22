@@ -1,4 +1,5 @@
 import { cleanText } from '@/lib/server/storeTeam';
+import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 import type { AutocarMode } from '@/lib/server/autocar/types';
 
 export type AutocarExecutionContext = {
@@ -53,14 +54,15 @@ export async function resolveAutocarExecutionContext(input: ResolveAutocarContex
     if (!message) throw new Error('Mensagem de gatilho não pertence à conversa AUTOCAR.');
   }
 
-  const { data: agent, error: agentError } = await input.supabase
+  const autocar = getAutocarDevClient();
+  const { data: agent, error: agentError } = await autocar
     .from('ai_store_agents')
-    .select('id,store_id,mode,status')
+    .select('id,store_id,mode,status,master_enabled,master_autopilot_allowed,store_selected_mode')
     .eq('store_id', conversation.store_id)
     .maybeSingle();
   if (agentError) throw agentError;
 
-  const activeAgent = agent?.status === 'active' ? agent : null;
+  const activeAgent = agent?.status === 'active' && agent?.master_enabled === true ? agent : null;
   const mode: AutocarMode = activeAgent?.mode === 'copilot' || activeAgent?.mode === 'autopilot'
     ? activeAgent.mode
     : 'off';

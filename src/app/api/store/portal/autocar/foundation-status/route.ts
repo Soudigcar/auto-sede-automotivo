@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { authorizeStorePortal } from '@/lib/server/storePortal';
 import { autocarModelName, autocarOpenAiConfigured } from '@/lib/server/autocar/client';
 import { evaluateAutocarPolicy } from '@/lib/server/autocar/policyEngine';
+import {
+  getAutocarRuntimePublicStatus,
+  type AutocarRuntimePublicStatus
+} from '@/lib/server/autocar/runtimeEnvironment';
 import { autocarReadTools } from '@/lib/server/autocar/tools';
 import { cleanText } from '@/lib/server/storeTeam';
 import {
@@ -21,7 +25,8 @@ function validMode(value: unknown): value is AutocarStoreMode {
 async function agentForStore(context: any) {
   const autocar = getAutocarDevClient();
   await ensureAutocarDevStore(autocar, context.store);
-  const { data, error } = await autocar.from('ai_store_agents')
+  const { data, error } = await autocar
+    .from('ai_store_agents')
     .select('id,store_id,status,mode,master_enabled,master_autopilot_allowed,store_selected_mode,updated_at')
     .eq('store_id', context.store.id)
     .maybeSingle();
@@ -29,18 +34,26 @@ async function agentForStore(context: any) {
   return data;
 }
 
-function payload(context: any, agent: any) {
+function payload(context: any, agent: any, runtimeStatus: AutocarRuntimePublicStatus) {
   return {
     success: true,
-    phase: 'foundation_v1',
+    phase: runtimeStatus.schema === 'production_v2' ? 'production_v2' : 'foundation_v1',
+    environment: runtimeStatus.runtime_environment,
+    vercel_environment: runtimeStatus.vercel_environment,
+    runtime: runtimeStatus,
     execution_mode: agent?.mode || 'off',
     store_selected_mode: agent?.store_selected_mode || 'off',
     master_enabled: Boolean(agent?.master_enabled),
     master_autopilot_allowed: Boolean(agent?.master_autopilot_allowed),
-    autopilot_preview_only: true,
-    database_state: 'autocar-dev-isolated',
-    automatic_replies_enabled: false,
-    webhook_hooked: false,
+    autopilot_preview_only: runtimeStatus.autopilot_preview_only,
+    database_state: runtimeStatus.database_state,
+    schema: runtimeStatus.schema,
+    schema_version: runtimeStatus.schema_version,
+    live_enabled: runtimeStatus.live_enabled,
+    automatic_replies_enabled: runtimeStatus.automatic_replies_enabled,
+    automatic_replies_reason: runtimeStatus.automatic_replies_reason,
+    webhook_hooked: runtimeStatus.webhook_hooked,
+    webhook_status: runtimeStatus.webhook_status,
     openai: {
       configured: autocarOpenAiConfigured(),
       model_route: autocarModelName()
@@ -76,12 +89,23 @@ export async function GET(request: Request) {
     const context = await authorizeStorePortal(request, slug);
     if ('error' in context) return context.error;
     if (!context.permissions.includes('view_autocar')) {
-      return NextResponse.json({ error: 'Usuário sem permissão para visualizar a I.A AUTOCAR.' }, { status: 403 });
+      return NextResponse.json(
+        { error: 'Usuário sem permissão para visualizar a I.A AUTOCAR.' },
+        { status: 403 }
+      );
     }
-    const agent = await agentForStore(context);
-    return NextResponse.json(payload(context, agent));
+
+    const [agent, runtimeStatus] = await Promise.all([
+      agentForStore(context),
+      getAutocarRuntimePublicStatus()
+    ]);
+
+    return NextResponse.json(payload(context, agent, runtimeStatus));
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Não foi possível validar a fundação da I.A AUTOCAR.' }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || 'Não foi possível validar a fundação da I.A AUTOCAR.' },
+      { status: 500 }
+    );
   }
 }
 
@@ -92,16 +116,29 @@ export async function POST(request: Request) {
     const context = await authorizeStorePortal(request, slug);
     if ('error' in context) return context.error;
     if (!context.permissions.includes('manage_autocar')) {
-      return NextResponse.json({ error: 'Somente o gestor da loja pode alterar o modo da AUTOCAR.' }, { status: 403 });
+      return NextResponse.json(
+        { error: 'Somente o gestor da loja pode alterar o modo da AUTOCAR.' },
+        { status: 403 }
+      );
     }
 
     const mode = body?.mode;
-    if (!validMode(mode)) return NextResponse.json({ error: 'Modo AUTOCAR inválido.' }, { status: 400 });
+    if (!validMode(mode)) {
+      return NextResponse.json({ error: 'Modo AUTOCAR inválido.' }, { status: 400 });
+    }
 
     const autocar = getAutocarDevClient();
     const agent = await setAutocarStoreSelectedMode(autocar, context.store, mode);
-    return NextResponse.json({ ...payload(context, agent), message: `Modo ${String(agent.mode || 'off').toUpperCase()} salvo no Preview.` });
+    const runtimeStatus = await getAutocarRuntimePublicStatus();
+
+    return NextResponse.json({
+      ...payload(context, agent, runtimeStatus),
+      message: `Modo ${String(agent.mode || 'off').toUpperCase()} salvo em ${runtimeStatus.runtime_environment}.`
+    });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Não foi possível alterar o modo da AUTOCAR.' }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || 'Não foi possível alterar o modo da AUTOCAR.' },
+      { status: 500 }
+    );
   }
 }

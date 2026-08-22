@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createClient } from '@supabase/supabase-js';
 import { autocarModelName } from '@/lib/server/autocar/client';
+import {
+  getAutocarRuntimeClient,
+  resolveAutocarRuntimeTarget
+} from '@/lib/server/autocar/runtimeEnvironment';
 
 const KNOWLEDGE_BUCKET = 'autocar-knowledge';
 export const AUTOCAR_KNOWLEDGE_MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -51,14 +54,14 @@ function requiredOpenAiKey() {
 }
 
 function createKnowledgeAdminClient() {
-  const url = String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_URL || '').trim();
-  const serviceRoleKey = String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  if (!url || !serviceRoleKey) {
-    throw new Error('AUTOCAR_KNOWLEDGE_SUPABASE não configurado para este ambiente.');
+  return getAutocarRuntimeClient();
+}
+
+function assertKnowledgeWriteAllowed() {
+  const target = resolveAutocarRuntimeTarget();
+  if (target.schema === 'production_v2') {
+    throw new Error('Biblioteca AUTOCAR Production está em leitura segura durante o cutover. Publicação/edição exige o fluxo Draft → Teste → Aprovação → Publicação.');
   }
-  return createClient(url, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
 }
 
 function safeName(value: string) {
@@ -264,13 +267,16 @@ async function persistAndIndexAutocarKnowledge(input: {
 }
 
 export function autocarKnowledgeConfigured() {
-  return Boolean(
-    String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_URL || '').trim()
-    && String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY || '').trim()
-  );
+  try {
+    resolveAutocarRuntimeTarget();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function prepareAutocarKnowledgeUpload(input: DirectUploadPreparationInput) {
+  assertKnowledgeWriteAllowed();
   const supabase: any = createKnowledgeAdminClient();
   validateScope(input.scope, input.storeId);
   const mimeType = validateFileDescriptor(input.fileName, input.mimeType, input.fileSizeBytes);
@@ -289,6 +295,7 @@ export async function prepareAutocarKnowledgeUpload(input: DirectUploadPreparati
 }
 
 export async function finalizeAutocarKnowledgeUpload(input: FinalizeStoredUploadInput) {
+  assertKnowledgeWriteAllowed();
   const supabase: any = createKnowledgeAdminClient();
   validateScope(input.scope, input.storeId);
   const mimeType = validateFileDescriptor(input.originalFilename, input.mimeType, input.fileSizeBytes);
@@ -325,6 +332,7 @@ export async function finalizeAutocarKnowledgeUpload(input: FinalizeStoredUpload
 }
 
 export async function uploadAndIndexAutocarKnowledge(input: UploadInput) {
+  assertKnowledgeWriteAllowed();
   const supabase: any = createKnowledgeAdminClient();
   const file = input.file;
   validateScope(input.scope, input.storeId);
@@ -365,6 +373,7 @@ export async function listAutocarKnowledge(storeId: string) {
 }
 
 export async function archiveAutocarKnowledge(documentId: string, storeId: string, isMaster: boolean) {
+  assertKnowledgeWriteAllowed();
   const supabase: any = createKnowledgeAdminClient();
   const { data: document, error } = await supabase.from('ai_knowledge_documents').select('id,scope,store_id').eq('id', documentId).maybeSingle();
   if (error) throw error;

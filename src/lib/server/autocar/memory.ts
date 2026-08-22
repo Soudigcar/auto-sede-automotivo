@@ -1,10 +1,14 @@
+import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
+import { currentAutocarExternalReferenceColumns } from '@/lib/server/autocar/runtimeEnvironment';
 import type { AutocarExecutionContext } from '@/lib/server/autocar/context';
 
-export async function loadAutocarMemory(supabase: any, context: AutocarExecutionContext) {
-  const { data, error } = await supabase.from('ai_conversation_memory')
+export async function loadAutocarMemory(_productionSupabase: any, context: AutocarExecutionContext) {
+  const autocar = getAutocarDevClient();
+  const columns = currentAutocarExternalReferenceColumns();
+  const { data, error } = await autocar.from('ai_conversation_memory')
     .select('rolling_summary,communication_preference,temperature,qualification_score,score_breakdown,active_objections,open_questions,next_best_action,human_state,memory_version,updated_at')
     .eq('store_id', context.storeId)
-    .eq('conversation_id', context.conversationId)
+    .eq(columns.memory.conversationId, context.conversationId)
     .maybeSingle();
   if (error) throw error;
   return data || null;

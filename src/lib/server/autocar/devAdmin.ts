@@ -1,21 +1,30 @@
-import { createClient } from '@supabase/supabase-js';
+import {
+  createAutocarRuntimeClient,
+  resolveAutocarRuntimeTarget
+} from '@/lib/server/autocar/runtimeEnvironment';
 import { decorateAutocarDevClientWithShadowMirror } from '@/lib/server/autocar/shadowMirror';
 
 export type AutocarStoreMode = 'off' | 'copilot' | 'autopilot';
 
+/**
+ * Legacy name intentionally preserved during the controlled cutover.
+ *
+ * - Preview/development -> autocar-dev
+ * - Vercel Production pre-cutover -> autocar-dev + Shadow Mirror
+ * - Vercel Production after the future code-controlled cutover -> AUTOCAR Production
+ *
+ * There is no silent Production -> DEV fallback: pre-cutover DEV is an explicit
+ * transition mode selected by code and validated against the exact DEV ref.
+ */
 export function getAutocarDevClient() {
-  const url = String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_URL || '').trim();
-  const serviceRoleKey = String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  const target = resolveAutocarRuntimeTarget();
+  const client = createAutocarRuntimeClient(target);
 
-  if (!url || !serviceRoleKey) {
-    throw new Error('Ambiente isolado da AUTOCAR não está configurado neste Preview.');
+  if (target.schema === 'dev_v1') {
+    return decorateAutocarDevClientWithShadowMirror(client);
   }
 
-  const client = createClient(url, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
-
-  return decorateAutocarDevClientWithShadowMirror(client);
+  return client;
 }
 
 export async function ensureAutocarDevStore(
@@ -24,6 +33,21 @@ export async function ensureAutocarDevStore(
 ) {
   const slug = String(store.slug || '').trim() || `autocar-${store.id.slice(0, 8)}`;
   const status = String(store.status || 'active').trim() || 'active';
+  const target = resolveAutocarRuntimeTarget();
+
+  if (target.schema === 'production_v2') {
+    const { error } = await supabase.from('ai_store_refs').upsert({
+      store_id: store.id,
+      store_name: store.store_name,
+      store_slug: slug,
+      crm_status: status,
+      portal_enabled: Boolean(store.portal_enabled ?? true),
+      synced_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'store_id' });
+    if (error) throw error;
+    return;
+  }
 
   const { error } = await supabase.from('stores').upsert({
     id: store.id,
