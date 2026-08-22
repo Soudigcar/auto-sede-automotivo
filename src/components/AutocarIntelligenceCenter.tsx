@@ -15,7 +15,6 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
-  Store,
   Target,
   UsersRound
 } from 'lucide-react';
@@ -45,7 +44,6 @@ type StoreConfig = {
   avoidedWords: string;
   faq: string;
   commercialNotes: string;
-  autonomyMode: 'off' | 'copilot' | 'autopilot';
 };
 
 const initialConfig: StoreConfig = {
@@ -70,8 +68,7 @@ const initialConfig: StoreConfig = {
   preferredWords: '',
   avoidedWords: '',
   faq: '',
-  commercialNotes: '',
-  autonomyMode: 'copilot'
+  commercialNotes: ''
 };
 
 const methodStages = [
@@ -86,13 +83,13 @@ const methodStages = [
 ];
 
 const navItems: Array<{ key: SectionKey; label: string; icon: React.ReactNode; helper: string }> = [
-  { key: 'metodo', label: 'Método Venda Mais', icon: <BrainCircuit size={18} />, helper: 'Cérebro comercial oficial' },
-  { key: 'loja', label: 'Minha Loja', icon: <Building2 size={18} />, helper: 'Informações exclusivas' },
-  { key: 'regras', label: 'Regras Comerciais', icon: <SlidersHorizontal size={18} />, helper: 'Negociação e limites' },
-  { key: 'tom', label: 'Tom de Atendimento', icon: <MessageCircleMore size={18} />, helper: 'Como a IA conversa' },
-  { key: 'conhecimento', label: 'Conhecimento', icon: <ClipboardCheck size={18} />, helper: 'FAQ e diferenciais' },
-  { key: 'autonomia', label: 'Autonomia', icon: <Gauge size={18} />, helper: 'OFF, Copilot ou automático' },
-  { key: 'teste', label: 'Treinar e Testar', icon: <FlaskConical size={18} />, helper: 'Simular antes de ativar' }
+  { key: 'metodo', label: 'Método Venda Mais', icon: <BrainCircuit size={18} />, helper: 'MASTER · protegido' },
+  { key: 'loja', label: 'Minha Loja', icon: <Building2 size={18} />, helper: 'LOJA · contexto local' },
+  { key: 'regras', label: 'Regras Comerciais', icon: <SlidersHorizontal size={18} />, helper: 'MASTER + LOJA' },
+  { key: 'tom', label: 'Tom de Atendimento', icon: <MessageCircleMore size={18} />, helper: 'LOJA · comunicação' },
+  { key: 'conhecimento', label: 'Conhecimento', icon: <ClipboardCheck size={18} />, helper: 'LOJA · conteúdo local' },
+  { key: 'autonomia', label: 'Autonomia', icon: <Gauge size={18} />, helper: 'CONTROLE REAL separado' },
+  { key: 'teste', label: 'Treinar e Testar', icon: <FlaskConical size={18} />, helper: 'SISTEMA · sandbox' }
 ];
 
 export function AutocarIntelligenceCenter({ storeName, slug, canManage }: { storeName: string; slug: string; canManage: boolean }) {
@@ -117,11 +114,11 @@ export function AutocarIntelligenceCenter({ storeName, slug, canManage }: { stor
 
   function saveDraft() {
     if (!canManage) {
-      setMessage('Seu perfil pode visualizar a AUTOCAR, mas não alterar a configuração da loja.');
+      setMessage('Seu perfil pode visualizar a AUTOCAR, mas não alterar este rascunho local.');
       return;
     }
     window.localStorage.setItem(storageKey, JSON.stringify(config));
-    setMessage('Rascunho salvo neste navegador. A persistência definitiva será liberada quando o banco AUTOCAR for ativado.');
+    setMessage('Rascunho salvo somente neste navegador. Não altera AUTOCAR Production, CRM Production nem atendimento LIVE.');
   }
 
   return (
@@ -131,11 +128,11 @@ export function AutocarIntelligenceCenter({ storeName, slug, canManage }: { stor
           <div>
             <div className="flex items-center gap-2 text-red-400"><Sparkles size={17} /><span className="text-[10px] font-black uppercase tracking-[0.18em]">Central de Inteligência AUTOCAR</span></div>
             <h2 className="mt-2 text-2xl font-black md:text-3xl">Venda Mais + inteligência da {storeName}</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-300">A AUTOCAR combina o método comercial oficial com regras, conhecimento e contexto exclusivos desta loja. O Método Venda Mais é protegido; a loja configura somente sua operação.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-300">Cada área agora identifica quem é o dono da informação e se o conteúdo é apenas rascunho ou controle operacional real.</p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3">
             <p className="text-[9px] font-black uppercase tracking-[0.16em] text-zinc-400">Camadas da decisão</p>
-            <p className="mt-1 text-xs font-bold text-white">Segurança → Venda Mais → Loja → Lead → Conversa → Próxima ação</p>
+            <p className="mt-1 text-xs font-bold text-white">SAFE CORE → Master → Loja → CRM/Estoque/Agenda → Lead → Conversa → Ação</p>
           </div>
         </div>
       </div>
@@ -162,13 +159,13 @@ export function AutocarIntelligenceCenter({ storeName, slug, canManage }: { stor
           {section === 'regras' ? <RulesSection config={config} update={update} /> : null}
           {section === 'tom' ? <ToneSection config={config} update={update} /> : null}
           {section === 'conhecimento' ? <KnowledgeSection config={config} update={update} /> : null}
-          {section === 'autonomia' ? <AutonomySection config={config} update={update} /> : null}
+          {section === 'autonomia' ? <AutonomySection /> : null}
           {section === 'teste' ? <TestSection testMessage={testMessage} setTestMessage={setTestMessage} /> : null}
 
-          {section !== 'metodo' && section !== 'teste' ? (
+          {!['metodo', 'autonomia', 'teste'].includes(section) ? (
             <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 md:flex-row md:items-center md:justify-between">
-              <div><p className="text-xs font-black text-amber-900">Preview de configuração</p><p className="mt-1 text-xs leading-5 text-amber-800">Nesta etapa, o botão salva apenas um rascunho local neste navegador. Nenhuma informação é gravada no Supabase Production.</p></div>
-              <button type="button" onClick={saveDraft} disabled={!canManage} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-zinc-950 px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"><Save size={15} /> Salvar rascunho</button>
+              <div><p className="text-xs font-black text-amber-900">RASCUNHO LOCAL · NÃO LIVE</p><p className="mt-1 text-xs leading-5 text-amber-800">Estes campos ainda não são a fonte canônica da AUTOCAR. Salvar guarda somente neste navegador e não grava no CRM Production nem na AUTOCAR Production.</p></div>
+              <button type="button" onClick={saveDraft} disabled={!canManage} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-zinc-950 px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"><Save size={15} /> Salvar rascunho local</button>
             </div>
           ) : null}
 
@@ -182,48 +179,62 @@ export function AutocarIntelligenceCenter({ storeName, slug, canManage }: { stor
 function MethodSection() {
   return (
     <div>
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div><p className="premium-eyebrow">Método oficial</p><h3 className="mt-2 text-2xl font-black text-zinc-950">Venda Mais</h3><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">Esta camada será administrada pelo AUTO CONTROLE e herdada por todas as lojas. A loja pode adaptar seu contexto, mas não substituir as etapas essenciais do método.</p></div>
+      <SectionIdentity owner="MASTER" source="AUTOCAR · Método publicado" state="PROTEGIDO" />
+      <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div><p className="premium-eyebrow">Método oficial</p><h3 className="mt-2 text-2xl font-black text-zinc-950">Venda Mais</h3><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">Esta camada é administrada pelo AUTO CONTROLE e herdada por todas as lojas. A loja pode adicionar seu contexto, mas não substituir regras globais de segurança ou o método publicado.</p></div>
         <span className="inline-flex items-center gap-1.5 self-start rounded-full bg-emerald-50 px-3 py-1.5 text-[10px] font-black uppercase text-emerald-700"><ShieldCheck size={13} /> Protegido</span>
       </div>
       <div className="mt-5 grid gap-3 md:grid-cols-2">
         {methodStages.map(([title, text]) => <div key={title} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="flex items-center gap-2"><Target size={16} className="text-red-600" /><strong className="text-sm font-black text-zinc-900">{title}</strong></div><p className="mt-2 text-xs leading-5 text-zinc-600">{text}</p></div>)}
       </div>
-      <div className="mt-5 rounded-2xl border border-red-100 bg-red-50/60 p-4"><p className="text-xs font-black text-red-700">Próxima camada</p><p className="mt-1 text-xs leading-5 text-zinc-700">Quando você nos passar o conteúdo completo do seu Método Venda Mais, cada etapa poderá ter objetivos, perguntas obrigatórias, sinais de avanço, objeções, exemplos de resposta e critérios de handoff.</p></div>
     </div>
   );
 }
 
 function StoreSection({ config, update }: SectionProps) {
-  return <SectionShell eyebrow="Contexto exclusivo" title="Minha Loja" description="Informações que a AUTOCAR precisa saber para representar esta loja sem inventar dados."><Field label="Endereço completo" value={config.address} onChange={(v) => update('address', v)} /><Field label="Cidade / região de atendimento" value={config.city} onChange={(v) => update('city', v)} /><Field label="Horário comercial" value={config.businessHours} onChange={(v) => update('businessHours', v)} /><Field label="Telefone comercial" value={config.commercialPhone} onChange={(v) => update('commercialPhone', v)} /><TextArea label="Bancos / financeiras com que trabalha" value={config.financePartners} onChange={(v) => update('financePartners', v)} /><TextArea label="Formas de pagamento aceitas" value={config.paymentMethods} onChange={(v) => update('paymentMethods', v)} /><TextArea label="Política de veículo na troca" value={config.tradeInPolicy} onChange={(v) => update('tradeInPolicy', v)} /><TextArea label="Política de reserva" value={config.reservationPolicy} onChange={(v) => update('reservationPolicy', v)} /><TextArea label="Garantia" value={config.warrantyPolicy} onChange={(v) => update('warrantyPolicy', v)} /><TextArea label="Entrega do veículo" value={config.deliveryPolicy} onChange={(v) => update('deliveryPolicy', v)} /><TextArea label="Test-drive" value={config.testDrivePolicy} onChange={(v) => update('testDrivePolicy', v)} /><TextArea label="Documentos normalmente solicitados" value={config.documentation} onChange={(v) => update('documentation', v)} /></SectionShell>;
+  return <SectionShell owner="LOJA" source="Rascunho local; CRM será a fonte canônica dos dados operacionais" eyebrow="Contexto exclusivo" title="Minha Loja" description="Os dados cadastrais e operacionais que já existem no CRM não devem ser duplicados. Nesta tela, os campos continuam somente como rascunho até a próxima etapa de integração canônica."><Field label="Endereço completo" value={config.address} onChange={(v) => update('address', v)} /><Field label="Cidade / região de atendimento" value={config.city} onChange={(v) => update('city', v)} /><Field label="Horário comercial" value={config.businessHours} onChange={(v) => update('businessHours', v)} /><Field label="Telefone comercial" value={config.commercialPhone} onChange={(v) => update('commercialPhone', v)} /><TextArea label="Bancos / financeiras com que trabalha" value={config.financePartners} onChange={(v) => update('financePartners', v)} /><TextArea label="Formas de pagamento aceitas" value={config.paymentMethods} onChange={(v) => update('paymentMethods', v)} /><TextArea label="Política de veículo na troca" value={config.tradeInPolicy} onChange={(v) => update('tradeInPolicy', v)} /><TextArea label="Política de reserva" value={config.reservationPolicy} onChange={(v) => update('reservationPolicy', v)} /><TextArea label="Garantia" value={config.warrantyPolicy} onChange={(v) => update('warrantyPolicy', v)} /><TextArea label="Entrega do veículo" value={config.deliveryPolicy} onChange={(v) => update('deliveryPolicy', v)} /><TextArea label="Test-drive" value={config.testDrivePolicy} onChange={(v) => update('testDrivePolicy', v)} /><TextArea label="Documentos normalmente solicitados" value={config.documentation} onChange={(v) => update('documentation', v)} /></SectionShell>;
 }
 
 function RulesSection({ config, update }: SectionProps) {
-  return <SectionShell eyebrow="Operação comercial" title="Regras Comerciais" description="A loja reduz a autonomia da IA e define quando ela deve pedir ajuda. As regras globais de segurança continuam acima destas configurações."><TextArea label="Política de desconto" value={config.discountPolicy} onChange={(v) => update('discountPolicy', v)} placeholder="Ex.: a IA nunca oferece desconto espontaneamente; qualquer desconto precisa de aprovação do gestor." /><TextArea label="Limite de negociação" value={config.negotiationLimit} onChange={(v) => update('negotiationLimit', v)} placeholder="Ex.: pode explicar preço e benefícios, mas não pode alterar valor ou prometer condição final." /><TextArea label="Quando transferir para um humano" value={config.humanHandoffRules} onChange={(v) => update('humanHandoffRules', v)} placeholder="Ex.: intenção clara de compra, contraproposta, reclamação, condição excepcional..." /><TextArea label="Cadência de follow-up" value={config.followUpRules} onChange={(v) => update('followUpRules', v)} placeholder="Ex.: 2h, 24h, 3 dias, sempre com contexto e valor novo." /></SectionShell>;
+  return <SectionShell owner="MASTER + LOJA" source="Rascunho local; SAFE CORE permanece acima" eyebrow="Operação comercial" title="Regras Comerciais" description="A loja poderá definir regras locais somente dentro dos limites publicados pelo Master e pelo SAFE CORE. Nesta etapa estes campos ainda não governam o runtime LIVE."><TextArea label="Política de desconto" value={config.discountPolicy} onChange={(v) => update('discountPolicy', v)} placeholder="Ex.: a IA nunca oferece desconto espontaneamente; qualquer desconto precisa de aprovação do gestor." /><TextArea label="Limite de negociação" value={config.negotiationLimit} onChange={(v) => update('negotiationLimit', v)} placeholder="Ex.: pode explicar preço e benefícios, mas não pode alterar valor ou prometer condição final." /><TextArea label="Quando transferir para um humano" value={config.humanHandoffRules} onChange={(v) => update('humanHandoffRules', v)} placeholder="Ex.: reclamação, pedido explícito de humano ou condição excepcional." /><TextArea label="Cadência de follow-up" value={config.followUpRules} onChange={(v) => update('followUpRules', v)} placeholder="Ex.: 2h, 24h, 3 dias, sempre com contexto e valor novo." /></SectionShell>;
 }
 
 function ToneSection({ config, update }: SectionProps) {
-  return <SectionShell eyebrow="Personalidade da loja" title="Tom de Atendimento" description="Define a forma de falar sem alterar o raciocínio comercial do Venda Mais."><TextArea label="Estilo de comunicação" value={config.tone} onChange={(v) => update('tone', v)} /><TextArea label="Palavras / expressões preferidas" value={config.preferredWords} onChange={(v) => update('preferredWords', v)} /><TextArea label="Palavras / expressões que deve evitar" value={config.avoidedWords} onChange={(v) => update('avoidedWords', v)} /></SectionShell>;
+  return <SectionShell owner="LOJA" source="Rascunho local" eyebrow="Personalidade da loja" title="Tom de Atendimento" description="Define a forma de falar sem alterar o raciocínio comercial do Venda Mais ou as políticas do Master."><TextArea label="Estilo de comunicação" value={config.tone} onChange={(v) => update('tone', v)} /><TextArea label="Palavras / expressões preferidas" value={config.preferredWords} onChange={(v) => update('preferredWords', v)} /><TextArea label="Palavras / expressões que deve evitar" value={config.avoidedWords} onChange={(v) => update('avoidedWords', v)} /></SectionShell>;
 }
 
 function KnowledgeSection({ config, update }: SectionProps) {
-  return <SectionShell eyebrow="Conhecimento local" title="Conhecimento da Loja" description="Conteúdo que ajuda a IA a responder dúvidas recorrentes e explicar por que comprar nesta loja."><TextArea label="Diferenciais da loja" value={config.differentiators} onChange={(v) => update('differentiators', v)} placeholder="Ex.: procedência, revisão, pós-venda, localização, tradição..." /><TextArea label="Perguntas frequentes e respostas" value={config.faq} onChange={(v) => update('faq', v)} placeholder="Ex.: aceita troca? faz financiamento? entrega em outra cidade?" /><TextArea label="Observações comerciais adicionais" value={config.commercialNotes} onChange={(v) => update('commercialNotes', v)} /></SectionShell>;
+  return <SectionShell owner="LOJA" source="Rascunho local; Biblioteca publicada será a fonte canônica" eyebrow="Conhecimento local" title="Conhecimento da Loja" description="Conteúdo exclusivo desta loja. O runtime deve consumir apenas conhecimento publicado e isolado por store_id."><TextArea label="Diferenciais da loja" value={config.differentiators} onChange={(v) => update('differentiators', v)} placeholder="Ex.: procedência, revisão, pós-venda, localização, tradição..." /><TextArea label="Perguntas frequentes e respostas" value={config.faq} onChange={(v) => update('faq', v)} placeholder="Ex.: aceita troca? faz financiamento? entrega em outra cidade?" /><TextArea label="Observações comerciais adicionais" value={config.commercialNotes} onChange={(v) => update('commercialNotes', v)} /></SectionShell>;
 }
 
-function AutonomySection({ config, update }: SectionProps) {
+function AutonomySection() {
   return (
-    <div><p className="premium-eyebrow">Controle operacional</p><h3 className="mt-2 text-2xl font-black text-zinc-950">Autonomia</h3><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">O modo define até onde a AUTOCAR pode agir. Nesta fase funcional do projeto, somente o Copilot está sendo usado no Inbox.</p><div className="mt-5 grid gap-3 md:grid-cols-3">{([['off','OFF','Apenas configuração. Não analisa nem sugere.'],['copilot','COPILOT','Analisa, qualifica e sugere para o vendedor revisar.'],['autopilot','PILOTO AUTOMÁTICO','Futuro: executa somente ações previamente autorizadas.']] as const).map(([value,label,text]) => <button type="button" key={value} onClick={() => update('autonomyMode', value)} className={`rounded-2xl border p-4 text-left ${config.autonomyMode === value ? 'border-red-300 bg-red-50' : 'border-zinc-200 bg-zinc-50'}`}><strong className="text-sm font-black text-zinc-900">{label}</strong><p className="mt-2 text-xs leading-5 text-zinc-600">{text}</p>{config.autonomyMode === value ? <span className="mt-3 inline-flex items-center gap-1 text-[10px] font-black uppercase text-red-600"><CheckCircle2 size={13} /> Selecionado</span> : null}</button>)}</div><div className="mt-5 grid gap-3 md:grid-cols-2"><SafetyItem icon={<BadgeDollarSign size={17} />} title="Desconto" text="Sempre sujeito a aprovação e às regras globais." /><SafetyItem icon={<UsersRound size={17} />} title="Handoff" text="Pode transferir para humano quando a conversa atingir gatilhos definidos." /></div></div>
+    <div>
+      <SectionIdentity owner="MASTER + LOJA" source="Controle operacional real separado" state="NÃO É RASCUNHO" />
+      <p className="premium-eyebrow mt-4">Controle operacional</p>
+      <h3 className="mt-2 text-2xl font-black text-zinc-950">Autonomia</h3>
+      <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">A seleção fictícia que existia nesta seção foi removida. OFF, COPILOT e AUTOPILOT só podem ser alterados no controle operacional real, que identifica claramente se está em Preview/DEV ou LIVE Production.</p>
+      <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4">
+        <p className="text-xs font-black text-red-800">REGRA DE GOVERNANÇA</p>
+        <p className="mt-1 text-xs leading-5 text-red-700">Master libera a AUTOCAR e define se AUTOPILOT é permitido. A loja escolhe seu modo apenas dentro dessa autorização. SAFE CORE continua acima dos dois.</p>
+      </div>
+      <div className="mt-5 grid gap-3 md:grid-cols-2"><SafetyItem icon={<BadgeDollarSign size={17} />} title="Desconto" text="Permanece sujeito a policy e aprovação; esta tela não altera esse gate." /><SafetyItem icon={<UsersRound size={17} />} title="Handoff" text="Permanece controlado pelo SAFE CORE e pelas regras publicadas; este painel não muda o estado de conversas." /></div>
+    </div>
   );
 }
 
 function TestSection({ testMessage, setTestMessage }: { testMessage: string; setTestMessage: (value: string) => void }) {
-  return <div><p className="premium-eyebrow">Sandbox comercial</p><h3 className="mt-2 text-2xl font-black text-zinc-950">Treinar e Testar</h3><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">Antes de ativar qualquer comportamento automático, você poderá testar cenários usando Venda Mais + contexto desta loja + políticas. Nesta primeira versão visual, o simulador ainda não dispara a OpenAI.</p><textarea className="premium-input mt-5 min-h-32 resize-y" value={testMessage} onChange={(event) => setTestMessage(event.target.value)} /><button type="button" disabled className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl bg-zinc-300 px-5 text-xs font-black text-white"><FlaskConical size={16} /> Simular com AUTOCAR — próxima etapa</button><div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><p className="text-xs font-black text-zinc-900">O teste deverá mostrar</p><div className="mt-3 grid gap-2 md:grid-cols-2"><MiniPoint text="Etapa atual do Venda Mais" /><MiniPoint text="O que já sabemos do lead" /><MiniPoint text="O que ainda falta descobrir" /><MiniPoint text="Próxima melhor pergunta" /><MiniPoint text="Resposta sugerida" /><MiniPoint text="Regra/política que limitou a resposta" /></div></div></div>;
+  return <div><SectionIdentity owner="SISTEMA" source="Sandbox futuro" state="SEM EFEITO LIVE" /><p className="premium-eyebrow mt-4">Sandbox comercial</p><h3 className="mt-2 text-2xl font-black text-zinc-950">Treinar e Testar</h3><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">Esta área continua sem executar treinamento, publicação ou ações externas. O fluxo definitivo será Rascunho → Simulação → Revisão → Aprovação → Publicação.</p><textarea className="premium-input mt-5 min-h-32 resize-y" value={testMessage} onChange={(event) => setTestMessage(event.target.value)} /><button type="button" disabled className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl bg-zinc-300 px-5 text-xs font-black text-white"><FlaskConical size={16} /> Simular com AUTOCAR — próxima etapa</button><div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><p className="text-xs font-black text-zinc-900">O teste deverá mostrar</p><div className="mt-3 grid gap-2 md:grid-cols-2"><MiniPoint text="Etapa atual do Venda Mais" /><MiniPoint text="O que já sabemos do lead" /><MiniPoint text="O que ainda falta descobrir" /><MiniPoint text="Próxima melhor pergunta" /><MiniPoint text="Resposta sugerida" /><MiniPoint text="Regra/política que limitou a resposta" /></div></div></div>;
 }
 
 type SectionProps = { config: StoreConfig; update: <K extends keyof StoreConfig>(key: K, value: StoreConfig[K]) => void };
 
-function SectionShell({ eyebrow, title, description, children }: { eyebrow: string; title: string; description: string; children: React.ReactNode }) {
-  return <div><p className="premium-eyebrow">{eyebrow}</p><h3 className="mt-2 text-2xl font-black text-zinc-950">{title}</h3><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">{description}</p><div className="mt-5 grid gap-3 md:grid-cols-2">{children}</div></div>;
+function SectionIdentity({ owner, source, state = 'RASCUNHO LOCAL' }: { owner: string; source: string; state?: string }) {
+  return <div className="flex flex-wrap gap-2"><span className="rounded-full bg-zinc-950 px-3 py-1 text-[9px] font-black uppercase text-white">DONO · {owner}</span><span className="rounded-full bg-blue-50 px-3 py-1 text-[9px] font-black uppercase text-blue-700">FONTE · {source}</span><span className="rounded-full bg-amber-50 px-3 py-1 text-[9px] font-black uppercase text-amber-800">ESTADO · {state}</span></div>;
+}
+
+function SectionShell({ owner, source, eyebrow, title, description, children }: { owner: string; source: string; eyebrow: string; title: string; description: string; children: React.ReactNode }) {
+  return <div><SectionIdentity owner={owner} source={source} /><p className="premium-eyebrow mt-4">{eyebrow}</p><h3 className="mt-2 text-2xl font-black text-zinc-950">{title}</h3><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">{description}</p><div className="mt-5 grid gap-3 md:grid-cols-2">{children}</div></div>;
 }
 
 function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
