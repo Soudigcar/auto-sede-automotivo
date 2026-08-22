@@ -1,18 +1,30 @@
 import {
-  getAutocarRuntimeClient,
+  createAutocarRuntimeClient,
   resolveAutocarRuntimeTarget
 } from '@/lib/server/autocar/runtimeEnvironment';
+import { decorateAutocarDevClientWithShadowMirror } from '@/lib/server/autocar/shadowMirror';
 
 export type AutocarStoreMode = 'off' | 'copilot' | 'autopilot';
 
 /**
- * Kept under the legacy name to avoid a risky broad rename during the cutover.
- * The returned client is environment-aware:
+ * Legacy name intentionally preserved during the controlled cutover.
+ *
  * - Preview/development -> autocar-dev
- * - Production -> AUTOCAR Production only
+ * - Vercel Production pre-cutover -> autocar-dev + Shadow Mirror
+ * - Vercel Production after the future code-controlled cutover -> AUTOCAR Production
+ *
+ * There is no silent Production -> DEV fallback: pre-cutover DEV is an explicit
+ * transition mode selected by code and validated against the exact DEV ref.
  */
 export function getAutocarDevClient() {
-  return getAutocarRuntimeClient();
+  const target = resolveAutocarRuntimeTarget();
+  const client = createAutocarRuntimeClient(target);
+
+  if (target.schema === 'dev_v1') {
+    return decorateAutocarDevClientWithShadowMirror(client);
+  }
+
+  return client;
 }
 
 export async function ensureAutocarDevStore(

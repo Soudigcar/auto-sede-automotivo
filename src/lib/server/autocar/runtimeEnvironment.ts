@@ -4,12 +4,25 @@ export const AUTOCAR_DEV_REF = 'azszzdotbrczlhrmhrlw';
 export const AUTOCAR_PRODUCTION_REF = 'icmwdggbvijexjgrvsbl';
 export const AUTOCAR_PRODUCTION_SCHEMA_VERSION = 2;
 
+/**
+ * Deliberately code-controlled. While false, Vercel Production keeps the
+ * already validated autocar-dev runtime as its primary source and mirrors
+ * runtime writes to AUTOCAR Production. Enabling the final cutover requires a
+ * new code change and a separately authorized Production deployment.
+ */
+export const AUTOCAR_RUNTIME_CUTOVER_CODE_ENABLED = false;
+
 export type AutocarRuntimeSchema = 'dev_v1' | 'production_v2';
+export type AutocarRuntimeTransitionMode =
+  | 'development_dev'
+  | 'pre_cutover_dev_shadow'
+  | 'cutover_production';
 
 export type AutocarRuntimeTarget = {
   vercelEnvironment: string;
   projectRef: string;
   schema: AutocarRuntimeSchema;
+  transitionMode: AutocarRuntimeTransitionMode;
   url: string;
   serviceRoleKey: string;
 };
@@ -51,30 +64,61 @@ export function autocarProjectRefFromUrl(rawUrl: string) {
   }
 }
 
-function credentialsFromEnvironment(environment: NodeJS.ProcessEnv, production: boolean) {
-  if (production) {
-    return {
-      url: clean(environment.AUTOCAR_SUPABASE_URL),
-      serviceRoleKey: clean(environment.AUTOCAR_SUPABASE_SERVICE_ROLE_KEY)
-    };
-  }
+type AutocarRuntimeCredentials = {
+  url: string;
+  serviceRoleKey: string;
+};
 
+function devCredentialsFromEnvironment(environment: NodeJS.ProcessEnv): AutocarRuntimeCredentials {
+  const modern = {
+    url: clean(environment.AUTOCAR_DEV_SUPABASE_URL),
+    serviceRoleKey: clean(environment.AUTOCAR_DEV_SUPABASE_SERVICE_ROLE_KEY)
+  };
+  if (modern.url && modern.serviceRoleKey) return modern;
+
+  const legacy = {
+    url: clean(environment.AUTOCAR_KNOWLEDGE_SUPABASE_URL),
+    serviceRoleKey: clean(environment.AUTOCAR_KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY)
+  };
+  if (legacy.url && legacy.serviceRoleKey) return legacy;
+
+  return { url: '', serviceRoleKey: '' };
+}
+
+function productionCredentialsFromEnvironment(environment: NodeJS.ProcessEnv): AutocarRuntimeCredentials {
   return {
-    url: clean(environment.AUTOCAR_DEV_SUPABASE_URL) || clean(environment.AUTOCAR_KNOWLEDGE_SUPABASE_URL),
-    serviceRoleKey:
-      clean(environment.AUTOCAR_DEV_SUPABASE_SERVICE_ROLE_KEY)
-      || clean(environment.AUTOCAR_KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY)
+    url: clean(environment.AUTOCAR_SUPABASE_URL),
+    serviceRoleKey: clean(environment.AUTOCAR_SUPABASE_SERVICE_ROLE_KEY)
   };
 }
 
-export function resolveAutocarRuntimeTarget(environment: NodeJS.ProcessEnv = process.env): AutocarRuntimeTarget {
+/**
+ * Pure selector used by tests and by the code-controlled runtime resolver.
+ * It never falls back from a requested Production cutover to DEV. Conversely,
+ * pre-cutover Production intentionally selects DEV and requires the exact DEV
+ * project ref; that is an explicit transition mode, not a fallback.
+ */
+export function resolveAutocarRuntimeTargetForCutoverMode(
+  environment: NodeJS.ProcessEnv,
+  cutoverEnabled: boolean
+): AutocarRuntimeTarget {
   const vercelEnvironment = clean(environment.VERCEL_ENV) || 'development';
-  const production = vercelEnvironment === 'production';
-  const credentials = credentialsFromEnvironment(environment, production);
+  const productionDeployment = vercelEnvironment === 'production';
+  const productionCutover = productionDeployment && cutoverEnabled;
+  const credentials = productionCutover
+    ? productionCredentialsFromEnvironment(environment)
+    : devCredentialsFromEnvironment(environment);
 
   if (!credentials.url || !credentials.serviceRoleKey) {
-    if (production) {
-      throw new Error('AUTOCAR Production não configurada: AUTOCAR_SUPABASE_URL e AUTOCAR_SUPABASE_SERVICE_ROLE_KEY são obrigatórias em Vercel Production.');
+    if (productionCutover) {
+      throw new Error(
+        'AUTOCAR Production não configurada: AUTOCAR_SUPABASE_URL e AUTOCAR_SUPABASE_SERVICE_ROLE_KEY são obrigatórias para o cutover.'
+      );
+    }
+    if (productionDeployment) {
+      throw new Error(
+        'AUTOCAR DEV não configurada para o pré-cutover; não haverá fallback silencioso para AUTOCAR Production.'
+      );
     }
     throw new Error('AUTOCAR DEV não configurada para este ambiente.');
   }
@@ -82,33 +126,43 @@ export function resolveAutocarRuntimeTarget(environment: NodeJS.ProcessEnv = pro
   const projectRef = autocarProjectRefFromUrl(credentials.url);
   if (!projectRef) throw new Error('URL do Supabase AUTOCAR inválida.');
 
-  if (production) {
+  if (productionCutover) {
     if (projectRef === AUTOCAR_DEV_REF) {
-      throw new Error('SAFE CORE: Vercel Production não pode executar AUTOCAR apontando para autocar-dev.');
+      throw new Error('SAFE CORE: cutover Production não pode executar AUTOCAR apontando para autocar-dev.');
     }
     if (projectRef !== AUTOCAR_PRODUCTION_REF) {
-      throw new Error(`SAFE CORE: Vercel Production recebeu um projeto AUTOCAR não autorizado (${projectRef}).`);
+      throw new Error(`SAFE CORE: cutover Production recebeu um projeto AUTOCAR não autorizado (${projectRef}).`);
     }
     return {
       vercelEnvironment,
       projectRef,
       schema: 'production_v2',
+      transitionMode: 'cutover_production',
       url: credentials.url,
       serviceRoleKey: credentials.serviceRoleKey
     };
   }
 
   if (projectRef !== AUTOCAR_DEV_REF) {
-    throw new Error(`SAFE CORE: ${vercelEnvironment} deve usar exclusivamente autocar-dev (${AUTOCAR_DEV_REF}).`);
+    const phase = productionDeployment ? 'Production pré-cutover' : vercelEnvironment;
+    throw new Error(`SAFE CORE: ${phase} deve usar exclusivamente autocar-dev (${AUTOCAR_DEV_REF}).`);
   }
 
   return {
     vercelEnvironment,
     projectRef,
     schema: 'dev_v1',
+    transitionMode: productionDeployment ? 'pre_cutover_dev_shadow' : 'development_dev',
     url: credentials.url,
     serviceRoleKey: credentials.serviceRoleKey
   };
+}
+
+export function resolveAutocarRuntimeTarget(environment: NodeJS.ProcessEnv = process.env): AutocarRuntimeTarget {
+  return resolveAutocarRuntimeTargetForCutoverMode(
+    environment,
+    AUTOCAR_RUNTIME_CUTOVER_CODE_ENABLED
+  );
 }
 
 export type AutocarRuntimePublicDescriptor = {
@@ -117,6 +171,8 @@ export type AutocarRuntimePublicDescriptor = {
   database_state: 'autocar-dev-isolated' | 'autocar-production-v2';
   project_ref: string;
   schema: AutocarRuntimeSchema;
+  transition_mode: AutocarRuntimeTransitionMode;
+  cutover_code_enabled: boolean;
 };
 
 export function autocarRuntimePublicDescriptor(
@@ -130,15 +186,20 @@ export function autocarRuntimePublicDescriptor(
     runtime_environment: production ? 'autocar-production' : 'autocar-dev',
     database_state: production ? 'autocar-production-v2' : 'autocar-dev-isolated',
     project_ref: target.projectRef,
-    schema: target.schema
+    schema: target.schema,
+    transition_mode: target.transitionMode,
+    cutover_code_enabled: AUTOCAR_RUNTIME_CUTOVER_CODE_ENABLED
   };
 }
 
-export function getAutocarRuntimeClient(environment: NodeJS.ProcessEnv = process.env): SupabaseClient {
-  const target = resolveAutocarRuntimeTarget(environment);
+export function createAutocarRuntimeClient(target: AutocarRuntimeTarget): SupabaseClient {
   return createClient(target.url, target.serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false }
   });
+}
+
+export function getAutocarRuntimeClient(environment: NodeJS.ProcessEnv = process.env): SupabaseClient {
+  return createAutocarRuntimeClient(resolveAutocarRuntimeTarget(environment));
 }
 
 export function autocarExternalReferenceColumns(schema: AutocarRuntimeSchema): AutocarExternalReferenceColumns {
@@ -200,7 +261,63 @@ export type AutocarExternalExecutionGate = {
   environment: string;
   schema_version: number | null;
   live_enabled: boolean;
+  transition_mode: AutocarRuntimeTransitionMode;
 };
+
+export function evaluateAutocarProductionRuntimeConfig(
+  data: { environment?: unknown; schema_version?: unknown; live_enabled?: unknown },
+  target: AutocarRuntimeTarget
+): AutocarExternalExecutionGate {
+  const schemaVersion = Number(data?.schema_version || 0);
+  const liveEnabled = data?.live_enabled === true;
+  const databaseEnvironment = clean(data?.environment);
+
+  if (databaseEnvironment !== 'production') {
+    return {
+      allowed: false,
+      reason: 'SAFE CORE: banco AUTOCAR não se identifica como production.',
+      project_ref: target.projectRef,
+      environment: target.vercelEnvironment,
+      schema_version: schemaVersion || null,
+      live_enabled: liveEnabled,
+      transition_mode: target.transitionMode
+    };
+  }
+
+  if (schemaVersion !== AUTOCAR_PRODUCTION_SCHEMA_VERSION) {
+    return {
+      allowed: false,
+      reason: `SAFE CORE: schema AUTOCAR incompatível. Esperado ${AUTOCAR_PRODUCTION_SCHEMA_VERSION}, recebido ${schemaVersion || 'desconhecido'}.`,
+      project_ref: target.projectRef,
+      environment: target.vercelEnvironment,
+      schema_version: schemaVersion || null,
+      live_enabled: liveEnabled,
+      transition_mode: target.transitionMode
+    };
+  }
+
+  if (!liveEnabled) {
+    return {
+      allowed: false,
+      reason: 'AUTOCAR Production está em shadow/cutover seguro: live_enabled=false.',
+      project_ref: target.projectRef,
+      environment: target.vercelEnvironment,
+      schema_version: schemaVersion,
+      live_enabled: false,
+      transition_mode: target.transitionMode
+    };
+  }
+
+  return {
+    allowed: true,
+    reason: 'AUTOCAR Production validada para execução externa LIVE.',
+    project_ref: target.projectRef,
+    environment: target.vercelEnvironment,
+    schema_version: schemaVersion,
+    live_enabled: true,
+    transition_mode: target.transitionMode
+  };
+}
 
 export async function evaluateAutocarExternalExecutionGate(
   environment: NodeJS.ProcessEnv = process.env
@@ -214,7 +331,8 @@ export async function evaluateAutocarExternalExecutionGate(
       project_ref: null,
       environment: vercelEnvironment,
       schema_version: null,
-      live_enabled: false
+      live_enabled: false,
+      transition_mode: 'development_dev'
     };
   }
 
@@ -224,17 +342,40 @@ export async function evaluateAutocarExternalExecutionGate(
   } catch (error: any) {
     return {
       allowed: false,
-      reason: String(error?.message || error || 'Configuração AUTOCAR Production inválida.').slice(0, 500),
+      reason: String(error?.message || error || 'Configuração AUTOCAR inválida.').slice(0, 500),
       project_ref: null,
       environment: vercelEnvironment,
       schema_version: null,
-      live_enabled: false
+      live_enabled: false,
+      transition_mode: 'pre_cutover_dev_shadow'
     };
   }
 
-  const client = createClient(target.url, target.serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
+  if (target.transitionMode === 'pre_cutover_dev_shadow') {
+    return {
+      allowed: true,
+      reason: 'Pré-cutover controlado: Vercel Production preserva explicitamente o runtime atual em autocar-dev; AUTOCAR Production continua somente como Shadow Mirror.',
+      project_ref: target.projectRef,
+      environment: vercelEnvironment,
+      schema_version: null,
+      live_enabled: false,
+      transition_mode: target.transitionMode
+    };
+  }
+
+  if (target.transitionMode !== 'cutover_production') {
+    return {
+      allowed: false,
+      reason: 'SAFE CORE: modo de transição AUTOCAR inválido para execução externa em Production.',
+      project_ref: target.projectRef,
+      environment: vercelEnvironment,
+      schema_version: null,
+      live_enabled: false,
+      transition_mode: target.transitionMode
+    };
+  }
+
+  const client = createAutocarRuntimeClient(target);
 
   try {
     const { data, error } = await client
@@ -244,52 +385,7 @@ export async function evaluateAutocarExternalExecutionGate(
       .single();
 
     if (error) throw error;
-
-    const schemaVersion = Number(data?.schema_version || 0);
-    const liveEnabled = data?.live_enabled === true;
-    const databaseEnvironment = clean(data?.environment);
-
-    if (databaseEnvironment !== 'production') {
-      return {
-        allowed: false,
-        reason: 'SAFE CORE: banco AUTOCAR não se identifica como production.',
-        project_ref: target.projectRef,
-        environment: vercelEnvironment,
-        schema_version: schemaVersion || null,
-        live_enabled: liveEnabled
-      };
-    }
-
-    if (schemaVersion !== AUTOCAR_PRODUCTION_SCHEMA_VERSION) {
-      return {
-        allowed: false,
-        reason: `SAFE CORE: schema AUTOCAR incompatível. Esperado ${AUTOCAR_PRODUCTION_SCHEMA_VERSION}, recebido ${schemaVersion || 'desconhecido'}.`,
-        project_ref: target.projectRef,
-        environment: vercelEnvironment,
-        schema_version: schemaVersion || null,
-        live_enabled: liveEnabled
-      };
-    }
-
-    if (!liveEnabled) {
-      return {
-        allowed: false,
-        reason: 'AUTOCAR Production está em shadow/cutover seguro: live_enabled=false.',
-        project_ref: target.projectRef,
-        environment: vercelEnvironment,
-        schema_version: schemaVersion,
-        live_enabled: false
-      };
-    }
-
-    return {
-      allowed: true,
-      reason: 'AUTOCAR Production validada para execução externa LIVE.',
-      project_ref: target.projectRef,
-      environment: vercelEnvironment,
-      schema_version: schemaVersion,
-      live_enabled: true
-    };
+    return evaluateAutocarProductionRuntimeConfig(data || {}, target);
   } catch (error: any) {
     return {
       allowed: false,
@@ -297,7 +393,8 @@ export async function evaluateAutocarExternalExecutionGate(
       project_ref: target.projectRef,
       environment: vercelEnvironment,
       schema_version: null,
-      live_enabled: false
+      live_enabled: false,
+      transition_mode: target.transitionMode
     };
   }
 }

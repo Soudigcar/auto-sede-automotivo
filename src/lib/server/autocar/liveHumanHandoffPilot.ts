@@ -2,11 +2,69 @@ import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 import { evaluateAutocarPolicy } from '@/lib/server/autocar/policyEngine';
 import { sendEvolutionText } from '@/lib/server/evolution';
 
-const PILOT_STORE_ID = '239755c3-a2d4-4cdd-9502-f1595031c924';
-const PILOT_BRANCH = 'feat/autocar-human-handoff-v1';
+export const AUTOCAR_HUMAN_HANDOFF_PILOT_STORE_ID = '239755c3-a2d4-4cdd-9502-f1595031c924';
+export const AUTOCAR_HUMAN_HANDOFF_PREVIEW_BRANCH = 'fix/autocar-a4-production-handoff';
 const LIVE_PURPOSE = 'live_human_handoff';
-const LIVE_VERSION = 'autocar-human-handoff-v1';
+const LIVE_VERSION = 'autocar-human-handoff-v2-production-a4';
 const SAFE_ACK = 'Vou encaminhar seu atendimento para nossa equipe continuar com você por aqui.';
+
+type RuntimeSnapshot = {
+  effective_mode?: string | null;
+  human_state?: string | null;
+  pause_reason?: string | null;
+  paused_by_profile_id?: string | null;
+  paused_by_source?: string | null;
+  paused_at?: string | null;
+  resumed_at?: string | null;
+  production_whatsapp_number_id?: string | null;
+  last_inbound_message_id?: string | null;
+};
+
+export function evaluateAutocarHumanHandoffScope(input: {
+  storeId: string;
+  vercelEnv?: string | null;
+  gitRef?: string | null;
+}) {
+  if (input.storeId !== AUTOCAR_HUMAN_HANDOFF_PILOT_STORE_ID) {
+    return {
+      allowed: false,
+      reason: 'Human Handoff V2 está restrito à A4 Multimarcas nesta fase.'
+    };
+  }
+
+  const environment = String(input.vercelEnv || '').trim();
+  if (environment === 'production') {
+    return { allowed: true, reason: 'Human Handoff V2 liberado para A4 em Production.' };
+  }
+
+  if (environment === 'preview') {
+    const gitRef = String(input.gitRef || '').trim();
+    if (gitRef === AUTOCAR_HUMAN_HANDOFF_PREVIEW_BRANCH) {
+      return { allowed: true, reason: 'Human Handoff V2 liberado no Preview corretivo da A4.' };
+    }
+    return {
+      allowed: false,
+      reason: 'Human Handoff V2 Preview está restrito à branch corretiva autorizada.'
+    };
+  }
+
+  return {
+    allowed: false,
+    reason: 'Human Handoff V2 está bloqueado fora de Preview autorizado ou Production.'
+  };
+}
+
+export function buildAutocarHumanHandoffRollbackPatch(runtime: RuntimeSnapshot, restoredAt: string) {
+  return {
+    human_state: runtime.human_state || 'autocar_active',
+    pause_reason: runtime.pause_reason ?? null,
+    paused_by_profile_id: runtime.paused_by_profile_id ?? null,
+    paused_by_source: runtime.paused_by_source ?? null,
+    paused_at: runtime.paused_at ?? null,
+    resumed_at: runtime.resumed_at ?? null,
+    updated_at: restoredAt
+  };
+}
 
 function normalizePhone(value: unknown) {
   return String(value || '').split('@')[0].split(':')[0].replace(/\D/g, '');
@@ -28,16 +86,12 @@ function shadowFrom(result: any) {
 }
 
 function pilotScopeReason(storeId: string) {
-  if (String(process.env.VERCEL_ENV || '').trim() !== 'preview') {
-    return 'Human Handoff V1 está bloqueado fora do ambiente Preview.';
-  }
-  if (String(process.env.VERCEL_GIT_COMMIT_REF || '').trim() !== PILOT_BRANCH) {
-    return 'Human Handoff V1 está bloqueado fora da branch piloto autorizada.';
-  }
-  if (storeId !== PILOT_STORE_ID) {
-    return 'Human Handoff V1 está restrito à A4 Multimarcas nesta fase.';
-  }
-  return '';
+  const scope = evaluateAutocarHumanHandoffScope({
+    storeId,
+    vercelEnv: process.env.VERCEL_ENV,
+    gitRef: process.env.VERCEL_GIT_COMMIT_REF
+  });
+  return scope.allowed ? '' : scope.reason;
 }
 
 function transferAction(shadow: any) {
@@ -74,7 +128,7 @@ async function eligibility(storeId: string, conversationId: string) {
       .eq('store_id', storeId)
       .maybeSingle(),
     autocar.from('ai_runtime_conversations')
-      .select('effective_mode,human_state,pause_reason,production_whatsapp_number_id,last_inbound_message_id')
+      .select('effective_mode,human_state,pause_reason,paused_by_profile_id,paused_by_source,paused_at,resumed_at,production_whatsapp_number_id,last_inbound_message_id')
       .eq('store_id', storeId)
       .eq('production_conversation_id', conversationId)
       .maybeSingle()
@@ -99,7 +153,7 @@ async function eligibility(storeId: string, conversationId: string) {
     return { allowed: false, reason: `Policy transfer_lead não retornou handoff: ${policy.reason}`, runtime, policy };
   }
 
-  return { allowed: true, reason: 'Human Handoff V1 elegível no piloto A4 Preview.', runtime, policy };
+  return { allowed: true, reason: 'Human Handoff V2 elegível para A4.', runtime, policy };
 }
 
 export async function revalidateAutocarCanonicalInbound(input: {
@@ -184,7 +238,7 @@ async function createClaim(input: {
     status: 'ready',
     policy_capability: 'transfer_lead',
     policy_effect: 'handoff',
-    policy_source: 'human_handoff_v1_gate',
+    policy_source: 'human_handoff_v2_gate',
     policy_reason: input.handoffReason,
     result: {
       live_pilot_version: LIVE_VERSION,
@@ -192,6 +246,7 @@ async function createClaim(input: {
       source_capability: input.sourceCapability || null,
       planned_ack: SAFE_ACK,
       runtime_pause_execution: false,
+      runtime_restore_execution: false,
       external_execution: false
     },
     updated_at: now
@@ -233,6 +288,33 @@ async function updateClaim(claimId: string, patch: Record<string, unknown>) {
     .single();
   if (error) throw error;
   return data;
+}
+
+async function restoreRuntimeAfterFailedHandoff(input: {
+  autocar: any;
+  storeId: string;
+  conversationId: string;
+  whatsappNumberId: string;
+  inboundMessageId: string;
+  pauseStartedAt: string;
+  runtimeBeforePause: RuntimeSnapshot;
+}) {
+  const restoredAt = new Date().toISOString();
+  const patch = buildAutocarHumanHandoffRollbackPatch(input.runtimeBeforePause, restoredAt);
+  const { data, error } = await input.autocar.from('ai_runtime_conversations')
+    .update(patch)
+    .eq('store_id', input.storeId)
+    .eq('production_conversation_id', input.conversationId)
+    .eq('production_whatsapp_number_id', input.whatsappNumberId)
+    .eq('last_inbound_message_id', input.inboundMessageId)
+    .eq('effective_mode', 'autopilot')
+    .eq('human_state', 'human_active')
+    .eq('paused_by_source', 'autocar_handoff')
+    .eq('paused_at', input.pauseStartedAt)
+    .select('store_id,production_conversation_id,effective_mode,human_state,pause_reason,paused_by_source,paused_at,resumed_at')
+    .maybeSingle();
+  if (error) throw error;
+  return { restored: Boolean(data), runtime: data || null, restoredAt };
 }
 
 export async function attemptAutocarHumanHandoffPilot(input: {
@@ -296,6 +378,18 @@ export async function attemptAutocarHumanHandoffPilot(input: {
     return { handed_off: false, skipped: true, claim: skipped, reason: eligible.reason };
   }
 
+  if (input.integration?.scope !== 'store' || input.integration?.status !== 'connected' || !input.integration?.instance_name) {
+    const reason = 'Human Handoff exige integração Evolution da A4 conectada antes de pausar o runtime.';
+    const skipped = await updateClaim(claimResult.claim.id, {
+      status: 'skipped',
+      policy_effect: 'deny',
+      policy_reason: reason,
+      completed_at: new Date().toISOString(),
+      result: { runtime_pause_execution: false, runtime_restore_execution: false, external_execution: false }
+    });
+    return { handed_off: false, skipped: true, claim: skipped, reason };
+  }
+
   const canonicalInbound = await revalidateAutocarCanonicalInbound({
     productionSupabase: input.productionSupabase,
     storeId: input.storeId,
@@ -318,6 +412,7 @@ export async function attemptAutocarHumanHandoffPilot(input: {
       completed_at: new Date().toISOString(),
       result: {
         runtime_pause_execution: false,
+        runtime_restore_execution: false,
         external_execution: false,
         canonical_inbound_revalidation: false,
         revalidation_reason: reason
@@ -327,7 +422,7 @@ export async function attemptAutocarHumanHandoffPilot(input: {
   }
 
   const autocar = getAutocarDevClient();
-  const now = new Date().toISOString();
+  const pauseStartedAt = new Date().toISOString();
   const pauseReason = `AUTOCAR encaminhou para atendimento humano: ${transfer.reason}`.slice(0, 500);
   const { data: pausedRuntime, error: pauseError } = await autocar.from('ai_runtime_conversations')
     .update({
@@ -335,8 +430,8 @@ export async function attemptAutocarHumanHandoffPilot(input: {
       pause_reason: pauseReason,
       paused_by_profile_id: null,
       paused_by_source: 'autocar_handoff',
-      paused_at: now,
-      updated_at: now
+      paused_at: pauseStartedAt,
+      updated_at: pauseStartedAt
     })
     .eq('store_id', input.storeId)
     .eq('production_conversation_id', input.conversationId)
@@ -344,7 +439,7 @@ export async function attemptAutocarHumanHandoffPilot(input: {
     .eq('last_inbound_message_id', input.inboundMessageId)
     .eq('effective_mode', 'autopilot')
     .eq('human_state', 'autocar_active')
-    .select('store_id,production_conversation_id,effective_mode,human_state,pause_reason,paused_at')
+    .select('store_id,production_conversation_id,effective_mode,human_state,pause_reason,paused_by_source,paused_at')
     .maybeSingle();
   if (pauseError) throw pauseError;
 
@@ -354,129 +449,176 @@ export async function attemptAutocarHumanHandoffPilot(input: {
       policy_effect: 'deny',
       policy_reason: 'Runtime mudou concorrentemente; nenhuma transferência automática foi aplicada.',
       completed_at: new Date().toISOString(),
-      result: { runtime_pause_execution: false, external_execution: false, concurrent_runtime_change: true }
+      result: { runtime_pause_execution: false, runtime_restore_execution: false, external_execution: false, concurrent_runtime_change: true }
     });
     return { handed_off: false, skipped: true, claim: skipped, reason: 'Runtime mudou concorrentemente.' };
   }
 
-  let acknowledgement: any = {
-    sent: false,
-    skipped: true,
-    reason: 'Confirmação ao cliente não enviada porque a integração da loja não está conectada.'
-  };
+  let providerSendSucceeded = false;
 
-  if (input.integration?.scope === 'store' && input.integration?.status === 'connected' && input.integration?.instance_name) {
-    try {
-      const { data: conversation, error: conversationError } = await input.productionSupabase
-        .from('whatsapp_conversations')
-        .select('id,store_id,whatsapp_number_id,contact_id,lead_id,base_lead_id')
-        .eq('id', input.conversationId)
+  try {
+    const { data: conversation, error: conversationError } = await input.productionSupabase
+      .from('whatsapp_conversations')
+      .select('id,store_id,whatsapp_number_id,contact_id,lead_id,base_lead_id')
+      .eq('id', input.conversationId)
+      .eq('store_id', input.storeId)
+      .eq('whatsapp_number_id', input.whatsappNumberId)
+      .maybeSingle();
+    if (conversationError) throw conversationError;
+    if (!conversation) throw new Error('Conversa canônica não encontrada para confirmação do handoff.');
+
+    const { data: contact, error: contactError } = await input.productionSupabase
+      .from('whatsapp_contacts')
+      .select('id,phone,wa_id')
+      .eq('id', conversation.contact_id)
+      .maybeSingle();
+    if (contactError) throw contactError;
+    const recipient = normalizePhone(contact?.phone || contact?.wa_id);
+    if (!recipient) throw new Error('Contato sem telefone válido para confirmação do handoff.');
+
+    const evolutionResult = await sendEvolutionText(String(input.integration.instance_name), recipient, SAFE_ACK);
+    providerSendSucceeded = true;
+    const providerMessageId = String(evolutionResult?.key?.id || evolutionResult?.message?.key?.id || evolutionResult?.id || '').trim();
+    const sentAt = new Date().toISOString();
+    const scopedId = scopedEvolutionMessageId(conversation.whatsapp_number_id, providerMessageId);
+
+    let savedMessage: any = null;
+    if (providerMessageId) {
+      const { data: existing, error: existingError } = await input.productionSupabase
+        .from('whatsapp_messages')
+        .select('id')
         .eq('store_id', input.storeId)
-        .eq('whatsapp_number_id', input.whatsappNumberId)
+        .eq('conversation_id', conversation.id)
+        .eq('whatsapp_number_id', conversation.whatsapp_number_id)
+        .eq('direction', 'outbound')
+        .in('wa_message_id', [providerMessageId, scopedId])
+        .limit(1)
         .maybeSingle();
-      if (conversationError) throw conversationError;
-      if (!conversation) throw new Error('Conversa canônica não encontrada para confirmação do handoff.');
+      if (existingError) throw existingError;
+      savedMessage = existing;
+    }
 
-      const { data: contact, error: contactError } = await input.productionSupabase
-        .from('whatsapp_contacts')
-        .select('id,phone,wa_id')
-        .eq('id', conversation.contact_id)
-        .maybeSingle();
-      if (contactError) throw contactError;
-      const recipient = normalizePhone(contact?.phone || contact?.wa_id);
-      if (!recipient) throw new Error('Contato sem telefone válido para confirmação do handoff.');
-
-      const evolutionResult = await sendEvolutionText(String(input.integration.instance_name), recipient, SAFE_ACK);
-      const providerMessageId = String(evolutionResult?.key?.id || evolutionResult?.message?.key?.id || evolutionResult?.id || '').trim();
-      const sentAt = new Date().toISOString();
-      const scopedId = scopedEvolutionMessageId(conversation.whatsapp_number_id, providerMessageId);
-
-      let savedMessage: any = null;
-      if (providerMessageId) {
-        const { data: existing, error: existingError } = await input.productionSupabase
-          .from('whatsapp_messages')
-          .select('id')
-          .eq('store_id', input.storeId)
-          .eq('conversation_id', conversation.id)
-          .eq('whatsapp_number_id', conversation.whatsapp_number_id)
-          .eq('direction', 'outbound')
-          .in('wa_message_id', [providerMessageId, scopedId])
-          .limit(1)
-          .maybeSingle();
-        if (existingError) throw existingError;
-        savedMessage = existing;
-      }
-
-      if (!savedMessage) {
-        const { data, error: saveError } = await input.productionSupabase.from('whatsapp_messages').insert({
-          store_id: conversation.store_id,
-          whatsapp_number_id: conversation.whatsapp_number_id,
-          conversation_id: conversation.id,
-          contact_id: conversation.contact_id,
-          lead_id: conversation.lead_id,
-          base_lead_id: conversation.base_lead_id,
-          wa_message_id: scopedId || providerMessageId || null,
-          direction: 'outbound',
-          message_type: 'text',
-          body: SAFE_ACK,
-          status: 'sent',
-          raw_payload: {
-            provider: 'evolution',
-            autocar_human_handoff: true,
-            inbound_message_id: input.inboundMessageId,
-            live_claim_id: claimResult.claim.id,
-            evolution: evolutionResult
-          },
-          sent_at: sentAt
-        }).select('id').single();
-        if (saveError) throw saveError;
-        savedMessage = data;
-      }
-
-      const { error: conversationUpdateError } = await input.productionSupabase.from('whatsapp_conversations')
-        .update({ last_message: SAFE_ACK, last_message_at: sentAt, updated_at: sentAt })
-        .eq('id', conversation.id)
-        .eq('store_id', input.storeId);
-      if (conversationUpdateError) throw conversationUpdateError;
-
-      acknowledgement = {
-        sent: true,
-        provider: 'evolution',
-        provider_message_id: providerMessageId || null,
-        production_outbound_message_id: savedMessage?.id || null,
+    if (!savedMessage) {
+      const { data, error: saveError } = await input.productionSupabase.from('whatsapp_messages').insert({
+        store_id: conversation.store_id,
+        whatsapp_number_id: conversation.whatsapp_number_id,
+        conversation_id: conversation.id,
+        contact_id: conversation.contact_id,
+        lead_id: conversation.lead_id,
+        base_lead_id: conversation.base_lead_id,
+        wa_message_id: scopedId || providerMessageId || null,
+        direction: 'outbound',
+        message_type: 'text',
+        body: SAFE_ACK,
+        status: 'sent',
+        raw_payload: {
+          provider: 'evolution',
+          autocar_human_handoff: true,
+          inbound_message_id: input.inboundMessageId,
+          live_claim_id: claimResult.claim.id,
+          evolution: evolutionResult
+        },
         sent_at: sentAt
+      }).select('id').single();
+      if (saveError) throw saveError;
+      savedMessage = data;
+    }
+
+    const { error: conversationUpdateError } = await input.productionSupabase.from('whatsapp_conversations')
+      .update({ last_message: SAFE_ACK, last_message_at: sentAt, updated_at: sentAt })
+      .eq('id', conversation.id)
+      .eq('store_id', input.storeId);
+    if (conversationUpdateError) throw conversationUpdateError;
+
+    const completedAt = new Date().toISOString();
+    const completed = await updateClaim(claimResult.claim.id, {
+      status: 'completed',
+      policy_effect: 'handoff',
+      completed_at: completedAt,
+      result: {
+        runtime_pause_execution: true,
+        runtime_restore_execution: false,
+        external_execution: true,
+        canonical_inbound_revalidation: true,
+        pause_reason: pauseReason,
+        acknowledgement: {
+          sent: true,
+          provider: 'evolution',
+          provider_message_id: providerMessageId || null,
+          production_outbound_message_id: savedMessage?.id || null,
+          sent_at: sentAt
+        },
+        completed_at: completedAt
+      }
+    });
+
+    return {
+      handed_off: true,
+      sent: true,
+      claim: completed,
+      runtime: pausedRuntime,
+      acknowledgement: completed?.result?.acknowledgement || null,
+      reason: pauseReason
+    };
+  } catch (error: any) {
+    const failureReason = String(error?.message || error || 'Falha ao concluir Human Handoff.').slice(0, 500);
+    let rollback: any = { restored: false, failed: false, reason: '' };
+
+    try {
+      const restored = await restoreRuntimeAfterFailedHandoff({
+        autocar,
+        storeId: input.storeId,
+        conversationId: input.conversationId,
+        whatsappNumberId: input.whatsappNumberId,
+        inboundMessageId: input.inboundMessageId,
+        pauseStartedAt,
+        runtimeBeforePause: eligible.runtime || {}
+      });
+      rollback = {
+        restored: restored.restored,
+        failed: false,
+        concurrent_change: !restored.restored,
+        restored_at: restored.restoredAt
       };
-    } catch (error: any) {
-      acknowledgement = {
-        sent: false,
+    } catch (rollbackError: any) {
+      rollback = {
+        restored: false,
         failed: true,
-        automatic_retry_disabled: true,
-        reason: String(error?.message || error || 'Falha ao enviar confirmação do handoff.').slice(0, 500)
+        reason: String(rollbackError?.message || rollbackError || 'Falha ao restaurar runtime após handoff incompleto.').slice(0, 500)
       };
     }
-  }
 
-  const completedAt = new Date().toISOString();
-  const completed = await updateClaim(claimResult.claim.id, {
-    status: 'completed',
-    policy_effect: 'handoff',
-    completed_at: completedAt,
-    result: {
-      runtime_pause_execution: true,
-      external_execution: acknowledgement?.sent === true,
-      canonical_inbound_revalidation: true,
-      pause_reason: pauseReason,
-      acknowledgement,
-      completed_at: completedAt
+    let failedClaim: any = claimResult.claim;
+    try {
+      failedClaim = await updateClaim(claimResult.claim.id, {
+        status: 'skipped',
+        policy_effect: 'deny',
+        policy_reason: `Human Handoff não concluído: ${failureReason}`.slice(0, 500),
+        completed_at: new Date().toISOString(),
+        result: {
+          runtime_pause_execution: true,
+          runtime_restore_execution: rollback.restored === true,
+          external_execution: providerSendSucceeded,
+          canonical_inbound_revalidation: true,
+          automatic_retry_disabled: true,
+          failure_reason: failureReason,
+          rollback
+        }
+      });
+    } catch {
+      // O claim idempotente já existe e impede um segundo envio automático, mesmo se a marcação final falhar.
     }
-  });
 
-  return {
-    handed_off: true,
-    sent: acknowledgement?.sent === true,
-    claim: completed,
-    runtime: pausedRuntime,
-    acknowledgement,
-    reason: pauseReason
-  };
+    return {
+      handed_off: false,
+      sent: providerSendSucceeded,
+      failed: true,
+      skipped: true,
+      claim: failedClaim,
+      rollback,
+      reason: rollback.restored
+        ? 'Human Handoff falhou antes da conclusão; runtime restaurado com segurança e retry automático bloqueado.'
+        : 'Human Handoff falhou antes da conclusão; retry automático bloqueado e runtime exige verificação humana.'
+    };
+  }
 }
