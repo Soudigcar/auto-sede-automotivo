@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   AUTOCAR_CUTOVER_BRIDGE_CODE_ENABLED,
+  AUTOCAR_ROLLBACK_MIRROR_CODE_ENABLED,
   AUTOCAR_SHADOW_MIRROR_DESTINATION_REF,
   AUTOCAR_SHADOW_MIRROR_SOURCE_REF,
   autocarShadowMirrorRowsEquivalent,
@@ -14,8 +15,12 @@ const productionUrl = `https://${AUTOCAR_SHADOW_MIRROR_DESTINATION_REF}.supabase
 const devUrl = `https://${AUTOCAR_SHADOW_MIRROR_SOURCE_REF}.supabase.co`;
 const key = 'service-role-key-for-shadow-mirror-test';
 
-test('Cutover Bridge fica preparado por código sem ligar o cutover definitivo', () => {
+test('Cutover Bridge permanece habilitado para o fluxo forward existente', () => {
   assert.equal(AUTOCAR_CUTOVER_BRIDGE_CODE_ENABLED, true);
+});
+
+test('Rollback Mirror fica encerrado definitivamente por código', () => {
+  assert.equal(AUTOCAR_ROLLBACK_MIRROR_CODE_ENABLED, false);
 });
 
 test('Preview permanece fail-closed mesmo com flag e credenciais presentes', () => {
@@ -54,7 +59,7 @@ test('Production rejeita projeto destino diferente do AUTOCAR Production', () =>
   assert.equal(gate.reason, 'unexpected_destination_project');
 });
 
-test('Forward Mirror Production habilita apenas com flag explícita e destino exato', () => {
+test('Forward Mirror Production continua habilitando apenas com flag explícita e destino exato', () => {
   const gate = evaluateAutocarShadowMirrorGate({
     VERCEL_ENV: 'production',
     AUTOCAR_SHADOW_MIRROR_ENABLED: 'true',
@@ -80,42 +85,7 @@ test('Rollback Mirror permanece bloqueado no Preview', () => {
   assert.equal(gate.reason, 'non_production_fail_closed');
 });
 
-test('Rollback Mirror não pode ligar enquanto o cutover por código estiver desligado', () => {
-  const gate = evaluateAutocarRollbackMirrorGate({
-    VERCEL_ENV: 'production',
-    AUTOCAR_ROLLBACK_MIRROR_ENABLED: 'true',
-    AUTOCAR_DEV_SUPABASE_URL: devUrl,
-    AUTOCAR_DEV_SUPABASE_SERVICE_ROLE_KEY: key
-  } as NodeJS.ProcessEnv, false);
-
-  assert.equal(gate.enabled, false);
-  assert.equal(gate.reason, 'cutover_code_disabled');
-});
-
-test('Rollback Mirror exige habilitação explícita mesmo após futuro cutover', () => {
-  const gate = evaluateAutocarRollbackMirrorGate({
-    VERCEL_ENV: 'production',
-    AUTOCAR_DEV_SUPABASE_URL: devUrl,
-    AUTOCAR_DEV_SUPABASE_SERVICE_ROLE_KEY: key
-  } as NodeJS.ProcessEnv, true);
-
-  assert.equal(gate.enabled, false);
-  assert.equal(gate.reason, 'rollback_mirror_not_enabled');
-});
-
-test('Rollback Mirror rejeita destino que não seja exatamente autocar-dev', () => {
-  const gate = evaluateAutocarRollbackMirrorGate({
-    VERCEL_ENV: 'production',
-    AUTOCAR_ROLLBACK_MIRROR_ENABLED: 'true',
-    AUTOCAR_DEV_SUPABASE_URL: productionUrl,
-    AUTOCAR_DEV_SUPABASE_SERVICE_ROLE_KEY: key
-  } as NodeJS.ProcessEnv, true);
-
-  assert.equal(gate.enabled, false);
-  assert.equal(gate.reason, 'unexpected_rollback_destination_project');
-});
-
-test('Rollback Mirror futuro exige cutover + flag explícita + autocar-dev exato', () => {
+test('Rollback Mirror Production fica bloqueado por código mesmo com cutover e variável habilitados', () => {
   const gate = evaluateAutocarRollbackMirrorGate({
     VERCEL_ENV: 'production',
     AUTOCAR_ROLLBACK_MIRROR_ENABLED: 'true',
@@ -123,10 +93,24 @@ test('Rollback Mirror futuro exige cutover + flag explícita + autocar-dev exato
     AUTOCAR_DEV_SUPABASE_SERVICE_ROLE_KEY: key
   } as NodeJS.ProcessEnv, true);
 
-  assert.equal(gate.enabled, true);
-  assert.equal(gate.reason, 'enabled');
-  assert.equal(gate.destinationUrl, devUrl);
-  assert.equal(gate.destinationServiceRoleKey, key);
+  assert.equal(gate.enabled, false);
+  assert.equal(gate.reason, 'rollback_mirror_code_disabled');
+  assert.equal(gate.destinationUrl, '');
+  assert.equal(gate.destinationServiceRoleKey, '');
+});
+
+test('Rollback Mirror Production não pode ser reativado pela variável mesmo com credenciais de DEV válidas', () => {
+  const gate = evaluateAutocarRollbackMirrorGate({
+    VERCEL_ENV: 'production',
+    AUTOCAR_ROLLBACK_MIRROR_ENABLED: 'true',
+    AUTOCAR_DEV_SUPABASE_URL: devUrl,
+    AUTOCAR_DEV_SUPABASE_SERVICE_ROLE_KEY: key,
+    AUTOCAR_KNOWLEDGE_SUPABASE_URL: devUrl,
+    AUTOCAR_KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY: key
+  } as NodeJS.ProcessEnv, true);
+
+  assert.equal(gate.enabled, false);
+  assert.equal(gate.reason, 'rollback_mirror_code_disabled');
 });
 
 test('equivalência ignora exclusivamente updated_at', () => {

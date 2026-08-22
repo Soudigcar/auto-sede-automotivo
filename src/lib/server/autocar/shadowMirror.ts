@@ -13,6 +13,13 @@ export const AUTOCAR_SHADOW_MIRROR_IGNORED_EQUIVALENCE_FIELDS = ['updated_at'] a
  */
 export const AUTOCAR_CUTOVER_BRIDGE_CODE_ENABLED = true;
 
+/**
+ * The reverse Production -> DEV mirror is permanently closed after the
+ * definitive AUTOCAR cutover. Keeping this gate in code makes the shutdown
+ * fail-closed even if the old Vercel environment flag remains configured.
+ */
+export const AUTOCAR_ROLLBACK_MIRROR_CODE_ENABLED = false;
+
 const MIRRORED_TABLES = new Set(['ai_runtime_conversations', 'ai_runtime_message_claims']);
 const WRITE_METHODS = new Set(['insert', 'upsert', 'update']);
 
@@ -85,6 +92,9 @@ export function evaluateAutocarRollbackMirrorGate(
 
   if (clean(environment.VERCEL_ENV) !== 'production') {
     return { enabled: false, reason: 'non_production_fail_closed', destinationUrl: '', destinationServiceRoleKey: '' };
+  }
+  if (!AUTOCAR_ROLLBACK_MIRROR_CODE_ENABLED) {
+    return { enabled: false, reason: 'rollback_mirror_code_disabled', destinationUrl: '', destinationServiceRoleKey: '' };
   }
   if (!AUTOCAR_CUTOVER_BRIDGE_CODE_ENABLED) {
     return { enabled: false, reason: 'bridge_code_disabled', destinationUrl: '', destinationServiceRoleKey: '' };
