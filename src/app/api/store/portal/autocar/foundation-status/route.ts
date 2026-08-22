@@ -6,6 +6,7 @@ import {
   getAutocarRuntimePublicStatus,
   type AutocarRuntimePublicStatus
 } from '@/lib/server/autocar/runtimeEnvironment';
+import { evaluateStoreAutocarModeMutationGovernance } from '@/lib/server/autocar/storeModeGovernance';
 import { autocarReadTools } from '@/lib/server/autocar/tools';
 import { cleanText } from '@/lib/server/storeTeam';
 import {
@@ -35,12 +36,14 @@ async function agentForStore(context: any) {
 }
 
 function payload(context: any, agent: any, runtimeStatus: AutocarRuntimePublicStatus) {
+  const modeGovernance = evaluateStoreAutocarModeMutationGovernance(runtimeStatus);
   return {
     success: true,
     phase: runtimeStatus.schema === 'production_v2' ? 'production_v2' : 'foundation_v1',
     environment: runtimeStatus.runtime_environment,
     vercel_environment: runtimeStatus.vercel_environment,
     runtime: runtimeStatus,
+    mode_governance: modeGovernance,
     execution_mode: agent?.mode || 'off',
     store_selected_mode: agent?.store_selected_mode || 'off',
     master_enabled: Boolean(agent?.master_enabled),
@@ -127,13 +130,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Modo AUTOCAR inválido.' }, { status: 400 });
     }
 
+    const runtimeStatusBeforeWrite = await getAutocarRuntimePublicStatus();
+    const governance = evaluateStoreAutocarModeMutationGovernance(runtimeStatusBeforeWrite);
+    if (!governance.allowed) {
+      return NextResponse.json(
+        { error: governance.reason, mode_governance: governance },
+        { status: 409 }
+      );
+    }
+
     const autocar = getAutocarDevClient();
     const agent = await setAutocarStoreSelectedMode(autocar, context.store, mode);
     const runtimeStatus = await getAutocarRuntimePublicStatus();
+    const finalGovernance = evaluateStoreAutocarModeMutationGovernance(runtimeStatus);
 
     return NextResponse.json({
       ...payload(context, agent, runtimeStatus),
-      message: `Modo ${String(agent.mode || 'off').toUpperCase()} salvo em ${runtimeStatus.runtime_environment}.`
+      mode_governance: finalGovernance,
+      message: finalGovernance.live_configuration
+        ? `Modo ${String(agent.mode || 'off').toUpperCase()} salvo na AUTOCAR Production. Esta configuração pode afetar o atendimento LIVE dentro dos gates Master e SAFE CORE.`
+        : `Modo ${String(agent.mode || 'off').toUpperCase()} salvo somente em autocar-dev. Production não foi alterada.`
     });
   } catch (error: any) {
     return NextResponse.json(
