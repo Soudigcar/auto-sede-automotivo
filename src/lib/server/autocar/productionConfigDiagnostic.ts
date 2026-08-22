@@ -1,7 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
+import { AUTOCAR_RUNTIME_CUTOVER_CODE_ENABLED } from './runtimeEnvironment';
 
 export const AUTOCAR_PRODUCTION_DIAGNOSTIC_EXPECTED_REF = 'icmwdggbvijexjgrvsbl';
 export const AUTOCAR_PRODUCTION_DIAGNOSTIC_EXPECTED_SCHEMA_VERSION = 2;
+
+export type AutocarProductionTransitionState =
+  | 'pre_cutover_dev_shadow'
+  | 'armed_pre_cutover'
+  | 'cutover_production'
+  | 'invalid_transition_state'
+  | 'unknown';
 
 type RuntimeConfigRow = {
   environment?: unknown;
@@ -23,8 +31,12 @@ export type AutocarProductionConfigDiagnostic = {
   configured_project_ref: string | null;
   schema_version: number | null;
   live_enabled: boolean | null;
+  cutover_code_enabled: boolean;
+  transition_state: AutocarProductionTransitionState;
   reason:
-    | 'production_configuration_valid'
+    | 'pre_cutover_configuration_valid'
+    | 'armed_pre_cutover_configuration_valid'
+    | 'cutover_configuration_valid'
     | 'preview_is_not_authoritative'
     | 'configuration_missing'
     | 'invalid_supabase_url'
@@ -40,6 +52,7 @@ export type AutocarProductionConfigDiagnostic = {
     database_environment_matches: boolean;
     schema_version_matches: boolean;
     live_enabled_is_false: boolean;
+    live_enabled_matches_transition: boolean;
   };
 };
 
@@ -76,7 +89,21 @@ async function defaultRuntimeConfigReader(credentials: {
   return data;
 }
 
-function baseDiagnostic(vercelEnvironment: string): AutocarProductionConfigDiagnostic {
+function transitionState(
+  cutoverCodeEnabled: boolean,
+  liveEnabled: boolean | null
+): AutocarProductionTransitionState {
+  if (liveEnabled === null) return 'unknown';
+  if (!cutoverCodeEnabled && liveEnabled === false) return 'pre_cutover_dev_shadow';
+  if (!cutoverCodeEnabled && liveEnabled === true) return 'armed_pre_cutover';
+  if (cutoverCodeEnabled && liveEnabled === true) return 'cutover_production';
+  return 'invalid_transition_state';
+}
+
+function baseDiagnostic(
+  vercelEnvironment: string,
+  cutoverCodeEnabled: boolean
+): AutocarProductionConfigDiagnostic {
   return {
     status: 'degraded',
     authoritative: vercelEnvironment === 'production',
@@ -86,6 +113,8 @@ function baseDiagnostic(vercelEnvironment: string): AutocarProductionConfigDiagn
     configured_project_ref: null,
     schema_version: null,
     live_enabled: null,
+    cutover_code_enabled: cutoverCodeEnabled,
+    transition_state: 'unknown',
     reason: 'configuration_missing',
     checks: {
       production_environment: vercelEnvironment === 'production',
@@ -95,17 +124,19 @@ function baseDiagnostic(vercelEnvironment: string): AutocarProductionConfigDiagn
       service_role_valid: false,
       database_environment_matches: false,
       schema_version_matches: false,
-      live_enabled_is_false: false
+      live_enabled_is_false: false,
+      live_enabled_matches_transition: false
     }
   };
 }
 
 export async function diagnoseAutocarProductionConfig(
   environment: NodeJS.ProcessEnv = process.env,
-  readRuntimeConfig: AutocarProductionRuntimeConfigReader = defaultRuntimeConfigReader
+  readRuntimeConfig: AutocarProductionRuntimeConfigReader = defaultRuntimeConfigReader,
+  cutoverCodeEnabled = AUTOCAR_RUNTIME_CUTOVER_CODE_ENABLED
 ): Promise<AutocarProductionConfigDiagnostic> {
   const vercelEnvironment = clean(environment.VERCEL_ENV) || 'development';
-  const report = baseDiagnostic(vercelEnvironment);
+  const report = baseDiagnostic(vercelEnvironment, cutoverCodeEnabled);
 
   // Preview/Development must never consume or validate Production credentials.
   if (vercelEnvironment !== 'production') {
@@ -159,22 +190,31 @@ export async function diagnoseAutocarProductionConfig(
 
   report.schema_version = schemaVersion || null;
   report.live_enabled = liveEnabled;
+  report.transition_state = transitionState(cutoverCodeEnabled, liveEnabled);
   report.checks.database_environment_matches = databaseEnvironment === 'production';
   report.checks.schema_version_matches = schemaVersion === AUTOCAR_PRODUCTION_DIAGNOSTIC_EXPECTED_SCHEMA_VERSION;
   report.checks.live_enabled_is_false = liveEnabled === false;
+  report.checks.live_enabled_matches_transition = report.transition_state !== 'invalid_transition_state'
+    && report.transition_state !== 'unknown';
 
   const valid = report.checks.database_environment_matches
     && report.checks.schema_version_matches
-    && report.checks.live_enabled_is_false;
+    && report.checks.live_enabled_matches_transition;
 
   if (!valid) {
     report.reason = 'runtime_config_invalid';
     return report;
   }
 
+  const reason = report.transition_state === 'pre_cutover_dev_shadow'
+    ? 'pre_cutover_configuration_valid'
+    : report.transition_state === 'armed_pre_cutover'
+      ? 'armed_pre_cutover_configuration_valid'
+      : 'cutover_configuration_valid';
+
   return {
     ...report,
     status: 'ok',
-    reason: 'production_configuration_valid'
+    reason
   };
 }
