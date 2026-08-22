@@ -5,12 +5,11 @@ export const AUTOCAR_PRODUCTION_REF = 'icmwdggbvijexjgrvsbl';
 export const AUTOCAR_PRODUCTION_SCHEMA_VERSION = 2;
 
 /**
- * Deliberately code-controlled. While false, Vercel Production keeps the
- * already validated autocar-dev runtime as its primary source and mirrors
- * runtime writes to AUTOCAR Production. Enabling the final cutover requires a
- * new code change and a separately authorized Production deployment.
+ * Deliberately code-controlled. While true, Vercel Production selects only the
+ * validated AUTOCAR Production runtime. Preview/development remain isolated in
+ * autocar-dev, and there is no silent Production -> DEV fallback.
  */
-export const AUTOCAR_RUNTIME_CUTOVER_CODE_ENABLED = false;
+export const AUTOCAR_RUNTIME_CUTOVER_CODE_ENABLED = true;
 
 export type AutocarRuntimeSchema = 'dev_v1' | 'production_v2';
 export type AutocarRuntimeTransitionMode =
@@ -347,7 +346,7 @@ export async function evaluateAutocarExternalExecutionGate(
       environment: vercelEnvironment,
       schema_version: null,
       live_enabled: false,
-      transition_mode: 'pre_cutover_dev_shadow'
+      transition_mode: AUTOCAR_RUNTIME_CUTOVER_CODE_ENABLED ? 'cutover_production' : 'pre_cutover_dev_shadow'
     };
   }
 
