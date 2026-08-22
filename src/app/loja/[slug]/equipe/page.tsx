@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { getStorePortalContext } from '@/lib/storePortalClient';
+import { asTeamRegistrationUrl } from '@/lib/storeTeamRegistration';
 
 const roleConfigs = [
   { role: 'pre_sales', title: 'Pré-vendas', description: 'Recebe o lead da loja, faz o primeiro contato e encaminha para o vendedor.', icon: UserCheck },
@@ -63,7 +64,7 @@ type RegistrationLink = {
   role: string;
   role_label: string;
   status: string;
-  registration_url: string;
+  registration_url: string | null;
   expires_at: string | null;
   usage_count: number;
   created_at: string;
@@ -174,9 +175,22 @@ export default function StoreTeamPage() {
     setBusyKey(`link:${role}`);
     setMessage('Gerando novo link...');
     try {
-      await postAction({ action: 'generate_link', role, expires_days: 30 });
-      setMessage('Novo link gerado. O link anterior deste cargo foi desativado.');
-      await loadTeam();
+      const data = await postAction({ action: 'generate_link', role, expires_days: 30 });
+      const registrationUrl = asTeamRegistrationUrl(data?.link?.registration_url);
+      if (!data?.link?.id || !registrationUrl) {
+        throw new Error('O convite foi criado, mas a URL segura não foi retornada. Gere um novo link antes de compartilhar.');
+      }
+
+      const createdLink: RegistrationLink = {
+        ...data.link,
+        registration_url: registrationUrl
+      };
+
+      setLinks((current) => [
+        createdLink,
+        ...current.filter((item) => item.id !== createdLink.id && !(item.role === role && item.status === 'active'))
+      ]);
+      setMessage('Novo link gerado. Copie ou compartilhe agora: por segurança, o endereço não será recuperado após recarregar a página.');
     } catch (error: any) {
       setMessage(error?.message || 'Erro ao gerar link.');
     } finally {
@@ -189,8 +203,8 @@ export default function StoreTeamPage() {
     setMessage('Desativando link...');
     try {
       await postAction({ action: 'revoke_link', link_id: linkId });
+      setLinks((current) => current.map((item) => item.id === linkId ? { ...item, status: 'revoked', registration_url: null } : item));
       setMessage('Link desativado.');
-      await loadTeam();
     } catch (error: any) {
       setMessage(error?.message || 'Erro ao desativar link.');
     } finally {
@@ -198,19 +212,30 @@ export default function StoreTeamPage() {
     }
   }
 
-  async function copyLink(value: string, key: string) {
-    await navigator.clipboard.writeText(value);
+  async function copyLink(value: unknown, key: string) {
+    const registrationUrl = asTeamRegistrationUrl(value);
+    if (!registrationUrl) {
+      setMessage('Este endereço não fica armazenado por segurança. Gere um novo link para copiar.');
+      return;
+    }
+    await navigator.clipboard.writeText(registrationUrl);
     setCopiedKey(key);
     window.setTimeout(() => setCopiedKey(''), 1800);
   }
 
   async function shareLink(link: RegistrationLink) {
-    const title = `Cadastro de ${link.role_label} - ${store?.store_name || 'Loja'}`;
-    if (navigator.share) {
-      await navigator.share({ title, text: `Preencha seus dados para entrar na equipe da ${store?.store_name}.`, url: link.registration_url });
+    const registrationUrl = asTeamRegistrationUrl(link.registration_url);
+    if (!registrationUrl) {
+      setMessage('Este endereço não fica armazenado por segurança. Gere um novo link para compartilhar.');
       return;
     }
-    await copyLink(link.registration_url, `share:${link.role}`);
+
+    const title = `Cadastro de ${link.role_label} - ${store?.store_name || 'Loja'}`;
+    if (navigator.share) {
+      await navigator.share({ title, text: `Preencha seus dados para entrar na equipe da ${store?.store_name}.`, url: registrationUrl });
+      return;
+    }
+    await copyLink(registrationUrl, `share:${link.role}`);
     setMessage('Link copiado. Cole no WhatsApp para compartilhar.');
   }
 
@@ -291,6 +316,7 @@ export default function StoreTeamPage() {
               {roleConfigs.map((config) => {
                 const Icon = config.icon;
                 const link = activeLinkForRole(links, config.role);
+                const registrationUrl = asTeamRegistrationUrl(link?.registration_url);
                 const busy = busyKey === `link:${config.role}` || busyKey === `revoke:${config.role}`;
                 return (
                   <article key={config.role} className="premium-card p-5">
@@ -304,15 +330,23 @@ export default function StoreTeamPage() {
                     {link ? (
                       <>
                         <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                          <p className="truncate text-xs font-semibold text-zinc-600">{link.registration_url}</p>
+                          {registrationUrl ? (
+                            <p className="truncate text-xs font-semibold text-zinc-600">{registrationUrl}</p>
+                          ) : (
+                            <p className="text-xs font-bold text-zinc-600">Endereço protegido. Gere um novo link para visualizar e compartilhar.</p>
+                          )}
                           <p className="mt-2 text-[11px] text-zinc-400">Expira: {formatDateTime(link.expires_at)} · {link.usage_count} cadastro(s)</p>
                         </div>
-                        <div className="mt-4 grid grid-cols-2 gap-2">
-                          <button type="button" onClick={() => copyLink(link.registration_url, config.role)} className="premium-button-secondary justify-center text-sm">{copiedKey === config.role ? <Check size={16} /> : <Copy size={16} />}{copiedKey === config.role ? 'Copiado' : 'Copiar'}</button>
-                          <button type="button" onClick={() => shareLink(link)} className="premium-button-secondary justify-center text-sm"><Share2 size={16} /> Compartilhar</button>
-                          <a href={link.registration_url} target="_blank" rel="noreferrer" className="premium-button-secondary justify-center text-sm"><ExternalLink size={16} /> Abrir</a>
-                          <button type="button" onClick={() => revokeLink(link.id, config.role)} disabled={busy} className="premium-button-secondary justify-center text-sm text-red-600 disabled:opacity-50"><UserX size={16} /> Desativar</button>
-                        </div>
+                        {registrationUrl ? (
+                          <div className="mt-4 grid grid-cols-2 gap-2">
+                            <button type="button" onClick={() => copyLink(registrationUrl, config.role)} className="premium-button-secondary justify-center text-sm">{copiedKey === config.role ? <Check size={16} /> : <Copy size={16} />}{copiedKey === config.role ? 'Copiado' : 'Copiar'}</button>
+                            <button type="button" onClick={() => shareLink(link)} className="premium-button-secondary justify-center text-sm"><Share2 size={16} /> Compartilhar</button>
+                            <a href={registrationUrl} target="_blank" rel="noreferrer" className="premium-button-secondary justify-center text-sm"><ExternalLink size={16} /> Abrir</a>
+                            <button type="button" onClick={() => revokeLink(link.id, config.role)} disabled={busy} className="premium-button-secondary justify-center text-sm text-red-600 disabled:opacity-50"><UserX size={16} /> Desativar</button>
+                          </div>
+                        ) : (
+                          <button type="button" onClick={() => revokeLink(link.id, config.role)} disabled={busy} className="premium-button-secondary mt-4 w-full justify-center text-sm text-red-600 disabled:opacity-50"><UserX size={16} /> Desativar link atual</button>
+                        )}
                         <button type="button" onClick={() => generateLink(config.role)} disabled={busy} className="mt-3 flex w-full items-center justify-center gap-2 text-xs font-black text-zinc-500 hover:text-red-600 disabled:opacity-50"><RefreshCcw size={14} /> Gerar novo link</button>
                       </>
                     ) : (

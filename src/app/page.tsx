@@ -3,9 +3,8 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { PublicMarketplace } from '@/components/marketplace/PublicMarketplace';
 import { loadPortalSettings } from '@/lib/server/portalSettings';
+import { INTERNAL_SYSTEM_HOST, resolveInternalAccessUrl } from '@/lib/publicPortalAccess';
 
-const INTERNAL_SYSTEM_HOST = 'sistemaautomotivo.autosede.com.br';
-const INTERNAL_LOGIN_URL = `https://${INTERNAL_SYSTEM_HOST}/login`;
 const OFFICIAL_PORTAL_URL = 'https://www.autosede.com.br';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -41,5 +40,6 @@ export default async function HomePage() {
   }
 
   const portalSettings = await loadPortalSettings();
-  return <PublicMarketplace internalAccessUrl={INTERNAL_LOGIN_URL} portalSettings={portalSettings} />;
+  const internalAccessUrl = resolveInternalAccessUrl(process.env.VERCEL_ENV);
+  return <PublicMarketplace internalAccessUrl={internalAccessUrl} portalSettings={portalSettings} />;
 }
