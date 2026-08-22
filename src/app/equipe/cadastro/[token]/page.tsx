@@ -3,6 +3,10 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Building2, CheckCircle2, Loader2, ShieldCheck, UserPlus } from 'lucide-react';
+import {
+  TEAM_REGISTRATION_PASSWORD_HINT,
+  TEAM_REGISTRATION_PASSWORD_MIN_LENGTH
+} from '@/lib/storeTeamRegistration';
 
 type RegistrationContext = {
   store_name: string;
@@ -173,11 +177,12 @@ export default function TeamRegistrationPage() {
                   </label>
                   <label className="text-sm font-bold text-zinc-700">
                     Senha
-                    <input name="password" type="password" className="premium-input mt-2" placeholder="Mínimo 8 caracteres" required minLength={8} autoComplete="new-password" />
+                    <input name="password" type="password" className="premium-input mt-2" placeholder="Mínimo 12 caracteres" required minLength={TEAM_REGISTRATION_PASSWORD_MIN_LENGTH} autoComplete="new-password" />
+                    <span className="mt-2 block text-xs font-medium text-zinc-500">{TEAM_REGISTRATION_PASSWORD_HINT}</span>
                   </label>
                   <label className="text-sm font-bold text-zinc-700">
                     Confirmar senha
-                    <input name="password_confirmation" type="password" className="premium-input mt-2" placeholder="Repita a senha" required minLength={8} autoComplete="new-password" />
+                    <input name="password_confirmation" type="password" className="premium-input mt-2" placeholder="Repita a senha" required minLength={TEAM_REGISTRATION_PASSWORD_MIN_LENGTH} autoComplete="new-password" />
                   </label>
                 </div>
 
