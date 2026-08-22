@@ -1,8 +1,9 @@
 import {
+  AUTOCAR_RUNTIME_CUTOVER_CODE_ENABLED,
   createAutocarRuntimeClient,
   resolveAutocarRuntimeTarget
 } from '@/lib/server/autocar/runtimeEnvironment';
-import { decorateAutocarDevClientWithShadowMirror } from '@/lib/server/autocar/shadowMirror';
+import { decorateAutocarRuntimeClientWithCutoverBridge } from '@/lib/server/autocar/shadowMirror';
 
 export type AutocarStoreMode = 'off' | 'copilot' | 'autopilot';
 
@@ -10,8 +11,9 @@ export type AutocarStoreMode = 'off' | 'copilot' | 'autopilot';
  * Legacy name intentionally preserved during the controlled cutover.
  *
  * - Preview/development -> autocar-dev
- * - Vercel Production pre-cutover -> autocar-dev + Shadow Mirror
+ * - Vercel Production pre-cutover -> autocar-dev + Forward Shadow Mirror
  * - Vercel Production after the future code-controlled cutover -> AUTOCAR Production
+ *   + optional rollback mirror to autocar-dev, only when its explicit gate is enabled.
  *
  * There is no silent Production -> DEV fallback: pre-cutover DEV is an explicit
  * transition mode selected by code and validated against the exact DEV ref.
@@ -21,10 +23,16 @@ export function getAutocarDevClient() {
   const client = createAutocarRuntimeClient(target);
 
   if (target.schema === 'dev_v1') {
-    return decorateAutocarDevClientWithShadowMirror(client);
+    return decorateAutocarRuntimeClientWithCutoverBridge(client, {
+      direction: 'forward',
+      cutoverEnabled: false
+    });
   }
 
-  return client;
+  return decorateAutocarRuntimeClientWithCutoverBridge(client, {
+    direction: 'rollback',
+    cutoverEnabled: AUTOCAR_RUNTIME_CUTOVER_CODE_ENABLED
+  });
 }
 
 export async function ensureAutocarDevStore(
