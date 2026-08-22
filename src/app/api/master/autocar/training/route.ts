@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { cleanText, getAdminClient, requireMaster } from '@/lib/server/masterApi';
+import { safeErrorMessage } from '@/lib/safeErrorMessage';
 import {
   archiveTrainingScenario,
   listTrainingLab,
+  prepareTrainingScenarioForApproval,
   reviewTrainingSimulation,
   saveTrainingScenario,
   simulateTraining
@@ -77,8 +79,8 @@ export async function GET(request: Request) {
       scenarios,
       simulations: data.simulations || []
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Não foi possível carregar o laboratório AUTOCAR.' }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: safeErrorMessage(error, 'Não foi possível carregar o laboratório AUTOCAR.') }, { status: 500 });
   }
 }
 
@@ -110,6 +112,7 @@ export async function POST(request: Request) {
     if (action === 'approve-scenario') {
       const scenarioId = cleanText(body?.scenario_id, 100);
       if (!scenarioId) return NextResponse.json({ error: 'Aprendizado obrigatório.' }, { status: 400 });
+      await prepareTrainingScenarioForApproval(scenarioId, context.profile.id);
       const scenario = await approveTrainingScenario(autocar, scenarioId, context.profile.id);
       return NextResponse.json(await runtimeResponse({ scenario, governance: 'approved_unpublished' }));
     }
@@ -186,9 +189,10 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ error: 'Ação de treinamento inválida.' }, { status: 400 });
-  } catch (error: any) {
-    console.error('Master AUTOCAR training error:', error?.message || error);
-    return NextResponse.json({ error: error?.message || 'Não foi possível concluir o treinamento AUTOCAR.' }, { status: 500 });
+  } catch (error: unknown) {
+    const message = safeErrorMessage(error, 'Não foi possível concluir o treinamento AUTOCAR.');
+    console.error('Master AUTOCAR training error:', message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -201,7 +205,7 @@ export async function DELETE(request: Request) {
     if (!scenarioId) return NextResponse.json({ error: 'Aprendizado obrigatório.' }, { status: 400 });
     await archiveTrainingScenario(scenarioId, context.profile.id);
     return NextResponse.json(await runtimeResponse({ governance: 'archived_unpublished' }));
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Não foi possível arquivar o aprendizado.' }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: safeErrorMessage(error, 'Não foi possível arquivar o aprendizado.') }, { status: 500 });
   }
 }

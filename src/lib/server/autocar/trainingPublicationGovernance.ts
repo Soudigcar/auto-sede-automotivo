@@ -23,7 +23,7 @@ export async function readTrainingGovernance(supabase: any, scenarioIds: string[
 async function findScenario(supabase: any, scenarioId: string) {
   const { data, error } = await supabase
     .from('ai_training_scenarios')
-    .select('id,status,publication_status')
+    .select('id,status,publication_status,embedding')
     .eq('id', scenarioId)
     .eq('scope', 'global')
     .maybeSingle();
@@ -57,6 +57,9 @@ export async function publishTrainingScenario(supabase: any, scenarioId: string,
   const current = await findScenario(supabase, scenarioId);
   if (current.status !== 'approved') {
     throw new Error('Apenas aprendizado aprovado pode ser publicado.');
+  }
+  if (!current.embedding) {
+    throw new Error('Aprendizado aprovado ainda não possui embedding válido e não pode ser publicado.');
   }
   const now = new Date().toISOString();
   const { data, error } = await supabase

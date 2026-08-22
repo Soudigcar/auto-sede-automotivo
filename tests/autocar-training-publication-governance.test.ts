@@ -6,6 +6,8 @@ const migration = readFileSync('supabase/migrations/20260822151000_autocar_train
 const route = readFileSync('src/app/api/master/autocar/training/route.ts', 'utf8');
 const ui = readFileSync('src/components/MasterAutocarTrainingLab.tsx', 'utf8');
 const governance = readFileSync('src/lib/server/autocar/trainingPublicationGovernance.ts', 'utf8');
+const trainingLab = readFileSync('src/lib/server/autocar/trainingLab.ts', 'utf8');
+const safeErrors = readFileSync('src/lib/safeErrorMessage.ts', 'utf8');
 
 test('migration cria publication gate com default fail-closed', () => {
   assert.match(migration, /publication_status text not null default 'unpublished'/);
@@ -25,9 +27,23 @@ test('API salva cenarios sempre como draft e revisao nunca publica aprendizado a
   assert.match(route, /confirmation[^\n]+PUBLICAR_GLOBAL/);
 });
 
-test('publicacao exige que o aprendizado esteja aprovado', () => {
+test('rascunho nao depende de embedding e aprovacao prepara embedding antes de aprovar', () => {
+  assert.match(trainingLab, /status,\n\s+embedding: null,/);
+  assert.match(trainingLab, /export async function prepareTrainingScenarioForApproval/);
+  assert.match(route, /await prepareTrainingScenarioForApproval\(scenarioId, context\.profile\.id\);\n\s+const scenario = await approveTrainingScenario/);
+});
+
+test('publicacao exige aprendizado aprovado e embedding valido', () => {
   assert.match(governance, /current\.status !== 'approved'/);
   assert.match(governance, /Apenas aprendizado aprovado pode ser publicado/);
+  assert.match(governance, /if \(!current\.embedding\)/);
+  assert.match(governance, /não possui embedding válido/);
+});
+
+test('erros estruturados sao convertidos para mensagem textual segura', () => {
+  assert.match(route, /safeErrorMessage\(error/);
+  assert.match(safeErrors, /for \(const key of \['message', 'error', 'details', 'description', 'hint'\]\)/);
+  assert.doesNotMatch(route, /error\?\.message \|\| error/);
 });
 
 test('tela Master inicia criacao a partir de simulacao com opt-in desmarcado', () => {
