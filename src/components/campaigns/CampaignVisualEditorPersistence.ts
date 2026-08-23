@@ -48,7 +48,7 @@ export async function persistCampaignDraftAssets(
   campaign: any,
   headers: Record<string, string>
 ): Promise<Draft> {
-  const draft = JSON.parse(JSON.stringify(source)) as Draft;
+  const draft = JSON.parse(JSON.stringify(source)) as Draft & { sections?: Array<{ blocks?: Array<{ id?: string; image?: string }> }> };
   const slug = String(campaign?.slug || campaign?.id || 'landing');
   const backgroundKinds: Record<Device, string> = {
     desktop: 'hero',
@@ -67,17 +67,17 @@ export async function persistCampaignDraftAssets(
     }
   }
 
-  if (draft.headerLogo) {
-    draft.headerLogo = await uploadDataImage(draft.headerLogo, 'header', slug, headers);
-  }
-  if (draft.eventLogo) {
-    draft.eventLogo = await uploadDataImage(draft.eventLogo, 'logo', slug, headers);
-  }
-  if (draft.mediaImage) {
-    draft.mediaImage = await uploadDataImage(draft.mediaImage, 'media', slug, headers);
+  if (draft.headerLogo) draft.headerLogo = await uploadDataImage(draft.headerLogo, 'header', slug, headers);
+  if (draft.eventLogo) draft.eventLogo = await uploadDataImage(draft.eventLogo, 'logo', slug, headers);
+  if (draft.mediaImage) draft.mediaImage = await uploadDataImage(draft.mediaImage, 'media', slug, headers);
+
+  for (const section of draft.sections || []) {
+    for (const block of section.blocks || []) {
+      if (block.image) block.image = await uploadDataImage(block.image, 'media', slug, headers);
+    }
   }
 
-  return draft;
+  return draft as Draft;
 }
 
 export function publicCampaignUrl(slug: string) {
