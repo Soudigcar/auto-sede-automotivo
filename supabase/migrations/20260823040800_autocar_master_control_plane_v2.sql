@@ -68,14 +68,31 @@ language plpgsql
 security definer
 set search_path = public, private
 as $$
+declare
+  new_row jsonb := to_jsonb(new);
+  old_row jsonb := case when tg_op = 'UPDATE' then to_jsonb(old) else null end;
+  audit_area text;
+  audit_key text;
 begin
+  if tg_table_name = 'ai_global_capability_policies' then
+    audit_area := 'global_policy';
+    audit_key := new_row ->> 'capability';
+  elsif tg_table_name = 'ai_model_pricing' then
+    audit_area := 'model_pricing';
+    audit_key := new_row ->> 'model';
+  else
+    raise exception using
+      errcode = '42501',
+      message = format('AUTOCAR Master Control Plane audit received an unexpected source table: %s', tg_table_name);
+  end if;
+
   insert into public.ai_master_control_plane_audit (
     area, record_key, previous_value, new_value, actor_profile_id
   ) values (
-    case when tg_table_name = 'ai_global_capability_policies' then 'global_policy' else 'model_pricing' end,
-    case when tg_table_name = 'ai_global_capability_policies' then new.capability else new.model end,
-    case when tg_op = 'UPDATE' then to_jsonb(old) else null end,
-    to_jsonb(new),
+    audit_area,
+    audit_key,
+    old_row,
+    new_row,
     coalesce(new.updated_by_profile_id, new.created_by_profile_id)
   );
   return new;
