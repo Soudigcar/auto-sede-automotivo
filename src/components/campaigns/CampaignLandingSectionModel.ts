@@ -1,7 +1,7 @@
 import type { Draft } from './CampaignVisualEditorModel';
 import type { ResponsiveDraft } from './CampaignVisualEditorResponsive';
 
-export type LandingSectionType = 'content' | 'vehicles';
+export type LandingSectionType = 'content' | 'vehicles' | 'simulation';
 export type LandingBlockType = 'title' | 'text' | 'card' | 'image' | 'icon' | 'button';
 export type LandingBlockAction = 'simulator' | 'vehicles' | 'whatsapp' | 'none';
 export type LandingBlockAlign = 'left' | 'center' | 'right';
@@ -172,6 +172,66 @@ export function createContentSection(name = 'Nova seção'): LandingSection {
   };
 }
 
+export function createHomeTemplateSection(draft: LandingDraftV3): LandingSection {
+  return {
+    ...createContentSection('Início — cópia'),
+    columns: 2,
+    backgroundColor: draft.secondaryColor,
+    textColor: '#FFFFFF',
+    blocks: [
+      createLandingBlock('title', { title: draft.content.title.text || 'Encontre seu próximo veículo', color: '#FFFFFF', fullWidth: true }),
+      createLandingBlock('text', { text: draft.content.description.text || 'Escolha um veículo e faça sua simulação.', color: '#FFFFFFCC', fullWidth: true }),
+      createLandingBlock('button', { label: draft.content.primaryButton.text || 'Simular agora', action: 'simulator', backgroundColor: draft.primaryColor, color: '#FFFFFF' }),
+      createLandingBlock('button', { label: draft.content.secondaryButton.text || 'Ver veículos', action: 'vehicles', backgroundColor: '#FFFFFF1A', borderColor: '#FFFFFF40', color: '#FFFFFF' })
+    ]
+  };
+}
+
+export function createVehiclesTemplateSection(source?: LandingSection): LandingSection {
+  return {
+    id: id('section-vehicles'),
+    name: source ? `${source.name} — cópia` : 'Veículos — cópia',
+    type: 'vehicles',
+    visible: true,
+    locked: false,
+    backgroundColor: source?.backgroundColor || '#F1F5F9',
+    textColor: source?.textColor || '#0F172A',
+    paddingY: source?.paddingY ?? 24,
+    columns: 1,
+    blocks: [],
+    vehicleSettings: { ...(source?.vehicleSettings || vehicleDefaults) }
+  };
+}
+
+export function createSimulationTemplateSection(source?: LandingSection): LandingSection {
+  return {
+    id: id('section-simulation'),
+    name: source ? `${source.name} — cópia` : 'Simulação — cópia',
+    type: 'simulation',
+    visible: true,
+    locked: false,
+    backgroundColor: source?.backgroundColor || '#F1F5F9',
+    textColor: source?.textColor || '#0F172A',
+    paddingY: source?.paddingY ?? 48,
+    columns: 1,
+    blocks: [],
+    vehicleSettings: { ...vehicleDefaults }
+  };
+}
+
+export function createAdvantagesTemplateSection(source?: LandingSection): LandingSection {
+  if (source) return cloneLandingSection(source);
+  return {
+    ...createContentSection('Vantagens do evento — cópia'),
+    blocks: [
+      createLandingBlock('title', { title: 'Vantagens do evento', fullWidth: true }),
+      createLandingBlock('card', { title: 'Simulação rápida', text: 'Faça uma estimativa inicial de financiamento em poucos passos.' }),
+      createLandingBlock('card', { title: 'Estoque conectado', text: 'Consulte os veículos disponíveis das lojas participantes.' }),
+      createLandingBlock('card', { title: 'Atendimento responsável', text: 'Receba atendimento das lojas participantes do evento.' })
+    ]
+  };
+}
+
 function defaultSections(source: any): LandingSection[] {
   return [
     {
@@ -237,7 +297,7 @@ function cleanVehicleSettings(raw: any): LandingVehicleSettings {
 }
 
 function cleanSection(raw: any, fallback: LandingSection): LandingSection {
-  const type: LandingSectionType = raw?.type === 'vehicles' ? 'vehicles' : 'content';
+  const type: LandingSectionType = raw?.type === 'vehicles' ? 'vehicles' : raw?.type === 'simulation' ? 'simulation' : 'content';
   return {
     id: String(raw?.id || fallback.id || id('section')), name: String(raw?.name || fallback.name || 'Seção'), type,
     visible: raw?.visible !== false, locked: raw?.locked === true,
