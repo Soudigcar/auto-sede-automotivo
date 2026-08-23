@@ -1,9 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { authorizeStorePortal } from '@/lib/server/storePortal';
 import { cleanText } from '@/lib/server/storeTeam';
 import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
-import { markAutocarHumanActive, resumeAutocarConversation } from '@/lib/server/autocar/safeRuntime';
+import { markAutocarHumanActive } from '@/lib/server/autocar/safeRuntime';
 import { processAutocarShadowInbound } from '@/lib/server/autocar/autoShadow';
+import { evaluateAutocarResumeRequest, isProtectedAutocarResumeState } from '@/lib/server/autocar/resumeGovernance';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -50,12 +52,15 @@ export async function GET(request: Request) {
     if (runtimeState.error) throw runtimeState.error;
     if (claims.error) throw claims.error;
 
+    const currentRuntime = runtimeState.data || null;
     return NextResponse.json({
       success: true,
       shadow_mode: true,
       no_external_execution: true,
       can_manage_autocar: context.permissions.includes('manage_autocar'),
-      runtime: runtimeState.data || null,
+      can_resume_protected: context.role === 'master',
+      protected_resume_required: isProtectedAutocarResumeState(currentRuntime),
+      runtime: currentRuntime,
       claims: claims.data || []
     });
   } catch (error: any) {
@@ -141,14 +146,64 @@ export async function POST(request: Request) {
       if (!context.permissions.includes('manage_autocar')) {
         return NextResponse.json({ error: 'Somente Gestor ou Master pode reativar a AUTOCAR nesta conversa.' }, { status: 403 });
       }
-      const state = await resumeAutocarConversation({
-        productionSupabase: context.supabase,
-        storeId: context.store.id,
-        conversationId: conversation.id,
-        whatsappNumberId: conversation.whatsapp_number_id,
-        leadId: conversation.lead_id
+
+      const autocar = getAutocarDevClient();
+      const { data: currentRuntime, error: runtimeError } = await autocar.from('ai_runtime_conversations')
+        .select('id,human_state,pause_reason,paused_by_profile_id,paused_by_source,paused_at,resumed_at')
+        .eq('store_id', context.store.id)
+        .eq('production_conversation_id', conversation.id)
+        .maybeSingle();
+      if (runtimeError) throw runtimeError;
+
+      const decision = evaluateAutocarResumeRequest({
+        runtime: currentRuntime,
+        actorRole: context.role,
+        resumeReason: cleanText(body?.resume_reason, 500),
+        confirmed: body?.confirm_protected_resume === true
       });
-      return NextResponse.json({ success: true, shadow_mode: true, no_external_execution: true, runtime: state });
+      if (!decision.allowed) {
+        return NextResponse.json({ error: decision.error, protected_resume: decision.protectedResume }, { status: decision.status });
+      }
+
+      const { data: resumeResult, error: resumeError } = await autocar.rpc('resume_autocar_conversation_audited', {
+        p_store_id: context.store.id,
+        p_production_conversation_id: conversation.id,
+        p_actor_profile_id: context.profile.id,
+        p_actor_role: context.role,
+        p_resume_reason: decision.resumeReason,
+        p_resume_source: 'store_portal_runtime',
+        p_confirmed: decision.protectedResume ? body?.confirm_protected_resume === true : false,
+        p_request_id: randomUUID()
+      });
+
+      if (resumeError) {
+        const code = String(resumeError.code || '');
+        if (code === '42501') {
+          return NextResponse.json({ error: 'A retomada protegida foi bloqueada pelo SAFE CORE.' }, { status: 403 });
+        }
+        if (code === '22023') {
+          return NextResponse.json({ error: 'Os dados da retomada protegida são inválidos.' }, { status: 400 });
+        }
+        if (code === 'P0002') {
+          return NextResponse.json({ error: 'Runtime AUTOCAR não encontrado para esta conversa.' }, { status: 404 });
+        }
+        if (code === 'P0001') {
+          return NextResponse.json({ error: 'A conversa já não está em atendimento humano.' }, { status: 409 });
+        }
+        if (code === 'PGRST202') {
+          return NextResponse.json({ error: 'A governança auditada de retomada ainda não está disponível neste ambiente.' }, { status: 503 });
+        }
+        throw resumeError;
+      }
+
+      const state = resumeResult?.runtime || null;
+      return NextResponse.json({
+        success: true,
+        shadow_mode: true,
+        no_external_execution: true,
+        protected_resume: Boolean(resumeResult?.protected_resume),
+        runtime: state
+      });
     }
 
     return NextResponse.json({ error: 'Ação de runtime AUTOCAR inválida.' }, { status: 400 });
