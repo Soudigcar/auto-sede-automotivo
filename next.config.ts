@@ -3,6 +3,17 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  async rewrites() {
+    return {
+      beforeFiles: [
+        {
+          source: '/api/store-stock',
+          destination: '/api/store-stock-safe',
+          missing: [{ type: 'header', key: 'x-store-stock-internal' }]
+        }
+      ]
+    };
+  },
   async headers() {
     return [
       {
