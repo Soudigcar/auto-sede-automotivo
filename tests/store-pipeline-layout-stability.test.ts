@@ -9,6 +9,7 @@ const newLeadBridge = readFileSync('src/components/StorePipelineNewLeadScheduleB
 const saleBridge = readFileSync('src/components/StorePipelineSaleActionBridge.tsx', 'utf8');
 const pipelinePage = readFileSync('src/app/loja/[slug]/pipeline/page.tsx', 'utf8');
 const pipelineRoute = readFileSync('src/app/api/store/portal/pipeline/route.ts', 'utf8');
+const pipelineWhatsappRoute = readFileSync('src/app/api/store/portal/pipeline/whatsapp/route.ts', 'utf8');
 const whatsappPage = readFileSync('src/app/loja/[slug]/whatsapp/page.tsx', 'utf8');
 const domSync = readFileSync('src/components/StorePipelineDomSync.tsx', 'utf8');
 
@@ -78,9 +79,22 @@ test('each desktop stage has a bounded independent lead scroller', () => {
 test('compact cards use the WhatsApp brand mark and open the linked CRM conversation', () => {
   assert.match(pipelinePage, /function WhatsappMark/);
   assert.match(pipelinePage, /whatsapp_conversation_id/);
-  assert.match(pipelinePage, /router\.push\(`\/loja\/\$\{encodeURIComponent\(slug\)\}\/whatsapp\$\{query\}`\)/);
+  assert.match(pipelinePage, /request\('\/api\/store\/portal\/pipeline\/whatsapp'/);
+  assert.match(pipelinePage, /router\.push\(`\/loja\/\$\{encodeURIComponent\(slug\)\}\/whatsapp\?conversation_id=/);
+  assert.match(pipelinePage, /disabled=\{!lead\.has_phone\}/);
+  assert.doesNotMatch(pipelinePage, /disabled=\{!lead\.whatsapp_conversation_id\}/);
   assert.doesNotMatch(pipelinePage, /popup\.location\.href = `https:\/\/wa\.me/);
   assert.match(whatsappPage, /searchParams\.get\('conversation_id'\)/);
+});
+
+test('unlinked WhatsApp conversations are created only for an authorized lead and store channel', () => {
+  assert.match(pipelineWhatsappRoute, /authorizeStorePortal\(request, slug\)/);
+  assert.match(pipelineWhatsappRoute, /canAccessStoreLead\(context\.profile, context\.role, lead\)/);
+  assert.match(pipelineWhatsappRoute, /\.eq\('assigned_store_id', context\.store\.id\)/);
+  assert.match(pipelineWhatsappRoute, /\.eq\('scope', 'store'\)/);
+  assert.match(pipelineWhatsappRoute, /\.eq\('lead_id', lead\.id\)/);
+  assert.match(pipelineWhatsappRoute, /assigned_user_id: lead\.assigned_user_id \|\| null/);
+  assert.match(pipelineWhatsappRoute, /Este telefone já está vinculado a outro lead da loja/);
 });
 
 test('pipeline exposes cached contact photos without changing data or calling Evolution', () => {

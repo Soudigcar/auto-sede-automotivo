@@ -442,10 +442,26 @@ export default function StoreSlugPipelinePage() {
     }
   }
 
-  function openWhatsapp(lead: PipelineLead) {
-    if (!lead.whatsapp_conversation_id) return;
-    const query = `?conversation_id=${encodeURIComponent(lead.whatsapp_conversation_id)}`;
-    router.push(`/loja/${encodeURIComponent(slug)}/whatsapp${query}`);
+  async function openWhatsapp(lead: PipelineLead) {
+    if (!lead.has_phone) {
+      setMessage('Este lead não possui telefone cadastrado.');
+      return;
+    }
+    try {
+      setMessage('Abrindo conversa no WhatsApp CRM...');
+      const result = lead.whatsapp_conversation_id
+        ? { conversation_id: lead.whatsapp_conversation_id }
+        : await request('/api/store/portal/pipeline/whatsapp', {
+            method: 'POST',
+            body: JSON.stringify({ slug, lead_id: lead.id })
+          });
+      const conversationId = String(result.conversation_id || '');
+      if (!conversationId) throw new Error('Não foi possível identificar a conversa deste lead.');
+      setLeads((current) => current.map((item) => item.id === lead.id ? { ...item, whatsapp_conversation_id: conversationId } : item));
+      router.push(`/loja/${encodeURIComponent(slug)}/whatsapp?conversation_id=${encodeURIComponent(conversationId)}`);
+    } catch (error: any) {
+      setMessage(error?.message || 'Não foi possível abrir a conversa no WhatsApp CRM.');
+    }
   }
 
   function openSchedule(lead: PipelineLead) {
@@ -950,7 +966,7 @@ function LeadListRow({ lead, stages, stageId, busy, onOpen, onReveal, onWhatsapp
           <p className="mt-0.5 truncate text-[8px] font-bold text-zinc-400">{lead.appointment_notes || (lead.status === 'scheduled' ? 'Visita agendada' : 'Sem agendamento')}</p>
         </div>
         <div className="grid grid-cols-4 gap-1.5">
-          <CompactIconAction label="WhatsApp" tone="green" icon={<WhatsappMark size={13} />} disabled={!lead.whatsapp_conversation_id} disabledTitle="Conversa ainda não vinculada ao WhatsApp CRM" onClick={onWhatsapp} />
+          <CompactIconAction label="WhatsApp" tone="green" icon={<WhatsappMark size={13} />} disabled={!lead.has_phone} disabledTitle="Lead sem telefone cadastrado" onClick={onWhatsapp} />
           <CompactIconAction label="Tarefa" icon={<ListTodo size={12} />} onClick={onTask} />
           <CompactIconAction label={lead.status === 'scheduled' ? 'Reagendar' : 'Agendar'} tone="amber" icon={<CalendarDays size={12} />} disabled={!canSchedule} disabledTitle="Disponível após iniciar o atendimento" onClick={onSchedule} />
           <CompactIconAction label={moreOpen ? 'Fechar ações' : 'Mais ações'} icon={<Plus size={13} className={moreOpen ? 'rotate-45 transition' : 'transition'} />} expanded={moreOpen} onClick={() => setMoreOpen((current) => !current)} />
@@ -1057,8 +1073,8 @@ function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onO
           label="WhatsApp"
           tone="green"
           icon={<WhatsappMark size={13} />}
-          disabled={!lead.whatsapp_conversation_id}
-          disabledTitle="Conversa ainda não vinculada ao WhatsApp CRM"
+          disabled={!lead.has_phone}
+          disabledTitle="Lead sem telefone cadastrado"
           onClick={(event) => stop(event, onWhatsapp)}
         />
         <CompactIconAction
