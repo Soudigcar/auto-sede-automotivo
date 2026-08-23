@@ -45,6 +45,7 @@ export async function GET(request: Request) {
       .from('leads')
       .select([
         'id', 'customer_name', 'customer_phone', 'interested_vehicle', 'origin', 'status',
+        'assigned_user_id', 'seller_user_id', 'pre_sales_user_id', 'captured_by_user_id',
         'notes', 'scheduled_at', 'appointment_notes', 'appointment_cancelled_at',
         'appointment_cancelled_reason', 'lost_reason', 'created_at'
       ].join(','), { count: 'exact' })

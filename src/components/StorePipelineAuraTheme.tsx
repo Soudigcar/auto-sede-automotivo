@@ -124,10 +124,15 @@ export function StorePipelineAuraTheme() {
   useEffect(() => {
     if (!active) return;
     const term = normalize(query.trim());
-    document.querySelectorAll<HTMLElement>('[data-lead-id]').forEach((card) => {
-      const haystack = normalize(card.textContent || '');
-      card.style.display = !term || haystack.includes(term) ? '' : 'none';
-    });
+    const applySearch = () => {
+      document.querySelectorAll<HTMLElement>('[data-lead-id], [data-pipeline-list-row]').forEach((card) => {
+        const haystack = normalize(card.textContent || '');
+        card.style.display = !term || haystack.includes(term) ? '' : 'none';
+      });
+    };
+    applySearch();
+    window.addEventListener('pipeline-dom-sync', applySearch);
+    return () => window.removeEventListener('pipeline-dom-sync', applySearch);
   }, [active, query]);
 
   const themeLabel = useMemo(() => theme === 'dark' ? 'Ativar tema claro' : 'Ativar tema escuro', [theme]);

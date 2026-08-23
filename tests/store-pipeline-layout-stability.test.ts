@@ -17,6 +17,27 @@ test('direct pipeline load keeps DOM synchronization across the auth main replac
   assert.doesNotMatch(domSync, /document\.querySelector\('main'\) \|\| document\.body/);
 });
 
+test('each user can switch between Kanban and List without changing pipeline data rules', () => {
+  assert.match(cockpit, /pipeline-view-toggle/);
+  assert.match(cockpit, /pipeline-view-mode-change/);
+  assert.match(pipelinePage, /type PipelineViewMode = 'kanban' \| 'list'/);
+  assert.match(pipelinePage, /auto-controle-pipeline-view:\$\{slug\}:\$\{profileId\}/);
+  assert.match(pipelinePage, /viewMode === 'kanban'/);
+  assert.match(pipelinePage, /<PipelineLeadList/);
+});
+
+test('list mode reuses scoped leads, protected stage transitions and the existing actions', () => {
+  assert.match(pipelineRoute, /'assigned_user_id', 'seller_user_id', 'pre_sales_user_id', 'captured_by_user_id'/);
+  assert.match(pipelinePage, /leads\.filter\(\(lead\) => leadResponsibleId\(lead\) === selectedResponsible\)/);
+  assert.match(pipelinePage, /onStageChange=\{changeListStage\}/);
+  assert.match(pipelinePage, /pipeline-assign-custom-stage/);
+  assert.match(pipelinePage, /pipeline-clear-custom-assignment/);
+  assert.match(pipelinePage, /onWhatsapp=\{\(lead\) => void openWhatsapp\(lead\)\}/);
+  assert.match(pipelinePage, /onTask=\{openTask\}/);
+  assert.match(pipelinePage, /onTransfer=\{\(lead\) => void openTransfer\(lead\)\}/);
+  assert.match(auraTheme, /\[data-lead-id\], \[data-pipeline-list-row\]/);
+});
+
 test('native v2 cards keep their compact presentation after internal navigation', () => {
   assert.match(auraTheme, /\[data-lead-id\]:not\(\[data-pipeline-card-v2="true"\]\)/);
   assert.match(auraTheme, /card\.classList\.remove\('pipeline-aura-lead-card'\)/);
