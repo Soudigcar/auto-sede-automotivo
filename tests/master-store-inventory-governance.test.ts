@@ -7,6 +7,7 @@ const nextConfig = readFileSync('next.config.ts', 'utf8');
 const selectorPage = readFileSync('src/app/master/stores/stock/page.tsx', 'utf8');
 const detailPage = readFileSync('src/app/master/stores/stock/[slug]/page.tsx', 'utf8');
 const storesLayout = readFileSync('src/app/master/stores/layout.tsx', 'utf8');
+const storesAdminPage = readFileSync('src/app/master/stores/page.tsx', 'utf8');
 
 test('todo acesso externo ao /api/store-stock passa pelo guard antes do handler legado', () => {
   assert.match(nextConfig, /source:\s*'\/api\/store-stock'/);
@@ -36,14 +37,23 @@ test('ações Master de estoque deixam trilha de auditoria', () => {
 });
 
 test('Master permanece em rota própria e não navega para portal da loja', () => {
-  assert.match(storesLayout, /href="\/master\/stores\/stock"/);
-  assert.match(selectorPage, /Gerenciar estoque/);
   assert.match(selectorPage, /href=\{`\/master\/stores\/stock\/\$\{encodeURIComponent\(store\.slug\)\}`\}/);
   assert.doesNotMatch(selectorPage, /href=\{`\/loja\/\$\{encodeURIComponent\(store\.slug\)\}\/estoque`\}/);
   assert.match(detailPage, /data-master-stock-shell/);
   assert.match(detailPage, /Gestão Master/);
   assert.match(detailPage, /<StoreStockPage \/>/);
   assert.match(detailPage, /href="\/master\/stores\/stock"/);
+});
+
+test('menu Master permanece no estoque e separa central de estoque da administração de lojas', () => {
+  assert.match(storesLayout, /href="\/master\/stores\/stock"/);
+  assert.match(storesLayout, /> Lojas & Estoque<\/Link>/);
+  assert.match(storesLayout, /href="\/master\/stores"/);
+  assert.match(storesLayout, /> Administrar lojas<\/Link>/);
+  assert.match(selectorPage, /href="\/master\/stores"/);
+  assert.match(selectorPage, /Administrar lojas/);
+  assert.match(storesAdminPage, /Cadastrar loja/);
+  assert.match(storesAdminPage, /Anexar estoque/);
 });
 
 test('importação Master reutiliza revisão por IA e preserva fotos técnicas', () => {
