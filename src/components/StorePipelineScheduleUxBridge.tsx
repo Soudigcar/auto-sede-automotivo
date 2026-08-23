@@ -173,7 +173,7 @@ export function StorePipelineScheduleUxBridge() {
         const text = String(heading.textContent || '').trim();
         const stage = stageByTitle[text];
         if (!stage) return;
-        const column = heading.closest<HTMLElement>('.min-h-\[520px\]');
+        const column = heading.closest<HTMLElement>('.min-h-\\[520px\\]');
         if (column) column.dataset.pipelineStage = stage;
       });
 

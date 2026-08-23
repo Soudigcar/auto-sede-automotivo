@@ -45,6 +45,11 @@ test('native v2 cards keep their compact presentation after internal navigation'
   assert.match(scheduleBridge, /classList\.remove\('pipeline-card-actions-uniform', 'pipeline-card-action-uniform'\)/);
 });
 
+test('pipeline DOM sync uses a valid escaped selector for scheduled-stage decoration', () => {
+  assert.match(scheduleBridge, /closest<HTMLElement>\('\.min-h-\\\\\[520px\\\\\]'\)/);
+  assert.doesNotMatch(scheduleBridge, /closest<HTMLElement>\('\.min-h-\\\[520px\\\]'\)/);
+});
+
 test('legacy action bridges do not inject duplicate actions into native v2 cards', () => {
   assert.match(newLeadBridge, /card\.dataset\.pipelineCardV2 === 'true'/);
   assert.match(saleBridge, /card\.dataset\.pipelineCardV2 === 'true'/);
