@@ -8,11 +8,12 @@ import {
   LEAD_IMPORT_MAX_ROWS,
   LeadImportColumnMapping,
   LeadImportField,
+  LeadImportMappingSuggestion,
   LeadImportRow,
   leadImportFieldLabels,
   leadImportFields,
   mapLeadImportRows,
-  suggestLeadImportMapping
+  suggestLeadImportMappingDetailed
 } from '@/lib/leadImport';
 
 type ImportContext = {
@@ -62,6 +63,7 @@ export function MasterLeadImportModal({ onImported }: { onImported: () => Promis
   const [headers, setHeaders] = useState<unknown[]>([]);
   const [matrix, setMatrix] = useState<unknown[][]>([]);
   const [mapping, setMapping] = useState<LeadImportColumnMapping>({});
+  const [mappingSuggestions, setMappingSuggestions] = useState<LeadImportMappingSuggestion[]>([]);
   const [eventId, setEventId] = useState('');
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
   const [distribute, setDistribute] = useState(false);
@@ -78,6 +80,10 @@ export function MasterLeadImportModal({ onImported }: { onImported: () => Promis
   const selectedRoleMemberCount = useMemo(
     () => visibleMembers.filter((member) => selectedRoles.includes(member.role) && member.receives_leads).length,
     [selectedRoles, visibleMembers]
+  );
+  const suggestionByField = useMemo(
+    () => new Map(mappingSuggestions.map((suggestion) => [suggestion.field, suggestion])),
+    [mappingSuggestions]
   );
 
   async function authToken() {
@@ -113,6 +119,7 @@ export function MasterLeadImportModal({ onImported }: { onImported: () => Promis
     setHeaders([]);
     setMatrix([]);
     setMapping({});
+    setMappingSuggestions([]);
     setEventId('');
     setSelectedStoreIds([]);
     setDistribute(false);
@@ -166,7 +173,9 @@ export function MasterLeadImportModal({ onImported }: { onImported: () => Promis
       setFileHash(await sha256(file));
       setHeaders(fileHeaders);
       setMatrix(values);
-      setMapping(suggestLeadImportMapping(fileHeaders));
+      const intelligentMapping = suggestLeadImportMappingDetailed(fileHeaders, values.slice(1, 101));
+      setMapping(intelligentMapping.mapping);
+      setMappingSuggestions(intelligentMapping.suggestions);
     } catch (error: any) {
       setMessage(error?.message || 'Não foi possível interpretar o arquivo.');
       setMatrix([]);
@@ -191,6 +200,7 @@ export function MasterLeadImportModal({ onImported }: { onImported: () => Promis
   }
 
   function updateMapping(field: LeadImportField, value: string) {
+    setMappingSuggestions((current) => current.filter((suggestion) => suggestion.field !== field));
     setMapping((current) => {
       const next = { ...current };
       if (!value) delete next[field];
@@ -320,9 +330,15 @@ export function MasterLeadImportModal({ onImported }: { onImported: () => Promis
                   {headers.length ? (
                     <section className="rounded-2xl border border-zinc-200 p-4">
                       <h3 className="text-sm font-black text-slate-950">1. Vincular colunas</h3>
-                      <p className="mt-1 text-xs text-zinc-500">Confira como cada coluna do arquivo será salva.</p>
+                      <p className="mt-1 text-xs text-zinc-500">O sistema compara os títulos e o formato dos dados, independentemente da posição das colunas.</p>
+                      <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-800">
+                        {mappingSuggestions.length} campo(s) reconhecido(s) automaticamente no navegador. Confira os vínculos antes de continuar.
+                      </div>
                       <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        {leadImportFields.map((field) => <label key={field} className="text-[10px] font-black uppercase text-zinc-500">{leadImportFieldLabels[field]}{field === 'name' ? ' *' : ''}<select value={mapping[field] ?? ''} onChange={(event) => updateMapping(field, event.target.value)} className="mt-1 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-xs font-bold normal-case text-slate-800"><option value="">Não importar</option>{headers.map((header, index) => <option key={`${index}-${String(header)}`} value={index}>{String(header || `Coluna ${index + 1}`)}</option>)}</select></label>)}
+                        {leadImportFields.map((field) => {
+                          const suggestion = suggestionByField.get(field);
+                          return <label key={field} className="text-[10px] font-black uppercase text-zinc-500"><span className="flex items-center justify-between gap-2"><span>{leadImportFieldLabels[field]}{field === 'name' ? ' *' : ''}</span>{suggestion ? <span className={`rounded-full px-2 py-0.5 text-[8px] ${suggestion.confidence === 'high' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{suggestion.confidence === 'high' ? 'Reconhecido' : 'Confira'}</span> : null}</span><select value={mapping[field] ?? ''} onChange={(event) => updateMapping(field, event.target.value)} className="mt-1 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-xs font-bold normal-case text-slate-800"><option value="">Não importar</option>{headers.map((header, index) => <option key={`${index}-${String(header)}`} value={index}>{String(header || `Coluna ${index + 1}`)}</option>)}</select></label>;
+                        })}
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-emerald-100 px-3 py-1 font-bold text-emerald-700">{parsed.rows.length} linha(s) válida(s)</span>{parsed.errors.length ? <span className="rounded-full bg-red-100 px-3 py-1 font-bold text-red-700">{parsed.errors.length} linha(s) com erro</span> : null}</div>
                       {parsed.errors.length ? <div className="mt-3 max-h-28 overflow-y-auto rounded-xl border border-red-100 bg-red-50 p-3 text-xs text-red-800">{parsed.errors.slice(0, 50).map((error) => <p key={`${error.row_number}-${error.message}`}>Linha {error.row_number}: {error.message}</p>)}</div> : null}

@@ -60,9 +60,29 @@ create index if not exists lead_import_batches_file_hash_idx
 create index if not exists lead_import_batch_items_batch_status_idx
   on public.lead_import_batch_items(batch_id, result_status, row_number);
 
+create or replace function public.normalize_lead_import_phone(p_value text)
+returns text
+language sql
+immutable
+parallel safe
+security invoker
+set search_path = pg_catalog
+as $function$
+  with normalized as (
+    select regexp_replace(coalesce(p_value, ''), '[^0-9]', '', 'g') as digits
+  )
+  select case
+    when digits ~ '^0055[0-9]{10,11}$' then substring(digits from 5)
+    when digits ~ '^55[0-9]{10,11}$' then substring(digits from 3)
+    when digits ~ '^0[0-9]{10,11}$' then substring(digits from 2)
+    else digits
+  end
+  from normalized;
+$function$;
+
 create index if not exists leads_base_normalized_phone_import_idx
-  on public.leads_base ((regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g')))
-  where regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g') <> '';
+  on public.leads_base ((public.normalize_lead_import_phone(phone)))
+  where public.normalize_lead_import_phone(phone) <> '';
 create index if not exists leads_base_normalized_cpf_import_idx
   on public.leads_base ((regexp_replace(coalesce(cpf, ''), '[^0-9]', '', 'g')))
   where regexp_replace(coalesce(cpf, ''), '[^0-9]', '', 'g') <> '';
@@ -214,7 +234,7 @@ begin
         else v_input.ordinality::integer + 1
       end;
       v_name := left(btrim(coalesce(v_payload ->> 'name', '')), 240);
-      v_phone := left(regexp_replace(coalesce(v_payload ->> 'phone', ''), '[^0-9]', '', 'g'), 15);
+      v_phone := left(public.normalize_lead_import_phone(v_payload ->> 'phone'), 16);
       v_cpf := left(regexp_replace(coalesce(v_payload ->> 'cpf', ''), '[^0-9]', '', 'g'), 11);
       v_email := left(lower(btrim(coalesce(v_payload ->> 'email', ''))), 320);
       v_birth_date := left(btrim(coalesce(v_payload ->> 'birth_date', '')), 10);
@@ -241,7 +261,7 @@ begin
         where v_cpf <> '' and regexp_replace(coalesce(base.cpf, ''), '[^0-9]', '', 'g') = v_cpf
         union
         select base.id from public.leads_base base
-        where v_phone <> '' and regexp_replace(coalesce(base.phone, ''), '[^0-9]', '', 'g') = v_phone
+        where v_phone <> '' and public.normalize_lead_import_phone(base.phone) = v_phone
         union
         select base.id from public.leads_base base
         where v_email <> '' and lower(btrim(coalesce(base.email, ''))) = v_email
@@ -278,7 +298,7 @@ begin
         v_routed_id := v_base.routed_lead_id;
         v_matched_by := array_remove(array[
           case when v_cpf <> '' and regexp_replace(coalesce(v_base.cpf, ''), '[^0-9]', '', 'g') = v_cpf then 'cpf' end,
-          case when v_phone <> '' and regexp_replace(coalesce(v_base.phone, ''), '[^0-9]', '', 'g') = v_phone then 'phone' end,
+          case when v_phone <> '' and public.normalize_lead_import_phone(v_base.phone) = v_phone then 'phone' end,
           case when v_email <> '' and lower(btrim(coalesce(v_base.email, ''))) = v_email then 'email' end
         ], null);
 
@@ -572,5 +592,8 @@ revoke all on function public.master_import_leads_batch(
 grant execute on function public.master_import_leads_batch(
   jsonb, uuid, uuid[], uuid[], text, text, uuid, integer, integer, integer
 ) to service_role;
+
+revoke all on function public.normalize_lead_import_phone(text) from public, anon, authenticated;
+grant execute on function public.normalize_lead_import_phone(text) to service_role;
 
 commit;

@@ -5,6 +5,7 @@ import test from 'node:test';
 const migration = readFileSync('supabase/migrations/20260823101351_master_base_lead_import.sql', 'utf8');
 const route = readFileSync('src/app/api/master/base-lead-import/route.ts', 'utf8');
 const modal = readFileSync('src/components/MasterLeadImportModal.tsx', 'utf8');
+const mapper = readFileSync('src/lib/leadImport.ts', 'utf8');
 const page = readFileSync('src/app/master/base/page.tsx', 'utf8');
 
 test('RPC de importação é transacional, invoker e exclusiva do service role', () => {
@@ -24,11 +25,21 @@ test('auditoria não replica dados pessoais do arquivo', () => {
 });
 
 test('deduplicação usa CPF, telefone e e-mail normalizados e bloqueia conflito', () => {
+  assert.match(migration, /create or replace function public\.normalize_lead_import_phone/);
+  assert.match(migration, /\^55\[0-9\]\{10,11\}\$/);
+  assert.match(migration, /public\.normalize_lead_import_phone\(base\.phone\) = v_phone/);
+  assert.match(migration, /revoke all on function public\.normalize_lead_import_phone\(text\) from public, anon, authenticated/);
   assert.match(migration, /leads_base_normalized_phone_import_idx/);
   assert.match(migration, /leads_base_normalized_cpf_import_idx/);
   assert.match(migration, /leads_base_normalized_email_import_idx/);
   assert.match(migration, /cardinality\(v_match_ids\) > 1/);
   assert.match(migration, /Nenhum dado foi alterado/);
+});
+
+test('reconhecimento inteligente permanece local e não transmite amostras da planilha', () => {
+  assert.match(mapper, /suggestLeadImportMappingDetailed/);
+  assert.match(modal, /values\.slice\(1, 101\)/);
+  assert.doesNotMatch(mapper, /fetch\(|XMLHttpRequest|openai|anthropic|gemini/i);
 });
 
 test('endpoint exige Master, limita lotes e não expõe erro interno do banco', () => {
