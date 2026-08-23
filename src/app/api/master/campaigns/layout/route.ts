@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic';
 
 const MAX_LAYOUT_BYTES = 2_000_000;
 const LAYOUT_VERSION = 3;
+const DEFAULT_CAMPAIGN_TERMS = 'Esta simulação é apenas uma estimativa e não representa aprovação de crédito nem proposta definitiva. Taxas, prazos, entrada, parcelas, CET, disponibilidade do veículo e aprovação estão sujeitos à análise e confirmação da instituição financeira e da loja responsável. Consulte as condições finais antes da contratação.';
 
 function validLayout(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -18,6 +19,16 @@ function layoutTerms(layout: unknown) {
   if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return '';
   const footer = (layout as Record<string, any>).footer;
   return cleanText(footer?.termsOverride, 5000);
+}
+
+function withLayoutTerms(layout: unknown, terms: string) {
+  const normalized = JSON.parse(JSON.stringify(layout)) as Record<string, any>;
+  normalized.footer = {
+    ...(normalized.footer || {}),
+    showTerms: normalized.footer?.showTerms !== false,
+    termsOverride: cleanText(normalized.footer?.termsOverride, 5000) || terms
+  };
+  return normalized;
 }
 
 export async function GET(request: Request) {
@@ -53,9 +64,9 @@ export async function POST(request: Request) {
     const body = await request.json();
     const id = cleanText(body.id, 80);
     const action = cleanText(body.action, 20);
-    const layout = validLayout(body.layout);
+    const receivedLayout = validLayout(body.layout);
     if (!id) return NextResponse.json({ error: 'Landing obrigatória.' }, { status: 400 });
-    if (!layout) return NextResponse.json({ error: 'Layout inválido ou acima do limite permitido.' }, { status: 400 });
+    if (!receivedLayout) return NextResponse.json({ error: 'Layout inválido ou acima do limite permitido.' }, { status: 400 });
     if (action !== 'save' && action !== 'publish') return NextResponse.json({ error: 'Ação inválida.' }, { status: 400 });
 
     const { data: campaign, error: campaignError } = await supabase.from('site_campaigns').select('id,slug,event_id,is_active,published_at,terms_text').eq('id', id).maybeSingle();
@@ -63,11 +74,12 @@ export async function POST(request: Request) {
     if (!campaign) return NextResponse.json({ error: 'Landing não encontrada.' }, { status: 404 });
 
     const now = new Date().toISOString();
-    const layoutPayload: Record<string, unknown> = { campaign_id: id, editor_draft: layout, layout_version: LAYOUT_VERSION, draft_updated_at: now, updated_at: now };
+    let layout = receivedLayout;
 
     if (action === 'publish') {
-      const terms = cleanText(campaign.terms_text, 5000) || layoutTerms(layout);
-      if (!terms) return NextResponse.json({ error: 'Cadastre os termos/condições da landing antes de publicar.' }, { status: 409 });
+      const terms = cleanText(campaign.terms_text, 5000) || layoutTerms(receivedLayout) || DEFAULT_CAMPAIGN_TERMS;
+      layout = withLayoutTerms(receivedLayout, terms);
+
       if (campaign.event_id) {
         const [eventResult, participationResult, assignmentResult] = await Promise.all([
           supabase.from('events').select('id,status').eq('id', campaign.event_id).maybeSingle(),
@@ -80,6 +92,17 @@ export async function POST(request: Request) {
         if (!participationResult.data?.length) return NextResponse.json({ error: 'Vincule ao menos uma loja ativa ao evento antes de publicar.' }, { status: 409 });
         if (!assignmentResult.data?.length) return NextResponse.json({ error: 'A landing precisa ter ao menos um veículo ativo e visível antes de publicar.' }, { status: 409 });
       }
+    }
+
+    const layoutPayload: Record<string, unknown> = {
+      campaign_id: id,
+      editor_draft: layout,
+      layout_version: LAYOUT_VERSION,
+      draft_updated_at: now,
+      updated_at: now
+    };
+
+    if (action === 'publish') {
       layoutPayload.published_layout = layout;
       layoutPayload.published_at = now;
       layoutPayload.published_by = master.id;
