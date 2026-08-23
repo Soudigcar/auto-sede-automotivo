@@ -5,11 +5,26 @@ import { parseExplicitCallbackRequest, simulateSmartFollowUp } from '../src/lib/
 
 const migration = fs.readFileSync(path.join(process.cwd(), 'supabase/migrations/20260823042000_autocar_smart_follow_up_v1.sql'), 'utf8');
 const cron = fs.readFileSync(path.join(process.cwd(), 'src/app/api/cron/autocar-follow-up/route.ts'), 'utf8');
+const vercel = fs.readFileSync(path.join(process.cwd(), 'vercel.json'), 'utf8');
 
 describe('AUTOCAR Smart Follow-up V1', () => {
   it('permanece dry-run sem caminho de envio externo', () => {
     expect(cron).not.toContain('sendEvolution');
     expect(cron).toContain('AUTOCAR_SMART_FOLLOW_UP_DRY_RUN_ENABLED');
+  });
+
+  it('executa o endpoint de cron somente em Vercel Preview antes do acesso ao banco', () => {
+    expect(cron).toContain("process.env.VERCEL_ENV !== 'preview'");
+    const envGuardIndex = cron.indexOf("process.env.VERCEL_ENV !== 'preview'");
+    expect(envGuardIndex).toBeGreaterThanOrEqual(0);
+    expect(cron.indexOf('getAdminClient()', envGuardIndex)).toBeGreaterThan(envGuardIndex);
+    expect(cron.indexOf('getAutocarDevClient()', envGuardIndex)).toBeGreaterThan(envGuardIndex);
+  });
+
+  it('não agenda Smart Follow-up no Vercel e preserva o cron de LGPD', () => {
+    expect(vercel).not.toContain('/api/cron/autocar-follow-up');
+    expect(vercel).toContain('/api/cron/privacy-retention');
+    expect(vercel).toContain('17 3 * * *');
   });
 
   it('usa lease idempotente com SKIP LOCKED', () => {
