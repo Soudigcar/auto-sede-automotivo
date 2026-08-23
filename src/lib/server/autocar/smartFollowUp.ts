@@ -57,6 +57,38 @@ function textFor(trigger: TriggerType, name: string, scheduledAt?: string | null
   return `Oi, ${name}! Você pediu para eu falar com você agora. Podemos continuar de onde paramos?`;
 }
 
+function saoPauloParts(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(date);
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+}
+
+export function parseExplicitCallbackRequest(textValue: unknown, now = new Date()) {
+  const text = String(textValue || '').trim().toLowerCase();
+  if (!text) return { matched: false, due_at: null as string | null, reason: 'Mensagem vazia.' };
+  const asksCallback = /(me chama|me chame|fala comigo|fale comigo|pode chamar|pode me chamar|retorna|retorne|me liga|me ligue)/i.test(text);
+  if (!asksCallback) return { matched: false, due_at: null as string | null, reason: 'Mensagem não contém pedido explícito de retorno.' };
+
+  const timeMatch = text.match(/(?:às|as|a)?\s*(\d{1,2})(?::|h)(\d{2})?\b/i);
+  if (!timeMatch) return { matched: false, due_at: null as string | null, reason: 'Pedido de retorno sem horário explícito; V1 não adivinha “mais tarde”.' };
+  const hour = Number(timeMatch[1]);
+  const minute = Number(timeMatch[2] || 0);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return { matched: false, due_at: null as string | null, reason: 'Horário solicitado é inválido.' };
+
+  const dateParts = saoPauloParts(now);
+  const base = new Date(`${dateParts.year}-${dateParts.month}-${dateParts.day}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00-03:00`);
+  const tomorrow = /amanh[ãa]/i.test(text);
+  let due = new Date(base.getTime() + (tomorrow ? 24 * 60 * 60 * 1000 : 0));
+  if (!tomorrow && due.getTime() <= now.getTime()) {
+    return { matched: false, due_at: null as string | null, reason: 'Horário de hoje já passou; é necessária confirmação explícita de outro dia.' };
+  }
+  if (due.getTime() - now.getTime() > 7 * 24 * 60 * 60 * 1000) {
+    return { matched: false, due_at: null as string | null, reason: 'Callback fora da janela máxima do V1.' };
+  }
+  return { matched: true, due_at: due.toISOString(), reason: 'Pedido explícito de callback com horário determinado.' };
+}
+
 async function activeConversationForLead(production: any, storeId: string, leadId: string) {
   const { data, error } = await production.from('whatsapp_conversations')
     .select('id,store_id,lead_id,base_lead_id,status,last_message_at')
@@ -146,17 +178,23 @@ export async function evaluateFollowUpEvent(input: { production: any; autocar: a
   const gates: Record<string, unknown> = { version: FOLLOW_UP_VERSION, dry_run: true, contact_basis: event.contact_basis };
   if (!allowedBases.has(event.contact_basis)) return { decision: 'blocked', reason: 'Base de contato não permitida no Smart Follow-up V1.', proposed_text: null, trigger_type: event.trigger_type, gates, external_execution: false };
 
-  const [globalPolicyResult, agentResult, runtimeResult] = await Promise.all([
+  const [globalPolicyResult, storePolicyResult, agentResult, runtimeResult] = await Promise.all([
     input.autocar.from('ai_global_capability_policies').select('effect,is_active').eq('capability', 'create_follow_up').maybeSingle(),
+    input.autocar.from('ai_store_policies').select('effect,is_active,priority').eq('store_id', event.store_id).eq('policy_key', 'create_follow_up').eq('is_active', true).order('priority', { ascending: false }).limit(1).maybeSingle(),
     input.autocar.from('ai_store_agents').select('status,mode,master_enabled,master_autopilot_allowed,store_selected_mode').eq('store_id', event.store_id).maybeSingle(),
     input.autocar.from('ai_runtime_conversations').select('effective_mode,human_state,pause_reason').eq('store_id', event.store_id).eq('production_conversation_id', event.production_conversation_id).maybeSingle()
   ]);
   if (globalPolicyResult.error) throw globalPolicyResult.error;
+  if (storePolicyResult.error) throw storePolicyResult.error;
   if (agentResult.error) throw agentResult.error;
   if (runtimeResult.error) throw runtimeResult.error;
   const globalEffect = globalPolicyResult.data?.is_active ? globalPolicyResult.data.effect : null;
-  const policy = evaluateAutocarPolicy({ mode: 'autopilot', capability: 'create_follow_up', globalEffect });
+  const storeEffect = storePolicyResult.data?.is_active ? storePolicyResult.data.effect : null;
   gates.global_policy = globalEffect || 'default';
+  gates.store_policy = storeEffect || 'default';
+  if (globalEffect !== 'allow') return { decision: 'blocked', reason: 'Smart Follow-up exige liberação explícita do Master.', proposed_text: null, trigger_type: event.trigger_type, gates, external_execution: false };
+  if (storeEffect !== 'allow') return { decision: 'blocked', reason: 'Smart Follow-up exige liberação explícita da loja dentro do teto do Master.', proposed_text: null, trigger_type: event.trigger_type, gates, external_execution: false };
+  const policy = evaluateAutocarPolicy({ mode: 'autopilot', capability: 'create_follow_up', globalEffect: 'allow', storeEffect: 'allow' });
   gates.policy_effect = policy.effect;
   if (policy.effect !== 'allow') return { decision: 'blocked', reason: `Governança create_follow_up: ${policy.reason}`, proposed_text: null, trigger_type: event.trigger_type, gates, external_execution: false };
 
@@ -231,15 +269,17 @@ export async function processDueFollowUpsDryRun(input: { production: any; autoca
 }
 
 export function simulateSmartFollowUp(input: {
-  trigger_type: TriggerType; global_policy?: string; autopilot?: boolean; human_active?: boolean;
+  trigger_type: TriggerType; global_policy?: string; store_policy?: string; autopilot?: boolean; human_active?: boolean;
   sale_confirmed?: boolean; new_message?: boolean; appointment_status?: string; lead_status?: string; customer_name?: string;
 }) {
   const gates = {
-    global_policy: input.global_policy || 'default', autopilot: input.autopilot === true, human_active: input.human_active === true,
+    global_policy: input.global_policy || 'default', store_policy: input.store_policy || 'default',
+    autopilot: input.autopilot === true, human_active: input.human_active === true,
     sale_confirmed: input.sale_confirmed === true, new_message: input.new_message === true,
     appointment_status: input.appointment_status || 'scheduled', lead_status: input.lead_status || 'scheduled'
   };
-  if (gates.global_policy !== 'allow') return { decision: 'blocked', reason: 'create_follow_up continua bloqueado por padrão até liberação explícita do Master.', proposed_text: null, gates, external_execution: false };
+  if (gates.global_policy !== 'allow') return { decision: 'blocked', reason: 'Smart Follow-up exige liberação explícita do Master.', proposed_text: null, gates, external_execution: false };
+  if (gates.store_policy !== 'allow') return { decision: 'blocked', reason: 'Smart Follow-up exige liberação explícita da loja.', proposed_text: null, gates, external_execution: false };
   if (!gates.autopilot) return { decision: 'blocked', reason: 'AUTOPILOT efetivo é obrigatório para execução futura.', proposed_text: null, gates, external_execution: false };
   if (!gates.human_active) return { decision: 'blocked', reason: 'Takeover humano bloqueia follow-up automático.', proposed_text: null, gates, external_execution: false };
   if (gates.sale_confirmed) return { decision: 'cancelled', reason: 'Venda confirmada encerra follow-up comercial.', proposed_text: null, gates, external_execution: false };
