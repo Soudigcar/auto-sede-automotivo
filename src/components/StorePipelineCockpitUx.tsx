@@ -10,6 +10,8 @@ import {
   Eye,
   EyeOff,
   Headphones,
+  LayoutGrid,
+  List,
   LockKeyhole,
   Plus,
   RotateCcw,
@@ -64,6 +66,7 @@ type CustomAssignment = {
 };
 
 type AssignmentMap = Record<string, CustomAssignment>;
+type PipelineViewMode = 'kanban' | 'list';
 
 const DEFAULT_STAGES: StageConfig[] = [
   { id: 'new_lead', systemKey: 'new_lead', name: 'Novo Lead Recebido', color: '#3b82f6', visible: true, system: true, order: 0 },
@@ -262,6 +265,7 @@ export function StorePipelineCockpitUx() {
   const [draftStages, setDraftStages] = useState<StageConfig[]>(DEFAULT_STAGES);
   const [customizeMessage, setCustomizeMessage] = useState('');
   const [toast, setToast] = useState('');
+  const [viewMode, setViewMode] = useState<PipelineViewMode>('kanban');
   const summaryRef = useRef<PipelineSummary | null>(null);
   const stagesRef = useRef<StageConfig[]>(DEFAULT_STAGES);
   const assignmentsRef = useRef<AssignmentMap>({});
@@ -315,6 +319,28 @@ export function StorePipelineCockpitUx() {
     window.addEventListener('pipeline-responsible-change', onResponsibleChange as EventListener);
     return () => window.removeEventListener('pipeline-responsible-change', onResponsibleChange as EventListener);
   }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
+    const onViewModeUpdated = (event: Event) => {
+      const mode = (event as CustomEvent<{ mode?: PipelineViewMode }>).detail?.mode;
+      if (mode === 'kanban' || mode === 'list') setViewMode(mode);
+    };
+    window.addEventListener('pipeline-view-mode-updated', onViewModeUpdated as EventListener);
+    return () => window.removeEventListener('pipeline-view-mode-updated', onViewModeUpdated as EventListener);
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
+    const emitStageOptions = () => {
+      window.dispatchEvent(new CustomEvent('pipeline-stage-options-updated', {
+        detail: { stages, assignments }
+      }));
+    };
+    window.addEventListener('pipeline-stage-options-requested', emitStageOptions);
+    emitStageOptions();
+    return () => window.removeEventListener('pipeline-stage-options-requested', emitStageOptions);
+  }, [active, assignments, stages]);
 
   useEffect(() => {
     if (!active) return;
@@ -646,6 +672,10 @@ export function StorePipelineCockpitUx() {
             </div>
           );
         })}
+        <div className="pipeline-view-toggle" role="group" aria-label="Modo de visualização da pipeline">
+          <button type="button" className={viewMode === 'kanban' ? 'is-active' : ''} onClick={() => window.dispatchEvent(new CustomEvent('pipeline-view-mode-change', { detail: { mode: 'kanban' } }))} aria-pressed={viewMode === 'kanban'} title="Visualizar como Kanban"><LayoutGrid size={16} /><span>Kanban</span></button>
+          <button type="button" className={viewMode === 'list' ? 'is-active' : ''} onClick={() => window.dispatchEvent(new CustomEvent('pipeline-view-mode-change', { detail: { mode: 'list' } }))} aria-pressed={viewMode === 'list'} title="Visualizar como Lista"><List size={16} /><span>Lista</span></button>
+        </div>
         <button type="button" className="pipeline-customize-trigger" onClick={openCustomization}>
           <Settings2 size={21} />
           <span><strong>Personalizar pipeline</strong><small>Etapas, ordem e cores</small></span>
@@ -828,6 +858,34 @@ const styles = `
   .pipeline-customize-trigger > span { display:grid; gap:4px; }
   .pipeline-customize-trigger strong { font-size:11px; font-weight:950; white-space:nowrap; }
   .pipeline-customize-trigger small { color:var(--aura-muted); font-size:9px; font-weight:750; white-space:nowrap; }
+  .pipeline-view-toggle {
+    display:grid;
+    min-width:116px;
+    grid-template-columns:1fr 1fr;
+    align-items:center;
+    gap:4px;
+    border-left:1px solid var(--aura-border);
+    background:color-mix(in srgb,var(--aura-surface-2) 76%,transparent);
+    padding:8px;
+  }
+  .pipeline-view-toggle button {
+    display:grid;
+    min-width:0;
+    min-height:48px;
+    place-items:center;
+    gap:3px;
+    border:1px solid transparent;
+    border-radius:9px;
+    background:transparent;
+    color:var(--aura-muted);
+    font-size:7px;
+    font-weight:950;
+  }
+  .pipeline-view-toggle button.is-active {
+    border-color:color-mix(in srgb,#ef2d34 34%,var(--aura-border));
+    background:color-mix(in srgb,#ef2d34 12%,var(--aura-surface));
+    color:#ff6b70;
+  }
 
   @media (min-width:1024px) {
     body.pipeline-aura-active .pipeline-aura-board > div {

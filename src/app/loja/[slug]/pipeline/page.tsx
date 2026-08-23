@@ -75,6 +75,10 @@ type PipelineLead = {
   created_at: string;
   whatsapp_conversation_id: string | null;
   profile_picture_url: string | null;
+  assigned_user_id?: string | null;
+  seller_user_id?: string | null;
+  pre_sales_user_id?: string | null;
+  captured_by_user_id?: string | null;
   [key: string]: any;
 };
 
@@ -94,6 +98,42 @@ type TransferPayload = {
   current_responsible_id: string | null;
   team: Array<{ id: string; full_name: string; role: string; role_label: string }>;
 };
+
+type PipelineViewMode = 'kanban' | 'list';
+
+type PipelineStageOption = {
+  id: string;
+  systemKey: string | null;
+  name: string;
+  color: string;
+  visible: boolean;
+  system: boolean;
+  order: number;
+};
+
+type PipelineCustomAssignment = {
+  stageId: string;
+  sourceStatus: string;
+};
+
+const defaultStageOptions: PipelineStageOption[] = [
+  { id: 'new_lead', systemKey: 'new_lead', name: 'Novo Lead Recebido', color: '#3b82f6', visible: true, system: true, order: 0 },
+  { id: 'in_service', systemKey: 'in_service', name: 'Em Atendimento', color: '#8b5cf6', visible: true, system: true, order: 1 },
+  { id: 'scheduled', systemKey: 'scheduled', name: 'Agendado', color: '#f59e0b', visible: true, system: true, order: 2 },
+  { id: 'appointment_cancelled', systemKey: 'appointment_cancelled', name: 'Cancelou Agendamento', color: '#f97316', visible: true, system: true, order: 3 },
+  { id: 'no_show', systemKey: 'no_show', name: 'Não Compareceu', color: '#71717a', visible: true, system: true, order: 4 },
+  { id: 'showed_up', systemKey: 'showed_up', name: 'Compareceu', color: '#10b981', visible: true, system: true, order: 5 },
+  { id: 'sale_confirmed', systemKey: 'sale_confirmed', name: 'Venda Confirmada', color: '#22c55e', visible: true, system: true, order: 6 },
+  { id: 'lost', systemKey: 'lost', name: 'Perdido', color: '#ef4444', visible: true, system: true, order: 7 }
+];
+
+function viewModeStorageKey(slug: string, profileId: string) {
+  return `auto-controle-pipeline-view:${slug}:${profileId}`;
+}
+
+function leadResponsibleId(lead: PipelineLead) {
+  return lead.assigned_user_id || lead.seller_user_id || lead.pre_sales_user_id || lead.captured_by_user_id || '';
+}
 
 function formatDateTime(value: unknown) {
   if (!value) return '';
@@ -159,6 +199,10 @@ export default function StoreSlugPipelinePage() {
   const hiddenAt = useRef<number | null>(null);
   const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<PipelineViewMode>('kanban');
+  const [stageOptions, setStageOptions] = useState<PipelineStageOption[]>(defaultStageOptions);
+  const [customAssignments, setCustomAssignments] = useState<Record<string, PipelineCustomAssignment>>({});
+  const [selectedResponsible, setSelectedResponsible] = useState('all');
 
   const [scheduleLead, setScheduleLead] = useState<PipelineLead | null>(null);
   const [scheduleDate, setScheduleDate] = useState('');
@@ -328,10 +372,59 @@ export default function StoreSlugPipelinePage() {
     };
   }, [payload?.store.id, slug, supabase]);
 
+  useEffect(() => {
+    const profileId = payload?.profile.id;
+    if (!profileId) return;
+    const saved = window.localStorage.getItem(viewModeStorageKey(slug, profileId));
+    setViewMode(saved === 'list' ? 'list' : 'kanban');
+  }, [payload?.profile.id, slug]);
+
+  useEffect(() => {
+    const onViewModeChange = (event: Event) => {
+      const mode = (event as CustomEvent<{ mode?: PipelineViewMode }>).detail?.mode;
+      if (mode === 'kanban' || mode === 'list') setViewMode(mode);
+    };
+    window.addEventListener('pipeline-view-mode-change', onViewModeChange as EventListener);
+    return () => window.removeEventListener('pipeline-view-mode-change', onViewModeChange as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const onResponsibleChange = (event: Event) => {
+      setSelectedResponsible((event as CustomEvent<{ value?: string }>).detail?.value || 'all');
+    };
+    window.addEventListener('pipeline-responsible-change', onResponsibleChange as EventListener);
+    return () => window.removeEventListener('pipeline-responsible-change', onResponsibleChange as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const profileId = payload?.profile.id;
+    if (!profileId) return;
+    window.localStorage.setItem(viewModeStorageKey(slug, profileId), viewMode);
+    window.dispatchEvent(new CustomEvent('pipeline-view-mode-updated', { detail: { mode: viewMode } }));
+  }, [payload?.profile.id, slug, viewMode]);
+
+  useEffect(() => {
+    const onStageOptions = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        stages?: PipelineStageOption[];
+        assignments?: Record<string, PipelineCustomAssignment>;
+      }>).detail;
+      if (Array.isArray(detail?.stages) && detail.stages.length) setStageOptions(detail.stages);
+      setCustomAssignments(detail?.assignments && typeof detail.assignments === 'object' ? detail.assignments : {});
+    };
+    window.addEventListener('pipeline-stage-options-updated', onStageOptions as EventListener);
+    window.dispatchEvent(new CustomEvent('pipeline-stage-options-requested'));
+    return () => window.removeEventListener('pipeline-stage-options-updated', onStageOptions as EventListener);
+  }, []);
+
+  const scopedLeads = useMemo(() => selectedResponsible === 'all'
+    ? leads
+    : leads.filter((lead) => leadResponsibleId(lead) === selectedResponsible), [leads, selectedResponsible]);
+
   const grouped = useMemo(() => columns.map((column) => ({
     ...column,
-    leads: leads.filter((lead) => lead.status === column.key)
-  })), [leads]);
+    leads: scopedLeads.filter((lead) => lead.status === column.key)
+  })), [scopedLeads]);
 
   async function revealPhone(lead: PipelineLead) {
     try {
@@ -349,10 +442,26 @@ export default function StoreSlugPipelinePage() {
     }
   }
 
-  function openWhatsapp(lead: PipelineLead) {
-    if (!lead.whatsapp_conversation_id) return;
-    const query = `?conversation_id=${encodeURIComponent(lead.whatsapp_conversation_id)}`;
-    router.push(`/loja/${encodeURIComponent(slug)}/whatsapp${query}`);
+  async function openWhatsapp(lead: PipelineLead) {
+    if (!lead.has_phone) {
+      setMessage('Este lead não possui telefone cadastrado.');
+      return;
+    }
+    try {
+      setMessage('Abrindo conversa no WhatsApp CRM...');
+      const result = lead.whatsapp_conversation_id
+        ? { conversation_id: lead.whatsapp_conversation_id }
+        : await request('/api/store/portal/pipeline/whatsapp', {
+            method: 'POST',
+            body: JSON.stringify({ slug, lead_id: lead.id })
+          });
+      const conversationId = String(result.conversation_id || '');
+      if (!conversationId) throw new Error('Não foi possível identificar a conversa deste lead.');
+      setLeads((current) => current.map((item) => item.id === lead.id ? { ...item, whatsapp_conversation_id: conversationId } : item));
+      router.push(`/loja/${encodeURIComponent(slug)}/whatsapp?conversation_id=${encodeURIComponent(conversationId)}`);
+    } catch (error: any) {
+      setMessage(error?.message || 'Não foi possível abrir a conversa no WhatsApp CRM.');
+    }
   }
 
   function openSchedule(lead: PipelineLead) {
@@ -561,6 +670,17 @@ export default function StoreSlugPipelinePage() {
     if (lead) void moveLead(lead, target);
   }
 
+  function changeListStage(lead: PipelineLead, stageId: string) {
+    const stage = stageOptions.find((item) => item.id === stageId);
+    if (!stage) return;
+    if (!stage.system) {
+      window.dispatchEvent(new CustomEvent('pipeline-assign-custom-stage', { detail: { leadId: lead.id, stageId } }));
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('pipeline-clear-custom-assignment', { detail: { leadId: lead.id } }));
+    if (stage.systemKey) void moveLead(lead, stage.systemKey);
+  }
+
   if (!payload) {
     return <main className="flex min-h-[70vh] items-center justify-center p-6 text-center"><div><Loader2 className="mx-auto animate-spin text-red-600" size={32} /><p className="mt-4 font-bold text-zinc-600">{message}</p></div></main>;
   }
@@ -583,54 +703,74 @@ export default function StoreSlugPipelinePage() {
 
           {message ? <div className="mt-5 rounded-2xl bg-zinc-50 p-4 text-sm font-medium text-zinc-600">{message}</div> : null}
 
-          <div className="mt-5 overflow-x-auto pb-3">
-            <div className="grid min-w-[1760px] grid-cols-8 gap-3">
-              {grouped.map((column) => {
-                const styles = toneStyles[column.tone];
-                return (
-                  <div
-                    key={column.key}
-                    onDragOver={(event) => { event.preventDefault(); setDragOverColumn(column.key); }}
-                    onDragLeave={() => setDragOverColumn(null)}
-                    onDrop={(event) => dropCard(event, column.key)}
-                    className={`min-h-[520px] rounded-[24px] border p-3 shadow-sm transition ${styles.column} ${dragOverColumn === column.key ? 'ring-2 ring-red-200' : ''}`}
-                  >
-                    <div className={`mb-3 rounded-2xl border px-3 py-3 ${styles.header}`}>
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${styles.dot}`} /><h2 className="text-sm font-black leading-tight">{column.title}</h2></div>
-                        <span className={`rounded-full px-3 py-1 text-xs font-black ${styles.badge}`}>{column.leads.length}</span>
+          {viewMode === 'kanban' ? (
+            <div className="mt-5 overflow-x-auto pb-3">
+              <div className="grid min-w-[1760px] grid-cols-8 gap-3">
+                {grouped.map((column) => {
+                  const styles = toneStyles[column.tone];
+                  return (
+                    <div
+                      key={column.key}
+                      onDragOver={(event) => { event.preventDefault(); setDragOverColumn(column.key); }}
+                      onDragLeave={() => setDragOverColumn(null)}
+                      onDrop={(event) => dropCard(event, column.key)}
+                      className={`min-h-[520px] rounded-[24px] border p-3 shadow-sm transition ${styles.column} ${dragOverColumn === column.key ? 'ring-2 ring-red-200' : ''}`}
+                    >
+                      <div className={`mb-3 rounded-2xl border px-3 py-3 ${styles.header}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${styles.dot}`} /><h2 className="text-sm font-black leading-tight">{column.title}</h2></div>
+                          <span className={`rounded-full px-3 py-1 text-xs font-black ${styles.badge}`}>{column.leads.length}</span>
+                        </div>
+                      </div>
+                      <div data-pipeline-stage-cards="true" className="space-y-1">
+                        {column.leads.map((lead) => (
+                          <LeadCard
+                            key={lead.id}
+                            lead={lead}
+                            columnKey={column.key}
+                            tone={column.tone}
+                            dragging={draggedLeadId === lead.id}
+                            onDragStart={(event) => { event.dataTransfer.setData('text/plain', lead.id); setDraggedLeadId(lead.id); }}
+                            onDragEnd={() => { setDraggedLeadId(null); setDragOverColumn(null); }}
+                            onOpen={() => void openEditor(lead)}
+                            onReveal={() => void revealPhone(lead)}
+                            onWhatsapp={() => void openWhatsapp(lead)}
+                            onSchedule={() => openSchedule(lead)}
+                            onMove={(target) => void moveLead(lead, target)}
+                            onCancel={() => { setCancelLead(lead); setCancelReason(''); }}
+                            onSale={() => setSaleLead(lead)}
+                            onLost={() => { setLostLead(lead); setLostReason(lead.lost_reason || ''); }}
+                            onReopen={() => void reopenLead(lead)}
+                            onTask={() => openTask(lead)}
+                            onTransfer={() => void openTransfer(lead)}
+                          />
+                        ))}
+                        {column.leads.length === 0 ? <div className="rounded-2xl border border-dashed border-zinc-200 bg-white/70 p-5 text-center text-xs font-bold text-zinc-400">Solte o card aqui</div> : null}
                       </div>
                     </div>
-                    <div data-pipeline-stage-cards="true" className="space-y-1">
-                      {column.leads.map((lead) => (
-                        <LeadCard
-                          key={lead.id}
-                          lead={lead}
-                          columnKey={column.key}
-                          tone={column.tone}
-                          dragging={draggedLeadId === lead.id}
-                          onDragStart={(event) => { event.dataTransfer.setData('text/plain', lead.id); setDraggedLeadId(lead.id); }}
-                          onDragEnd={() => { setDraggedLeadId(null); setDragOverColumn(null); }}
-                          onOpen={() => void openEditor(lead)}
-                          onReveal={() => void revealPhone(lead)}
-                          onWhatsapp={() => void openWhatsapp(lead)}
-                          onSchedule={() => openSchedule(lead)}
-                          onMove={(target) => void moveLead(lead, target)}
-                          onCancel={() => { setCancelLead(lead); setCancelReason(''); }}
-                          onSale={() => setSaleLead(lead)}
-                          onLost={() => { setLostLead(lead); setLostReason(lead.lost_reason || ''); }}
-                          onReopen={() => void reopenLead(lead)}
-                          onTask={() => openTask(lead)}
-                          onTransfer={() => void openTransfer(lead)}
-                        />
-                      ))}
-                      {column.leads.length === 0 ? <div className="rounded-2xl border border-dashed border-zinc-200 bg-white/70 p-5 text-center text-xs font-bold text-zinc-400">Solte o card aqui</div> : null}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          ) : (
+            <PipelineLeadList
+              leads={scopedLeads}
+              stages={stageOptions}
+              assignments={customAssignments}
+              busy={busy}
+              onOpen={(lead) => void openEditor(lead)}
+              onReveal={(lead) => void revealPhone(lead)}
+              onWhatsapp={(lead) => void openWhatsapp(lead)}
+              onSchedule={openSchedule}
+              onStageChange={changeListStage}
+              onCancel={(lead) => { setCancelLead(lead); setCancelReason(''); }}
+              onSale={setSaleLead}
+              onLost={(lead) => { setLostLead(lead); setLostReason(lead.lost_reason || ''); }}
+              onReopen={(lead) => void reopenLead(lead)}
+              onTask={openTask}
+              onTransfer={(lead) => void openTransfer(lead)}
+            />
+          )}
 
           {payload.pagination.has_more ? (
             <div className="mt-4 flex justify-center">
@@ -705,6 +845,145 @@ export default function StoreSlugPipelinePage() {
 
       {transferLead ? <Modal title="Transferir Lead" onClose={() => setTransferLead(null)}><div className="grid gap-4">{transferPayload ? <label className="text-sm font-bold text-zinc-700">Novo responsável<select className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3" value={targetUserId} onChange={(event) => setTargetUserId(event.target.value)}><option value="">Carteira geral da loja</option>{transferPayload.team.map((member) => <option key={member.id} value={member.id}>{member.full_name} · {member.role_label}</option>)}</select></label> : <div className="flex items-center gap-2 text-sm font-bold text-zinc-600"><Loader2 className="animate-spin" size={16} /> Carregando equipe...</div>}<ModalActions onCancel={() => setTransferLead(null)} onConfirm={() => void saveTransfer()} confirmLabel="Transferir lead" busy={busy || !transferPayload} /></div></Modal> : null}
     </main>
+  );
+}
+
+function PipelineLeadList({ leads, stages, assignments, busy, onOpen, onReveal, onWhatsapp, onSchedule, onStageChange, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
+  leads: PipelineLead[];
+  stages: PipelineStageOption[];
+  assignments: Record<string, PipelineCustomAssignment>;
+  busy: boolean;
+  onOpen: (lead: PipelineLead) => void;
+  onReveal: (lead: PipelineLead) => void;
+  onWhatsapp: (lead: PipelineLead) => void;
+  onSchedule: (lead: PipelineLead) => void;
+  onStageChange: (lead: PipelineLead, stageId: string) => void;
+  onCancel: (lead: PipelineLead) => void;
+  onSale: (lead: PipelineLead) => void;
+  onLost: (lead: PipelineLead) => void;
+  onReopen: (lead: PipelineLead) => void;
+  onTask: (lead: PipelineLead) => void;
+  onTransfer: (lead: PipelineLead) => void;
+}) {
+  const orderedStages = [...stages].sort((left, right) => left.order - right.order);
+  const visibleStages = orderedStages.filter((stage) => stage.visible);
+  const visibleLeads = leads.flatMap((lead) => {
+    const assignment = assignments[lead.id];
+    const assignedStage = assignment && assignment.sourceStatus === lead.status && orderedStages.some((stage) => stage.id === assignment.stageId)
+      ? assignment.stageId
+      : lead.status;
+    const stage = orderedStages.find((item) => item.id === assignedStage || item.systemKey === assignedStage);
+    return stage?.visible ? [{ lead, stageId: stage.id }] : [];
+  });
+
+  return (
+    <section data-pipeline-list-view="true" className="mt-5 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
+      <div className="overflow-x-auto">
+        <div className="min-w-[1120px]">
+          <div className="grid grid-cols-[minmax(230px,1.35fr)_130px_minmax(180px,1fr)_190px_145px_170px] gap-3 border-b border-zinc-200 bg-zinc-950 px-4 py-3 text-[9px] font-black uppercase tracking-[0.12em] text-zinc-300">
+            <span>Lead</span><span>Origem</span><span>Interesse</span><span>Etapa</span><span>Agendamento</span><span className="text-center">Ações</span>
+          </div>
+          <div className="max-h-[calc(100dvh-176px)] min-h-[420px] overflow-y-auto overscroll-contain">
+            {visibleLeads.map(({ lead, stageId }) => {
+              return (
+                <LeadListRow
+                  key={lead.id}
+                  lead={lead}
+                  stages={visibleStages}
+                  stageId={stageId}
+                  busy={busy}
+                  onOpen={() => onOpen(lead)}
+                  onReveal={() => onReveal(lead)}
+                  onWhatsapp={() => onWhatsapp(lead)}
+                  onSchedule={() => onSchedule(lead)}
+                  onStageChange={(stageId) => onStageChange(lead, stageId)}
+                  onCancel={() => onCancel(lead)}
+                  onSale={() => onSale(lead)}
+                  onLost={() => onLost(lead)}
+                  onReopen={() => onReopen(lead)}
+                  onTask={() => onTask(lead)}
+                  onTransfer={() => onTransfer(lead)}
+                />
+              );
+            })}
+            {visibleLeads.length === 0 ? <div className="p-10 text-center text-sm font-bold text-zinc-400">Nenhum lead disponível nesta carteira.</div> : null}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function LeadListRow({ lead, stages, stageId, busy, onOpen, onReveal, onWhatsapp, onSchedule, onStageChange, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
+  lead: PipelineLead;
+  stages: PipelineStageOption[];
+  stageId: string;
+  busy: boolean;
+  onOpen: () => void;
+  onReveal: () => void;
+  onWhatsapp: () => void;
+  onSchedule: () => void;
+  onStageChange: (stageId: string) => void;
+  onCancel: () => void;
+  onSale: () => void;
+  onLost: () => void;
+  onReopen: () => void;
+  onTask: () => void;
+  onTransfer: () => void;
+}) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const name = lead.customer_name || 'Cliente sem nome';
+  const phone = lead.customer_phone || lead.customer_phone_masked || 'Sem telefone';
+  const stage = stages.find((item) => item.id === stageId) || stages.find((item) => item.systemKey === lead.status);
+  const canSchedule = ['in_service', 'scheduled', 'appointment_cancelled', 'no_show'].includes(lead.status);
+  const scheduled = lead.scheduled_at ? compactSchedule(lead.scheduled_at) : '—';
+
+  return (
+    <article data-pipeline-list-row="true" className="border-b border-zinc-100 px-4 py-2.5 last:border-b-0 hover:bg-zinc-50/80">
+      <div className="grid grid-cols-[minmax(230px,1.35fr)_130px_minmax(180px,1fr)_190px_145px_170px] items-center gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <button type="button" onClick={onOpen} className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-zinc-100 text-[10px] font-black text-zinc-600" aria-label={`Abrir ${name}`}>
+            {lead.profile_picture_url ? <Image loader={passthroughImageLoader} unoptimized src={lead.profile_picture_url} alt={`Foto de ${name}`} fill sizes="36px" className="object-cover" /> : leadInitials(name)}
+          </button>
+          <div className="min-w-0">
+            <button type="button" onClick={onOpen} className="block max-w-full truncate text-left text-[11px] font-black text-zinc-950 hover:text-red-600">{name}</button>
+            <button type="button" onClick={onReveal} className="mt-0.5 block max-w-full truncate text-left text-[9px] font-bold text-zinc-500 hover:text-red-600" title="Visualizar telefone completo">{phone}</button>
+          </div>
+        </div>
+        <span className="truncate text-[9px] font-black uppercase text-zinc-500" title={readableOrigin(lead.origin)}>{readableOrigin(lead.origin)}</span>
+        <div className="min-w-0">
+          <p className="truncate text-[10px] font-black text-zinc-800" title={lead.interested_vehicle || 'Interesse não informado'}>{lead.interested_vehicle || 'Interesse não informado'}</p>
+          <p className="mt-0.5 text-[8px] font-bold text-zinc-400">Entrada {formatDateTime(lead.created_at) || 'não informada'}</p>
+        </div>
+        <label className="relative flex min-w-0 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-2.5 py-2" style={{ borderLeftColor: stage?.color || '#71717a', borderLeftWidth: 4 }}>
+          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: stage?.color || '#71717a' }} />
+          <select className="min-w-0 flex-1 bg-transparent text-[9px] font-black text-zinc-700 outline-none" value={stageId} onChange={(event) => onStageChange(event.target.value)} disabled={busy} aria-label={`Alterar etapa de ${name}`}>
+            {stages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        </label>
+        <div className="min-w-0">
+          <p className="truncate text-[10px] font-black text-zinc-700">{scheduled}</p>
+          <p className="mt-0.5 truncate text-[8px] font-bold text-zinc-400">{lead.appointment_notes || (lead.status === 'scheduled' ? 'Visita agendada' : 'Sem agendamento')}</p>
+        </div>
+        <div className="grid grid-cols-4 gap-1.5">
+          <CompactIconAction label="WhatsApp" tone="green" icon={<WhatsappMark size={13} />} disabled={!lead.has_phone} disabledTitle="Lead sem telefone cadastrado" onClick={onWhatsapp} />
+          <CompactIconAction label="Tarefa" icon={<ListTodo size={12} />} onClick={onTask} />
+          <CompactIconAction label={lead.status === 'scheduled' ? 'Reagendar' : 'Agendar'} tone="amber" icon={<CalendarDays size={12} />} disabled={!canSchedule} disabledTitle="Disponível após iniciar o atendimento" onClick={onSchedule} />
+          <CompactIconAction label={moreOpen ? 'Fechar ações' : 'Mais ações'} icon={<Plus size={13} className={moreOpen ? 'rotate-45 transition' : 'transition'} />} expanded={moreOpen} onClick={() => setMoreOpen((current) => !current)} />
+        </div>
+      </div>
+      {moreOpen ? (
+        <div className="mt-2 flex flex-wrap justify-end gap-1.5 rounded-xl bg-zinc-50 p-2">
+          <CompactMenuAction label="Editar" icon={<Edit3 size={11} />} onClick={onOpen} />
+          <CompactMenuAction label="Transferir" icon={<ArrowRightLeft size={11} />} onClick={onTransfer} />
+          {lead.status === 'new_lead' || lead.status === 'in_service' || lead.status === 'appointment_cancelled' || lead.status === 'no_show' ? <CompactMenuAction label="Perda" tone="red" onClick={onLost} /> : null}
+          {lead.status === 'scheduled' ? <CompactMenuAction label="Cancelou" tone="orange" onClick={onCancel} /> : null}
+          {lead.status === 'showed_up' ? <><CompactMenuAction label="Venda" tone="green" onClick={onSale} /><CompactMenuAction label="Perda" tone="red" onClick={onLost} /></> : null}
+          {lead.status === 'sale_confirmed' ? <CompactMenuAction label="Cancelar venda" tone="orange" icon={<RotateCcw size={11} />} onClick={onReopen} /> : null}
+          {lead.status === 'lost' ? <CompactMenuAction label="Reabrir" tone="blue" icon={<RotateCcw size={11} />} onClick={onReopen} /> : null}
+        </div>
+      ) : null}
+    </article>
   );
 }
 
@@ -794,8 +1073,8 @@ function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onO
           label="WhatsApp"
           tone="green"
           icon={<WhatsappMark size={13} />}
-          disabled={!lead.whatsapp_conversation_id}
-          disabledTitle="Conversa ainda não vinculada ao WhatsApp CRM"
+          disabled={!lead.has_phone}
+          disabledTitle="Lead sem telefone cadastrado"
           onClick={(event) => stop(event, onWhatsapp)}
         />
         <CompactIconAction

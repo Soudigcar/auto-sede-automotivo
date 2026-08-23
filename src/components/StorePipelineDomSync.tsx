@@ -21,9 +21,8 @@ export function StorePipelineDomSync() {
       });
     };
 
-    const target = document.querySelector('main') || document.body;
     const observer = new MutationObserver(notify);
-    observer.observe(target, { childList: true, subtree: true });
+    observer.observe(document.body, { childList: true, subtree: true });
     notify();
 
     return () => {
