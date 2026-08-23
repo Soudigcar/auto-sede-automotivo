@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image, { type ImageLoaderProps } from 'next/image';
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import {
@@ -13,7 +14,6 @@ import {
   Edit3,
   ListTodo,
   Loader2,
-  MessageCircle,
   Plus,
   RotateCcw,
   Save,
@@ -73,6 +73,8 @@ type PipelineLead = {
   lost_reason: string | null;
   notes: string | null;
   created_at: string;
+  whatsapp_conversation_id: string | null;
+  profile_picture_url: string | null;
   [key: string]: any;
 };
 
@@ -119,8 +121,19 @@ function readableOrigin(value: unknown) {
 }
 
 function leadInitials(value: unknown) {
-  const parts = String(value || 'Lead').split(' ').map((part) => part.trim()).filter(Boolean);
+  const parts = String(value || 'Lead').split(' ').map((part) => part.trim()).filter((part) => /[A-Za-zÀ-ÿ]/.test(part));
   return ((parts[0]?.[0] || 'L') + (parts[1]?.[0] || '')).toUpperCase();
+}
+
+function compactSchedule(value: unknown) {
+  if (!value) return 'Horário não informado';
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return 'Horário não informado';
+  return date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function passthroughImageLoader({ src }: ImageLoaderProps) {
+  return src;
 }
 
 function defaultTaskSlot() {
@@ -336,29 +349,10 @@ export default function StoreSlugPipelinePage() {
     }
   }
 
-  async function startService(lead: PipelineLead) {
-    const popup = lead.has_phone ? window.open('about:blank', '_blank', 'noopener,noreferrer') : null;
-    try {
-      const result = await runCommand('start_service', lead, {}, 'Iniciando atendimento...');
-      if (result.whatsapp_url && popup) popup.location.href = result.whatsapp_url;
-      else popup?.close();
-    } catch {
-      popup?.close();
-    }
-  }
-
-  async function openWhatsapp(lead: PipelineLead) {
-    if (lead.status === 'new_lead') {
-      await startService(lead);
-      return;
-    }
-
-    const popup = lead.has_phone ? window.open('about:blank', '_blank', 'noopener,noreferrer') : null;
-    const phone = await revealPhone(lead);
-    const number = phone.replace(/\D/g, '');
-
-    if (number && popup) popup.location.href = `https://wa.me/${number}`;
-    else popup?.close();
+  function openWhatsapp(lead: PipelineLead) {
+    if (!lead.whatsapp_conversation_id) return;
+    const query = `?conversation_id=${encodeURIComponent(lead.whatsapp_conversation_id)}`;
+    router.push(`/loja/${encodeURIComponent(slug)}/whatsapp${query}`);
   }
 
   function openSchedule(lead: PipelineLead) {
@@ -589,14 +583,6 @@ export default function StoreSlugPipelinePage() {
 
           {message ? <div className="mt-5 rounded-2xl bg-zinc-50 p-4 text-sm font-medium text-zinc-600">{message}</div> : null}
 
-          <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <Kpi label="Leads" value={payload.metrics.total} />
-            <Kpi label="Agendados" value={payload.metrics.scheduled} />
-            <Kpi label="Cancelados" value={payload.metrics.cancelled} />
-            <Kpi label="Vendas" value={payload.metrics.sold} />
-            <Kpi label="Perdas" value={payload.metrics.lost} />
-          </section>
-
           <div className="mt-5 overflow-x-auto pb-3">
             <div className="grid min-w-[1760px] grid-cols-8 gap-3">
               {grouped.map((column) => {
@@ -615,7 +601,7 @@ export default function StoreSlugPipelinePage() {
                         <span className={`rounded-full px-3 py-1 text-xs font-black ${styles.badge}`}>{column.leads.length}</span>
                       </div>
                     </div>
-                    <div className="space-y-1">
+                    <div data-pipeline-stage-cards="true" className="space-y-1">
                       {column.leads.map((lead) => (
                         <LeadCard
                           key={lead.id}
@@ -745,6 +731,7 @@ function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onO
   const styles = toneStyles[tone];
   const phone = lead.customer_phone || lead.customer_phone_masked || 'Sem telefone';
   const name = lead.customer_name || 'Cliente sem nome';
+  const schedule = compactSchedule(lead.scheduled_at);
   const canSchedule = ['in_service', 'scheduled', 'appointment_cancelled', 'no_show'].includes(columnKey);
   const stop = (event: any, action: () => void) => { event.stopPropagation(); action(); };
   const runMoreAction = (event: any, action: () => void) => stop(event, () => {
@@ -768,8 +755,18 @@ function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onO
       className={`cursor-pointer rounded-xl border border-zinc-100 bg-white p-1.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${dragging ? 'opacity-50 ring-2 ring-red-300' : ''}`}
     >
       <div className="flex min-h-9 items-start gap-1.5">
-        <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[9px] font-black ${styles.badge}`}>
-          {leadInitials(name)}
+        <div className={`relative flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg text-[9px] font-black ${styles.badge}`}>
+          {lead.profile_picture_url ? (
+            <Image
+              loader={passthroughImageLoader}
+              unoptimized
+              src={lead.profile_picture_url}
+              alt={`Foto de ${name}`}
+              fill
+              sizes="28px"
+              className="object-cover"
+            />
+          ) : leadInitials(name)}
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-[10px] font-black leading-3 text-zinc-950">{name}</h3>
@@ -781,7 +778,14 @@ function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onO
           >
             {phone}
           </button>
-          <p className="truncate text-[8px] font-black uppercase leading-3 text-zinc-400">{readableOrigin(lead.origin)}</p>
+          {columnKey === 'scheduled' ? (
+            <p className="flex min-w-0 items-center gap-1 text-[8px] font-black uppercase leading-3 text-zinc-400" title={`${lead.interested_vehicle || 'Veículo não informado'} · ${schedule}`}>
+              <span className="min-w-0 flex-1 truncate">{lead.interested_vehicle || 'Veículo não informado'}</span>
+              <span className="shrink-0 text-amber-700">{schedule}</span>
+            </p>
+          ) : (
+            <p className="truncate text-[8px] font-black uppercase leading-3 text-zinc-400">{readableOrigin(lead.origin)}</p>
+          )}
         </div>
       </div>
 
@@ -789,8 +793,9 @@ function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onO
         <CompactIconAction
           label="WhatsApp"
           tone="green"
-          icon={<MessageCircle size={12} />}
-          disabled={!lead.has_phone}
+          icon={<WhatsappMark size={13} />}
+          disabled={!lead.whatsapp_conversation_id}
+          disabledTitle="Conversa ainda não vinculada ao WhatsApp CRM"
           onClick={(event) => stop(event, onWhatsapp)}
         />
         <CompactIconAction
@@ -839,6 +844,14 @@ function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onO
         </div>
       ) : null}
     </div>
+  );
+}
+
+function WhatsappMark({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
+      <path d="M16.05 3.2A12.7 12.7 0 0 0 5.03 22.18L3.2 28.8l6.78-1.78A12.7 12.7 0 1 0 16.05 3.2Zm0 22.98a10.53 10.53 0 0 1-5.36-1.46l-.38-.23-4.02 1.05 1.07-3.91-.25-.4a10.54 10.54 0 1 1 8.94 4.95Zm5.78-7.88c-.32-.16-1.87-.92-2.16-1.03-.29-.11-.5-.16-.71.16-.21.32-.82 1.03-1 1.24-.19.21-.37.24-.69.08-.32-.16-1.34-.49-2.55-1.58a9.55 9.55 0 0 1-1.77-2.2c-.19-.32-.02-.49.14-.65.14-.14.32-.37.47-.55.16-.18.21-.32.32-.53.1-.21.05-.4-.03-.55-.08-.16-.71-1.72-.98-2.35-.26-.62-.52-.54-.71-.55h-.61c-.21 0-.55.08-.84.4-.29.32-1.11 1.08-1.11 2.64s1.14 3.07 1.29 3.28c.16.21 2.23 3.41 5.41 4.78.75.33 1.34.52 1.8.66.76.24 1.44.21 1.99.13.61-.09 1.87-.77 2.14-1.5.26-.74.26-1.37.18-1.5-.08-.14-.29-.21-.61-.37Z" />
+    </svg>
   );
 }
 
@@ -910,10 +923,6 @@ function Area({ label, value, onChange, placeholder }: { label: string; value: s
 
 function ModalActions({ onCancel, onConfirm, confirmLabel, busy }: { onCancel: () => void; onConfirm: () => void; confirmLabel: string; busy: boolean }) {
   return <div className="flex justify-end gap-3"><button className="rounded-2xl border border-zinc-200 px-5 py-3 text-sm font-black text-zinc-600" type="button" onClick={onCancel}>Voltar</button><button className="rounded-2xl bg-red-600 px-5 py-3 text-sm font-black text-white disabled:opacity-50" type="button" onClick={onConfirm} disabled={busy}>{busy ? 'Salvando...' : confirmLabel}</button></div>;
-}
-
-function Kpi({ label, value }: { label: string; value: number }) {
-  return <div className="premium-card p-4"><p className="text-xs font-bold text-zinc-400">{label}</p><strong className="mt-1 block text-2xl font-black">{value}</strong></div>;
 }
 
 function Status({ label, value, icon }: { label: string; value: number; icon: ReactNode }) {

@@ -14,6 +14,24 @@ function maskPhone(value: unknown) {
   return ddd ? `(${ddd}) •••••-${tail}` : `••••-${tail}`;
 }
 
+function profilePictureUrl(contact: any) {
+  const metadata = contact?.metadata && typeof contact.metadata === 'object'
+    ? contact.metadata
+    : {};
+
+  return cleanText(
+    contact?.profile_picture_url ||
+    contact?.profile_picture ||
+    contact?.avatar_url ||
+    contact?.photo_url ||
+    metadata.profile_picture_url ||
+    metadata.profilePictureUrl ||
+    metadata.avatar_url ||
+    metadata.photo_url,
+    2_000
+  ) || null;
+}
+
 export async function GET(request: Request) {
   try {
     const searchParams = new URL(request.url).searchParams;
@@ -39,12 +57,52 @@ export async function GET(request: Request) {
     const { data, error, count } = await query;
     if (error) throw error;
 
-    const leads = (data || []).map((lead: any) => ({
-      ...lead,
-      customer_phone: null,
-      customer_phone_masked: maskPhone(lead.customer_phone),
-      has_phone: Boolean(String(lead.customer_phone || '').replace(/\D/g, ''))
-    }));
+    const loadedLeadIds = (data || []).map((lead: any) => lead.id).filter(Boolean);
+    const { data: conversationRows, error: conversationsError } = loadedLeadIds.length
+      ? await context.supabase
+          .from('whatsapp_conversations')
+          .select('id,lead_id,contact_id,last_message_at')
+          .eq('store_id', context.store.id)
+          .in('lead_id', loadedLeadIds)
+          .order('last_message_at', { ascending: false })
+      : { data: [], error: null };
+
+    if (conversationsError) throw conversationsError;
+
+    const conversationByLeadId = new Map<string, any>();
+    for (const conversation of conversationRows || []) {
+      if (conversation.lead_id && !conversationByLeadId.has(conversation.lead_id)) {
+        conversationByLeadId.set(conversation.lead_id, conversation);
+      }
+    }
+
+    const contactIds = Array.from(new Set(
+      Array.from(conversationByLeadId.values()).map((conversation: any) => conversation.contact_id).filter(Boolean)
+    ));
+    const { data: contactRows, error: contactsError } = contactIds.length
+      ? await context.supabase
+          .from('whatsapp_contacts')
+          .select('id,metadata')
+          .eq('store_id', context.store.id)
+          .in('id', contactIds)
+      : { data: [], error: null };
+
+    if (contactsError) throw contactsError;
+
+    const contactById = new Map((contactRows || []).map((contact: any) => [contact.id, contact]));
+    const leads = (data || []).map((lead: any) => {
+      const conversation = conversationByLeadId.get(lead.id) || null;
+      const contact = conversation?.contact_id ? contactById.get(conversation.contact_id) : null;
+
+      return {
+        ...lead,
+        customer_phone: null,
+        customer_phone_masked: maskPhone(lead.customer_phone),
+        has_phone: Boolean(String(lead.customer_phone || '').replace(/\D/g, '')),
+        whatsapp_conversation_id: conversation?.id || null,
+        profile_picture_url: profilePictureUrl(contact)
+      };
+    });
 
     const loadedMetrics = {
       total: count || leads.length,

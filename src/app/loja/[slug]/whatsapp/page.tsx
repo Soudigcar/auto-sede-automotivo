@@ -380,7 +380,12 @@ export default function StoreWhatsappPage() {
     setSending(false);
   }
 
-  useEffect(() => { loadData(); }, [slug]);
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const requestedConversationId = String(searchParams.get('conversation_id') || '').trim();
+
+    void loadData(requestedConversationId || undefined);
+  }, [slug]);
 
   const selectedConversation = useMemo(() => conversations.find((conversation) => conversation.id === selectedId) || null, [conversations, selectedId]);
   const selectedContactId = String(selectedConversation?.contact?.id || '');
