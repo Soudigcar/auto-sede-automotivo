@@ -7,10 +7,6 @@
     {
       "path": "/api/cron/privacy-retention",
       "schedule": "17 3 * * *"
-    },
-    {
-      "path": "/api/cron/autocar-follow-up",
-      "schedule": "*/10 * * * *"
     }
   ]
 }
