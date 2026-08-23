@@ -30,90 +30,31 @@ function matchesKind(vehicle: any, kind: string) {
 
 export function CampaignVehicleDiscovery({ vehicles, primaryColor, onOpenSimulator, settings, embedded = false, layoutMode = 'auto' }: Props) {
   const cfg: LandingVehicleSettings = { ...vehicleDefaults, ...(settings || {}) };
-  const [query, setQuery] = useState('');
-  const [brand, setBrand] = useState('');
-  const [model, setModel] = useState('');
-  const [kind, setKind] = useState('todos');
-  const [transmission, setTransmission] = useState('');
-  const [fuel, setFuel] = useState('');
-  const [minYear, setMinYear] = useState('');
-  const [maxYear, setMaxYear] = useState('');
-  const [minPrice, setMinPrice] = useState('');
-  const [maxPrice, setMaxPrice] = useState('');
-  const [sort, setSort] = useState('featured');
-  const [filtersOpen, setFiltersOpen] = useState(false);
-
+  const [query, setQuery] = useState(''); const [brand, setBrand] = useState(''); const [model, setModel] = useState(''); const [kind, setKind] = useState('todos'); const [transmission, setTransmission] = useState(''); const [fuel, setFuel] = useState(''); const [minYear, setMinYear] = useState(''); const [maxYear, setMaxYear] = useState(''); const [minPrice, setMinPrice] = useState(''); const [maxPrice, setMaxPrice] = useState(''); const [sort, setSort] = useState('featured'); const [filtersOpen, setFiltersOpen] = useState(false);
   const brands = useMemo(() => Array.from(new Set(vehicles.map((v) => text(v.brand)).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR')), [vehicles]);
   const models = useMemo(() => Array.from(new Set(vehicles.filter((v) => !brand || text(v.brand) === brand).map((v) => text(v.model)).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR')), [vehicles, brand]);
   const transmissions = useMemo(() => Array.from(new Set(vehicles.map((v) => text(v.transmission)).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR')), [vehicles]);
   const fuels = useMemo(() => Array.from(new Set(vehicles.map((v) => text(v.fuel)).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR')), [vehicles]);
-
   const filtered = useMemo(() => {
     const q = fold(query), y0 = digits(minYear), y1 = digits(maxYear), p0 = digits(minPrice), p1 = digits(maxPrice);
-    const result = vehicles.filter((v) => {
-      const searchable = fold([v.brand, v.model, v.version, v.store_name, v.transmission, v.fuel].filter(Boolean).join(' '));
-      const vy = year(v), price = Number(v.price || 0);
-      if (q && !searchable.includes(q)) return false;
-      if (brand && text(v.brand) !== brand) return false;
-      if (model && text(v.model) !== model) return false;
-      if (transmission && text(v.transmission) !== transmission) return false;
-      if (fuel && text(v.fuel) !== fuel) return false;
-      if (y0 && vy < y0) return false;
-      if (y1 && vy > y1) return false;
-      if (p0 && price < p0) return false;
-      if (p1 && price > p1) return false;
-      return matchesKind(v, kind);
-    });
+    const result = vehicles.filter((v) => { const searchable = fold([v.brand, v.model, v.version, v.store_name, v.transmission, v.fuel].filter(Boolean).join(' ')); const vy = year(v), price = Number(v.price || 0); if (q && !searchable.includes(q)) return false; if (brand && text(v.brand) !== brand) return false; if (model && text(v.model) !== model) return false; if (transmission && text(v.transmission) !== transmission) return false; if (fuel && text(v.fuel) !== fuel) return false; if (y0 && vy < y0) return false; if (y1 && vy > y1) return false; if (p0 && price < p0) return false; if (p1 && price > p1) return false; return matchesKind(v, kind); });
     return [...result].sort((a, b) => sort === 'price_asc' ? Number(a.price || 0) - Number(b.price || 0) : sort === 'price_desc' ? Number(b.price || 0) - Number(a.price || 0) : sort === 'year_desc' ? year(b) - year(a) : sort === 'mileage_asc' ? mileage(a) - mileage(b) : Boolean(a.is_featured) !== Boolean(b.is_featured) ? (a.is_featured ? -1 : 1) : Number(a.display_order || 0) - Number(b.display_order || 0));
   }, [vehicles, query, brand, model, kind, transmission, fuel, minYear, maxYear, minPrice, maxPrice, sort]);
-
   const activeFilters = Boolean(brand || model || transmission || fuel || minYear || maxYear || minPrice || maxPrice || kind !== 'todos');
   const clear = () => { setQuery(''); setBrand(''); setModel(''); setKind('todos'); setTransmission(''); setFuel(''); setMinYear(''); setMaxYear(''); setMinPrice(''); setMaxPrice(''); setSort('featured'); };
-  const simulated = layoutMode !== 'auto';
-  const mobile = layoutMode === 'mobile';
-
+  const simulated = layoutMode !== 'auto'; const mobile = layoutMode === 'mobile';
   const panelStyle = { backgroundColor: cfg.filterPanelBackground, color: cfg.filterTextColor, borderRadius: cfg.filterRadius };
-  const chipStyle = (item: string) => kind === item
-    ? { backgroundColor: cfg.categoryActiveBackground, color: cfg.categoryActiveTextColor, borderColor: cfg.categoryActiveBackground, borderRadius: cfg.categoryRadius }
-    : { backgroundColor: cfg.categoryBackground, color: cfg.categoryTextColor, borderColor: `${cfg.categoryTextColor}33`, borderRadius: cfg.categoryRadius };
+  const chipStyle = (item: string) => kind === item ? { backgroundColor: cfg.categoryActiveBackground, color: cfg.categoryActiveTextColor, borderColor: cfg.categoryActiveBackground, borderRadius: cfg.categoryRadius } : { backgroundColor: cfg.categoryBackground, color: cfg.categoryTextColor, borderColor: `${cfg.categoryTextColor}33`, borderRadius: cfg.categoryRadius };
   const selectClass = 'h-11 w-full min-w-0 rounded-xl border border-white/15 bg-white/10 px-3 text-xs font-bold text-white outline-none';
-
-  const filterPanel = <div className="space-y-4" style={{ color: cfg.filterTextColor }}>
-    {cfg.showCategories ? <div><p className="text-xs font-black uppercase tracking-[.14em]">Categoria</p><div className="mt-3 flex flex-wrap gap-2">{kinds.map((item) => <button key={item} type="button" onClick={() => setKind(item)} className="border px-3 py-2 text-[10px] font-black uppercase transition" style={chipStyle(item)}>{item === '0km' ? '0 km' : item}</button>)}</div></div> : null}
-    {cfg.showBrand ? <select value={brand} onChange={(e) => { setBrand(e.target.value); setModel(''); }} className={selectClass}><option value="">Todas as marcas</option>{brands.map((item) => <option key={item}>{item}</option>)}</select> : null}
-    {cfg.showModel ? <select value={model} onChange={(e) => setModel(e.target.value)} className={selectClass}><option value="">Todos os modelos</option>{models.map((item) => <option key={item}>{item}</option>)}</select> : null}
-    {cfg.showTransmission ? <select value={transmission} onChange={(e) => setTransmission(e.target.value)} className={selectClass}><option value="">Todos os câmbios</option>{transmissions.map((item) => <option key={item}>{item}</option>)}</select> : null}
-    {cfg.showFuel ? <select value={fuel} onChange={(e) => setFuel(e.target.value)} className={selectClass}><option value="">Todos os combustíveis</option>{fuels.map((item) => <option key={item}>{item}</option>)}</select> : null}
-    {cfg.showYear ? <div className="grid grid-cols-2 gap-2"><input value={minYear} onChange={(e) => setMinYear(e.target.value.replace(/\D/g, '').slice(0,4))} placeholder="Ano de" className={selectClass}/><input value={maxYear} onChange={(e) => setMaxYear(e.target.value.replace(/\D/g, '').slice(0,4))} placeholder="Ano até" className={selectClass}/></div> : null}
-    {cfg.showPrice ? <div className="grid grid-cols-2 gap-2"><input value={minPrice} onChange={(e) => setMinPrice(e.target.value.replace(/\D/g, ''))} placeholder="Preço de" className={selectClass}/><input value={maxPrice} onChange={(e) => setMaxPrice(e.target.value.replace(/\D/g, ''))} placeholder="Preço até" className={selectClass}/></div> : null}
-    {activeFilters || query ? <button type="button" onClick={clear} className="w-full rounded-xl border border-white/20 px-3 py-3 text-xs font-black"><X size={14} className="inline"/> Limpar filtros</button> : null}
-  </div>;
-
+  const filterPanel = <div className="space-y-4" style={{ color: cfg.filterTextColor }}>{cfg.showCategories ? <div><p className="text-xs font-black uppercase tracking-[.14em]">Categoria</p><div className="mt-3 flex flex-wrap gap-2">{kinds.map((item) => <button key={item} type="button" onClick={() => setKind(item)} className="border px-3 py-2 text-[10px] font-black uppercase transition" style={chipStyle(item)}>{item === '0km' ? '0 km' : item}</button>)}</div></div> : null}{cfg.showBrand ? <select value={brand} onChange={(e) => { setBrand(e.target.value); setModel(''); }} className={selectClass}><option value="">Todas as marcas</option>{brands.map((item) => <option key={item}>{item}</option>)}</select> : null}{cfg.showModel ? <select value={model} onChange={(e) => setModel(e.target.value)} className={selectClass}><option value="">Todos os modelos</option>{models.map((item) => <option key={item}>{item}</option>)}</select> : null}{cfg.showTransmission ? <select value={transmission} onChange={(e) => setTransmission(e.target.value)} className={selectClass}><option value="">Todos os câmbios</option>{transmissions.map((item) => <option key={item}>{item}</option>)}</select> : null}{cfg.showFuel ? <select value={fuel} onChange={(e) => setFuel(e.target.value)} className={selectClass}><option value="">Todos os combustíveis</option>{fuels.map((item) => <option key={item}>{item}</option>)}</select> : null}{cfg.showYear ? <div className="grid grid-cols-2 gap-2"><input value={minYear} onChange={(e) => setMinYear(e.target.value.replace(/\D/g, '').slice(0,4))} placeholder="Ano de" className={selectClass}/><input value={maxYear} onChange={(e) => setMaxYear(e.target.value.replace(/\D/g, '').slice(0,4))} placeholder="Ano até" className={selectClass}/></div> : null}{cfg.showPrice ? <div className="grid grid-cols-2 gap-2"><input value={minPrice} onChange={(e) => setMinPrice(e.target.value.replace(/\D/g, ''))} placeholder="Preço de" className={selectClass}/><input value={maxPrice} onChange={(e) => setMaxPrice(e.target.value.replace(/\D/g, ''))} placeholder="Preço até" className={selectClass}/></div> : null}{activeFilters || query ? <button type="button" onClick={clear} className="w-full rounded-xl border border-white/20 px-3 py-3 text-xs font-black"><X size={14} className="inline"/> Limpar filtros</button> : null}</div>;
   const hasFilters = cfg.showCategories || cfg.showBrand || cfg.showModel || cfg.showPrice || cfg.showYear || cfg.showTransmission || cfg.showFuel;
   const columns = layoutMode === 'mobile' ? 1 : layoutMode === 'tablet' ? 2 : cfg.cardColumnsDesktop;
 
-  return <div className={`${embedded ? (mobile ? 'px-3' : 'px-4 sm:px-6') : 'bg-slate-100 px-4 py-14 sm:px-6 lg:px-8'} min-w-0`}>
-    <div className="mx-auto min-w-0 max-w-[1600px]">
-      {(cfg.showSearch || hasFilters) ? <div className="min-w-0 rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm sm:p-4"><div className={`flex min-w-0 gap-3 ${mobile ? 'flex-col' : ''}`}>{cfg.showSearch ? <label className="relative min-w-0 flex-1"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20}/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por marca, modelo ou versão" className="h-12 w-full min-w-0 rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-12 pr-4 text-sm font-semibold text-slate-900 outline-none"/></label> : null}{hasFilters ? <button type="button" onClick={() => setFiltersOpen(!filtersOpen)} className={`${simulated ? 'flex' : 'flex lg:hidden'} min-h-12 shrink-0 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-black text-white`} style={{ backgroundColor: cfg.filterPanelBackground }}><Filter size={18}/> Filtros</button> : null}</div>{filtersOpen ? <div className={`${simulated ? '' : 'lg:hidden'} mt-4 min-w-0 p-4`} style={panelStyle}>{filterPanel}</div> : null}</div> : null}
-
-      <div className={`${simulated ? 'mt-5 grid grid-cols-1 gap-5' : 'mt-7 grid items-start gap-6'} min-w-0`} style={!simulated ? { gridTemplateColumns: `${cfg.filterWidth}px minmax(0,1fr)` } : undefined}>
-        {!simulated ? <aside className="hidden p-5 lg:block" style={panelStyle}>{filterPanel}</aside> : null}
-        <div className="min-w-0">
-          <div className={`flex min-w-0 gap-3 ${mobile ? 'flex-col' : 'flex-col sm:flex-row sm:items-end sm:justify-between'}`}><div className="min-w-0"><p className="text-xs font-black uppercase tracking-[.16em]" style={{color:primaryColor}}>Estoque do evento</p><h2 className={`${mobile ? 'text-2xl' : 'text-3xl sm:text-4xl'} mt-2 break-words font-black leading-tight`}>Veículos disponíveis</h2><p className="mt-2 text-sm font-bold text-slate-500">{filtered.length} {filtered.length === 1 ? 'veículo encontrado' : 'veículos encontrados'}</p></div>{cfg.showSort ? <label className={`${mobile ? 'w-full' : 'w-full sm:w-56'} relative shrink-0`}><select value={sort} onChange={(e) => setSort(e.target.value)} className="h-12 w-full min-w-0 appearance-none rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm font-bold text-slate-900"><option value="featured">Destaques</option><option value="price_asc">Menor preço</option><option value="price_desc">Maior preço</option><option value="year_desc">Ano mais recente</option><option value="mileage_asc">Menor quilometragem</option></select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={18}/></label> : null}</div>
-          {filtered.length ? <div className={`campaign-discovery-showcase campaign-discovery-${layoutMode} mt-7 min-w-0`} style={{ ['--campaign-columns' as any]: columns, ['--campaign-gap' as any]: `${cfg.cardGap}px` }}><CampaignVehicleShowcase vehicles={filtered} primaryColor={primaryColor} onOpenSimulator={onOpenSimulator}/></div> : <div className="mt-7 rounded-[28px] border border-dashed bg-white p-8 text-center sm:p-12"><SlidersHorizontal size={40} className="mx-auto text-slate-300"/><h3 className="mt-4 text-2xl font-black">Nenhum veículo encontrado</h3><button type="button" onClick={clear} className="mt-5 rounded-xl px-5 py-3 text-sm font-black text-white" style={{backgroundColor:primaryColor}}>Limpar filtros</button></div>}
-        </div>
-      </div>
-    </div>
-    <style jsx global>{`
+  return <div className={`${embedded ? (mobile ? 'px-3' : 'px-4 sm:px-6') : 'bg-slate-100 px-4 py-14 sm:px-6 lg:px-8'} min-w-0`}><div className="mx-auto min-w-0 max-w-[1600px]">{(cfg.showSearch || hasFilters) ? <div className="min-w-0 rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm sm:p-4"><div className={`flex min-w-0 gap-3 ${mobile ? 'flex-col' : ''}`}>{cfg.showSearch ? <label className="relative min-w-0 flex-1"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20}/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por marca, modelo ou versão" className="h-12 w-full min-w-0 rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-12 pr-4 text-sm font-semibold text-slate-900 outline-none"/></label> : null}{hasFilters ? <button type="button" onClick={() => setFiltersOpen(!filtersOpen)} className={`${simulated ? 'flex' : 'flex lg:hidden'} min-h-12 shrink-0 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-black text-white`} style={{ backgroundColor: cfg.filterPanelBackground }}><Filter size={18}/> Filtros</button> : null}</div>{filtersOpen ? <div className={`${simulated ? '' : 'lg:hidden'} mt-4 min-w-0 p-4`} style={panelStyle}>{filterPanel}</div> : null}</div> : null}<div className={`${simulated ? 'mt-5 grid grid-cols-1 gap-5' : 'mt-7 grid items-start gap-6'} min-w-0`} style={!simulated ? { gridTemplateColumns: `${cfg.filterWidth}px minmax(0,1fr)` } : undefined}>{!simulated ? <aside className="hidden p-5 lg:block" style={panelStyle}>{filterPanel}</aside> : null}<div className="min-w-0"><div className={`flex min-w-0 gap-3 ${mobile ? 'flex-col' : 'flex-col sm:flex-row sm:items-end sm:justify-between'}`}><div className="min-w-0"><p className="text-xs font-black uppercase tracking-[.16em]" style={{color:primaryColor}}>Estoque do evento</p><h2 className={`${mobile ? 'text-2xl' : 'text-3xl sm:text-4xl'} mt-2 break-words font-black leading-tight`}>Veículos disponíveis</h2><p className="mt-2 text-sm font-bold text-slate-500">{filtered.length} {filtered.length === 1 ? 'veículo encontrado' : 'veículos encontrados'}</p></div>{cfg.showSort ? <label className={`${mobile ? 'w-full' : 'w-full sm:w-56'} relative shrink-0`}><select value={sort} onChange={(e) => setSort(e.target.value)} className="h-12 w-full min-w-0 appearance-none rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm font-bold text-slate-900"><option value="featured">Destaques</option><option value="price_asc">Menor preço</option><option value="price_desc">Maior preço</option><option value="year_desc">Ano mais recente</option><option value="mileage_asc">Menor quilometragem</option></select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={18}/></label> : null}</div>{filtered.length ? <div className={`campaign-discovery-showcase campaign-discovery-${layoutMode} mt-5 min-w-0`} style={{ ['--campaign-columns' as any]: columns, ['--campaign-gap' as any]: `${cfg.cardGap}px` }}><CampaignVehicleShowcase vehicles={filtered} primaryColor={primaryColor} onOpenSimulator={onOpenSimulator} compactPremium /></div> : <div className="mt-7 rounded-[28px] border border-dashed bg-white p-8 text-center sm:p-12"><SlidersHorizontal size={40} className="mx-auto text-slate-300"/><h3 className="mt-4 text-2xl font-black">Nenhum veículo encontrado</h3><button type="button" onClick={clear} className="mt-5 rounded-xl px-5 py-3 text-sm font-black text-white" style={{backgroundColor:primaryColor}}>Limpar filtros</button></div>}</div></div></div><style jsx global>{`
       .campaign-discovery-showcase > section{background:transparent!important;padding:0!important;min-width:0!important}
       .campaign-discovery-showcase > section > div{max-width:none!important;min-width:0!important;padding-left:0!important;padding-right:0!important}
       .campaign-discovery-showcase > section > div > h2{display:none!important}
-      .campaign-discovery-showcase > section > div > .mt-8{margin-top:0!important;min-width:0!important;grid-template-columns:repeat(var(--campaign-columns),minmax(0,1fr))!important;gap:var(--campaign-gap)!important}
-      .campaign-discovery-showcase article{min-width:0!important;border-radius:20px!important}
-      .campaign-discovery-showcase article h3{overflow-wrap:anywhere!important;font-size:clamp(.8rem,1vw,1.1rem)!important}
-      .campaign-discovery-showcase article .p-5{padding:12px!important}
-      .campaign-discovery-showcase article .text-2xl{font-size:1.05rem!important}
-      .campaign-discovery-mobile article .grid.grid-cols-2{grid-template-columns:minmax(0,1fr)!important}
-    `}</style>
-  </div>;
+      .campaign-discovery-showcase > section > div > div{margin-top:0!important;min-width:0!important;grid-template-columns:repeat(var(--campaign-columns),minmax(0,1fr))!important;gap:var(--campaign-gap)!important}
+      .campaign-discovery-mobile article{max-width:340px;margin-inline:auto;width:100%}
+    `}</style></div>;
 }
