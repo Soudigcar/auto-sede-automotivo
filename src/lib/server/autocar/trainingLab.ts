@@ -89,7 +89,6 @@ export async function saveTrainingScenario(input: TrainingScenarioInput, scenari
   if (!cleanSituation || !cleanIdeal) throw new Error('Situação e resposta ideal são obrigatórias.');
 
   const status = input.status === 'approved' ? 'approved' : 'draft';
-  const values = await embedding(scenarioEmbeddingText({ ...input, status }));
   const payload = {
     scope: 'global',
     store_id: null,
@@ -103,7 +102,7 @@ export async function saveTrainingScenario(input: TrainingScenarioInput, scenari
     examples: normalizeList(input.examples),
     priority: Math.max(1, Math.min(Number(input.priority || 100), 1000)),
     status,
-    embedding: vectorLiteral(values),
+    embedding: null,
     updated_by_profile_id: input.actorProfileId,
     updated_at: new Date().toISOString()
   };
@@ -125,6 +124,54 @@ export async function saveTrainingScenario(input: TrainingScenarioInput, scenari
     created_by_profile_id: input.actorProfileId
   }).select('*').single();
   if (error) throw error;
+  return data;
+}
+
+export async function prepareTrainingScenarioForApproval(scenarioId: string, actorProfileId: string) {
+  const supabase: any = getAutocarDevClient();
+  const { data: current, error: currentError } = await supabase.from('ai_training_scenarios')
+    .select('id,scope,situation,intent,ideal_response,objective,next_action,restrictions,tags,examples,priority,status,version,updated_at')
+    .eq('id', scenarioId)
+    .eq('scope', 'global')
+    .maybeSingle();
+  if (currentError) throw currentError;
+  if (!current) throw new Error('Aprendizado global não encontrado.');
+  if (current.status === 'archived') throw new Error('Aprendizado arquivado não pode ser aprovado.');
+
+  const expectedVersion = Number(current.version || 1);
+  const expectedUpdatedAt = String(current.updated_at || '');
+  if (!expectedUpdatedAt) throw new Error('Aprendizado sem versão temporal válida para aprovação.');
+
+  const values = await embedding(scenarioEmbeddingText({
+    situation: String(current.situation || ''),
+    intent: current.intent || null,
+    idealResponse: String(current.ideal_response || ''),
+    objective: current.objective || null,
+    nextAction: current.next_action || null,
+    restrictions: current.restrictions || [],
+    tags: current.tags || [],
+    examples: current.examples || [],
+    priority: Number(current.priority || 100),
+    status: 'draft'
+  }));
+
+  const preparedAt = new Date().toISOString();
+  const { data, error } = await supabase.from('ai_training_scenarios').update({
+    embedding: vectorLiteral(values),
+    updated_by_profile_id: actorProfileId,
+    updated_at: preparedAt
+  })
+    .eq('id', scenarioId)
+    .eq('scope', 'global')
+    .eq('version', expectedVersion)
+    .eq('updated_at', expectedUpdatedAt)
+    .neq('status', 'archived')
+    .select('*')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    throw new Error('O aprendizado foi alterado enquanto o embedding era gerado. Recarregue a tela e tente aprovar novamente.');
+  }
   return data;
 }
 
@@ -310,7 +357,7 @@ export async function reviewTrainingSimulation(input: {
       tags: input.tags || [],
       examples: [simulation.customer_input],
       priority: 100,
-      status: 'approved',
+      status: 'draft',
       actorProfileId: input.actorProfileId
     });
   }
