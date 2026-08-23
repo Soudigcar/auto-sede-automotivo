@@ -99,6 +99,29 @@ function getAdminClient() {
   });
 }
 
+function isMasterProfile(profile: any) {
+  return cleanText(profile?.role, 40).toLowerCase() === 'master';
+}
+
+function inventorySource(profile: any) {
+  return isMasterProfile(profile) ? 'master_store_stock' : 'store_portal_stock';
+}
+
+function actorName(profile: any) {
+  return profile?.full_name || profile?.email || (isMasterProfile(profile) ? 'Master' : 'Loja');
+}
+
+function tenantConflictError() {
+  const error: any = new Error('Conflito de isolamento detectado. O veículo vinculado não pertence à loja selecionada ou não possui tenant válido.');
+  error.status = 409;
+  return error;
+}
+
+function safeErrorStatus(error: any, fallback = 500) {
+  const status = Number(error?.status);
+  return Number.isInteger(status) && status >= 400 && status < 600 ? status : fallback;
+}
+
 async function getAuthorizedStore(request: Request, expectedSlug?: string) {
   const supabase = getAdminClient();
   const authorization = request.headers.get('authorization') || '';
@@ -130,7 +153,7 @@ async function getAuthorizedStore(request: Request, expectedSlug?: string) {
     profile = byEmail;
   }
 
-  const role = cleanText(profile?.role, 40);
+  const role = cleanText(profile?.role, 40).toLowerCase();
   if (!profile || profile.status !== 'active' || !['master', 'store'].includes(role)) {
     return { error: 'Usuário não autorizado para gerenciar estoque.', status: 403, supabase, profile: null, store: null, authUser: authData.user };
   }
@@ -165,6 +188,21 @@ async function getAuthorizedStore(request: Request, expectedSlug?: string) {
   return { error: '', status: 200, supabase, profile, store, authUser: authData.user };
 }
 
+async function assertStoreVehicle(supabase: any, storeId: string, vehicleId?: string | null) {
+  if (!vehicleId) return null;
+
+  const { data: vehicle, error } = await supabase
+    .from('site_vehicles')
+    .select('id,store_id')
+    .eq('id', vehicleId)
+    .eq('store_id', storeId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!vehicle) throw tenantConflictError();
+  return vehicle;
+}
+
 async function getStoreLink(supabase: any, storeId: string, linkId: string) {
   const { data: link, error } = await supabase
     .from('store_vehicle_link_submissions')
@@ -173,8 +211,45 @@ async function getStoreLink(supabase: any, storeId: string, linkId: string) {
     .eq('store_id', storeId)
     .maybeSingle();
 
-  if (error || !link) return null;
+  if (error) throw error;
+  if (!link) return null;
+  await assertStoreVehicle(supabase, storeId, link.imported_vehicle_id);
   return link;
+}
+
+async function auditMasterStockAction(
+  supabase: any,
+  request: Request,
+  profile: any,
+  store: any,
+  action: string,
+  entityId: string | null,
+  detail: Record<string, any> = {}
+) {
+  if (!isMasterProfile(profile)) return;
+
+  const forwarded = cleanText(request.headers.get('x-forwarded-for'), 120);
+  const ip = forwarded.split(',')[0]?.trim() || null;
+  const { error } = await supabase.from('audit_logs').insert({
+    event_id: null,
+    user_id: profile.id,
+    user_role: 'master',
+    action_type: `master_stock_${action}`,
+    entity_type: 'store_inventory',
+    entity_id: entityId || null,
+    old_value: null,
+    new_value: {
+      store_id: store.id,
+      store_slug: store.slug,
+      phase: 'authorized_request',
+      ...detail
+    },
+    ip_address: ip,
+    user_agent: cleanText(request.headers.get('user-agent'), 1000) || null,
+    integrity_level: 'trusted_server'
+  });
+
+  if (error) throw new Error(`Falha ao registrar auditoria Master: ${error.message}`);
 }
 
 async function getActiveCampaign(supabase: any) {
@@ -270,6 +345,7 @@ function draftFromBody(body: any, link: any) {
 async function importLinkDraft(request: Request, supabase: any, store: any, profile: any, link: any, sourceUrl: string) {
   const now = new Date().toISOString();
   const attempt = Number(link?.metadata?.import_attempts || 0) + 1;
+  const source = inventorySource(profile);
 
   await supabase
     .from('store_vehicle_link_submissions')
@@ -277,7 +353,7 @@ async function importLinkDraft(request: Request, supabase: any, store: any, prof
       status: 'reviewing',
       metadata: {
         ...(link.metadata || {}),
-        source: 'store_portal_stock',
+        source,
         auto_import: true,
         publication_status: 'importando_automaticamente',
         import_started_at: now,
@@ -294,7 +370,7 @@ async function importLinkDraft(request: Request, supabase: any, store: any, prof
     const technicalDraft = buildImportedForm(importResult, sourceUrl);
     const aiReview = await reviewVehicleImportWithOpenAI(
       technicalDraft,
-      'site público da loja',
+      isMasterProfile(profile) ? 'estoque administrado pelo Master' : 'site público da loja',
       { source_evidence: importResult.evidence || null }
     );
     const merged = mergeImportedVehicle(technicalDraft, aiReview.vehicle);
@@ -316,7 +392,7 @@ async function importLinkDraft(request: Request, supabase: any, store: any, prof
         notes: importedForm.description || link.notes || null,
         metadata: {
           ...(link.metadata || {}),
-          source: 'store_portal_stock',
+          source,
           auto_import: true,
           publication_status: missing.length ? 'aguardando_preenchimento' : 'pronto_para_conferencia',
           imported_preview: importedForm,
@@ -337,10 +413,10 @@ async function importLinkDraft(request: Request, supabase: any, store: any, prof
           audit_history: [
             ...(Array.isArray(link?.metadata?.audit_history) ? link.metadata.audit_history : []),
             {
-              action: 'automatic_site_import',
+              action: isMasterProfile(profile) ? 'master_import_with_ai' : 'automatic_site_import',
               at: finishedAt,
               user_id: profile.id,
-              user_name: profile.full_name || profile.email || 'Loja',
+              user_name: actorName(profile),
               result: missing.length ? 'incomplete' : 'ready_for_review'
             }
           ].slice(-100)
@@ -374,7 +450,7 @@ async function importLinkDraft(request: Request, supabase: any, store: any, prof
         status: 'error',
         metadata: {
           ...(link.metadata || {}),
-          source: 'store_portal_stock',
+          source,
           auto_import: true,
           publication_status: 'falha_importacao',
           import_started_at: now,
@@ -419,10 +495,14 @@ export async function GET(request: Request) {
       const { data: vehicles, error: vehiclesError } = await context.supabase
         .from('site_vehicles')
         .select('*')
-        .in('id', vehicleIds);
+        .in('id', vehicleIds)
+        .eq('store_id', context.store.id);
 
       if (vehiclesError) return NextResponse.json({ error: vehiclesError.message }, { status: 400 });
       vehiclesById = Object.fromEntries((vehicles || []).map((vehicle: any) => [vehicle.id, withNormalizedYears(vehicle)]));
+
+      const missingTenantVehicle = vehicleIds.find((vehicleId) => !vehiclesById[String(vehicleId)]);
+      if (missingTenantVehicle) throw tenantConflictError();
     }
 
     const items = links.map((link: any) => ({
@@ -437,7 +517,10 @@ export async function GET(request: Request) {
       auto_import_pending: items.filter((item: any) => item.auto_import_eligible).length
     }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Erro ao carregar estoque da loja.' }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || 'Erro ao carregar estoque da loja.' },
+      { status: safeErrorStatus(error) }
+    );
   }
 }
 
@@ -453,6 +536,8 @@ export async function POST(request: Request) {
     }
 
     const { supabase, profile, store } = context;
+    const master = isMasterProfile(profile);
+    const source = inventorySource(profile);
 
     if (action === 'add-link') {
       const vehicleUrl = normalizeUrl(cleanText(body.vehicle_url, 2200));
@@ -463,13 +548,14 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Para anúncios da OLX, use o menu “Importar OLX” e a extensão do navegador.' }, { status: 400 });
       }
 
-      const { data: existing } = await supabase
+      const { data: existing, error: existingError } = await supabase
         .from('store_vehicle_link_submissions')
         .select('*')
         .eq('store_id', store.id)
         .eq('vehicle_url', vehicleUrl)
         .maybeSingle();
 
+      if (existingError) throw existingError;
       if (existing && existing?.metadata?.store_removed !== true) {
         return NextResponse.json({ error: 'Este link já está no estoque da loja.' }, { status: 409 });
       }
@@ -482,6 +568,9 @@ export async function POST(request: Request) {
       const now = new Date().toISOString();
 
       if (existing?.metadata?.store_removed === true) {
+        await assertStoreVehicle(supabase, store.id, existing.imported_vehicle_id);
+        await auditMasterStockAction(supabase, request, profile, store, 'restore_link', existing.id, { position });
+
         const { data: restored, error } = await supabase
           .from('store_vehicle_link_submissions')
           .update({
@@ -490,11 +579,11 @@ export async function POST(request: Request) {
             position,
             metadata: {
               ...(existing.metadata || {}),
-              source: 'store_portal_stock',
+              source,
               auto_import: true,
               publication_status: 'aguardando_importacao',
               store_removed: false,
-              restored_by_store: true,
+              ...(master ? { restored_by_master: true } : { restored_by_store: true }),
               restored_at: now,
               import_error: null
             },
@@ -509,6 +598,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: true, link_id: restored.id, auto_import: true });
       }
 
+      await auditMasterStockAction(supabase, request, profile, store, 'add_link', null, { position });
       const { data: created, error } = await supabase
         .from('store_vehicle_link_submissions')
         .insert({
@@ -519,10 +609,11 @@ export async function POST(request: Request) {
           vehicle_url: vehicleUrl,
           status: 'pending',
           metadata: {
-            source: 'store_portal_stock',
+            source,
             auto_import: true,
             publication_status: 'aguardando_importacao',
-            created_for_review: true
+            created_for_review: true,
+            created_by_role: master ? 'master' : 'store'
           }
         })
         .select('*')
@@ -545,6 +636,10 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'A OLX deve ser importada pelo navegador usando a extensão.' }, { status: 400 });
       }
 
+      await auditMasterStockAction(supabase, request, profile, store, action === 'retry-import' ? 'retry_import' : 'import_ai', link.id, {
+        vehicle_id: link.imported_vehicle_id || null
+      });
+
       try {
         const result = await importLinkDraft(request, supabase, store, profile, link, sourceUrl);
         return NextResponse.json(result);
@@ -563,6 +658,11 @@ export async function POST(request: Request) {
       const missing = requiredMissing(draft, draft.image_urls.length);
       const now = new Date().toISOString();
 
+      await auditMasterStockAction(supabase, request, profile, store, 'save_draft', link.id, {
+        vehicle_id: link.imported_vehicle_id || null,
+        missing_fields: missing.length
+      });
+
       const { error } = await supabase
         .from('store_vehicle_link_submissions')
         .update({
@@ -571,19 +671,19 @@ export async function POST(request: Request) {
           notes: draft.description || link.notes || null,
           metadata: {
             ...(link.metadata || {}),
-            source: 'store_portal_stock',
+            source,
             publication_status: missing.length ? 'aguardando_preenchimento' : 'pronto_para_conferencia',
             imported_preview: draft,
             missing_fields: missing,
             draft_saved_at: now,
-            reviewed_by_store: true,
+            ...(master ? { reviewed_by_master: true } : { reviewed_by_store: true }),
             audit_history: [
               ...(Array.isArray(link?.metadata?.audit_history) ? link.metadata.audit_history : []),
               {
-                action: 'draft_saved_by_store',
+                action: master ? 'draft_saved_by_master' : 'draft_saved_by_store',
                 at: now,
                 user_id: profile.id,
-                user_name: profile.full_name || profile.email || 'Loja'
+                user_name: actorName(profile)
               }
             ].slice(-100)
           },
@@ -608,6 +708,10 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Para OLX, use o importador pelo navegador.' }, { status: 400 });
       }
 
+      await auditMasterStockAction(supabase, request, profile, store, 'update_link', link.id, {
+        vehicle_id: link.imported_vehicle_id || null
+      });
+
       const currentMetadata = link.metadata && typeof link.metadata === 'object' ? link.metadata : {};
       const { imported_preview: _preview, missing_fields: _missing, ai_review: _ai, ...metadataRest } = currentMetadata;
       const payload: any = { vehicle_url: vehicleUrl, updated_at: new Date().toISOString() };
@@ -616,9 +720,9 @@ export async function POST(request: Request) {
         payload.status = 'pending';
         payload.metadata = {
           ...metadataRest,
-          source: 'store_portal_stock',
+          source,
           auto_import: true,
-          edited_by_store: true,
+          ...(master ? { edited_by_master: true } : { edited_by_store: true }),
           edited_at: new Date().toISOString(),
           publication_status: 'aguardando_importacao',
           import_error: null
@@ -634,10 +738,15 @@ export async function POST(request: Request) {
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
       if (link.imported_vehicle_id) {
-        await supabase
+        const { data: updatedVehicle, error: vehicleError } = await supabase
           .from('site_vehicles')
           .update({ source_url: vehicleUrl, updated_at: new Date().toISOString() })
-          .eq('id', link.imported_vehicle_id);
+          .eq('id', link.imported_vehicle_id)
+          .eq('store_id', store.id)
+          .select('id')
+          .maybeSingle();
+        if (vehicleError) return NextResponse.json({ error: vehicleError.message }, { status: 400 });
+        if (!updatedVehicle) throw tenantConflictError();
       }
 
       return NextResponse.json({ success: true, auto_import: link.status !== 'published' });
@@ -656,6 +765,10 @@ export async function POST(request: Request) {
           missing
         }, { status: 400 });
       }
+
+      await auditMasterStockAction(supabase, request, profile, store, action === 'update-vehicle' ? 'update_vehicle' : 'publish_vehicle', link.id, {
+        vehicle_id: link.imported_vehicle_id || null
+      });
 
       const years = vehicleYearNumbers(draft);
       const campaign = await getActiveCampaign(supabase);
@@ -685,8 +798,15 @@ export async function POST(request: Request) {
 
       let vehicleId = link.imported_vehicle_id;
       if (vehicleId) {
-        const { error } = await supabase.from('site_vehicles').update(vehiclePayload).eq('id', vehicleId);
+        const { data: updatedVehicle, error } = await supabase
+          .from('site_vehicles')
+          .update(vehiclePayload)
+          .eq('id', vehicleId)
+          .eq('store_id', store.id)
+          .select('id')
+          .maybeSingle();
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (!updatedVehicle) throw tenantConflictError();
       } else {
         const { data: created, error } = await supabase
           .from('site_vehicles')
@@ -707,21 +827,22 @@ export async function POST(request: Request) {
           notes: draft.description || link.notes || null,
           metadata: {
             ...(link.metadata || {}),
-            source: 'store_portal_stock',
+            source,
             publication_status: 'publicado',
             final_preview: draft,
             final_description: draft.description || null,
-            published_by_store: true,
-            reviewed_by_store: true,
+            ...(master
+              ? { published_by_master: true, reviewed_by_master: true }
+              : { published_by_store: true, reviewed_by_store: true }),
             published_at: now,
             missing_fields: [],
             audit_history: [
               ...(Array.isArray(link?.metadata?.audit_history) ? link.metadata.audit_history : []),
               {
-                action: 'vehicle_published_by_store',
+                action: master ? 'vehicle_published_by_master' : 'vehicle_published_by_store',
                 at: now,
                 user_id: profile.id,
-                user_name: profile.full_name || profile.email || 'Loja'
+                user_name: actorName(profile)
               }
             ].slice(-100)
           },
@@ -739,11 +860,20 @@ export async function POST(request: Request) {
       const link = await getStoreLink(supabase, store.id, linkId);
       if (!link) return NextResponse.json({ error: 'Item não encontrado para esta loja.' }, { status: 404 });
 
+      await auditMasterStockAction(supabase, request, profile, store, 'delete_item', link.id, {
+        vehicle_id: link.imported_vehicle_id || null
+      });
+
       if (link.imported_vehicle_id) {
-        await supabase
+        const { data: updatedVehicle, error: vehicleError } = await supabase
           .from('site_vehicles')
           .update({ show_on_landing: false, status: 'oculto', updated_at: new Date().toISOString() })
-          .eq('id', link.imported_vehicle_id);
+          .eq('id', link.imported_vehicle_id)
+          .eq('store_id', store.id)
+          .select('id')
+          .maybeSingle();
+        if (vehicleError) return NextResponse.json({ error: vehicleError.message }, { status: 400 });
+        if (!updatedVehicle) throw tenantConflictError();
       }
 
       const { error } = await supabase
@@ -753,7 +883,7 @@ export async function POST(request: Request) {
           metadata: {
             ...(link.metadata || {}),
             store_removed: true,
-            removed_by_store: true,
+            ...(master ? { removed_by_master: true } : { removed_by_store: true }),
             removed_at: new Date().toISOString()
           },
           updated_at: new Date().toISOString()
@@ -767,6 +897,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: 'Ação inválida.' }, { status: 400 });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Erro ao salvar estoque da loja.' }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || 'Erro ao salvar estoque da loja.' },
+      { status: safeErrorStatus(error) }
+    );
   }
 }
