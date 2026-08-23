@@ -47,6 +47,7 @@ function emptyForm(initialVehicleId = '') {
     name: '',
     phone: '',
     cpf: '',
+    birth_date: '',
     email: '',
     vehicle_id: initialVehicleId,
     down_payment: '',
@@ -98,7 +99,7 @@ export function CampaignFinanceSimulatorInline({
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     event.stopPropagation();
-    if (!selectedVehicle || !hasDownPayment || !form.name || !form.phone || !form.cpf || !form.email || !form.consent) {
+    if (!selectedVehicle || !hasDownPayment || !form.name || !form.phone || !form.cpf || !form.birth_date || !form.email || !form.consent) {
       setMessage('Preencha todos os campos obrigatórios para testar a simulação.');
       return;
     }
@@ -162,10 +163,11 @@ export function CampaignFinanceSimulatorInline({
           style={{ gridTemplateColumns: stacked ? '1fr' : 'minmax(0,1fr) minmax(230px,34%)' }}
         >
           <div className="grid gap-3 sm:grid-cols-2">
-            <input className="premium-input sm:col-span-2" placeholder="Nome completo" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
-            <input className="premium-input" placeholder="WhatsApp" value={form.phone} onChange={(event) => setForm({ ...form, phone: maskPhone(event.target.value) })} required />
-            <input className="premium-input" placeholder="CPF" value={form.cpf} onChange={(event) => setForm({ ...form, cpf: maskCpf(event.target.value) })} required />
-            <input className="premium-input sm:col-span-2" type="email" placeholder="E-mail" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
+            <label className="text-xs font-bold text-slate-700 sm:col-span-2">Nome completo<input className="premium-input mt-1" placeholder="Nome completo" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label>
+            <label className="text-xs font-bold text-slate-700">WhatsApp<input className="premium-input mt-1" placeholder="WhatsApp" value={form.phone} onChange={(event) => setForm({ ...form, phone: maskPhone(event.target.value) })} required /></label>
+            <label className="text-xs font-bold text-slate-700">CPF<input className="premium-input mt-1" placeholder="CPF" value={form.cpf} onChange={(event) => setForm({ ...form, cpf: maskCpf(event.target.value) })} required /></label>
+            <label className="text-xs font-bold text-slate-700">Data de nascimento<input className="premium-input mt-1" type="date" min="1900-01-01" max={new Date().toISOString().slice(0, 10)} value={form.birth_date} onChange={(event) => setForm({ ...form, birth_date: event.target.value })} required /></label>
+            <label className="text-xs font-bold text-slate-700">E-mail<input className="premium-input mt-1" type="email" placeholder="E-mail" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></label>
             <select className="premium-input sm:col-span-2" value={form.vehicle_id} onChange={(event) => setForm({ ...form, vehicle_id: event.target.value, down_payment: '' })} required>
               <option value="">Selecione o veículo</option>
               {vehicles.map((vehicle) => (
@@ -196,7 +198,7 @@ export function CampaignFinanceSimulatorInline({
               <p className="mt-3 text-sm text-slate-400">Selecione um veículo para visualizar as fotos e calcular.</p>
             )}
             <div className="mt-5 space-y-3 text-sm">
-              <p className="flex justify-between gap-4"><span className="text-slate-400">Veículo</span><strong>{money(simulation.vehiclePrice)}</strong></p>
+              <p className="flex justify-between gap-4"><span className="text-slate-400">Veículo</span><strong>{selectedVehicle ? money(simulation.vehiclePrice) : '—'}</strong></p>
               <p className="flex justify-between gap-4"><span className="text-slate-400">Entrada</span><strong>{hasDownPayment ? money(simulation.downPayment) : '—'}</strong></p>
               <p className="flex justify-between gap-4"><span className="text-slate-400">Financiado</span><strong>{hasDownPayment ? money(simulation.financedAmount) : '—'}</strong></p>
             </div>
