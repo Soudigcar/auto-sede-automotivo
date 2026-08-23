@@ -32,3 +32,11 @@ test('the compact cockpit is the only metric strip above the pipeline board', ()
   assert.doesNotMatch(pipelinePage, /<Kpi label=/);
   assert.doesNotMatch(pipelinePage, /function Kpi\(/);
 });
+
+test('each desktop stage has a bounded independent lead scroller', () => {
+  assert.match(pipelinePage, /data-pipeline-stage-cards="true"/);
+  assert.match(cockpit, /height:calc\(100dvh - 176px\)!important/);
+  assert.match(cockpit, /max-height:calc\(100dvh - 176px\)!important/);
+  assert.match(cockpit, /overflow-y:auto!important/);
+  assert.match(cockpit, /overscroll-behavior-y:contain/);
+});

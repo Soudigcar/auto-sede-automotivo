@@ -607,7 +607,7 @@ export default function StoreSlugPipelinePage() {
                         <span className={`rounded-full px-3 py-1 text-xs font-black ${styles.badge}`}>{column.leads.length}</span>
                       </div>
                     </div>
-                    <div className="space-y-1">
+                    <div data-pipeline-stage-cards="true" className="space-y-1">
                       {column.leads.map((lead) => (
                         <LeadCard
                           key={lead.id}
