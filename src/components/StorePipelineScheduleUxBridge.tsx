@@ -31,6 +31,10 @@ function isPipeline(pathname: string) {
   return /^\/loja\/[^/]+\/pipeline\/?$/.test(pathname);
 }
 
+function isPipelineCardV2(card: HTMLElement | null | undefined) {
+  return card?.dataset.pipelineCardV2 === 'true';
+}
+
 function slugFromPath(pathname: string) {
   return pathname.split('/').filter(Boolean)[1] || '';
 }
@@ -151,6 +155,7 @@ export function StorePipelineScheduleUxBridge() {
 
     const normalize = () => {
       document.querySelectorAll<HTMLElement>('[data-lead-id]').forEach((card) => {
+        if (isPipelineCardV2(card)) return;
         const buttons = Array.from(card.querySelectorAll<HTMLButtonElement>('button'));
         const actionButtons = buttons.filter((button) => {
           const text = String(button.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -183,6 +188,7 @@ export function StorePipelineScheduleUxBridge() {
       const text = String(button.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
       if (text !== 'agendar' && text !== 'reagendar') return;
       const card = button.closest<HTMLElement>('[data-lead-id]');
+      if (isPipelineCardV2(card)) return;
       const leadId = card?.dataset.leadId;
       if (!leadId) return;
       event.preventDefault();
