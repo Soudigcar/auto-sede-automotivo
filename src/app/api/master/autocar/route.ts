@@ -9,6 +9,13 @@ import { getAutocarDevClient, setAutocarMasterAccess } from '@/lib/server/autoca
 import { getAutocarRuntimePublicStatus } from '@/lib/server/autocar/runtimeEnvironment';
 import { aiPlatformModelRegistry } from '@/lib/server/ai-platform/models/registry';
 import { readAutocarClaimTelemetry } from '@/lib/server/ai-platform/telemetry/autocarClaims';
+import {
+  readAutocarControlPlaneReport,
+  readAutocarMasterControlPlane,
+  setAutocarGlobalPolicy,
+  setAutocarModelPricing
+} from '@/lib/server/autocar/masterControlPlane';
+import type { AutocarCapability, AutocarPolicyEffect } from '@/lib/server/autocar/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -51,7 +58,7 @@ export async function GET(request: Request) {
     if ('error' in context) return context.error;
 
     const autocar = getAutocarDevClient();
-    const [storesResult, agentsResult, documentsResult, telemetry, runtimeStatus] = await Promise.all([
+    const [storesResult, agentsResult, documentsResult, telemetry, runtimeStatus, controlPlane, controlPlaneReport] = await Promise.all([
       context.production
         .from('stores')
         .select('id,store_name,slug,status,portal_enabled,city,state')
@@ -67,7 +74,9 @@ export async function GET(request: Request) {
         .neq('status', 'archived')
         .order('created_at', { ascending: false }),
       readAutocarClaimTelemetry(autocar),
-      getAutocarRuntimePublicStatus()
+      getAutocarRuntimePublicStatus(),
+      readAutocarMasterControlPlane(autocar),
+      readAutocarControlPlaneReport(autocar)
     ]);
 
     if (storesResult.error) throw storesResult.error;
@@ -90,11 +99,13 @@ export async function GET(request: Request) {
       environment: runtimeStatus.runtime_environment,
       runtime: runtimeStatus,
       ai_platform: {
-        version: 'ai-control-plane-v1',
+        version: 'ai-control-plane-v2-preview',
         environment: runtimeStatus.runtime_environment,
         model_registry: aiPlatformModelRegistry(),
         telemetry
       },
+      control_plane: controlPlane,
+      control_plane_report: controlPlaneReport,
       stores,
       documents: documentsResult.data || [],
       summary: {
@@ -117,6 +128,32 @@ export async function POST(request: Request) {
     if ('error' in context) return context.error;
     const body = await request.json().catch(() => ({}));
     const action = cleanText(body?.action, 60);
+
+    if (action === 'set-global-policy') {
+      const row = await setAutocarGlobalPolicy(getAutocarDevClient(), {
+        capability: cleanText(body?.capability, 100) as AutocarCapability,
+        effect: cleanText(body?.effect, 30) as AutocarPolicyEffect | 'default',
+        reason: cleanText(body?.reason, 1000),
+        actorProfileId: context.master.id,
+        expectedVersion: Number(body?.expected_version || 0)
+      });
+      return NextResponse.json({ success: true, policy: row });
+    }
+
+    if (action === 'set-model-pricing') {
+      const row = await setAutocarModelPricing(getAutocarDevClient(), {
+        model: cleanText(body?.model, 160),
+        inputBrlPerMillion: body?.input_brl_per_million,
+        outputBrlPerMillion: body?.output_brl_per_million,
+        audioBrlPerMinute: body?.audio_brl_per_minute,
+        imageBrlPerUnit: body?.image_brl_per_unit,
+        sourceNote: cleanText(body?.source_note, 1000),
+        active: body?.is_active !== false,
+        actorProfileId: context.master.id,
+        expectedVersion: Number(body?.expected_version || 0)
+      });
+      return NextResponse.json({ success: true, pricing: row });
+    }
 
     if (action === 'set-store-access' || action === 'set-store-mode') {
       const storeId = cleanText(body?.store_id, 100);

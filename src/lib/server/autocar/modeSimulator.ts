@@ -6,6 +6,7 @@ import {
   serializeAutocarIntelligenceContext,
   type AutocarIntelligenceMode
 } from '@/lib/server/autocar/intelligenceCore';
+import { globalMasterPolicyInstructions, readAutocarGlobalPolicySnapshot } from '@/lib/server/autocar/masterControlPlane';
 
 function openAiKey() {
   const key = String(process.env.OPENAI_API_KEY || '').trim();
@@ -47,29 +48,32 @@ export async function simulateAutocarMode(input: {
   if (!customerInput) throw new Error('Digite uma pergunta ou situação do cliente.');
   if (!input.storeId) throw new Error('Selecione uma loja para simular o contexto real da AUTOCAR.');
 
-  const intelligence = await buildAutocarIntelligenceContext({
-    storeId: input.storeId,
-    query: customerInput,
-    mode: input.mode,
-    inventorySupabase: input.inventorySupabase
-  });
+  const autocar = getAutocarDevClient();
+  const [intelligence, globalPolicy] = await Promise.all([
+    buildAutocarIntelligenceContext({
+      storeId: input.storeId,
+      query: customerInput,
+      mode: input.mode,
+      inventorySupabase: input.inventorySupabase
+    }),
+    readAutocarGlobalPolicySnapshot(autocar)
+  ]);
 
   const instructions = [
     intelligence.hardPolicyInstructions,
+    globalMasterPolicyInstructions(globalPolicy),
     autocarModeInstructions(input.mode),
     'Você é o núcleo comercial AUTOCAR em uma simulação privada do Master.',
     'Use aprendizados aprovados, Método Venda Mais, Biblioteca Global e conhecimento específico da loja somente quando forem relevantes.',
     'O campo store_inventory é a fonte oficial do estoque interno da loja selecionada. O backend já determinou a loja; nunca escolha ou altere store_id.',
-    'Interprete linguagem natural, abreviações, erros de digitação e variações de pontuação. Exemplos como HRV, HR-V e HR V podem representar o mesmo modelo quando isso for semanticamente plausível.',
-    'Primeiro use matching_vehicles. Se a pré-busca não trouxer um candidato claro, examine inventory_index, que contém o inventário compacto real da loja e serve como fallback interpretativo.',
+    'Interprete linguagem natural, abreviações, erros de digitação e variações de pontuação.',
+    'Primeiro use matching_vehicles. Se a pré-busca não trouxer um candidato claro, examine inventory_index.',
     'Só afirme disponibilidade quando o veículo estiver presente em matching_vehicles ou inventory_index. Nunca invente estoque, preço ou disponibilidade.',
-    'Quando encontrar um candidato no inventory_index, use somente os dados daquele registro; não complete fatos ausentes por suposição.',
-    'Portal/site é apenas vitrine; portal_url pode ser compartilhada quando existir, mas a disponibilidade vem do estoque interno.',
     'Nunca invente parcela, desconto, aprovação, avaliação ou condição não fornecida.',
     'Responda de forma natural, comercial e curta, em português do Brasil.',
     'execution_decision descreve apenas o que aconteceria no modo informado; nenhuma ação será realmente executada.',
     'No COPILOT, execution_decision deve ser suggest_only ou blocked.',
-    'No AUTOPILOT, use would_execute apenas para resposta segura que não viole hard policies; use requires_approval/requires_handoff/blocked quando aplicável.',
+    'No AUTOPILOT, use would_execute apenas para resposta segura que não viole SAFE CORE nem o teto global do Master; use requires_approval/requires_handoff/blocked quando aplicável.',
     'reasoning_summary é um resumo operacional curto para o Master, nunca cadeia de pensamento privada.'
   ].join(' ');
 
@@ -100,8 +104,7 @@ export async function simulateAutocarMode(input: {
   let parsed: any;
   try { parsed = JSON.parse(text); } catch { throw new Error('A resposta estruturada do simulador não pôde ser interpretada.'); }
 
-  const supabase: any = getAutocarDevClient();
-  const { error } = await supabase.from('ai_training_simulations').insert({
+  const { error } = await autocar.from('ai_training_simulations').insert({
     store_id: input.storeId,
     customer_input: customerInput,
     ai_response: String(parsed.response || '').trim(),
@@ -117,6 +120,8 @@ export async function simulateAutocarMode(input: {
       inventory_vehicle_ids: intelligence.inventory?.matching_vehicles.map((item: any) => item.id) || [],
       inventory_source: intelligence.inventory?.source || null,
       hard_policies_applied: true,
+      global_master_policy_schema_ready: globalPolicy.schemaReady,
+      global_master_policy_effects: globalPolicy.effects,
       no_external_execution: true
     },
     model,
@@ -139,7 +144,8 @@ export async function simulateAutocarMode(input: {
       store_knowledge_matches: intelligence.storeKnowledge.length,
       inventory_available_count: intelligence.inventory?.available_count ?? 0,
       inventory_matches: intelligence.inventory?.matched_count ?? 0,
-      hard_policies_applied: true
+      hard_policies_applied: true,
+      global_master_policy_schema_ready: globalPolicy.schemaReady
     },
     inventory_matches: intelligence.inventory?.matching_vehicles || [],
     model,
