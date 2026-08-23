@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { calculateConversion, calculateResponseTimes } from '@/lib/commercialMetrics';
 import { createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
 
 export const runtime = 'nodejs';
@@ -120,24 +121,25 @@ export async function GET(request: Request) {
       supabase.from('events').select('id,event_name,status,created_at').neq('status', 'deleted').order('created_at', { ascending: false }),
       supabase.from('stores').select('id,event_id,store_name,status,portal_enabled').neq('status', 'deleted').order('store_name'),
       supabase.from('leads').select('id,event_id,assigned_store_id,customer_phone,status,scheduled_at,vehicle_category_interest,created_at'),
-      supabase.from('sales').select('id,event_id,lead_id,store_id,seller_name,seller_user_id,pre_sales_user_id,captured_by_user_id,prospector_id,financing_bank,payment_type,sale_value,vehicle_category,confirmed_at,created_at'),
+      supabase.from('sales').select('id,event_id,lead_id,store_id,status,seller_name,seller_user_id,pre_sales_user_id,captured_by_user_id,prospector_id,financing_bank,payment_type,sale_value,vehicle_category,confirmed_at,created_at'),
       supabase.from('site_vehicles').select('id,status,show_on_landing,store_name'),
       supabase.from('store_vehicle_link_submissions').select('id,event_id,store_id,status,imported_vehicle_id,metadata'),
       supabase.from('financial_entries').select('id,event_id,movement_type,sponsor_bank,amount,payment_date,created_at,status').neq('status', 'deleted'),
       supabase.from('street_surveys').select('id,event_id,assigned_store_id,created_at'),
       supabase.from('lead_activity_logs').select('lead_id,activity_type,created_at'),
       supabase.from('users').select('id,full_name,email'),
-      supabase.from('prospectors').select('id,user_id,full_name')
+      supabase.from('prospectors').select('id,user_id,full_name'),
+      supabase.from('whatsapp_conversations').select('id,store_id,lead_id')
     ]);
 
     const errorResult = results.find((result) => result.error);
     if (errorResult?.error) throw errorResult.error;
 
-    const [eventsResult, storesResult, leadsResult, salesResult, vehiclesResult, linksResult, financeResult, surveysResult, activitiesResult, usersResult, prospectorsResult] = results;
+    const [eventsResult, storesResult, leadsResult, salesResult, vehiclesResult, linksResult, financeResult, surveysResult, activitiesResult, usersResult, prospectorsResult, conversationsResult] = results;
     const events: AnyRow[] = eventsResult.data || [];
     const stores: AnyRow[] = storesResult.data || [];
     const leads: AnyRow[] = leadsResult.data || [];
-    const sales: AnyRow[] = salesResult.data || [];
+    const sales: AnyRow[] = (salesResult.data || []).filter((sale: AnyRow) => !['cancelled', 'canceled'].includes(normalized(sale.status)));
     const activities: AnyRow[] = activitiesResult.data || [];
 
     const users = new Map<string, AnyRow>();
@@ -178,7 +180,8 @@ export async function GET(request: Request) {
     const leadsWithPhone = filteredLeads.filter((lead) => String(lead.customer_phone || '').trim()).length;
     const directedToStore = filteredLeads.filter((lead) => lead.assigned_store_id).length;
     const salesCount = filteredSales.length;
-    const conversionRate = leadsWithPhone ? (salesCount / leadsWithPhone) * 100 : 0;
+    const conversion = calculateConversion(filteredLeads, sales, to || undefined);
+    const conversionRate = conversion.conversion_rate;
     const totalRevenue = filteredSales.reduce((sum, sale) => sum + Number(sale.sale_value || 0), 0);
     const financedSales = filteredSales.filter((sale) => normalized(sale.payment_type) === 'financed');
     const financedBanks = financedSales
@@ -204,6 +207,21 @@ export async function GET(request: Request) {
     });
 
     const sold = new Set(filteredSales.map((sale) => String(sale.lead_id)).filter(Boolean));
+    const scopedConversations = (conversationsResult.data || []).filter((conversation: AnyRow) => leadIds.has(String(conversation.lead_id)));
+    const scopedConversationIds = scopedConversations.map((conversation: AnyRow) => conversation.id).filter(Boolean);
+    const { data: responseMessages, error: responseMessagesError } = scopedConversationIds.length
+      ? await supabase
+          .from('whatsapp_messages')
+          .select('conversation_id,lead_id,direction,raw_payload,sent_at,created_at')
+          .in('conversation_id', scopedConversationIds)
+          .order('sent_at', { ascending: true })
+      : { data: [], error: null };
+    if (responseMessagesError) throw responseMessagesError;
+    const response = calculateResponseTimes(
+      scopedConversations,
+      responseMessages || [],
+      leadIds
+    ).summary;
     const percent = (count: number) => totalLeads ? (count / totalLeads) * 100 : 0;
     const funnel = [
       { label: 'Leads captados', count: totalLeads, percent: percent(totalLeads), color: '#0B84F3' },
@@ -283,7 +301,9 @@ export async function GET(request: Request) {
         surveysCount,
         leadsWithPhone,
         salesCount,
+        conversionSalesCount: conversion.converted_leads,
         conversionRate,
+        response,
         totalRevenue,
         financedBanksCount: new Set(financedBanks.map(normalized)).size,
         financedSalesCount: financedSales.length,

@@ -36,8 +36,21 @@ type DashboardData = {
     showed_up: number;
     sold: number;
     lost: number;
+    conversion_rate: number;
+    assignment_coverage_percent: number;
+    response: {
+      eligible_conversations: number;
+      measured_conversations: number;
+      unanswered_conversations: number;
+      coverage_percent: number;
+      average_minutes: number | null;
+      median_minutes: number | null;
+      p90_minutes: number | null;
+    };
   };
+  team: Array<{ id: string; full_name: string; role_label: string; leads: number; active_leads: number; converted_leads: number; conversion_rate: number; response: DashboardData['metrics']['response'] }>;
   recent_leads: any[];
+  upcoming_appointments: any[];
 };
 
 const emptyData: DashboardData = {
@@ -53,9 +66,14 @@ const emptyData: DashboardData = {
     no_show: 0,
     showed_up: 0,
     sold: 0,
-    lost: 0
+    lost: 0,
+    conversion_rate: 0,
+    assignment_coverage_percent: 0,
+    response: { eligible_conversations: 0, measured_conversations: 0, unanswered_conversations: 0, coverage_percent: 0, average_minutes: null, median_minutes: null, p90_minutes: null }
   },
-  recent_leads: []
+  team: [],
+  recent_leads: [],
+  upcoming_appointments: []
 };
 
 const statusLabels: Record<string, string> = {
@@ -99,6 +117,14 @@ function StatusBadge({ value }: { value: unknown }) {
   return <span className={`inline-flex rounded-full border px-3 py-1 text-[10px] font-black ${tone}`}>{statusLabels[status] || status}</span>;
 }
 
+function responseTime(value: number | null) {
+  if (value === null) return '—';
+  if (value < 1) return '< 1 min';
+  if (value < 60) return `${Math.round(value)}m`;
+  if (value < 1440) return `${Math.floor(value / 60)}h ${Math.round(value % 60)}m`;
+  return `${Math.floor(value / 1440)}d ${Math.round((value % 1440) / 60)}h`;
+}
+
 export default function StoreSlugHomePage() {
   const portal = useStorePortal();
   const supabase = useMemo(() => createClient(), []);
@@ -135,8 +161,7 @@ export default function StoreSlugHomePage() {
   useEffect(() => { void loadDashboard(); }, [loadDashboard]);
 
   const total = Math.max(1, data.metrics.total);
-  const conversion = data.metrics.total ? (data.metrics.sold / data.metrics.total) * 100 : 0;
-  const averageResponse = data.metrics.active ? Math.max(8, Math.round((data.metrics.new_leads * 12 + data.metrics.in_service * 20) / data.metrics.active)) : 0;
+  const conversion = data.metrics.conversion_rate;
   const filteredLeads = data.recent_leads.filter((lead) => `${lead.customer_name || ''} ${lead.interested_vehicle || ''}`.toLowerCase().includes(query.toLowerCase()));
   const funnel = [
     ['Novos', data.metrics.new_leads, 'text-red-400'],
@@ -145,11 +170,7 @@ export default function StoreSlugHomePage() {
     ['Compareceram', data.metrics.showed_up, 'text-cyan-400'],
     ['Fechados', data.metrics.sold, 'text-emerald-400']
   ];
-  const teamRows = filteredLeads.slice(0, 4).map((lead, index) => ({
-    name: lead.customer_name || `Responsável ${index + 1}`,
-    leads: Math.max(1, data.metrics.active - index * 2),
-    rate: Math.max(5, conversion - index * 1.7)
-  }));
+  const teamRows = data.team;
 
   return (
     <main className="store-dashboard-aura -m-4 min-h-screen bg-[#07101d] p-4 text-white md:-m-7 md:p-7">
@@ -185,12 +206,12 @@ export default function StoreSlugHomePage() {
         {message ? <div className="mt-5 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm font-bold text-red-300">{message}</div> : null}
 
         <section className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-          <Metric label="Total de leads" value={data.metrics.total} icon={<Users size={24} />} tone="red" trend="18%" />
-          <Metric label="Leads ativos" value={data.metrics.active} icon={<TrendingUp size={24} />} tone="green" trend="21%" />
-          <Metric label="Vendas" value={data.metrics.sold} icon={<ShoppingCart size={24} />} tone="blue" trend="50%" />
-          <Metric label="Perdas" value={data.metrics.lost} icon={<XCircle size={24} />} tone="orange" trend="17%" negative />
-          <Metric label="Conversão" value={`${conversion.toFixed(1).replace('.', ',')}%`} icon={<Target size={24} />} tone="purple" trend="3,2 p.p." />
-          <Metric label="Tempo médio de resposta" value={`${averageResponse}m`} icon={<Clock3 size={24} />} tone="cyan" trend="12m" />
+          <Metric label="Total de leads" value={data.metrics.total} icon={<Users size={24} />} tone="red" trend={data.scope_label || 'Escopo atual'} />
+          <Metric label="Leads ativos" value={data.metrics.active} icon={<TrendingUp size={24} />} tone="green" trend="Exclui vendas e perdas" />
+          <Metric label="Vendas" value={data.metrics.sold} icon={<ShoppingCart size={24} />} tone="blue" trend="Vendas confirmadas e distintas" />
+          <Metric label="Perdas" value={data.metrics.lost} icon={<XCircle size={24} />} tone="orange" trend="Perdas registradas" negative />
+          <Metric label="Conversão" value={`${conversion.toFixed(1).replace('.', ',')}%`} icon={<Target size={24} />} tone="purple" trend="Vendas confirmadas ÷ leads" />
+          <Metric label="Resposta humana" value={responseTime(data.metrics.response.median_minutes)} icon={<Clock3 size={24} />} tone="cyan" trend={`${data.metrics.response.measured_conversations}/${data.metrics.response.eligible_conversations} conversas medidas · mediana`} />
         </section>
 
         <section className="aura-dark-surface mt-4 grid gap-3 rounded-2xl border border-white/10 bg-[#0d1725] p-4 text-white md:grid-cols-5">
@@ -209,10 +230,10 @@ export default function StoreSlugHomePage() {
                 <div className="relative flex h-36 w-36 items-center justify-center rounded-full" style={{ background: `conic-gradient(#ef2d34 ${Math.min(100, (data.metrics.active / total) * 100)}%, #263241 0)` }}>
                   <div className="aura-dark-surface flex h-24 w-24 flex-col items-center justify-center rounded-full bg-[#0d1725] text-white"><strong className="text-3xl text-white">{data.metrics.total}</strong><span className="text-xs font-bold text-zinc-400">leads</span></div>
                 </div>
-                <p className="mt-4 text-xs font-bold text-zinc-400">Leads por colaborador</p><p className="mt-1 text-2xl font-black text-white">{Math.max(1, Math.round(data.metrics.total / Math.max(1, teamRows.length)))}</p>
+                <p className="mt-4 text-xs font-bold text-zinc-400">Leads atribuídos</p><p className="mt-1 text-2xl font-black text-white">{data.metrics.assignment_coverage_percent.toFixed(1).replace('.', ',')}%</p>
               </div>
               <div className="space-y-4">
-                {teamRows.length ? teamRows.map((member) => <div key={member.name} className="grid grid-cols-[1fr_auto_auto] items-center gap-4"><div className="min-w-0"><p className="truncate text-sm font-black text-zinc-100">{member.name}</p><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, member.leads * 5)}%` }} /></div></div><span className="text-xs font-bold text-zinc-400">{member.leads} leads</span><strong className="text-sm text-white">{member.rate.toFixed(1).replace('.', ',')}%</strong></div>) : <p className="text-sm font-bold text-zinc-400">Sem dados de equipe disponíveis.</p>}
+                {teamRows.length ? teamRows.map((member) => <div key={member.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-4"><div className="min-w-0"><p className="truncate text-sm font-black text-zinc-100">{member.full_name}</p><p className="mt-1 text-[10px] font-bold uppercase text-zinc-500">{member.role_label} · resposta {responseTime(member.response.median_minutes)}</p><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, data.metrics.total ? (member.leads / data.metrics.total) * 100 : 0)}%` }} /></div></div><span className="text-xs font-bold text-zinc-400">{member.leads} leads</span><strong className="text-sm text-white">{member.conversion_rate.toFixed(1).replace('.', ',')}%</strong></div>) : <p className="text-sm font-bold text-zinc-400">Sem colaboradores ativos ou leads atribuídos.</p>}
               </div>
             </div>
           </Panel>
@@ -244,8 +265,8 @@ export default function StoreSlugHomePage() {
 
           <Panel title="Agenda de hoje" action="Ver calendário">
             <div className="space-y-4">
-              {data.recent_leads.slice(0, 3).map((lead, index) => <div key={lead.id} className="grid grid-cols-[54px_12px_1fr_auto] items-start gap-3 text-white"><span className="text-xs font-black text-zinc-400">{['09:00','11:00','15:30'][index]}</span><span className={`mt-1 h-3 w-3 rounded-full ${index === 0 ? 'bg-red-500' : index === 1 ? 'bg-amber-500' : 'bg-blue-500'}`} /><div><p className="text-sm font-black text-white">{index === 0 ? 'Reunião de alinhamento' : index === 1 ? 'Visita de cliente' : 'Negociação'}</p><p className="mt-1 text-xs font-bold text-zinc-400">{lead.customer_name || 'Cliente'} · {lead.interested_vehicle || 'Veículo não informado'}</p></div><div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-[10px] font-black text-white">{initials(lead.customer_name)}</div></div>)}
-              {!data.recent_leads.length ? <p className="text-sm font-bold text-zinc-400">Nenhum compromisso encontrado para hoje.</p> : null}
+              {data.upcoming_appointments.map((lead) => <div key={lead.id} className="grid grid-cols-[80px_12px_1fr_auto] items-start gap-3 text-white"><span className="text-xs font-black text-zinc-400">{new Date(lead.scheduled_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span><span className="mt-1 h-3 w-3 rounded-full bg-amber-500" /><div><p className="text-sm font-black text-white">Atendimento agendado</p><p className="mt-1 text-xs font-bold text-zinc-400">{lead.customer_name || 'Cliente'} · {lead.interested_vehicle || 'Veículo não informado'}</p></div><div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-[10px] font-black text-white">{initials(lead.customer_name)}</div></div>)}
+              {!data.upcoming_appointments.length ? <p className="text-sm font-bold text-zinc-400">Nenhum agendamento futuro encontrado.</p> : null}
             </div>
           </Panel>
         </section>
@@ -256,7 +277,7 @@ export default function StoreSlugHomePage() {
 
 function Metric({ label, value, icon, tone, trend, negative = false }: { label: string; value: ReactNode; icon: ReactNode; tone: 'red' | 'green' | 'blue' | 'orange' | 'purple' | 'cyan'; trend: string; negative?: boolean }) {
   const tones = { red: 'bg-red-500/10 text-red-400', green: 'bg-emerald-500/10 text-emerald-400', blue: 'bg-blue-500/10 text-blue-400', orange: 'bg-orange-500/10 text-orange-400', purple: 'bg-violet-500/10 text-violet-400', cyan: 'bg-cyan-500/10 text-cyan-400' };
-  return <article className="aura-dark-surface rounded-2xl border border-white/10 bg-[#0d1725] p-4 text-white shadow-xl shadow-black/10"><div className="flex items-center gap-3"><div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${tones[tone]}`}>{icon}</div><div><p className="text-xs font-bold text-zinc-400">{label}</p><p className="mt-1 text-2xl font-black text-white">{value}</p></div></div><p className={`mt-3 text-[10px] font-black ${negative ? 'text-red-400' : 'text-emerald-400'}`}>{negative ? <TrendingDown className="mr-1 inline" size={12} /> : <TrendingUp className="mr-1 inline" size={12} />}{trend} vs mês passado</p></article>;
+  return <article className="aura-dark-surface rounded-2xl border border-white/10 bg-[#0d1725] p-4 text-white shadow-xl shadow-black/10"><div className="flex items-center gap-3"><div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${tones[tone]}`}>{icon}</div><div><p className="text-xs font-bold text-zinc-400">{label}</p><p className="mt-1 text-2xl font-black text-white">{value}</p></div></div><p className={`mt-3 text-[10px] font-black ${negative ? 'text-red-400' : 'text-emerald-400'}`}>{trend}</p></article>;
 }
 
 function Panel({ title, action, children }: { title: string; action: string; children: ReactNode }) {

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { calculateResponseTimes, responseByLeadId } from '@/lib/commercialMetrics';
 import { cleanText } from '@/lib/server/storeTeam';
 import { applyStoreLeadScope, authorizeStorePortal } from '@/lib/server/storePortal';
 
@@ -70,6 +71,20 @@ export async function GET(request: Request) {
 
     if (conversationsError) throw conversationsError;
 
+    const conversationIds = (conversationRows || []).map((conversation: any) => conversation.id).filter(Boolean);
+    const { data: messageRows, error: messagesError } = conversationIds.length
+      ? await context.supabase
+          .from('whatsapp_messages')
+          .select('conversation_id,lead_id,direction,raw_payload,sent_at,created_at')
+          .in('conversation_id', conversationIds)
+          .order('sent_at', { ascending: true })
+      : { data: [], error: null };
+    if (messagesError) throw messagesError;
+
+    const responseMeasurements = responseByLeadId(
+      calculateResponseTimes(conversationRows || [], messageRows || []).measurements
+    );
+
     const conversationByLeadId = new Map<string, any>();
     for (const conversation of conversationRows || []) {
       if (conversation.lead_id && !conversationByLeadId.has(conversation.lead_id)) {
@@ -94,6 +109,7 @@ export async function GET(request: Request) {
     const leads = (data || []).map((lead: any) => {
       const conversation = conversationByLeadId.get(lead.id) || null;
       const contact = conversation?.contact_id ? contactById.get(conversation.contact_id) : null;
+      const response = responseMeasurements.get(String(lead.id));
 
       return {
         ...lead,
@@ -101,7 +117,10 @@ export async function GET(request: Request) {
         customer_phone_masked: maskPhone(lead.customer_phone),
         has_phone: Boolean(String(lead.customer_phone || '').replace(/\D/g, '')),
         whatsapp_conversation_id: conversation?.id || null,
-        profile_picture_url: profilePictureUrl(contact)
+        profile_picture_url: profilePictureUrl(contact),
+        human_response_minutes: response?.response_minutes ?? null,
+        first_customer_message_at: response?.first_inbound_at || null,
+        first_human_response_at: response?.first_human_response_at || null
       };
     });
 
