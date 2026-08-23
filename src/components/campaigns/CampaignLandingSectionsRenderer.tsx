@@ -1,11 +1,12 @@
 'use client';
 
 import type { CSSProperties } from 'react';
+import { CampaignFinanceSimulatorInline } from '@/components/campaigns/CampaignFinanceSimulatorInline';
 import { CampaignVehicleDiscovery } from './CampaignVehicleDiscovery';
 import type { LandingDraftV3, LandingSection, LandingSectionBlock, LandingView } from './CampaignLandingSectionModel';
 import type { Device } from './CampaignVisualEditorModel';
 
-type Props = { draft: LandingDraftV3; vehicles: any[]; campaign: any; editor?: boolean; previewDevice?: Device; selectedSectionId?: string; onSelectSection?: (id: string) => void; onOpenSimulator: (vehicleId?: string) => void; view?: LandingView };
+type Props = { draft: LandingDraftV3; vehicles: any[]; campaign: any; eventInfo?: any; editor?: boolean; previewDevice?: Device; selectedSectionId?: string; onSelectSection?: (id: string) => void; onOpenSimulator: (vehicleId?: string) => void; view?: LandingView };
 
 function runAction(block: LandingSectionBlock, props: Props) {
   if (props.editor) return;
@@ -62,7 +63,7 @@ function ContentSection({ section, props }: { section: LandingSection; props: Pr
 export function CampaignLandingSectionsRenderer(props: Props) {
   const view = props.view || 'home';
   const vehicleLayout = props.previewDevice === 'mobile' ? 'mobile' : props.previewDevice === 'tablet' ? 'tablet' : 'auto';
-  const sections = props.draft.sections.filter((section) => view === 'vehicles' ? section.type === 'vehicles' : section.type !== 'vehicles');
+  const sections = props.draft.sections.filter((section) => view === 'vehicles' ? section.type === 'vehicles' : true);
 
   return <>{sections.map((section) => {
     if (!section.visible) return null;
@@ -73,6 +74,11 @@ export function CampaignLandingSectionsRenderer(props: Props) {
     if (section.type === 'vehicles') return <section key={section.id} data-section-id={section.id} className={`relative min-w-0 overflow-hidden ${active ? 'outline outline-2 outline-fuchsia-500 outline-offset-[-2px]' : ''}`} style={common} onClick={selectSection}>
       {props.editor ? <div className="pointer-events-none absolute right-3 top-3 z-30 rounded-full bg-fuchsia-600 px-3 py-1.5 text-[10px] font-black text-white">EDITAR ESTOQUE</div> : null}
       <CampaignVehicleDiscovery vehicles={props.vehicles} primaryColor={props.draft.primaryColor} onOpenSimulator={(vehicleId) => props.onOpenSimulator(vehicleId)} settings={section.vehicleSettings} embedded layoutMode={vehicleLayout} />
+    </section>;
+
+    if (section.type === 'simulation') return <section key={section.id} data-section-id={section.id} className={`relative min-w-0 overflow-hidden px-4 sm:px-6 ${active ? 'outline outline-2 outline-fuchsia-500 outline-offset-[-2px]' : ''}`} style={common} onClick={selectSection}>
+      {props.editor ? <div className="pointer-events-none absolute right-3 top-3 z-30 rounded-full bg-fuchsia-600 px-3 py-1.5 text-[10px] font-black text-white">EDITAR SIMULAÇÃO</div> : null}
+      <div className="mx-auto max-w-6xl"><CampaignFinanceSimulatorInline campaign={props.campaign} eventInfo={props.eventInfo} vehicles={props.vehicles} primaryColor={props.draft.primaryColor} cardRadius={props.draft.cardRadius} backgroundColor={props.draft.simulatorBackground} summaryBackgroundColor={props.draft.simulatorSummaryBackground} mode={props.editor ? 'preview' : 'live'} slug={String(props.campaign?.slug || '')} /></div>
     </section>;
 
     return <section key={section.id} data-section-id={section.id} className={`relative min-w-0 overflow-hidden ${active ? 'outline outline-2 outline-fuchsia-500 outline-offset-[-2px]' : ''}`} style={common} onClick={selectSection}>
