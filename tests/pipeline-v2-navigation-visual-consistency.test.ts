@@ -28,13 +28,17 @@ test('ações legadas pré-existentes são removidas de card v2 ao normalizar', 
   assert.match(saleBridge, /isPipelineCardV2\(card\).*button\.remove\(\)/s);
 });
 
-test('guard visual remove decorações tardias do cockpit e Aura nos cards v2', () => {
-  assert.match(visualGuard, /pipeline-cockpit-host/);
-  assert.match(visualGuard, /pipeline-aura-kpis/);
-  assert.match(visualGuard, /pipeline-aura-board/);
-  assert.match(visualGuard, /pipeline-aura-lead-card/);
-  assert.match(visualGuard, /pipeline-card-actions-uniform/);
-  assert.match(visualGuard, /pipeline-kpi-strip-shell[\s\S]*display: none !important/);
+test('cockpit legado não é montado junto da Pipeline v2', () => {
+  assert.doesNotMatch(rootLayout, /StorePipelineCockpitUx/);
+});
+
+test('guard visual mantém somente o necessário para reproduzir o oficial', () => {
+  assert.match(visualGuard, /data-pipeline-official-hidden-hero/);
+  assert.match(visualGuard, /display: none !important/);
+  assert.match(visualGuard, /\[data-pipeline-card-v2='true'\][\s\S]*padding: 6px !important/);
+  assert.doesNotMatch(visualGuard, /pipeline-cockpit-host/);
+  assert.doesNotMatch(visualGuard, /pipeline-aura-board/);
+  assert.doesNotMatch(visualGuard, /pipeline-kpi-strip-shell/);
 });
 
 test('guard visual acompanha navegação e mutações sem alterar outros menus', () => {
