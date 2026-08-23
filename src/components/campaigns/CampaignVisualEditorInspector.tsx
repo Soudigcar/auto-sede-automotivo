@@ -86,6 +86,11 @@ export function CampaignVisualEditorInspector(p: any) {
       <div className="mt-4 rounded-xl bg-emerald-50 p-3 text-xs font-bold text-emerald-800">Use a alça superior para mover sem bloquear os campos.</div>
       <BoxPanel box={layout.simulator} min={44} onChange={(value: any) => p.patchBox('simulator', value)} />
       <Num label="Curvatura" value={draft.cardRadius} min={0} max={80} suffix="px" onChange={(cardRadius: number) => p.commit({ ...draft, cardRadius })} />
+      <div className="mt-5 rounded-2xl border bg-zinc-50 p-3">
+        <strong className="text-xs">Cores do simulador</strong>
+        <Color label="Fundo do card" value={draft.simulatorBackground} onChange={(simulatorBackground) => p.commit({ ...draft, simulatorBackground })} />
+        <Color label="Fundo do resumo" value={draft.simulatorSummaryBackground} onChange={(simulatorSummaryBackground) => p.commit({ ...draft, simulatorSummaryBackground })} />
+      </div>
 
       <div className="mt-6 border-t pt-5">
         <strong className="text-sm">Imagem / Mídia ao lado do simulador</strong>
@@ -102,6 +107,15 @@ export function CampaignVisualEditorInspector(p: any) {
 
     {layer === 'footer' ? <><Switch label="Exibir rodapé" value={draft.footer.visible} onChange={(visible: boolean) => p.commit({ ...draft, footer: { ...draft.footer, visible } })} /><Field label="Aviso principal" value={draft.footer.notice} textarea onChange={(notice: string) => p.commit({ ...draft, footer: { ...draft.footer, notice } })} /><Switch label="Exibir termos" value={draft.footer.showTerms} onChange={(showTerms: boolean) => p.commit({ ...draft, footer: { ...draft.footer, showTerms } })} /><Field label="Termos personalizados" value={draft.footer.termsOverride} textarea placeholder={campaign?.terms_text || 'Sem termos cadastrados.'} onChange={(termsOverride: string) => p.commit({ ...draft, footer: { ...draft.footer, termsOverride } })} /><Color label="Fundo do rodapé" value={draft.footer.backgroundColor} onChange={(backgroundColor) => p.commit({ ...draft, footer: { ...draft.footer, backgroundColor } })} /><Color label="Texto do rodapé" value={draft.footer.textColor} onChange={(textColor) => p.commit({ ...draft, footer: { ...draft.footer, textColor } })} /><Select label="Alinhamento" value={draft.footer.align} options={['left', 'center', 'right']} onChange={(value) => p.commit({ ...draft, footer: { ...draft.footer, align: value as Align } })} /><Num label="Fonte" value={draft.footer.fontSize} min={9} max={32} suffix="px" onChange={(fontSize: number) => p.commit({ ...draft, footer: { ...draft.footer, fontSize } })} /><Num label="Largura máxima" value={draft.footer.maxWidth} min={320} max={1800} suffix="px" onChange={(maxWidth: number) => p.commit({ ...draft, footer: { ...draft.footer, maxWidth } })} /><Num label="Espaçamento vertical" value={draft.footer.paddingY} min={12} max={120} suffix="px" onChange={(paddingY: number) => p.commit({ ...draft, footer: { ...draft.footer, paddingY } })} /></> : null}
 
-    <div className="mt-6 border-t pt-5"><strong className="text-sm">Aparência geral</strong><Color label="Cor principal" value={draft.primaryColor} onChange={(primaryColor) => p.commit({ ...draft, primaryColor })} /><Color label="Cor do banner" value={draft.secondaryColor} onChange={(secondaryColor) => p.commit({ ...draft, secondaryColor })} /><Num label="Escurecimento" value={draft.overlay} min={0} max={95} suffix="%" onChange={(overlay: number) => p.commit({ ...draft, overlay })} /><Num label="Altura do banner" value={layout.heroHeight} min={600} max={5000} suffix="px" onChange={(heroHeight: number) => p.patchLayout({ heroHeight })} /></div>
+    <div className="mt-6 border-t pt-5">
+      <strong className="text-sm">Fundos das seções</strong>
+      <p className="mt-1 text-[10px] font-semibold text-zinc-500">Cada faixa da landing pode ter uma cor independente.</p>
+      <Color label="Fundo do banner / atrás do simulador" value={draft.secondaryColor} onChange={(secondaryColor) => p.commit({ ...draft, secondaryColor })} />
+      <Color label="Fundo de Vantagens" value={draft.advantagesBackground} onChange={(advantagesBackground) => p.commit({ ...draft, advantagesBackground })} />
+      <Color label="Fundo de Veículos" value={draft.vehiclesBackground} onChange={(vehiclesBackground) => p.commit({ ...draft, vehiclesBackground })} />
+      <Color label="Fundo do rodapé" value={draft.footer.backgroundColor} onChange={(backgroundColor) => p.commit({ ...draft, footer: { ...draft.footer, backgroundColor } })} />
+    </div>
+
+    <div className="mt-6 border-t pt-5"><strong className="text-sm">Aparência geral</strong><Color label="Cor principal" value={draft.primaryColor} onChange={(primaryColor) => p.commit({ ...draft, primaryColor })} /><Num label="Escurecimento" value={draft.overlay} min={0} max={95} suffix="%" onChange={(overlay: number) => p.commit({ ...draft, overlay })} /><Num label="Altura do banner" value={layout.heroHeight} min={600} max={5000} suffix="px" onChange={(heroHeight: number) => p.patchLayout({ heroHeight })} /></div>
   </aside>;
 }
