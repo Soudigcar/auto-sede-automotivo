@@ -101,14 +101,16 @@ function percentage(value: number, total: number) {
   return Math.round((value / total) * 100);
 }
 
-function averageResponseMinutes(leads: PipelineLead[]) {
+function medianResponseMinutes(leads: PipelineLead[]) {
   const samples = leads
     .map((lead) => lead.human_response_minutes)
-    .filter((value): value is number => value !== null && value !== undefined && Number.isFinite(value) && value >= 0);
+    .filter((value): value is number => value !== null && value !== undefined && Number.isFinite(value) && value >= 0)
+    .sort((left, right) => left - right);
 
   if (!samples.length) return { minutes: null as number | null, measured: 0 };
+  const middle = Math.floor(samples.length / 2);
   return {
-    minutes: samples.reduce((sum, value) => sum + value, 0) / samples.length,
+    minutes: samples.length % 2 ? samples[middle] : (samples[middle - 1] + samples[middle]) / 2,
     measured: samples.length
   };
 }
@@ -556,7 +558,7 @@ export function StorePipelineCockpitUx() {
   const scheduled = visibleLeads.filter((lead) => lead.status === 'scheduled').length;
   const showedUp = visibleLeads.filter((lead) => lead.status === 'showed_up').length;
   const closed = visibleLeads.filter((lead) => lead.status === 'sale_confirmed').length;
-  const response = averageResponseMinutes(visibleLeads);
+  const response = medianResponseMinutes(visibleLeads);
 
   const indicators = [
     { label: 'Novos', value: String(newLeads), detail: `${percentage(newLeads, total)}% do total`, icon: UserRound, tone: 'coral' },
@@ -564,7 +566,7 @@ export function StorePipelineCockpitUx() {
     { label: 'Agendados', value: String(scheduled), detail: `${percentage(scheduled, total)}% do total`, icon: CalendarClock, tone: 'amber' },
     { label: 'Compareceram', value: String(showedUp), detail: `${percentage(showedUp, total)}% do total`, icon: UserRoundCheck, tone: 'cyan' },
     { label: 'Fechados', value: String(closed), detail: `${percentage(closed, total)}% do total`, icon: CircleCheckBig, tone: 'green' },
-    { label: 'Resposta humana', value: formatResponseTime(response.minutes), detail: response.measured ? `média de ${response.measured} conversa${response.measured === 1 ? '' : 's'} · AUTOCAR excluída` : 'sem conversa humana medida', icon: Timer, tone: 'blue' }
+    { label: 'Resposta humana', value: formatResponseTime(response.minutes), detail: response.measured ? `mediana de ${response.measured} conversa${response.measured === 1 ? '' : 's'} · AUTOCAR excluída` : 'sem conversa humana medida', icon: Timer, tone: 'blue' }
   ];
 
   function openCustomization() {
