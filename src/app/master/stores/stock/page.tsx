@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Car, ExternalLink, Package, Search, Store } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Package, Search, Store } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
 export default function MasterStoreStockSelectorPage() {
@@ -40,7 +40,7 @@ export default function MasterStoreStockSelectorPage() {
             <div>
               <div className="flex items-center gap-3 text-red-400"><Package size={20} /><span className="text-xs font-black uppercase tracking-[0.25em]">Gestão Master</span></div>
               <h1 className="mt-3 text-3xl font-black md:text-4xl">Estoque das lojas</h1>
-              <p className="mt-2 max-w-3xl text-sm text-zinc-400">Escolha a loja que deseja administrar. O estoque será aberto com o contexto da loja fixado e todas as operações Master passam pela validação de isolamento por loja.</p>
+              <p className="mt-2 max-w-3xl text-sm text-zinc-400">Escolha a loja que deseja administrar. O estoque será aberto dentro da área Master, com o contexto da loja fixado e todas as operações validadas pelo isolamento por loja.</p>
             </div>
             <Link href="/master/stores" className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm font-bold text-zinc-200 hover:bg-white/5"><ArrowLeft size={17} /> Lojas & Estoque</Link>
           </div>
@@ -63,8 +63,8 @@ export default function MasterStoreStockSelectorPage() {
                   <h2 className="mt-4 text-lg font-black text-zinc-950">{store.store_name}</h2>
                   <p className="mt-1 text-xs text-zinc-500">{store.responsible_name || 'Responsável não informado'}</p>
                   <p className="mt-1 break-all text-xs text-zinc-400">{store.responsible_email || store.slug}</p>
-                  <Link href={`/loja/${encodeURIComponent(store.slug)}/estoque`} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 py-3 text-sm font-black text-white hover:bg-red-700">
-                    <Car size={17} /> Gerenciar estoque <ExternalLink size={15} />
+                  <Link href={`/master/stores/stock/${encodeURIComponent(store.slug)}`} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 py-3 text-sm font-black text-white hover:bg-red-700">
+                    Gerenciar estoque <ArrowRight size={15} />
                   </Link>
                 </article>
               ))}
