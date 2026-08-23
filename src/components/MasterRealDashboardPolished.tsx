@@ -28,7 +28,17 @@ type Summary = {
   surveysCount: number;
   leadsWithPhone: number;
   salesCount: number;
+  conversionSalesCount: number;
   conversionRate: number;
+  response: {
+    eligible_conversations: number;
+    measured_conversations: number;
+    unanswered_conversations: number;
+    coverage_percent: number;
+    average_minutes: number | null;
+    median_minutes: number | null;
+    p90_minutes: number | null;
+  };
   totalRevenue: number;
   financedBanksCount: number;
   financedSalesCount: number;
@@ -82,7 +92,9 @@ const initialSummary: Summary = {
   surveysCount: 0,
   leadsWithPhone: 0,
   salesCount: 0,
+  conversionSalesCount: 0,
   conversionRate: 0,
+  response: { eligible_conversations: 0, measured_conversations: 0, unanswered_conversations: 0, coverage_percent: 0, average_minutes: null, median_minutes: null, p90_minutes: null },
   totalRevenue: 0,
   financedBanksCount: 0,
   financedSalesCount: 0,
@@ -103,6 +115,14 @@ const panelClass = 'rounded-[22px] border border-white/[0.08] bg-[#0A1424] shado
 
 function formatNumber(value: number) {
   return Number(value || 0).toLocaleString('pt-BR');
+}
+
+function formatResponseMinutes(value: number | null) {
+  if (value === null) return '—';
+  if (value < 1) return '< 1 min';
+  if (value < 60) return `${Math.round(value)} min`;
+  if (value < 1440) return `${Math.floor(value / 60)}h ${Math.round(value % 60)}m`;
+  return `${Math.floor(value / 1440)}d ${Math.round((value % 1440) / 60)}h`;
 }
 
 function formatMoney(value: number) {
@@ -233,7 +253,7 @@ export function MasterRealDashboardPolished() {
     {
       label: 'Taxa de conversão',
       value: formatPercent(summary.conversionRate),
-      helper: 'Vendas por lead com telefone',
+      helper: `${formatNumber(summary.conversionSalesCount)} lead(s) convertido(s) ÷ leads da coorte`,
       icon: Activity,
       accent: '#C084FC',
       progress: summary.conversionRate,
@@ -242,6 +262,15 @@ export function MasterRealDashboardPolished() {
   ], [summary]);
 
   const secondaryCards = useMemo<KpiCardData[]>(() => [
+    {
+      label: 'Resposta humana',
+      value: formatResponseMinutes(summary.response.median_minutes),
+      helper: `${formatNumber(summary.response.measured_conversations)}/${formatNumber(summary.response.eligible_conversations)} conversas medidas · mediana`,
+      icon: Clock3,
+      accent: '#0EA5E9',
+      progress: summary.response.coverage_percent,
+      progressLabel: 'respondidas'
+    },
     {
       label: 'Bancos financiadores',
       value: formatNumber(summary.financedBanksCount),

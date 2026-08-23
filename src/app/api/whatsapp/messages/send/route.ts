@@ -168,7 +168,13 @@ export async function POST(request: Request) {
       message_type: 'text',
       body: messageBody,
       status: 'sent',
-      raw_payload: result,
+      raw_payload: {
+        ...(result && typeof result === 'object' ? result : { provider_result: result }),
+        metric_sender_type: 'human',
+        metric_sender_user_id: profile.id,
+        metric_sender_role: profile.role,
+        metric_sender_source: 'crm'
+      },
       sent_at: sentAt
     }).select('*').single();
     if (saveError) return NextResponse.json({ error: saveError.message }, { status: 400 });
