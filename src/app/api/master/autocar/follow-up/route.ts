@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cleanText, getAdminClient, requireMaster } from '@/lib/server/masterApi';
 import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
-import { simulateSmartFollowUp } from '@/lib/server/autocar/smartFollowUp';
+import { parseExplicitCallbackRequest, simulateSmartFollowUp } from '@/lib/server/autocar/smartFollowUp';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,6 +32,7 @@ export async function POST(request: Request) {
   const result = simulateSmartFollowUp({
     trigger_type: trigger as any,
     global_policy: cleanText(body?.global_policy, 30) || 'default',
+    store_policy: cleanText(body?.store_policy, 30) || 'default',
     autopilot: body?.autopilot === true,
     human_active: body?.human_active === true,
     sale_confirmed: body?.sale_confirmed === true,
@@ -40,5 +41,8 @@ export async function POST(request: Request) {
     lead_status: cleanText(body?.lead_status, 40) || 'scheduled',
     customer_name: cleanText(body?.customer_name, 80) || 'Cliente'
   });
-  return NextResponse.json({ success: true, dry_run: true, external_execution: false, result });
+  const callbackPlan = trigger === 'callback_requested'
+    ? parseExplicitCallbackRequest(cleanText(body?.callback_text, 300) || 'me chama às 18h')
+    : null;
+  return NextResponse.json({ success: true, dry_run: true, external_execution: false, result, callback_plan: callbackPlan });
 }
