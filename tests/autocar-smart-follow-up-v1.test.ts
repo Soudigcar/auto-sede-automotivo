@@ -45,6 +45,29 @@ describe('AUTOCAR Smart Follow-up V1', () => {
     expect(result.external_execution).toBe(false);
   });
 
+  it('usa data e hora quando fornecidas e fallback gramatical seguro quando ausentes', () => {
+    const withDate = simulateSmartFollowUp({
+      trigger_type: 'visit_confirmation', global_policy: 'allow', store_policy: 'allow', autopilot: true, human_active: true,
+      appointment_status: 'scheduled', lead_status: 'scheduled', scheduled_at: '2026-08-24T17:00:00.000Z', customer_name: 'João'
+    });
+    expect(withDate.proposed_text).toContain('no dia 24/08/2026 às 14:00');
+    const fallback = simulateSmartFollowUp({
+      trigger_type: 'visit_confirmation', global_policy: 'allow', store_policy: 'allow', autopilot: true, human_active: true,
+      appointment_status: 'scheduled', lead_status: 'scheduled', customer_name: 'João'
+    });
+    expect(fallback.proposed_text).toContain('no horário combinado');
+    expect(fallback.proposed_text).not.toContain('em o horário');
+  });
+
+  it('usa mensagem neutra no no-show sem afirmar ausência como fato', () => {
+    const result = simulateSmartFollowUp({
+      trigger_type: 'no_show', global_policy: 'allow', store_policy: 'allow', autopilot: true, human_active: true,
+      appointment_status: 'scheduled', lead_status: 'scheduled', customer_name: 'João'
+    });
+    expect(result.proposed_text).toContain('Conseguiu passar na loja como combinado?');
+    expect(result.proposed_text).not.toContain('Vi que não conseguimos concluir sua visita');
+  });
+
   it('cancela pós-visita sem comparecimento', () => {
     const result = simulateSmartFollowUp({ trigger_type: 'post_visit', global_policy: 'allow', store_policy: 'allow', autopilot: true, human_active: true, appointment_status: 'scheduled', lead_status: 'scheduled' });
     expect(result.decision).toBe('cancelled');
