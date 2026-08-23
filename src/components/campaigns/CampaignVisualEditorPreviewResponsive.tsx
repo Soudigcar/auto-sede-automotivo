@@ -99,7 +99,7 @@ export function CampaignVisualEditorPreviewResponsive(props: Props) {
     </div> : null}
 
     {activeView === 'home' ? <>
-      <div className="campaign-v3-hero-only min-w-0"><CampaignVisualEditorPreviewFlow {...props} draft={draftV3} onFlowMeasurement={(target: ResponsiveTarget, measurement: FlowMeasurement) => cacheFlowMeasurement(target, measurement)} showInlineSimulator={props.device === 'desktop'} /></div>
+      <div className="campaign-v3-hero-only min-w-0"><CampaignVisualEditorPreviewFlow {...props} draft={draftV3} onFlowMeasurement={(target: ResponsiveTarget, measurement: FlowMeasurement) => cacheFlowMeasurement(target, measurement)} showInlineSimulator /></div>
       <CampaignLandingSectionsRenderer draft={draftV3} vehicles={props.vehicles} campaign={props.campaign} eventInfo={props.eventInfo} editor={!props.clientView} previewDevice={props.device} selectedSectionId={selectedSectionId} onSelectSection={chooseSection} onOpenSimulator={() => setActiveView('simulation')} view="home" />
     </> : null}
 
