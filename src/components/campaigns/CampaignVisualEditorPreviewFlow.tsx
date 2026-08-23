@@ -35,6 +35,8 @@ type Props = {
   onBackgroundDoubleClick: () => void;
   onSelectVehicle: (id: string) => void;
   onFlowMeasurement: (target: ResponsiveTarget, measurement: FlowMeasurement) => void;
+  onOpenSimulator?: () => void;
+  showInlineSimulator?: boolean;
 };
 
 function rectBox(element: HTMLElement, heroRect: DOMRect, fallback: Box): Box {
@@ -78,6 +80,13 @@ function BackgroundMedia({ source, layout, contained = false }: { source: string
   </div>;
 }
 
+function PromoMedia({ draft, compact = false }: { draft: Draft; compact?: boolean }) {
+  if (!draft.showMedia || !draft.mediaImage) return null;
+  return <div className={`overflow-hidden bg-white/5 shadow-2xl ${compact ? 'mx-auto w-full max-w-xl' : ''}`} style={{ borderRadius: draft.mediaRadius }}>
+    <img src={draft.mediaImage} alt={draft.mediaAlt || 'Imagem promocional do evento'} draggable={false} className="h-full w-full object-cover" />
+  </div>;
+}
+
 export function CampaignVisualEditorPreviewFlow(props: Props) {
   const draft = ensureFlowResponsive(props.draft);
   const layout = draft.devices[props.device];
@@ -86,6 +95,7 @@ export function CampaignVisualEditorPreviewFlow(props: Props) {
   const settings = flowResponsiveSettings(draft);
   const target = props.device === 'desktop' ? null : props.device as ResponsiveTarget;
   const linkedBackground = target ? settings.syncBackground[target] : false;
+  const showInlineSimulator = props.showInlineSimulator !== false;
 
   const setHeroRef = useCallback((node: HTMLElement | null) => {
     props.heroRef.current = node;
@@ -127,7 +137,10 @@ export function CampaignVisualEditorPreviewFlow(props: Props) {
 
   function runButtonAction(key: ContentKey) {
     const visual = draft.content[key];
-    if (visual.action === 'simulator') document.getElementById('editor-inline-simulator')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (visual.action === 'simulator') {
+      if (props.onOpenSimulator) props.onOpenSimulator();
+      else document.getElementById('editor-inline-simulator')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
     if (visual.action === 'vehicles') document.getElementById('editor-vehicles')?.scrollIntoView({ behavior: 'smooth' });
     if (visual.action === 'whatsapp' && props.campaign?.whatsapp_number) window.open(`https://wa.me/${String(props.campaign.whatsapp_number).replace(/\D/g, '')}`, '_blank');
   }
@@ -191,7 +204,8 @@ export function CampaignVisualEditorPreviewFlow(props: Props) {
         {layout.logo.visible && (draft.eventLogo || props.campaign?.logo_url) ? <div data-editor-element="logo" data-flow-box="logo" className={`relative self-start ${activeLogo ? 'outline outline-2 outline-indigo-400 outline-offset-4' : ''}`} style={{ width: targetDevice === 'mobile' ? `${clamp(layout.logo.width, 42, 76)}%` : `${clamp(layout.logo.width, 28, 50)}%` }} onClick={(event) => { if (!props.clientView) { event.stopPropagation(); props.onSelect('logo'); } }}><img src={draft.eventLogo || props.campaign?.logo_url} alt="Logo" draggable={false} className="pointer-events-none w-full object-contain" />{flowSelectionControls('box', 'logo', layout.logo.locked)}</div> : null}
         {props.heroSource ? <div className="relative min-h-52 w-full overflow-hidden rounded-[28px]" style={{ background: `${draft.secondaryColor}22` }}><BackgroundMedia source={props.heroSource} layout={layout} contained />{draft.overlay > 0 ? <div className="pointer-events-none absolute inset-0" style={{ background: `rgba(7,16,32,${draft.overlay / 100})` }} /> : null}{linkedBackground && !props.clientView ? <span className="absolute bottom-3 right-3 rounded-full bg-black/70 px-3 py-1.5 text-[9px] font-black text-white">FUNDO DO DESKTOP</span> : null}{backgroundHint()}</div> : null}
         <div className="flex flex-col gap-4">{layout.content.eyebrow.visible ? flowContent('eyebrow', targetDevice) : null}{layout.content.title.visible ? flowContent('title', targetDevice) : null}{layout.content.description.visible ? flowContent('description', targetDevice) : null}{visibleMeta.length ? <div className={`grid gap-3 ${targetDevice === 'tablet' ? 'grid-cols-3' : 'grid-cols-1'}`}>{visibleMeta.map((key) => <div key={key}>{flowContent(key, targetDevice)}</div>)}</div> : null}{visibleButtons.length ? <div className={`grid gap-3 ${targetDevice === 'tablet' ? 'grid-cols-2' : 'grid-cols-1'}`}>{visibleButtons.map((key) => <div key={key}>{flowContent(key, targetDevice)}</div>)}</div> : null}</div>
-        {layout.simulator.visible ? <div id="editor-inline-simulator" data-editor-element="simulator" data-flow-box="simulator" className={`relative mt-2 ${activeSimulator ? 'outline outline-2 outline-indigo-400 outline-offset-4' : ''}`} onClick={(event) => { if (!props.clientView) { event.stopPropagation(); props.onSelect('simulator'); } }}><CampaignFinanceSimulatorInline campaign={props.campaign} eventInfo={props.eventInfo} vehicles={props.vehicles} primaryColor={draft.primaryColor} cardRadius={draft.cardRadius} stacked />{flowSelectionControls('box', 'simulator', layout.simulator.locked)}</div> : null}
+        {draft.showMedia && draft.mediaImage ? <PromoMedia draft={draft} compact /> : null}
+        {showInlineSimulator && layout.simulator.visible ? <div id="editor-inline-simulator" data-editor-element="simulator" data-flow-box="simulator" className={`relative mt-2 ${activeSimulator ? 'outline outline-2 outline-indigo-400 outline-offset-4' : ''}`} onClick={(event) => { if (!props.clientView) { event.stopPropagation(); props.onSelect('simulator'); } }}><CampaignFinanceSimulatorInline campaign={props.campaign} eventInfo={props.eventInfo} vehicles={props.vehicles} primaryColor={draft.primaryColor} cardRadius={draft.cardRadius} stacked />{flowSelectionControls('box', 'simulator', layout.simulator.locked)}</div> : null}
       </div>
     </section>;
   }
@@ -210,12 +224,18 @@ export function CampaignVisualEditorPreviewFlow(props: Props) {
     return <div data-editor-element={`content-${key}`} className={`absolute ${active ? 'z-50' : 'z-[35]'}`} style={{ left: `${box.x}%`, top: `${box.y}%`, width: `${box.width}%`, touchAction: 'none' }} onClick={(event) => { if (props.clientView) { if (key === 'primaryButton' || key === 'secondaryButton') runButtonAction(key); return; } event.stopPropagation(); props.onSelectContent(key); }} onDoubleClick={(event) => { if (!props.clientView) { event.stopPropagation(); props.onSelectContent(key); window.setTimeout(() => document.getElementById(`text-${key}`)?.focus(), 20); } }} onPointerDown={props.clientView ? undefined : (event) => props.onStartContent(event, 'content', key)}><div className={`relative ${active ? 'outline outline-2 outline-fuchsia-400 outline-offset-4' : ''}`}>{renderTextElement(key, visualStyle(key))}{active && !box.locked ? <button type="button" className="absolute -bottom-4 -right-4 z-50 flex h-9 w-9 items-center justify-center rounded-full bg-fuchsia-600 text-white shadow-xl" onPointerDown={(event) => props.onStartContent(event, 'contentResize', key)}><Grip size={15} /></button> : null}</div></div>;
   }
 
+  const mediaWidth = clamp(Number(draft.mediaWidth || 34), 18, 60);
+  const mediaLeft = draft.mediaPosition === 'right'
+    ? clamp(layout.simulator.x + layout.simulator.width + 2, 2, Math.max(2, 98 - mediaWidth))
+    : clamp(layout.simulator.x - mediaWidth - 2, 2, Math.max(2, 98 - mediaWidth));
+
   const manualHero = <section ref={setHeroRef} className={`relative overflow-hidden ${!props.clientView && props.layer === 'background' ? 'outline outline-2 outline-cyan-400' : ''}`} style={{ minHeight: layout.heroHeight, backgroundColor: draft.secondaryColor, touchAction: 'none' }} onClick={(event) => { if (!props.clientView && !(event.target as HTMLElement).closest('[data-editor-element]')) props.onSelect('background'); }} onPointerDown={props.onStartBackground} onWheel={props.onWheel} onDoubleClick={(event) => { if (!props.clientView && !(event.target as HTMLElement).closest('[data-editor-element]')) props.onBackgroundDoubleClick(); }}>
     <BackgroundMedia source={props.heroSource} layout={layout} />{props.heroSource && draft.overlay > 0 ? <div className="pointer-events-none absolute inset-0" style={{ background: `rgba(7,16,32,${draft.overlay / 100})` }} /> : null}{backgroundHint()}
     {absoluteBox('header', <div className="flex items-center gap-3" style={{ color: draft.content.title.color }}>{draft.showHeaderLabel ? <strong>{draft.headerLabel}</strong> : null}<img src={draft.headerLogo || defaultHeader} alt="Apoio" draggable={false} className="pointer-events-none w-full object-contain" /></div>)}
     {absoluteBox('logo', draft.eventLogo || props.campaign?.logo_url ? <img src={draft.eventLogo || props.campaign?.logo_url} alt="Logo" draggable={false} className="pointer-events-none w-full object-contain" /> : <div className="rounded-xl border border-dashed border-white/50 p-4 text-white">Adicionar logo</div>)}
     {contentKeys.map((key) => <span key={key}>{absoluteContent(key)}</span>)}
-    {absoluteBox('simulator', <CampaignFinanceSimulatorInline campaign={props.campaign} eventInfo={props.eventInfo} vehicles={props.vehicles} primaryColor={draft.primaryColor} cardRadius={draft.cardRadius} stacked={props.device !== 'desktop'} />, true)}
+    {draft.showMedia && draft.mediaImage ? <div data-editor-element="media" className="absolute z-20 overflow-hidden shadow-2xl" style={{ left: `${mediaLeft}%`, top: `${layout.simulator.y}%`, width: `${mediaWidth}%`, borderRadius: draft.mediaRadius }}><img src={draft.mediaImage} alt={draft.mediaAlt || 'Imagem promocional do evento'} className="h-auto w-full object-cover" draggable={false} /></div> : null}
+    {showInlineSimulator ? absoluteBox('simulator', <CampaignFinanceSimulatorInline campaign={props.campaign} eventInfo={props.eventInfo} vehicles={props.vehicles} primaryColor={draft.primaryColor} cardRadius={draft.cardRadius} stacked={props.device !== 'desktop'} />, true) : null}
   </section>;
 
   const hero = autoFlow && target ? renderAutoFlow(target) : manualHero;

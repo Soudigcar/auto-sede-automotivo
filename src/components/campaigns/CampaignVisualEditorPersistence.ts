@@ -73,6 +73,9 @@ export async function persistCampaignDraftAssets(
   if (draft.eventLogo) {
     draft.eventLogo = await uploadDataImage(draft.eventLogo, 'logo', slug, headers);
   }
+  if (draft.mediaImage) {
+    draft.mediaImage = await uploadDataImage(draft.mediaImage, 'media', slug, headers);
+  }
 
   return draft;
 }

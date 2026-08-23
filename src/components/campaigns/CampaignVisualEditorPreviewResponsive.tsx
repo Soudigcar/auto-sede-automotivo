@@ -42,6 +42,21 @@ export function CampaignVisualEditorPreviewResponsive(props: Props) {
         {...props}
         onFlowMeasurement={(target: ResponsiveTarget, measurement: FlowMeasurement) => cacheFlowMeasurement(target, measurement)}
       />
+      <style jsx global>{`
+        #editor-inicio > div > section:nth-of-type(2) {
+          background-color: ${props.draft.advantagesBackground} !important;
+        }
+        #editor-inicio #editor-vehicles {
+          background-color: ${props.draft.vehiclesBackground} !important;
+        }
+        #editor-inicio #editor-inline-simulator > div > section,
+        #editor-inicio #editor-inline-simulator > section {
+          background-color: ${props.draft.simulatorBackground} !important;
+        }
+        #editor-inicio #editor-inline-simulator aside {
+          background-color: ${props.draft.simulatorSummaryBackground} !important;
+        }
+      `}</style>
     </div>
   );
 }
