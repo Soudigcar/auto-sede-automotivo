@@ -31,10 +31,10 @@ type Props = {
   onWheel: (event: WheelEvent<HTMLElement>) => void;
   onBackgroundDoubleClick: () => void;
   onSelectVehicle: (id: string) => void;
+  onDraftChange: (next: LandingDraftV3) => void;
 };
 
 export function CampaignVisualEditorPreviewResponsive(props: Props) {
-  const [, forceRender] = useState(0);
   const draftV3 = upgradeLandingDraft(props.draft, props.campaign);
   const [sectionPanelOpen, setSectionPanelOpen] = useState(false);
   const [selectedSectionId, setSelectedSectionId] = useState(draftV3.sections[0]?.id || '');
@@ -49,8 +49,7 @@ export function CampaignVisualEditorPreviewResponsive(props: Props) {
   }
 
   function changeSections(next: LandingDraftV3) {
-    Object.assign(props.draft as any, next);
-    forceRender((value) => value + 1);
+    props.onDraftChange(upgradeLandingDraft(next, props.campaign));
   }
 
   const sectionPanel = !props.clientView && sectionPanelOpen && typeof document !== 'undefined' ? createPortal(
@@ -58,7 +57,7 @@ export function CampaignVisualEditorPreviewResponsive(props: Props) {
       <div className="flex items-center justify-between border-b px-4 py-3"><div className="flex items-center gap-2"><Layers3 size={17}/><div><strong className="text-sm">Construtor de seções</strong><p className="text-[9px] font-bold uppercase tracking-[.12em] text-fuchsia-600">Layout v3</p></div></div><button type="button" onClick={() => setSectionPanelOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-100" aria-label="Fechar construtor"><X size={17}/></button></div>
       <div className="border-b p-3"><p className="mb-2 text-[10px] font-black uppercase text-zinc-400">Seções da landing</p><div className="flex flex-wrap gap-2">{draftV3.sections.map((section) => <button key={section.id} type="button" onClick={() => chooseSection(section.id)} className={`rounded-xl px-3 py-2 text-[10px] font-black ${selectedSectionId === section.id ? 'bg-fuchsia-600 text-white' : 'border bg-white text-zinc-700'}`}>{section.name}</button>)}</div></div>
       <div className="min-h-0 flex-1 overflow-y-auto p-4"><CampaignLandingSectionInspector draft={draftV3} selectedSectionId={selectedSectionId} selectedBlockId={selectedBlockId} onSelectSection={setSelectedSectionId} onSelectBlock={setSelectedBlockId} onChange={changeSections}/></div>
-      <div className="border-t bg-amber-50 p-3 text-[10px] font-bold text-amber-800">As alterações ficam no rascunho atual. Use “Salvar rascunho” no topo do editor para persistir.</div>
+      <div className="border-t bg-amber-50 p-3 text-[10px] font-bold text-amber-800">As alterações ficam no estado oficial do editor. Use “Salvar rascunho” no topo para persistir no servidor.</div>
     </div>, document.body
   ) : null;
 
