@@ -16,6 +16,10 @@ function isPipeline(pathname: string) {
   return /^\/loja\/[^/]+\/pipeline\/?$/.test(pathname);
 }
 
+function isPipelineCardV2(card: HTMLElement) {
+  return card.dataset.pipelineCardV2 === 'true';
+}
+
 function normalized(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('pt-BR');
 }
@@ -59,10 +63,11 @@ export function StorePipelineSaleActionBridge() {
       frame = window.requestAnimationFrame(() => {
         document.querySelectorAll<HTMLButtonElement>('[data-pipeline-sale-action-bridge]').forEach((button) => {
           const card = button.closest<HTMLElement>('[data-lead-id]');
-          if (!card || !saleStages.has(cardStage(card))) button.remove();
+          if (!card || isPipelineCardV2(card) || !saleStages.has(cardStage(card))) button.remove();
         });
 
         document.querySelectorAll<HTMLElement>('[data-lead-id]').forEach((card) => {
+          if (isPipelineCardV2(card)) return;
           const stage = cardStage(card);
           if (!saleStages.has(stage)) return;
 
