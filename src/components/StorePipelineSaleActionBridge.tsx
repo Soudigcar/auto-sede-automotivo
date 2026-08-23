@@ -59,10 +59,11 @@ export function StorePipelineSaleActionBridge() {
       frame = window.requestAnimationFrame(() => {
         document.querySelectorAll<HTMLButtonElement>('[data-pipeline-sale-action-bridge]').forEach((button) => {
           const card = button.closest<HTMLElement>('[data-lead-id]');
-          if (!card || !saleStages.has(cardStage(card))) button.remove();
+          if (!card || card.dataset.pipelineCardV2 === 'true' || !saleStages.has(cardStage(card))) button.remove();
         });
 
         document.querySelectorAll<HTMLElement>('[data-lead-id]').forEach((card) => {
+          if (card.dataset.pipelineCardV2 === 'true') return;
           const stage = cardStage(card);
           if (!saleStages.has(stage)) return;
 
