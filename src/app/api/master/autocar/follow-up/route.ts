@@ -39,7 +39,8 @@ export async function POST(request: Request) {
     new_message: body?.new_message === true,
     appointment_status: cleanText(body?.appointment_status, 40) || 'scheduled',
     lead_status: cleanText(body?.lead_status, 40) || 'scheduled',
-    customer_name: cleanText(body?.customer_name, 80) || 'Cliente'
+    customer_name: cleanText(body?.customer_name, 80) || 'Cliente',
+    scheduled_at: cleanText(body?.scheduled_at, 80) || null
   });
   const callbackPlan = trigger === 'callback_requested'
     ? parseExplicitCallbackRequest(cleanText(body?.callback_text, 300) || 'me chama às 18h')
