@@ -58,3 +58,11 @@ test('Base exibe Importar ao lado de Exportar e aceita os três formatos autoriz
   assert.match(modal, /Por membros/);
   assert.match(modal, /Por cargos/);
 });
+
+test('linhas inválidas são rejeitadas individualmente sem bloquear as linhas válidas', () => {
+  assert.match(modal, /if \(!fileName \|\| !parsed\.rows\.length\) return false/);
+  assert.doesNotMatch(modal, /parsed\.rows\.length \|\| parsed\.errors\.length/);
+  assert.match(modal, /As linhas abaixo serão ignoradas\. Você pode continuar com as linhas válidas/);
+  assert.match(modal, /errors: parsed\.errors\.length/);
+  assert.match(modal, /status: 'error'/);
+});

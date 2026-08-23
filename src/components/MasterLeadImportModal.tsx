@@ -210,7 +210,7 @@ export function MasterLeadImportModal({ onImported }: { onImported: () => Promis
   }
 
   function canImport() {
-    if (!fileName || !parsed.rows.length || parsed.errors.length) return false;
+    if (!fileName || !parsed.rows.length) return false;
     if (!selectedStoreIds.length) return false;
     if (!distribute) return true;
     if (selectionMode === 'members') return selectedMemberIds.length > 0;
@@ -219,8 +219,11 @@ export function MasterLeadImportModal({ onImported }: { onImported: () => Promis
 
   async function importLeads() {
     if (!canImport()) return;
+    const rejectedNotice = parsed.errors.length
+      ? ` ${parsed.errors.length} linha(s) inválida(s) não serão importadas e constarão no relatório.`
+      : '';
     const confirmation = window.confirm(
-      `Confirmar a importação de ${parsed.rows.length} lead(s)? A operação será registrada na auditoria.`
+      `Confirmar a importação de ${parsed.rows.length} lead(s)?${rejectedNotice} A operação será registrada na auditoria.`
     );
     if (!confirmation) return;
 
@@ -233,8 +236,13 @@ export function MasterLeadImportModal({ onImported }: { onImported: () => Promis
         (_, index) => parsed.rows.slice(index * IMPORT_REQUEST_ROWS, (index + 1) * IMPORT_REQUEST_ROWS)
       );
       const aggregate: ImportReport = {
-        batch_id: '', total_rows: 0, inserted: 0, updated: 0, distributed: 0,
-        duplicates: 0, conflicts: 0, errors: 0, items: []
+        batch_id: '', total_rows: parsed.errors.length, inserted: 0, updated: 0, distributed: 0,
+        duplicates: 0, conflicts: 0, errors: parsed.errors.length,
+        items: parsed.errors.map((error) => ({
+          row_number: error.row_number,
+          status: 'error',
+          message: `${error.message} Linha ignorada; os demais leads válidos foram processados.`
+        }))
       };
       const batchIds: string[] = [];
 
@@ -341,7 +349,7 @@ export function MasterLeadImportModal({ onImported }: { onImported: () => Promis
                         })}
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-emerald-100 px-3 py-1 font-bold text-emerald-700">{parsed.rows.length} linha(s) válida(s)</span>{parsed.errors.length ? <span className="rounded-full bg-red-100 px-3 py-1 font-bold text-red-700">{parsed.errors.length} linha(s) com erro</span> : null}</div>
-                      {parsed.errors.length ? <div className="mt-3 max-h-28 overflow-y-auto rounded-xl border border-red-100 bg-red-50 p-3 text-xs text-red-800">{parsed.errors.slice(0, 50).map((error) => <p key={`${error.row_number}-${error.message}`}>Linha {error.row_number}: {error.message}</p>)}</div> : null}
+                      {parsed.errors.length ? <div className="mt-3 max-h-28 overflow-y-auto rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><p className="mb-1 font-black">As linhas abaixo serão ignoradas. Você pode continuar com as linhas válidas.</p>{parsed.errors.slice(0, 50).map((error) => <p key={`${error.row_number}-${error.message}`}>Linha {error.row_number}: {error.message}</p>)}</div> : null}
                     </section>
                   ) : null}
 
