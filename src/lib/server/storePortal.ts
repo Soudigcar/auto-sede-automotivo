@@ -11,6 +11,7 @@ export type StorePortalPermission =
   | 'view_whatsapp'
   | 'manage_integrations'
   | 'view_calendar'
+  | 'view_stock'
   | 'manage_stock'
   | 'submit_stock_import'
   | 'manage_operation'
@@ -38,9 +39,9 @@ const roleLabels: Record<StorePortalRole, string> = {
 const rolePermissions: Record<StorePortalRole, StorePortalPermission[]> = {
   master: ['view_dashboard', 'manage_store', 'view_pipeline', 'view_whatsapp', 'manage_integrations', 'view_calendar', 'manage_stock', 'submit_stock_import', 'manage_operation', 'manage_team', 'view_autocar', 'manage_autocar', 'approve_autocar_actions'],
   store: ['view_dashboard', 'manage_store', 'view_pipeline', 'view_whatsapp', 'manage_integrations', 'view_calendar', 'manage_stock', 'submit_stock_import', 'manage_operation', 'manage_team', 'view_autocar', 'manage_autocar', 'approve_autocar_actions'],
-  pre_sales: ['view_dashboard', 'view_pipeline', 'view_whatsapp', 'view_calendar', 'submit_stock_import', 'view_autocar'],
-  seller: ['view_dashboard', 'view_pipeline', 'view_whatsapp', 'view_calendar', 'submit_stock_import', 'view_autocar'],
-  prospector: ['view_dashboard', 'view_pipeline', 'view_whatsapp', 'view_calendar', 'submit_stock_import', 'view_autocar']
+  pre_sales: ['view_dashboard', 'view_pipeline', 'view_whatsapp', 'view_calendar', 'view_stock', 'view_autocar'],
+  seller: ['view_dashboard', 'view_pipeline', 'view_whatsapp', 'view_calendar', 'view_stock', 'view_autocar'],
+  prospector: ['view_dashboard', 'view_pipeline', 'view_whatsapp', 'view_calendar', 'view_stock', 'view_autocar']
 };
 
 const menuCatalog: Array<Omit<StorePortalMenuItem, 'href'>> = [
@@ -52,6 +53,7 @@ const menuCatalog: Array<Omit<StorePortalMenuItem, 'href'>> = [
   { key: 'integrations', label: 'Integrações', segment: 'integracoes', permission: 'manage_integrations' },
   { key: 'calendar', label: 'Calendário', segment: 'calendario', permission: 'view_calendar' },
   { key: 'stock-import', label: 'Importar OLX', segment: 'importar-veiculo', permission: 'submit_stock_import' },
+  { key: 'stock', label: 'Estoque', segment: 'estoque-consulta', permission: 'view_stock' },
   { key: 'stock', label: 'Estoque', segment: 'estoque', permission: 'manage_stock' },
   { key: 'operation', label: 'Operação', segment: 'operacao', permission: 'manage_operation' },
   { key: 'team', label: 'Equipe', segment: 'equipe', permission: 'manage_team' }
