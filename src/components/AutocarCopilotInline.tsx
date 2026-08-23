@@ -94,6 +94,8 @@ export default function AutocarCopilotInline({ slug, conversationId, conversatio
   const [resumeLoading, setResumeLoading] = useState(false);
   const [runtime, setRuntime] = useState<RuntimeState | null>(null);
   const [canManageAutocar, setCanManageAutocar] = useState(false);
+  const [canResumeProtected, setCanResumeProtected] = useState(false);
+  const [protectedResumeRequired, setProtectedResumeRequired] = useState(false);
   const [shadow, setShadow] = useState<ShadowResult | null>(null);
   const [shadowMeta, setShadowMeta] = useState('');
   const [runtimeMeta, setRuntimeMeta] = useState('');
@@ -102,7 +104,7 @@ export default function AutocarCopilotInline({ slug, conversationId, conversatio
 
   useEffect(() => {
     setAnalysis(null); setReply(''); setShadow(null); setShadowMeta(''); setRuntimeMeta(''); setError(''); setExpanded(false);
-    setRuntime(null); setCanManageAutocar(false);
+    setRuntime(null); setCanManageAutocar(false); setCanResumeProtected(false); setProtectedResumeRequired(false);
     if (conversationId && slug) void loadRuntime();
   }, [conversationId, slug]);
 
@@ -125,6 +127,8 @@ export default function AutocarCopilotInline({ slug, conversationId, conversatio
       if (!response.ok) throw new Error(result.error || 'Não foi possível consultar o estado da AUTOCAR.');
       setRuntime(result.runtime || null);
       setCanManageAutocar(Boolean(result.can_manage_autocar));
+      setCanResumeProtected(Boolean(result.can_resume_protected));
+      setProtectedResumeRequired(Boolean(result.protected_resume_required));
     } catch (err: any) {
       setError(err?.message || 'Erro ao consultar estado da AUTOCAR.');
     } finally {
@@ -134,17 +138,47 @@ export default function AutocarCopilotInline({ slug, conversationId, conversatio
 
   async function resumeAutocar() {
     if (!conversationId || !slug || !canManageAutocar) return;
+
+    let resumeReason = '';
+    let confirmProtectedResume = false;
+    if (protectedResumeRequired) {
+      if (!canResumeProtected) {
+        setError('Esta conversa está protegida por handoff. Somente o Master pode devolvê-la para a AUTOCAR.');
+        return;
+      }
+
+      const reason = window.prompt('Esta conversa está protegida por handoff. Informe o motivo da retomada para registrar na auditoria:');
+      if (reason === null) return;
+      resumeReason = reason.trim();
+      if (resumeReason.length < 12) {
+        setError('Informe um motivo com pelo menos 12 caracteres para a retomada protegida.');
+        return;
+      }
+
+      confirmProtectedResume = window.confirm('Confirma a retomada desta conversa protegida para a AUTOCAR? Esta ação será registrada na auditoria.');
+      if (!confirmProtectedResume) return;
+    }
+
     setResumeLoading(true); setError(''); setRuntimeMeta('');
     try {
       const access = await token();
       const response = await fetch('/api/store/portal/autocar/runtime', {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${access}` },
-        body: JSON.stringify({ slug, conversation_id: conversationId, action: 'resume' }), cache: 'no-store'
+        body: JSON.stringify({
+          slug,
+          conversation_id: conversationId,
+          action: 'resume',
+          ...(protectedResumeRequired ? { resume_reason: resumeReason, confirm_protected_resume: confirmProtectedResume } : {})
+        }),
+        cache: 'no-store'
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'Não foi possível devolver a conversa para a AUTOCAR.');
       setRuntime(result.runtime || null);
-      setRuntimeMeta('Conversa devolvida para a AUTOCAR. A próxima mensagem do cliente poderá voltar ao AUTOPILOT.');
+      setProtectedResumeRequired(false);
+      setRuntimeMeta(result.protected_resume
+        ? 'Retomada protegida concluída e registrada na auditoria. A próxima mensagem do cliente poderá voltar ao AUTOPILOT.'
+        : 'Conversa devolvida para a AUTOCAR. A próxima mensagem do cliente poderá voltar ao AUTOPILOT.');
     } catch (err: any) {
       setError(err?.message || 'Erro ao devolver a conversa para a AUTOCAR.');
     } finally {
@@ -196,6 +230,7 @@ export default function AutocarCopilotInline({ slug, conversationId, conversatio
   const booking = shadow?.booking_guard;
   const humanActive = runtime?.human_state === 'human_active' || runtime?.human_state === 'paused';
   const autocarActive = runtime?.human_state === 'autocar_active';
+  const canShowResume = humanActive && canManageAutocar && (!protectedResumeRequired || canResumeProtected);
 
   return (
     <section className="border-t border-zinc-200 bg-white px-2.5 pt-2.5">
@@ -208,17 +243,19 @@ export default function AutocarCopilotInline({ slug, conversationId, conversatio
               {runtimeLoading ? <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2.5 py-1 text-[8px] font-black uppercase text-zinc-500"><Loader2 size={10} className="animate-spin" /> Consultando atendimento</span> : null}
               {!runtimeLoading && autocarActive ? <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-[8px] font-black uppercase text-emerald-700"><Bot size={11} /> AUTOCAR ATENDENDO</span> : null}
               {!runtimeLoading && humanActive ? <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-1 text-[8px] font-black uppercase text-blue-700"><Hand size={11} /> ATENDIMENTO HUMANO</span> : null}
+              {!runtimeLoading && protectedResumeRequired ? <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-[8px] font-black uppercase text-amber-800"><ShieldCheck size={11} /> HANDOFF PROTEGIDO</span> : null}
               {!runtimeLoading && runtime?.effective_mode ? <span className="rounded-full bg-white px-2.5 py-1 text-[8px] font-black uppercase text-zinc-600">{runtime.effective_mode}</span> : null}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {humanActive && canManageAutocar ? <button type="button" onClick={() => void resumeAutocar()} disabled={resumeLoading || runtimeLoading || !conversationId} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 text-[10px] font-black uppercase text-emerald-800 disabled:opacity-50">{resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} {resumeLoading ? 'Devolvendo...' : 'Devolver para AUTOCAR'}</button> : null}
+            {canShowResume ? <button type="button" onClick={() => void resumeAutocar()} disabled={resumeLoading || runtimeLoading || !conversationId} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 text-[10px] font-black uppercase text-emerald-800 disabled:opacity-50">{resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} {resumeLoading ? 'Devolvendo...' : protectedResumeRequired ? 'Retomar com auditoria' : 'Devolver para AUTOCAR'}</button> : null}
             <button type="button" onClick={() => void testShadow()} disabled={shadowLoading || loading || !conversationId} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 text-[10px] font-black uppercase text-amber-800 disabled:opacity-50">{shadowLoading ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />} {shadowLoading ? 'Simulando...' : 'Testar Shadow'}</button>
             <button type="button" onClick={() => void analyze()} disabled={loading || shadowLoading || !conversationId} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#071020] px-4 text-[10px] font-black uppercase text-white disabled:opacity-50">{loading ? <Loader2 size={14} className="animate-spin" /> : <WandSparkles size={14} />} {loading ? 'Analisando...' : 'Copilot'}</button>
           </div>
         </div>
 
         {runtimeMeta ? <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-bold text-emerald-800">{runtimeMeta}</div> : null}
+        {humanActive && protectedResumeRequired && !canResumeProtected ? <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-900">SAFE CORE: este handoff só pode ser retomado pelo acesso Master, com motivo e confirmação auditados.</div> : null}
         {humanActive && runtime?.pause_reason ? <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-bold text-blue-800">{runtime.pause_reason}{runtime.paused_at ? ` · desde ${formatDateTime(runtime.paused_at)}` : ''}</div> : null}
         {error ? <div className="mt-2 rounded-xl border border-red-100 bg-white px-3 py-2 text-[10px] font-bold text-red-700">{error}</div> : null}
         {shadowMeta ? <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-900">{shadowMeta}</div> : null}
