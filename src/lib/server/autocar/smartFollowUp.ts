@@ -47,13 +47,25 @@ function eventKey(storeId: string, sourceId: string, trigger: TriggerType) {
   return `autocar-follow-up:v1:${storeId}:${sourceId}:${trigger}`;
 }
 
+function visitWhen(scheduledAt?: string | null) {
+  if (!scheduledAt) return 'no horário combinado';
+  const parsed = new Date(scheduledAt);
+  if (Number.isNaN(parsed.getTime())) return 'no horário combinado';
+  const date = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric'
+  }).format(parsed);
+  const time = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false
+  }).format(parsed);
+  return `no dia ${date} às ${time}`;
+}
+
 function textFor(trigger: TriggerType, name: string, scheduledAt?: string | null) {
   if (trigger === 'visit_confirmation') {
-    const when = scheduledAt ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' }).format(new Date(scheduledAt)) : 'o horário combinado';
-    return `Oi, ${name}! Passando para confirmar sua visita conosco em ${when}. Continua tudo certo para você?`;
+    return `Oi, ${name}! Passando para confirmar sua visita conosco ${visitWhen(scheduledAt)}. Continua tudo certo para você?`;
   }
   if (trigger === 'post_visit') return `Oi, ${name}! Queria saber se você foi bem atendido na visita e se deu tudo certo com a negociação.`;
-  if (trigger === 'no_show') return `Oi, ${name}! Vi que não conseguimos concluir sua visita. Se quiser, posso te ajudar a encontrar um novo horário que fique melhor.`;
+  if (trigger === 'no_show') return `Oi, ${name}! Conseguiu passar na loja como combinado? Se não conseguiu, sem problema — posso te ajudar a encontrar um novo horário.`;
   return `Oi, ${name}! Você pediu para eu falar com você agora. Podemos continuar de onde paramos?`;
 }
 
@@ -79,7 +91,7 @@ export function parseExplicitCallbackRequest(textValue: unknown, now = new Date(
   const dateParts = saoPauloParts(now);
   const base = new Date(`${dateParts.year}-${dateParts.month}-${dateParts.day}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00-03:00`);
   const tomorrow = /amanh[ãa]/i.test(text);
-  let due = new Date(base.getTime() + (tomorrow ? 24 * 60 * 60 * 1000 : 0));
+  const due = new Date(base.getTime() + (tomorrow ? 24 * 60 * 60 * 1000 : 0));
   if (!tomorrow && due.getTime() <= now.getTime()) {
     return { matched: false, due_at: null as string | null, reason: 'Horário de hoje já passou; é necessária confirmação explícita de outro dia.' };
   }
@@ -271,6 +283,7 @@ export async function processDueFollowUpsDryRun(input: { production: any; autoca
 export function simulateSmartFollowUp(input: {
   trigger_type: TriggerType; global_policy?: string; store_policy?: string; autopilot?: boolean; human_active?: boolean;
   sale_confirmed?: boolean; new_message?: boolean; appointment_status?: string; lead_status?: string; customer_name?: string;
+  scheduled_at?: string | null;
 }) {
   const gates = {
     global_policy: input.global_policy || 'default', store_policy: input.store_policy || 'default',
@@ -287,5 +300,5 @@ export function simulateSmartFollowUp(input: {
   if (input.trigger_type !== 'callback_requested' && gates.appointment_status !== 'scheduled') return { decision: 'cancelled', reason: 'Agendamento não está mais ativo.', proposed_text: null, gates, external_execution: false };
   if (input.trigger_type === 'post_visit' && gates.lead_status !== 'showed_up') return { decision: 'cancelled', reason: 'Pós-visita exige comparecimento comprovado.', proposed_text: null, gates, external_execution: false };
   if (input.trigger_type === 'no_show' && gates.lead_status === 'showed_up') return { decision: 'cancelled', reason: 'Cliente compareceu; no-show não se aplica.', proposed_text: null, gates, external_execution: false };
-  return { decision: 'would_send', reason: 'Cenário elegível, mas o V1 apenas simula.', proposed_text: textFor(input.trigger_type, safeName(input.customer_name || 'Cliente')), gates, external_execution: false };
+  return { decision: 'would_send', reason: 'Cenário elegível, mas o V1 apenas simula.', proposed_text: textFor(input.trigger_type, safeName(input.customer_name || 'Cliente'), input.scheduled_at), gates, external_execution: false };
 }
