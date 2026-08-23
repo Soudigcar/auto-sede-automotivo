@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Copy, ExternalLink, Eye, EyeOff, KeyRound, Link2, Pencil, Search, Unlink, X } from 'lucide-react';
+import { Copy, ExternalLink, Eye, EyeOff, KeyRound, Link2, Package, Pencil, Search, Unlink, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { EventSelectField } from '@/components/EventSelectField';
 
@@ -274,6 +274,7 @@ export function PermanentStoresByEventList({ refreshKey = 0, eventId: controlled
             <div className="mt-4 flex flex-wrap gap-2">
               {!selected ? <button type="button" onClick={() => linkStore(store)} className="premium-button-primary text-xs"><Link2 size={14} /> Vincular ao evento</button> : <button type="button" onClick={() => unlinkStore(store)} className="premium-button-secondary text-xs"><Unlink size={14} /> Remover do evento</button>}
               <button type="button" onClick={() => startEdit(store)} className="premium-button-secondary text-xs"><Pencil size={14} /> Editar loja</button>
+              {store.slug ? <a href={`/loja/${store.slug}/estoque`} className="premium-button-secondary text-xs"><Package size={14} /> Gerenciar estoque</a> : null}
               <button type="button" onClick={() => generatePassword(store)} disabled={passwordLoadingId === store.id} className="premium-button-secondary text-xs"><KeyRound size={14} /> {passwordLoadingId === store.id ? 'Gerando...' : 'Gerar senha'}</button>
               <button type="button" onClick={() => togglePortal(store)} className="premium-button-secondary text-xs">{store.portal_enabled ? <EyeOff size={14} /> : <Eye size={14} />} {store.portal_enabled ? 'Ocultar do portal' : 'Publicar no portal'}</button>
             </div>

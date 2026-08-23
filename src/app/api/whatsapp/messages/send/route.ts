@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendEvolutionText } from '@/lib/server/evolution';
-import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import { asStorePortalRole, canAccessStoreConversation } from '@/lib/server/storePortal';
 import { markAutocarHumanActive } from '@/lib/server/autocar/safeRuntime';
+import { readManagedEvolutionState } from '@/lib/server/managedWhatsappEvolution';
+import { resolveEvolutionAvailability } from '@/lib/server/storeWhatsappChannel';
 
 export const runtime = 'nodejs';
 
@@ -42,12 +44,8 @@ async function getProfile(supabase: any, token: string) {
 
 function canAccessConversation(profile: any, conversation: any, lead: any) {
   const role = asStorePortalRole(profile?.role);
-  if (!role || !profile || !conversation) return false;
-  if (role === 'master') return true;
-  if (!profile.store_id || profile.store_id !== conversation.store_id) return false;
-  if (role === 'store') return true;
-  if (!lead || conversation.lead_id !== lead.id) return false;
-  return canAccessStoreLead(profile, role, lead);
+  if (!role) return false;
+  return canAccessStoreConversation(profile, role, conversation, lead);
 }
 
 function normalizePhone(value: unknown) {
@@ -103,9 +101,14 @@ export async function POST(request: Request) {
     let waMessageId: string | null = null;
 
     if (provider === 'evolution') {
-      if (!integration || integration.status !== 'connected') {
+      const liveState = integration ? await readManagedEvolutionState(integration) : null;
+      const availability = resolveEvolutionAvailability(integration, liveState);
+      if (!availability.connected) {
         const owner = integration?.scope === 'master' ? 'central da Master' : 'da loja';
-        return NextResponse.json({ error: `WhatsApp ${owner} está desconectado. Reconecte em Integrações.` }, { status: 409 });
+        return NextResponse.json({
+          error: `WhatsApp ${owner} não está conectado neste momento. Aguarde a reconexão ou avise o Gestor.`,
+          channel_status: availability.status
+        }, { status: 409 });
       }
       const recipient = normalizePhone(contact?.phone || contact?.wa_id);
       if (!recipient) return NextResponse.json({ error: 'Contato sem telefone válido para envio.' }, { status: 400 });

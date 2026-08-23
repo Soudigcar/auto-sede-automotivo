@@ -92,6 +92,20 @@ export function canAccessStoreLead(profile: any, role: StorePortalRole, lead: an
   return Boolean(profile?.id && lead?.assigned_user_id === profile.id);
 }
 
+export function canAccessStoreConversation(
+  profile: any,
+  role: StorePortalRole,
+  conversation: any,
+  lead: any
+) {
+  if (!profile || !conversation) return false;
+  if (role === 'master') return true;
+  if (!profile.store_id || profile.store_id !== conversation.store_id) return false;
+  if (role === 'store') return true;
+  if (!lead || conversation.lead_id !== lead.id) return false;
+  return canAccessStoreLead(profile, role, lead);
+}
+
 export function applyStoreLeadScope(query: any, profile: any, role: StorePortalRole) {
   if (role === 'master' || role === 'store') return query;
   const userId = cleanText(profile?.id, 80);

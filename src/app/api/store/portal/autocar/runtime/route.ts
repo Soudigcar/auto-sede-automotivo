@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { authorizeStorePortal } from '@/lib/server/storePortal';
+import { authorizeStorePortal, canAccessStoreConversation } from '@/lib/server/storePortal';
 import { cleanText } from '@/lib/server/storeTeam';
 import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 import { markAutocarHumanActive, resumeAutocarConversation } from '@/lib/server/autocar/safeRuntime';
@@ -25,7 +25,19 @@ async function canonicalConversation(context: any, conversationId: string) {
     .eq('store_id', context.store.id)
     .maybeSingle();
   if (error) throw error;
-  if (!data) throw new Error('Conversa não encontrada nesta loja.');
+  if (!data) return null;
+
+  let lead: any = null;
+  if (data.lead_id) {
+    const { data: leadRow, error: leadError } = await context.supabase.from('leads')
+      .select('id,assigned_store_id,assigned_user_id')
+      .eq('id', data.lead_id)
+      .maybeSingle();
+    if (leadError) throw leadError;
+    lead = leadRow;
+  }
+
+  if (!canAccessStoreConversation(context.profile, context.role, data, lead)) return null;
   return data;
 }
 
@@ -38,7 +50,10 @@ export async function GET(request: Request) {
     if ('error' in context) return context.error;
     if (!conversationId) return NextResponse.json({ error: 'Conversa obrigatória.' }, { status: 400 });
 
-    await canonicalConversation(context, conversationId);
+    const conversation = await canonicalConversation(context, conversationId);
+    if (!conversation) {
+      return NextResponse.json({ error: 'Conversa não encontrada ou fora da sua carteira.' }, { status: 404 });
+    }
     const autocar = getAutocarDevClient();
     const [runtimeState, claims] = await Promise.all([
       autocar.from('ai_runtime_conversations').select('*')
@@ -55,6 +70,7 @@ export async function GET(request: Request) {
       shadow_mode: true,
       no_external_execution: true,
       can_manage_autocar: context.permissions.includes('manage_autocar'),
+      can_take_over: context.permissions.includes('view_whatsapp'),
       runtime: runtimeState.data || null,
       claims: claims.data || []
     });
@@ -74,6 +90,9 @@ export async function POST(request: Request) {
     if (!conversationId) return NextResponse.json({ error: 'Conversa obrigatória.' }, { status: 400 });
 
     const conversation = await canonicalConversation(context, conversationId);
+    if (!conversation) {
+      return NextResponse.json({ error: 'Conversa não encontrada ou fora da sua carteira.' }, { status: 404 });
+    }
 
     if (action === 'process-inbound' || action === 'process-latest-inbound') {
       if (!context.permissions.includes('manage_autocar')) {
@@ -121,8 +140,8 @@ export async function POST(request: Request) {
     }
 
     if (action === 'human-active') {
-      if (!context.permissions.includes('manage_autocar')) {
-        return NextResponse.json({ error: 'Somente Gestor ou Master pode assumir a conversa pelo controle AUTOCAR.' }, { status: 403 });
+      if (!context.permissions.includes('view_whatsapp')) {
+        return NextResponse.json({ error: 'Usuário sem permissão para assumir esta conversa.' }, { status: 403 });
       }
       const state = await markAutocarHumanActive({
         productionSupabase: context.supabase,
