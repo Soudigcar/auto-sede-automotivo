@@ -10,7 +10,6 @@ import { OlxSharedTextNormalizerBridge } from '@/components/OlxSharedTextNormali
 import { StorePipelineDomSync } from '@/components/StorePipelineDomSync';
 import { StorePipelineAuraTheme } from '@/components/StorePipelineAuraTheme';
 import { StoreAiIdentityBoundary } from '@/components/StoreAiIdentityBoundary';
-import { StorePipelineCockpitUx } from '@/components/StorePipelineCockpitUx';
 import { StorePipelineResponsibleTopbar } from '@/components/StorePipelineResponsibleTopbar';
 import { StorePipelineSidebarToggle } from '@/components/StorePipelineSidebarToggle';
 import { StorePipelineNewLeadButton } from '@/components/StorePipelineNewLeadButton';
@@ -42,7 +41,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StorePipelineDomSync />
         <StorePipelineAuraTheme />
         <StoreAiIdentityBoundary />
-        <StorePipelineCockpitUx />
         <StorePipelineResponsibleTopbar />
         <StorePipelineSidebarToggle />
         <StorePipelineNewLeadButton />
