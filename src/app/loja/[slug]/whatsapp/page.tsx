@@ -1,12 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import {
   ArrowDownUp,
   ArrowUpRight,
   BarChart3,
+  Bot,
   CalendarDays,
   Car,
   CheckCircle2,
@@ -176,6 +177,12 @@ export default function StoreWhatsappPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [profilePictures, setProfilePictures] = useState<Record<string, string>>({});
+  const [autocarRuntime, setAutocarRuntime] = useState<any>(null);
+  const [autocarCanTakeOver, setAutocarCanTakeOver] = useState(false);
+  const [autocarLoading, setAutocarLoading] = useState(false);
+  const [autocarAction, setAutocarAction] = useState(false);
+  const [autocarError, setAutocarError] = useState('');
+  const autocarRequestRef = useRef('');
 
   async function getAuthToken() {
     const { data } = await supabase.auth.getSession();
@@ -184,6 +191,69 @@ export default function StoreWhatsappPage() {
       return '';
     }
     return data.session.access_token;
+  }
+
+  async function loadAutocarRuntime(conversationId: string) {
+    autocarRequestRef.current = conversationId;
+    if (!conversationId) {
+      setAutocarRuntime(null);
+      setAutocarCanTakeOver(false);
+      setAutocarError('');
+      return;
+    }
+
+    setAutocarRuntime(null);
+    setAutocarCanTakeOver(false);
+    setAutocarLoading(true);
+    setAutocarError('');
+    try {
+      const token = await getAuthToken();
+      if (!token) throw new Error('Sessão não encontrada. Entre novamente para consultar a AUTOCAR.');
+      const query = new URLSearchParams({ slug, conversation_id: conversationId });
+      const response = await fetch(`/api/store/portal/autocar/runtime?${query.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store'
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Não foi possível consultar a AUTOCAR desta conversa.');
+      if (autocarRequestRef.current !== conversationId) return;
+      setAutocarRuntime(result.runtime || null);
+      setAutocarCanTakeOver(result.can_take_over === true);
+    } catch (error: any) {
+      if (autocarRequestRef.current !== conversationId) return;
+      setAutocarRuntime(null);
+      setAutocarCanTakeOver(false);
+      setAutocarError(error?.message || 'Não foi possível consultar a AUTOCAR desta conversa.');
+    } finally {
+      if (autocarRequestRef.current === conversationId) setAutocarLoading(false);
+    }
+  }
+
+  async function assumeHumanService() {
+    if (!selectedId || !autocarCanTakeOver || autocarAction) return;
+    const conversationId = selectedId;
+    setAutocarAction(true);
+    setStatusMessage('Assumindo atendimento e pausando a AUTOCAR nesta conversa...');
+    try {
+      const token = await getAuthToken();
+      if (!token) throw new Error('Sessão não encontrada. Entre novamente para assumir a conversa.');
+      const response = await fetch('/api/store/portal/autocar/runtime', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ slug, conversation_id: conversationId, action: 'human-active' })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Não foi possível assumir esta conversa.');
+      if (autocarRequestRef.current !== conversationId) return;
+      setAutocarRuntime(result.runtime || null);
+      setAutocarError('');
+      setStatusMessage('Atendimento humano assumido. A AUTOCAR foi pausada somente nesta conversa.');
+    } catch (error: any) {
+      if (autocarRequestRef.current !== conversationId) return;
+      setStatusMessage(error?.message || 'Não foi possível assumir esta conversa.');
+    } finally {
+      setAutocarAction(false);
+    }
   }
 
   async function fetchInbox(conversationId?: string) {
@@ -216,6 +286,7 @@ export default function StoreWhatsappPage() {
         setMessages(firstResult.messages || []);
       }
       setStatusMessage(firstResult.conversations?.length ? '' : 'Nenhuma conversa recebida ainda.');
+      void loadAutocarRuntime(nextSelectedId);
     } catch (error: any) {
       setStatusMessage(error?.message || 'Erro ao carregar conversas.');
     }
@@ -380,6 +451,16 @@ export default function StoreWhatsappPage() {
 
   const selectedPhone = conversationPhone(selectedConversation);
   const selectedName = selectedLeadName(selectedConversation);
+  const autocarHumanActive = autocarRuntime?.human_state === 'human_active' || autocarRuntime?.human_state === 'paused';
+  const autocarStatusLabel = autocarLoading
+    ? 'Consultando AUTOCAR'
+    : autocarError
+      ? 'AUTOCAR indisponível'
+      : autocarHumanActive
+        ? 'Atendimento humano'
+        : autocarRuntime?.human_state === 'autocar_active'
+          ? 'AUTOCAR atendendo'
+          : 'AUTOCAR aguardando';
 
   if (statusMessage && !store && loading) {
     return <main className="flex min-h-screen items-center justify-center bg-[#071020] p-6 text-center text-white">{statusMessage}</main>;
@@ -509,6 +590,27 @@ export default function StoreWhatsappPage() {
                         </div>
 
                         <div className="flex items-center gap-2 overflow-x-auto border-t border-zinc-100 pt-2.5">
+                          <span
+                            className={`inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border px-3 text-[10px] font-black uppercase ${autocarHumanActive ? 'border-amber-200 bg-amber-50 text-amber-700' : autocarError ? 'border-zinc-200 bg-zinc-100 text-zinc-500' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}
+                            title={autocarError || autocarRuntime?.pause_reason || autocarStatusLabel}
+                          >
+                            {autocarLoading ? <RefreshCw size={13} className="animate-spin" /> : autocarHumanActive ? <UserCircle2 size={13} /> : <Bot size={13} />}
+                            {autocarStatusLabel}
+                          </span>
+
+                          {!autocarHumanActive && autocarCanTakeOver ? (
+                            <button
+                              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 text-[10px] font-black uppercase text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                              type="button"
+                              onClick={() => void assumeHumanService()}
+                              disabled={autocarAction || autocarLoading}
+                              title="Pausar a AUTOCAR somente nesta conversa e assumir o atendimento"
+                            >
+                              {autocarAction ? <RefreshCw size={13} className="animate-spin" /> : <UserCircle2 size={13} />}
+                              {autocarAction ? 'Assumindo...' : 'Assumir atendimento'}
+                            </button>
+                          ) : null}
+
                           <button className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 text-[10px] font-black uppercase text-zinc-600 transition hover:border-red-200 hover:text-red-600" type="button" onClick={markSelectedAsRead} title="Marcar como lida"><CheckCircle2 size={13} /> Marcar como lida</button>
 
                           <label className="relative inline-flex h-9 w-[235px] shrink-0 items-center rounded-lg border border-zinc-200 bg-white">
@@ -567,7 +669,10 @@ export default function StoreWhatsappPage() {
                               <WhatsappCommerceActions slug={slug} conversationId={selectedId} leadId={pipelineLeadId(selectedConversation)} onRefresh={() => loadData(selectedId)} onStatus={setStatusMessage} />
                             </div>
                           </div>
-                          <button className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50" type="submit" disabled={sending || !messageText.trim() || !channelConnected(selectedConversation)}><Send size={16} /> {sending ? 'Enviando...' : 'Enviar'}</button>
+                          <div className="flex shrink-0 flex-col items-stretch gap-1 lg:items-end">
+                            {!channelConnected(selectedConversation) ? <p className="max-w-[280px] text-right text-[9px] font-bold leading-4 text-amber-700">Envio temporariamente bloqueado: {channelStatus(selectedConversation)}. Aguarde a reconexão ou avise o Gestor.</p> : null}
+                            <button className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50" type="submit" disabled={sending || !messageText.trim() || !channelConnected(selectedConversation)}><Send size={16} /> {sending ? 'Enviando...' : 'Enviar'}</button>
+                          </div>
                         </div>
                       </div>
                     </form>
