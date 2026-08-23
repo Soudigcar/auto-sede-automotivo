@@ -829,6 +829,37 @@ const styles = `
   .pipeline-customize-trigger strong { font-size:11px; font-weight:950; white-space:nowrap; }
   .pipeline-customize-trigger small { color:var(--aura-muted); font-size:9px; font-weight:750; white-space:nowrap; }
 
+  @media (min-width:1024px) {
+    body.pipeline-aura-active .pipeline-aura-board > div {
+      display:flex!important;
+      height:calc(100dvh - 176px)!important;
+      min-height:420px!important;
+      max-height:calc(100dvh - 176px)!important;
+      flex-direction:column!important;
+      overflow:hidden!important;
+    }
+    body.pipeline-aura-active [data-pipeline-stage-cards='true'],
+    body.pipeline-aura-active .pipeline-custom-column-cards {
+      min-height:0!important;
+      flex:1 1 auto!important;
+      align-content:start!important;
+      overflow-x:hidden!important;
+      overflow-y:auto!important;
+      overscroll-behavior-y:contain;
+      padding-right:3px;
+      scrollbar-color:color-mix(in srgb,var(--pipeline-stage-color) 35%,transparent) transparent;
+      scrollbar-gutter:stable;
+      scrollbar-width:thin;
+    }
+    body.pipeline-aura-active [data-pipeline-stage-cards='true']::-webkit-scrollbar,
+    body.pipeline-aura-active .pipeline-custom-column-cards::-webkit-scrollbar { width:5px; }
+    body.pipeline-aura-active [data-pipeline-stage-cards='true']::-webkit-scrollbar-thumb,
+    body.pipeline-aura-active .pipeline-custom-column-cards::-webkit-scrollbar-thumb {
+      border-radius:999px;
+      background:color-mix(in srgb,var(--pipeline-stage-color) 35%,transparent);
+    }
+  }
+
   body.pipeline-aura-active .pipeline-aura-board-scroll { margin-top:7px!important; padding-top:0!important; }
   body.pipeline-aura-active .pipeline-aura-board > div > div:first-child { top:0!important; }
   body.pipeline-aura-active .pipeline-aura-board > div { min-height:500px!important; }
@@ -925,7 +956,7 @@ const styles = `
   .pipeline-customize-save { border:1px solid #ef2d34; background:#ef2d34; color:white; }
 
   @media (min-width:1024px) {
-    body.pipeline-aura-active .pipeline-cockpit-host { margin-top:-58px!important; }
+    body.pipeline-aura-active .pipeline-cockpit-host { margin-top:0!important; }
   }
   @media (max-width:1260px) {
     .pipeline-kpi-strip { min-width:1030px; }

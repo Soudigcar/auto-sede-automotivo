@@ -151,6 +151,12 @@ export function StorePipelineScheduleUxBridge() {
 
     const normalize = () => {
       document.querySelectorAll<HTMLElement>('[data-lead-id]').forEach((card) => {
+        if (card.dataset.pipelineCardV2 === 'true') {
+          card.querySelectorAll<HTMLElement>('.pipeline-card-actions-uniform, .pipeline-card-action-uniform').forEach((element) => {
+            element.classList.remove('pipeline-card-actions-uniform', 'pipeline-card-action-uniform');
+          });
+          return;
+        }
         const buttons = Array.from(card.querySelectorAll<HTMLButtonElement>('button'));
         const actionButtons = buttons.filter((button) => {
           const text = String(button.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();

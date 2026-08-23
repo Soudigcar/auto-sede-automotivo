@@ -29,10 +29,11 @@ export function StorePipelineNewLeadScheduleButton() {
       frame = window.requestAnimationFrame(() => {
         document.querySelectorAll<HTMLButtonElement>('[data-new-lead-schedule-button]').forEach((button) => {
           const card = button.closest<HTMLElement>('[data-lead-id]');
-          if (!card || !isNewLeadCard(card)) button.remove();
+          if (!card || card.dataset.pipelineCardV2 === 'true' || !isNewLeadCard(card)) button.remove();
         });
 
         document.querySelectorAll<HTMLElement>('[data-lead-id]').forEach((card) => {
+          if (card.dataset.pipelineCardV2 === 'true') return;
           if (!isNewLeadCard(card)) return;
           if (card.querySelector('[data-new-lead-schedule-button]')) return;
 
