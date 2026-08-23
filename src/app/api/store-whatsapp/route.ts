@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import { asStorePortalRole, canAccessStoreConversation } from '@/lib/server/storePortal';
 import { getEvolutionProfilePictureUrl } from '@/lib/server/evolution';
 import { evolutionDisplayBody } from '@/lib/server/evolutionMessage';
+import { readManagedEvolutionState } from '@/lib/server/managedWhatsappEvolution';
+import { publicWhatsappNumber } from '@/lib/server/storeWhatsappChannel';
 
 export const runtime = 'nodejs';
 
@@ -11,6 +13,24 @@ function cleanText(value: unknown) {
 }
 
 const PROFILE_PICTURE_CACHE_MS = 24 * 60 * 60 * 1_000;
+const EVOLUTION_STATE_CACHE_MS = 10_000;
+type EvolutionLiveState = Awaited<ReturnType<typeof readManagedEvolutionState>>;
+const evolutionStateCache = new Map<string, { expiresAt: number; state: EvolutionLiveState }>();
+
+async function readEvolutionStateCached(integration: any) {
+  const instanceName = cleanText(integration?.instance_name);
+  if (!instanceName) return readManagedEvolutionState(integration);
+
+  const cached = evolutionStateCache.get(instanceName);
+  if (cached && cached.expiresAt > Date.now()) return cached.state;
+
+  const state = await readManagedEvolutionState(integration);
+  evolutionStateCache.set(instanceName, {
+    expiresAt: Date.now() + EVOLUTION_STATE_CACHE_MS,
+    state
+  });
+  return state;
+}
 
 function profilePictureMetadata(contact: any) {
   const metadata = contact?.metadata && typeof contact.metadata === 'object'
@@ -83,9 +103,7 @@ function canAccessStore(profile: any, store: any) {
 function canAccessConversation(profile: any, store: any, conversation: any, lead: any) {
   const role = asStorePortalRole(profile?.role);
   if (!role || !canAccessStore(profile, store)) return false;
-  if (role === 'master' || role === 'store') return true;
-  if (!lead || conversation?.lead_id !== lead.id) return false;
-  return canAccessStoreLead(profile, role, lead);
+  return canAccessStoreConversation(profile, role, conversation, lead);
 }
 
 function unique(values: Array<string | null | undefined>) {
@@ -94,35 +112,6 @@ function unique(values: Array<string | null | undefined>) {
 
 function buildMap(rows: any[]) {
   return Object.fromEntries((rows || []).map((row) => [row.id, row]));
-}
-
-function whatsappProvider(number: any) {
-  const configuredProvider = cleanText(number?.settings?.provider).toLowerCase();
-  if (configuredProvider === 'evolution') return 'evolution';
-
-  return cleanText(number?.phone_number_id).toLowerCase().startsWith('evolution:')
-    ? 'evolution'
-    : 'meta_cloud';
-}
-
-function publicWhatsappNumber(number: any, integration: any) {
-  const provider = whatsappProvider(number);
-
-  return {
-    id: number.id,
-    label: number.label,
-    phone_number: number.phone_number,
-    phone_number_id: number.phone_number_id,
-    status: number.status,
-    is_active: number.is_active,
-    provider,
-    integration_status: provider === 'evolution'
-      ? integration?.status || 'disconnected'
-      : number.status,
-    instance_name: provider === 'evolution'
-      ? integration?.instance_name || cleanText(number?.settings?.instance_name) || null
-      : null
-  };
 }
 
 async function getStore(supabase: any, slug: string) {
@@ -226,9 +215,16 @@ export async function GET(request: Request) {
     const integrationsByNumberId = Object.fromEntries(
       (integrationsResponse.data || []).map((integration: any) => [integration.crm_number_id, integration])
     );
-    const publicNumbers = (numbersResponse.data || []).map((number: any) =>
-      publicWhatsappNumber(number, integrationsByNumberId[number.id] || null)
-    );
+    const liveStatesByNumberId = Object.fromEntries(await Promise.all(
+      (integrationsResponse.data || []).map(async (integration: any) => [
+        integration.crm_number_id,
+        await readEvolutionStateCached(integration)
+      ])
+    ));
+    const publicNumbers = (numbersResponse.data || []).map((number: any) => {
+      const integration = integrationsByNumberId[number.id] || null;
+      return publicWhatsappNumber(number, integration, liveStatesByNumberId[number.id] || null);
+    });
     const numbersById = buildMap(publicNumbers);
     const leadsById = buildMap(leadsResponse.data || []);
     const baseLeadsById = buildMap(baseLeadsResponse.data || []);
