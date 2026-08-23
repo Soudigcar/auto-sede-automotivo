@@ -21,6 +21,12 @@ const followScenarios: Array<{ key: FollowScenario; title: string; helper: strin
   { key: 'callback_requested', title: 'Me chama mais tarde', helper: 'Retomar exatamente no horário pedido pelo cliente.' }
 ];
 
+function defaultVisitLocal() {
+  const date = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T14:00`;
+}
+
 export function MasterAutocarTestLab({ stores: fallbackStores = [] }: { stores?: StoreRow[] }) {
   const supabase = useMemo(() => createClient(), []);
   const [stores, setStores] = useState<StoreRow[]>(fallbackStores);
@@ -36,6 +42,7 @@ export function MasterAutocarTestLab({ stores: fallbackStores = [] }: { stores?:
   const [simulateMasterAllow, setSimulateMasterAllow] = useState(false);
   const [simulateStoreAllow, setSimulateStoreAllow] = useState(false);
   const [callbackText, setCallbackText] = useState('me chama às 18h');
+  const [visitDateTime, setVisitDateTime] = useState(defaultVisitLocal);
 
   const token = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
@@ -78,6 +85,7 @@ export function MasterAutocarTestLab({ stores: fallbackStores = [] }: { stores?:
     try {
       const access = await token();
       const leadStatus = followScenario === 'post_visit' ? 'showed_up' : 'scheduled';
+      const scheduledAt = followScenario === 'callback_requested' || !visitDateTime ? null : new Date(visitDateTime).toISOString();
       const response = await fetch('/api/master/autocar/follow-up', {
         method: 'POST', headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -91,7 +99,8 @@ export function MasterAutocarTestLab({ stores: fallbackStores = [] }: { stores?:
           sale_confirmed: false,
           new_message: false,
           customer_name: 'João',
-          callback_text: callbackText
+          callback_text: callbackText,
+          scheduled_at: scheduledAt
         })
       });
       const body = await readResponse(response);
@@ -119,6 +128,7 @@ export function MasterAutocarTestLab({ stores: fallbackStores = [] }: { stores?:
         <label className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold text-amber-900"><input type="checkbox" checked={simulateMasterAllow} onChange={(event) => setSimulateMasterAllow(event.target.checked)} className="mt-0.5"/><span><strong>Master libera Smart Follow-up</strong><br/>Somente no cenário do laboratório. Não grava Regra Global.</span></label>
         <label className="flex items-start gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-xs font-bold text-sky-900"><input type="checkbox" checked={simulateStoreAllow} onChange={(event) => setSimulateStoreAllow(event.target.checked)} className="mt-0.5"/><span><strong>Loja libera Smart Follow-up</strong><br/>Somente no cenário do laboratório. Não grava policy nem altera modo.</span></label>
       </div>
+      {followScenario !== 'callback_requested' ? <label className="mt-4 block text-xs font-black">Data/hora da visita<input type="datetime-local" className="premium-input mt-1.5" value={visitDateTime} onChange={(event) => setVisitDateTime(event.target.value)} /></label> : null}
       {followScenario === 'callback_requested' ? <label className="mt-4 block text-xs font-black">Mensagem do cliente<input className="premium-input mt-1.5" value={callbackText} onChange={(event) => setCallbackText(event.target.value)} placeholder="Ex.: me chama amanhã às 10h" /></label> : null}
       <button type="button" disabled={followBusy} onClick={() => void simulateFollowUp()} className="premium-button-secondary mt-3 w-full justify-center"><Play size={15}/>{followBusy ? 'Simulando...' : 'Simular Smart Follow-up'}</button>
       {followResult ? <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="flex items-center justify-between gap-3"><strong className="text-sm font-black">Decisão</strong><span className="rounded-full bg-zinc-950 px-3 py-1 text-[10px] font-black uppercase text-white">{String(followResult.decision || '').replaceAll('_',' ')}</span></div><p className="mt-2 text-xs font-bold leading-5 text-zinc-600">{followResult.reason}</p>{followResult.proposed_text ? <div className="mt-3 rounded-xl bg-white p-4 text-sm font-bold leading-6 text-zinc-900">{followResult.proposed_text}</div> : null}{followScenario === 'callback_requested' && followResult.callback_plan ? <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-3 text-[11px] font-bold text-zinc-600"><strong>Interpretação do horário:</strong> {followResult.callback_plan.reason}<br/><strong>Evento futuro:</strong> {followResult.callback_plan.due_at ? new Date(followResult.callback_plan.due_at).toLocaleString('pt-BR') : 'não criado na simulação'}</div> : null}<p className="mt-3 text-[10px] font-black uppercase text-red-600">Execução externa: NÃO · DRY-RUN</p></div> : null}
