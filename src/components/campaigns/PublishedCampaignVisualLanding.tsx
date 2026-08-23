@@ -91,6 +91,8 @@ export function PublishedCampaignVisualLanding({ campaign, eventInfo, vehicles, 
           onBackgroundDoubleClick={() => undefined}
           onSelectVehicle={(vehicleId) => openSimulator(vehicleId)}
           onFlowMeasurement={() => undefined}
+          onOpenSimulator={() => openSimulator()}
+          showInlineSimulator={false}
         />
       </div>
 
