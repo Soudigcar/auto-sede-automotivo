@@ -7,6 +7,10 @@ function isPipeline(pathname: string) {
   return /^\/loja\/[^/]+\/pipeline\/?$/.test(pathname);
 }
 
+function isPipelineCardV2(card: HTMLElement) {
+  return card.dataset.pipelineCardV2 === 'true';
+}
+
 function isNewLeadCard(card: HTMLElement) {
   const column = card.closest<HTMLElement>('.min-h-\\[520px\\]');
   if (!column) return false;
@@ -29,10 +33,11 @@ export function StorePipelineNewLeadScheduleButton() {
       frame = window.requestAnimationFrame(() => {
         document.querySelectorAll<HTMLButtonElement>('[data-new-lead-schedule-button]').forEach((button) => {
           const card = button.closest<HTMLElement>('[data-lead-id]');
-          if (!card || !isNewLeadCard(card)) button.remove();
+          if (!card || isPipelineCardV2(card) || !isNewLeadCard(card)) button.remove();
         });
 
         document.querySelectorAll<HTMLElement>('[data-lead-id]').forEach((card) => {
+          if (isPipelineCardV2(card)) return;
           if (!isNewLeadCard(card)) return;
           if (card.querySelector('[data-new-lead-schedule-button]')) return;
 
