@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { ArrowLeft, PackageSearch, ShieldCheck } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
-import StoreStockPage from '@/app/loja/[slug]/estoque/page';
+import MasterStoreStockManager from '@/components/MasterStoreStockManager';
 
 export default function MasterStoreStockDetailPage() {
   return (
@@ -29,31 +29,9 @@ export default function MasterStoreStockDetailPage() {
             </div>
           </div>
 
-          <div data-master-stock-engine className="min-w-0">
-            <StoreStockPage />
-          </div>
+          <MasterStoreStockManager />
         </div>
       </section>
-
-      <style jsx global>{`
-        [data-master-stock-engine] > main > section > aside {
-          display: none !important;
-        }
-        [data-master-stock-engine] > main > section > div {
-          width: 100% !important;
-          max-width: none !important;
-        }
-        [data-master-stock-engine] > main header a[href*="/pipeline"] {
-          display: none !important;
-        }
-        [data-master-stock-engine] > main header .premium-eyebrow {
-          font-size: 0 !important;
-        }
-        [data-master-stock-engine] > main header .premium-eyebrow::after {
-          content: 'Estoque administrado pelo Master';
-          font-size: 0.75rem;
-        }
-      `}</style>
     </main>
   );
 }
