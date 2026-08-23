@@ -36,6 +36,7 @@ export function PublishedCampaignVisualLanding({ campaign, eventInfo, vehicles, 
   const mode = draft.backgroundMode[device];
   const original = device === 'mobile' ? campaign?.mobile_hero_image_url || campaign?.hero_image_url : campaign?.hero_image_url;
   const heroSource = mode === 'none' ? '' : mode === 'custom' ? draft.backgroundData[device] : original || '';
+  const desktopSimulator = draft.devices.desktop.simulator;
 
   function openSimulator(vehicleId = '') {
     if (vehicleId === '__OPEN_VEHICLES__') { setActiveView('vehicles'); return; }
@@ -48,15 +49,18 @@ export function PublishedCampaignVisualLanding({ campaign, eventInfo, vehicles, 
     <CampaignLandingNavigation settings={draft.navigation} active={activeView} onNavigate={setActiveView} />
 
     {activeView === 'home' ? <>
-      <div className="published-campaign-v3-hero">
-        <CampaignVisualEditorPreviewFlow draft={draft} device={device} campaign={campaign} eventInfo={eventInfo} vehicles={vehicles} stores={stores} layer="content" selectedContent="title" clientView heroRef={heroRef} heroSource={heroSource} onSelect={() => undefined} onSelectContent={() => undefined} onStartBox={() => undefined} onStartContent={() => undefined} onStartBackground={() => undefined} onWheel={() => undefined} onBackgroundDoubleClick={() => undefined} onSelectVehicle={(vehicleId) => openSimulator(vehicleId)} onFlowMeasurement={() => undefined} onOpenSimulator={() => openSimulator()} showInlineSimulator={device === 'desktop'} />
+      <div className="published-campaign-v3-hero relative">
+        <CampaignVisualEditorPreviewFlow draft={draft} device={device} campaign={campaign} eventInfo={eventInfo} vehicles={vehicles} stores={stores} layer="content" selectedContent="title" clientView heroRef={heroRef} heroSource={heroSource} onSelect={() => undefined} onSelectContent={() => undefined} onStartBox={() => undefined} onStartContent={() => undefined} onStartBackground={() => undefined} onWheel={() => undefined} onBackgroundDoubleClick={() => undefined} onSelectVehicle={(vehicleId) => openSimulator(vehicleId)} onFlowMeasurement={() => undefined} onOpenSimulator={() => openSimulator()} showInlineSimulator={false} />
+        {device === 'desktop' && desktopSimulator.visible ? <div className="absolute z-40" style={{ left: `${desktopSimulator.x}%`, top: `${desktopSimulator.y}%`, width: `${desktopSimulator.width}%` }}>
+          <CampaignFinanceSimulatorInline campaign={campaign} eventInfo={eventInfo} vehicles={vehicles} primaryColor={draft.primaryColor} cardRadius={draft.cardRadius} backgroundColor={draft.simulatorBackground} summaryBackgroundColor={draft.simulatorSummaryBackground} mode="live" slug={slug} />
+        </div> : null}
       </div>
       <CampaignLandingSectionsRenderer draft={draft} vehicles={vehicles} campaign={campaign} onOpenSimulator={openSimulator} view="home" />
     </> : null}
 
     {activeView === 'vehicles' ? <CampaignLandingSectionsRenderer draft={draft} vehicles={vehicles} campaign={campaign} onOpenSimulator={openSimulator} view="vehicles" /> : null}
 
-    {activeView === 'simulation' ? <section className="min-h-[calc(100vh-72px)] bg-slate-100 px-4 py-10 sm:px-6"><div className="mx-auto max-w-6xl"><CampaignFinanceSimulatorInline campaign={campaign} eventInfo={eventInfo} vehicles={vehicles} primaryColor={draft.primaryColor} cardRadius={draft.cardRadius} backgroundColor={draft.simulatorBackground} summaryBackgroundColor={draft.simulatorSummaryBackground} /></div></section> : null}
+    {activeView === 'simulation' ? <section className="min-h-[calc(100vh-72px)] bg-slate-100 px-4 py-10 sm:px-6"><div className="mx-auto max-w-6xl"><CampaignFinanceSimulatorInline campaign={campaign} eventInfo={eventInfo} vehicles={vehicles} primaryColor={draft.primaryColor} cardRadius={draft.cardRadius} backgroundColor={draft.simulatorBackground} summaryBackgroundColor={draft.simulatorSummaryBackground} mode="live" slug={slug} /></div></section> : null}
 
     {draft.footer.visible ? <footer style={{ backgroundColor: draft.footer.backgroundColor, color: draft.footer.textColor, textAlign: draft.footer.align, padding: `${draft.footer.paddingY}px 24px`, fontSize: draft.footer.fontSize }}><div className="mx-auto" style={{ maxWidth: draft.footer.maxWidth }}><p>{draft.footer.notice.replace('{ANO}', String(new Date().getFullYear()))}</p>{draft.footer.showTerms && (draft.footer.termsOverride || campaign?.terms_text) ? <p className="mt-3 opacity-70">{draft.footer.termsOverride || campaign?.terms_text}</p> : null}</div></footer> : null}
 
