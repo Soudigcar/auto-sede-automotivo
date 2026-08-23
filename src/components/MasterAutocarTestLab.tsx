@@ -33,7 +33,9 @@ export function MasterAutocarTestLab({ stores: fallbackStores = [] }: { stores?:
   const [followScenario, setFollowScenario] = useState<FollowScenario>('visit_confirmation');
   const [followResult, setFollowResult] = useState<any>(null);
   const [followBusy, setFollowBusy] = useState(false);
-  const [simulateUnlocked, setSimulateUnlocked] = useState(false);
+  const [simulateMasterAllow, setSimulateMasterAllow] = useState(false);
+  const [simulateStoreAllow, setSimulateStoreAllow] = useState(false);
+  const [callbackText, setCallbackText] = useState('me chama às 18h');
 
   const token = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
@@ -80,19 +82,21 @@ export function MasterAutocarTestLab({ stores: fallbackStores = [] }: { stores?:
         method: 'POST', headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           trigger_type: followScenario,
-          global_policy: simulateUnlocked ? 'allow' : 'default',
+          global_policy: simulateMasterAllow ? 'allow' : 'default',
+          store_policy: simulateStoreAllow ? 'allow' : 'default',
           autopilot: true,
           human_active: true,
           appointment_status: 'scheduled',
           lead_status: leadStatus,
           sale_confirmed: false,
           new_message: false,
-          customer_name: 'João'
+          customer_name: 'João',
+          callback_text: callbackText
         })
       });
       const body = await readResponse(response);
       if (!response.ok) throw new Error(body.error || 'Falha na simulação do follow-up.');
-      setFollowResult(body.result);
+      setFollowResult({ ...body.result, callback_plan: body.callback_plan || null });
     } catch (error: any) { setFollowResult({ decision: 'blocked', reason: error?.message || 'Falha na simulação.' }); }
     finally { setFollowBusy(false); }
   }
@@ -111,9 +115,13 @@ export function MasterAutocarTestLab({ stores: fallbackStores = [] }: { stores?:
     <div className="premium-card p-5 md:p-6">
       <div className="flex items-start gap-3"><span className="rounded-xl bg-zinc-950 p-2.5 text-white"><Clock3 size={19}/></span><div><h2 className="text-xl font-black">Smart Follow-up V1 · laboratório</h2><p className="mt-1 text-xs font-bold leading-5 text-zinc-500">Simula confirmação, pós-visita, ausência e callback solicitado. O V1 não possui caminho de envio externo.</p></div></div>
       <div className="mt-5 grid gap-2 md:grid-cols-2">{followScenarios.map((item) => <button key={item.key} type="button" onClick={() => { setFollowScenario(item.key); setFollowResult(null); }} className={`rounded-2xl border p-4 text-left ${followScenario === item.key ? 'border-red-300 bg-red-50' : 'border-zinc-200 bg-zinc-50'}`}><strong className="text-sm font-black">{item.title}</strong><p className="mt-1 text-[11px] font-bold leading-5 text-zinc-500">{item.helper}</p></button>)}</div>
-      <label className="mt-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold text-amber-900"><input type="checkbox" checked={simulateUnlocked} onChange={(event) => setSimulateUnlocked(event.target.checked)} className="mt-0.5"/><span><strong>Simular Master liberando create_follow_up</strong><br/>Isto altera apenas o cenário do laboratório. Não salva regra global e não libera nenhuma loja.</span></label>
+      <div className="mt-4 grid gap-2 md:grid-cols-2">
+        <label className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold text-amber-900"><input type="checkbox" checked={simulateMasterAllow} onChange={(event) => setSimulateMasterAllow(event.target.checked)} className="mt-0.5"/><span><strong>Master libera Smart Follow-up</strong><br/>Somente no cenário do laboratório. Não grava Regra Global.</span></label>
+        <label className="flex items-start gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-xs font-bold text-sky-900"><input type="checkbox" checked={simulateStoreAllow} onChange={(event) => setSimulateStoreAllow(event.target.checked)} className="mt-0.5"/><span><strong>Loja libera Smart Follow-up</strong><br/>Somente no cenário do laboratório. Não grava policy nem altera modo.</span></label>
+      </div>
+      {followScenario === 'callback_requested' ? <label className="mt-4 block text-xs font-black">Mensagem do cliente<input className="premium-input mt-1.5" value={callbackText} onChange={(event) => setCallbackText(event.target.value)} placeholder="Ex.: me chama amanhã às 10h" /></label> : null}
       <button type="button" disabled={followBusy} onClick={() => void simulateFollowUp()} className="premium-button-secondary mt-3 w-full justify-center"><Play size={15}/>{followBusy ? 'Simulando...' : 'Simular Smart Follow-up'}</button>
-      {followResult ? <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="flex items-center justify-between gap-3"><strong className="text-sm font-black">Decisão</strong><span className="rounded-full bg-zinc-950 px-3 py-1 text-[10px] font-black uppercase text-white">{String(followResult.decision || '').replaceAll('_',' ')}</span></div><p className="mt-2 text-xs font-bold leading-5 text-zinc-600">{followResult.reason}</p>{followResult.proposed_text ? <div className="mt-3 rounded-xl bg-white p-4 text-sm font-bold leading-6 text-zinc-900">{followResult.proposed_text}</div> : null}<p className="mt-3 text-[10px] font-black uppercase text-red-600">Execução externa: NÃO · DRY-RUN</p></div> : null}
+      {followResult ? <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="flex items-center justify-between gap-3"><strong className="text-sm font-black">Decisão</strong><span className="rounded-full bg-zinc-950 px-3 py-1 text-[10px] font-black uppercase text-white">{String(followResult.decision || '').replaceAll('_',' ')}</span></div><p className="mt-2 text-xs font-bold leading-5 text-zinc-600">{followResult.reason}</p>{followResult.proposed_text ? <div className="mt-3 rounded-xl bg-white p-4 text-sm font-bold leading-6 text-zinc-900">{followResult.proposed_text}</div> : null}{followScenario === 'callback_requested' && followResult.callback_plan ? <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-3 text-[11px] font-bold text-zinc-600"><strong>Interpretação do horário:</strong> {followResult.callback_plan.reason}<br/><strong>Evento futuro:</strong> {followResult.callback_plan.due_at ? new Date(followResult.callback_plan.due_at).toLocaleString('pt-BR') : 'não criado na simulação'}</div> : null}<p className="mt-3 text-[10px] font-black uppercase text-red-600">Execução externa: NÃO · DRY-RUN</p></div> : null}
     </div>
   </section>;
 }
