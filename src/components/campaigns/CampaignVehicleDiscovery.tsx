@@ -5,12 +5,15 @@ import { ChevronDown, Filter, Search, SlidersHorizontal, X } from 'lucide-react'
 import { CampaignVehicleShowcase } from '@/components/campaigns/CampaignVehicleShowcase';
 import type { LandingVehicleSettings } from './CampaignLandingSectionModel';
 
+type LayoutMode = 'auto' | 'tablet' | 'mobile';
+
 type Props = {
   vehicles: any[];
   primaryColor: string;
   onOpenSimulator: (vehicleId: string) => void;
   settings?: Partial<LandingVehicleSettings>;
   embedded?: boolean;
+  layoutMode?: LayoutMode;
 };
 
 const defaultSettings: LandingVehicleSettings = { showSearch: true, showCategories: true, showBrand: true, showModel: true, showPrice: true, showYear: true, showTransmission: true, showFuel: true, showSort: true };
@@ -34,7 +37,7 @@ function matchesKind(vehicle: any, kind: string) {
   return true;
 }
 
-export function CampaignVehicleDiscovery({ vehicles, primaryColor, onOpenSimulator, settings, embedded = false }: Props) {
+export function CampaignVehicleDiscovery({ vehicles, primaryColor, onOpenSimulator, settings, embedded = false, layoutMode = 'auto' }: Props) {
   const cfg = { ...defaultSettings, ...(settings || {}) };
   const [query, setQuery] = useState('');
   const [brand, setBrand] = useState('');
@@ -75,27 +78,42 @@ export function CampaignVehicleDiscovery({ vehicles, primaryColor, onOpenSimulat
 
   const activeFilters = Boolean(brand || model || transmission || fuel || minYear || maxYear || minPrice || maxPrice || kind !== 'todos');
   const clear = () => { setQuery(''); setBrand(''); setModel(''); setKind('todos'); setTransmission(''); setFuel(''); setMinYear(''); setMaxYear(''); setMinPrice(''); setMaxPrice(''); setSort('featured'); };
+  const simulated = layoutMode !== 'auto';
+  const mobile = layoutMode === 'mobile';
 
   const filterPanel = <div className="space-y-5">
     {cfg.showCategories ? <div><p className="text-xs font-black uppercase tracking-[.14em] text-white">Categoria</p><div className="mt-3 flex flex-wrap gap-2">{kinds.map((item) => <button key={item} type="button" onClick={() => setKind(item)} className="rounded-full border border-slate-700 px-3 py-2 text-[10px] font-black uppercase text-white" style={kind === item ? { backgroundColor: primaryColor, borderColor: primaryColor } : undefined}>{item === '0km' ? '0 km' : item}</button>)}</div></div> : null}
-    {cfg.showBrand ? <select value={brand} onChange={(e) => { setBrand(e.target.value); setModel(''); }} className="h-11 w-full rounded-xl border border-slate-700 bg-slate-800 px-3 text-xs font-bold text-white"><option value="">Todas as marcas</option>{brands.map((item) => <option key={item}>{item}</option>)}</select> : null}
-    {cfg.showModel ? <select value={model} onChange={(e) => setModel(e.target.value)} className="h-11 w-full rounded-xl border border-slate-700 bg-slate-800 px-3 text-xs font-bold text-white"><option value="">Todos os modelos</option>{models.map((item) => <option key={item}>{item}</option>)}</select> : null}
-    {cfg.showTransmission ? <select value={transmission} onChange={(e) => setTransmission(e.target.value)} className="h-11 w-full rounded-xl border border-slate-700 bg-slate-800 px-3 text-xs font-bold text-white"><option value="">Todos os câmbios</option>{transmissions.map((item) => <option key={item}>{item}</option>)}</select> : null}
-    {cfg.showFuel ? <select value={fuel} onChange={(e) => setFuel(e.target.value)} className="h-11 w-full rounded-xl border border-slate-700 bg-slate-800 px-3 text-xs font-bold text-white"><option value="">Todos os combustíveis</option>{fuels.map((item) => <option key={item}>{item}</option>)}</select> : null}
-    {cfg.showYear ? <div className="grid grid-cols-2 gap-2"><input value={minYear} onChange={(e) => setMinYear(e.target.value.replace(/\D/g, '').slice(0,4))} placeholder="Ano de" className="h-11 min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-xs font-bold text-white"/><input value={maxYear} onChange={(e) => setMaxYear(e.target.value.replace(/\D/g, '').slice(0,4))} placeholder="Ano até" className="h-11 min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-xs font-bold text-white"/></div> : null}
-    {cfg.showPrice ? <div className="grid grid-cols-2 gap-2"><input value={minPrice} onChange={(e) => setMinPrice(e.target.value.replace(/\D/g, ''))} placeholder="Preço de" className="h-11 min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-xs font-bold text-white"/><input value={maxPrice} onChange={(e) => setMaxPrice(e.target.value.replace(/\D/g, ''))} placeholder="Preço até" className="h-11 min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-xs font-bold text-white"/></div> : null}
+    {cfg.showBrand ? <select value={brand} onChange={(e) => { setBrand(e.target.value); setModel(''); }} className="h-11 w-full min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-xs font-bold text-white"><option value="">Todas as marcas</option>{brands.map((item) => <option key={item}>{item}</option>)}</select> : null}
+    {cfg.showModel ? <select value={model} onChange={(e) => setModel(e.target.value)} className="h-11 w-full min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-xs font-bold text-white"><option value="">Todos os modelos</option>{models.map((item) => <option key={item}>{item}</option>)}</select> : null}
+    {cfg.showTransmission ? <select value={transmission} onChange={(e) => setTransmission(e.target.value)} className="h-11 w-full min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-xs font-bold text-white"><option value="">Todos os câmbios</option>{transmissions.map((item) => <option key={item}>{item}</option>)}</select> : null}
+    {cfg.showFuel ? <select value={fuel} onChange={(e) => setFuel(e.target.value)} className="h-11 w-full min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-xs font-bold text-white"><option value="">Todos os combustíveis</option>{fuels.map((item) => <option key={item}>{item}</option>)}</select> : null}
+    {cfg.showYear ? <div className="grid grid-cols-2 gap-2"><input value={minYear} onChange={(e) => setMinYear(e.target.value.replace(/\D/g, '').slice(0,4))} placeholder="Ano de" className="h-11 min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-xs font-bold text-white placeholder:text-slate-400"/><input value={maxYear} onChange={(e) => setMaxYear(e.target.value.replace(/\D/g, '').slice(0,4))} placeholder="Ano até" className="h-11 min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-xs font-bold text-white placeholder:text-slate-400"/></div> : null}
+    {cfg.showPrice ? <div className="grid grid-cols-2 gap-2"><input value={minPrice} onChange={(e) => setMinPrice(e.target.value.replace(/\D/g, ''))} placeholder="Preço de" className="h-11 min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-xs font-bold text-white placeholder:text-slate-400"/><input value={maxPrice} onChange={(e) => setMaxPrice(e.target.value.replace(/\D/g, ''))} placeholder="Preço até" className="h-11 min-w-0 rounded-xl border border-slate-700 bg-slate-800 px-3 text-xs font-bold text-white placeholder:text-slate-400"/></div> : null}
     {activeFilters || query ? <button type="button" onClick={clear} className="w-full rounded-xl border border-slate-600 px-3 py-3 text-xs font-black text-white"><X size={14} className="inline"/> Limpar filtros</button> : null}
   </div>;
 
-  return <div className={embedded ? 'px-4 sm:px-6 lg:px-8' : 'bg-slate-100 px-4 py-14 sm:px-6 lg:px-8'}>
-    <div className="mx-auto max-w-[1480px]">
-      {cfg.showSearch ? <div className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm"><div className="flex gap-3"><label className="relative flex-1"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20}/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por marca, modelo ou versão" className="h-13 w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-12 pr-4 text-sm font-semibold outline-none"/></label><button type="button" onClick={() => setFiltersOpen(!filtersOpen)} className="rounded-2xl bg-slate-900 px-4 text-sm font-black text-white lg:hidden"><Filter size={18} className="inline"/> Filtros</button></div>{filtersOpen ? <div className="mt-4 rounded-2xl bg-slate-900 p-4 lg:hidden">{filterPanel}</div> : null}</div> : null}
-      <div className="mt-7 grid items-start gap-7 lg:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="hidden rounded-[24px] bg-slate-900 p-5 lg:block">{filterPanel}</aside>
-        <div className="min-w-0"><div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-black uppercase tracking-[.2em]" style={{color:primaryColor}}>Estoque do evento</p><h2 className="mt-2 text-3xl font-black sm:text-4xl">Veículos disponíveis</h2><p className="mt-2 text-sm font-bold text-slate-500">{filtered.length} {filtered.length === 1 ? 'veículo encontrado' : 'veículos encontrados'}</p></div>{cfg.showSort ? <label className="relative w-full sm:w-56"><select value={sort} onChange={(e) => setSort(e.target.value)} className="h-12 w-full appearance-none rounded-xl border bg-white px-4 pr-10 text-sm font-bold"><option value="featured">Destaques</option><option value="price_asc">Menor preço</option><option value="price_desc">Maior preço</option><option value="year_desc">Ano mais recente</option><option value="mileage_asc">Menor quilometragem</option></select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={18}/></label> : null}</div>
-        {filtered.length ? <div className="campaign-discovery-showcase mt-7"><CampaignVehicleShowcase vehicles={filtered} primaryColor={primaryColor} onOpenSimulator={onOpenSimulator}/></div> : <div className="mt-7 rounded-[28px] border border-dashed bg-white p-12 text-center"><SlidersHorizontal size={40} className="mx-auto text-slate-300"/><h3 className="mt-4 text-2xl font-black">Nenhum veículo encontrado</h3><button type="button" onClick={clear} className="mt-5 rounded-xl px-5 py-3 text-sm font-black text-white" style={{backgroundColor:primaryColor}}>Limpar filtros</button></div>}</div>
+  const hasFilters = cfg.showCategories || cfg.showBrand || cfg.showModel || cfg.showPrice || cfg.showYear || cfg.showTransmission || cfg.showFuel;
+  const compactControls = simulated || !cfg.showSearch;
+
+  return <div className={`${embedded ? (mobile ? 'px-3' : 'px-4 sm:px-6') : 'bg-slate-100 px-4 py-14 sm:px-6 lg:px-8'} min-w-0`}>
+    <div className="mx-auto min-w-0 max-w-[1480px]">
+      {(cfg.showSearch || hasFilters) ? <div className="min-w-0 rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm sm:p-4"><div className={`flex min-w-0 gap-3 ${mobile ? 'flex-col' : ''}`}>{cfg.showSearch ? <label className="relative min-w-0 flex-1"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20}/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por marca, modelo ou versão" className="h-12 w-full min-w-0 rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-12 pr-4 text-sm font-semibold text-slate-900 placeholder:text-slate-400 outline-none"/></label> : null}{hasFilters ? <button type="button" onClick={() => setFiltersOpen(!filtersOpen)} className={`${compactControls ? 'flex' : 'flex lg:hidden'} min-h-12 shrink-0 items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 text-sm font-black text-white`}><Filter size={18}/> Filtros</button> : null}</div>{filtersOpen ? <div className={`${simulated ? '' : 'lg:hidden'} mt-4 min-w-0 rounded-2xl bg-slate-900 p-4`}>{filterPanel}</div> : null}</div> : null}
+      <div className={`${simulated ? 'mt-5 grid grid-cols-1 gap-5' : 'mt-7 grid items-start gap-7 lg:grid-cols-[300px_minmax(0,1fr)]'} min-w-0`}>
+        {!simulated ? <aside className="hidden rounded-[24px] bg-slate-900 p-5 lg:block">{filterPanel}</aside> : null}
+        <div className="min-w-0"><div className={`flex min-w-0 gap-3 ${mobile ? 'flex-col' : 'flex-col sm:flex-row sm:items-end sm:justify-between'}`}><div className="min-w-0"><p className="text-xs font-black uppercase tracking-[.16em]" style={{color:primaryColor}}>Estoque do evento</p><h2 className={`${mobile ? 'text-2xl' : 'text-3xl sm:text-4xl'} mt-2 break-words font-black leading-tight`}>Veículos disponíveis</h2><p className="mt-2 text-sm font-bold text-slate-500">{filtered.length} {filtered.length === 1 ? 'veículo encontrado' : 'veículos encontrados'}</p></div>{cfg.showSort ? <label className={`${mobile ? 'w-full' : 'w-full sm:w-56'} relative shrink-0`}><select value={sort} onChange={(e) => setSort(e.target.value)} className="h-12 w-full min-w-0 appearance-none rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm font-bold text-slate-900"><option value="featured">Destaques</option><option value="price_asc">Menor preço</option><option value="price_desc">Maior preço</option><option value="year_desc">Ano mais recente</option><option value="mileage_asc">Menor quilometragem</option></select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={18}/></label> : null}</div>
+        {filtered.length ? <div className={`campaign-discovery-showcase campaign-discovery-${layoutMode} mt-7 min-w-0`}><CampaignVehicleShowcase vehicles={filtered} primaryColor={primaryColor} onOpenSimulator={onOpenSimulator}/></div> : <div className="mt-7 rounded-[28px] border border-dashed bg-white p-8 text-center sm:p-12"><SlidersHorizontal size={40} className="mx-auto text-slate-300"/><h3 className="mt-4 text-2xl font-black">Nenhum veículo encontrado</h3><button type="button" onClick={clear} className="mt-5 rounded-xl px-5 py-3 text-sm font-black text-white" style={{backgroundColor:primaryColor}}>Limpar filtros</button></div>}</div>
       </div>
     </div>
-    <style jsx global>{`.campaign-discovery-showcase > section{background:transparent!important;padding:0!important}.campaign-discovery-showcase > section > div{max-width:none!important}.campaign-discovery-showcase > section > div > h2{display:none!important}.campaign-discovery-showcase > section > div > .mt-8{margin-top:0!important}`}</style>
+    <style jsx global>{`
+      .campaign-discovery-showcase > section{background:transparent!important;padding:0!important;min-width:0!important}
+      .campaign-discovery-showcase > section > div{max-width:none!important;min-width:0!important;padding-left:0!important;padding-right:0!important}
+      .campaign-discovery-showcase > section > div > h2{display:none!important}
+      .campaign-discovery-showcase > section > div > .mt-8{margin-top:0!important;min-width:0!important}
+      .campaign-discovery-mobile > section > div > .mt-8{grid-template-columns:minmax(0,1fr)!important}
+      .campaign-discovery-tablet > section > div > .mt-8{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+      .campaign-discovery-mobile article,.campaign-discovery-tablet article{min-width:0!important}
+      .campaign-discovery-mobile article h3,.campaign-discovery-tablet article h3{overflow-wrap:anywhere!important}
+      .campaign-discovery-mobile article .grid.grid-cols-2{grid-template-columns:minmax(0,1fr)!important}
+    `}</style>
   </div>;
 }
