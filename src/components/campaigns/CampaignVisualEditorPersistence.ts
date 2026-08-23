@@ -1,3 +1,4 @@
+import { getCanonicalLandingDraft } from './CampaignLandingDraftState';
 import type { Device, Draft } from './CampaignVisualEditorModel';
 
 const DATA_URL_PATTERN = /^data:image\/(png|jpe?g|webp);base64,/i;
@@ -48,7 +49,11 @@ export async function persistCampaignDraftAssets(
   campaign: any,
   headers: Record<string, string>
 ): Promise<Draft> {
-  const draft = JSON.parse(JSON.stringify(source)) as Draft & { sections?: Array<{ blocks?: Array<{ id?: string; image?: string }> }> };
+  // A persistência sempre parte do layout v3 canônico. Isso materializa
+  // `sections` mesmo quando o usuário nunca abriu o construtor de seções e
+  // também incorpora alterações feitas nele sem mutar o draft recebido.
+  const canonical = getCanonicalLandingDraft(source, campaign);
+  const draft = JSON.parse(JSON.stringify(canonical)) as Draft & { sections?: Array<{ blocks?: Array<{ id?: string; image?: string }> }> };
   const slug = String(campaign?.slug || campaign?.id || 'landing');
   const backgroundKinds: Record<Device, string> = {
     desktop: 'hero',
