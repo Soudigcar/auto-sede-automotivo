@@ -10,6 +10,12 @@ const saleBridge = readFileSync('src/components/StorePipelineSaleActionBridge.ts
 const pipelinePage = readFileSync('src/app/loja/[slug]/pipeline/page.tsx', 'utf8');
 const pipelineRoute = readFileSync('src/app/api/store/portal/pipeline/route.ts', 'utf8');
 const whatsappPage = readFileSync('src/app/loja/[slug]/whatsapp/page.tsx', 'utf8');
+const domSync = readFileSync('src/components/StorePipelineDomSync.tsx', 'utf8');
+
+test('direct pipeline load keeps DOM synchronization across the auth main replacement', () => {
+  assert.match(domSync, /observer\.observe\(document\.body, \{ childList: true, subtree: true \}\)/);
+  assert.doesNotMatch(domSync, /document\.querySelector\('main'\) \|\| document\.body/);
+});
 
 test('native v2 cards keep their compact presentation after internal navigation', () => {
   assert.match(auraTheme, /\[data-lead-id\]:not\(\[data-pipeline-card-v2="true"\]\)/);
