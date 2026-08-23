@@ -130,22 +130,35 @@ async function getAuthorizedStore(request: Request, expectedSlug?: string) {
     profile = byEmail;
   }
 
-  if (!profile || profile.status !== 'active' || profile.role !== 'store' || !profile.store_id) {
-    return { error: 'Usuário de loja não autorizado.', status: 403, supabase, profile: null, store: null, authUser: authData.user };
+  const role = cleanText(profile?.role, 40);
+  if (!profile || profile.status !== 'active' || !['master', 'store'].includes(role)) {
+    return { error: 'Usuário não autorizado para gerenciar estoque.', status: 403, supabase, profile: null, store: null, authUser: authData.user };
   }
 
-  const { data: store } = await supabase
-    .from('stores')
-    .select('*')
-    .eq('id', profile.store_id)
-    .eq('status', 'active')
-    .maybeSingle();
+  const slug = cleanText(expectedSlug, 200);
+  if (role === 'master' && !slug) {
+    return { error: 'Informe a loja que será gerenciada.', status: 400, supabase, profile, store: null, authUser: authData.user };
+  }
+
+  if (role === 'store' && !profile.store_id) {
+    return { error: 'Usuário de loja sem vínculo ativo.', status: 403, supabase, profile: null, store: null, authUser: authData.user };
+  }
+
+  let storeQuery = supabase.from('stores').select('*').eq('status', 'active');
+  storeQuery = role === 'master'
+    ? storeQuery.eq('slug', slug)
+    : storeQuery.eq('id', profile.store_id);
+
+  const { data: store, error: storeError } = await storeQuery.maybeSingle();
+  if (storeError) {
+    return { error: storeError.message || 'Não foi possível validar a loja.', status: 400, supabase, profile, store: null, authUser: authData.user };
+  }
 
   if (!store) {
-    return { error: 'Loja vinculada não encontrada.', status: 404, supabase, profile, store: null, authUser: authData.user };
+    return { error: 'Loja ativa não encontrada.', status: 404, supabase, profile, store: null, authUser: authData.user };
   }
 
-  if (expectedSlug && store.slug !== expectedSlug) {
+  if (role === 'store' && slug && store.slug !== slug) {
     return { error: 'Este usuário não pertence a esta loja.', status: 403, supabase, profile, store: null, authUser: authData.user };
   }
 
