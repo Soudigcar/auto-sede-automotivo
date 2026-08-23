@@ -5,31 +5,19 @@ import { usePathname } from 'next/navigation';
 
 const PIPELINE_PATH = /^\/loja\/[^/]+\/pipeline\/?$/;
 
-function restoreOfficialV2Visual() {
+function applyOfficialV2Visual() {
   const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-pipeline-card-v2="true"]'));
-
-  if (!cards.length) {
-    delete document.body.dataset.pipelineV2VisualGuard;
-    return;
-  }
+  if (!cards.length) return;
 
   document.body.dataset.pipelineV2VisualGuard = 'true';
 
-  document.querySelectorAll<HTMLElement>('.pipeline-cockpit-host').forEach((element) => {
-    element.classList.remove('pipeline-cockpit-host');
-  });
-
-  document.querySelectorAll<HTMLElement>('.pipeline-aura-kpis').forEach((element) => {
-    element.classList.remove('pipeline-aura-kpis');
-  });
-
-  document.querySelectorAll<HTMLElement>('.pipeline-aura-board').forEach((element) => {
-    element.classList.remove('pipeline-aura-board');
-  });
-
-  document.querySelectorAll<HTMLElement>('.pipeline-aura-board-scroll').forEach((element) => {
-    element.classList.remove('pipeline-aura-board-scroll');
-  });
+  const pageMain = Array.from(document.querySelectorAll<HTMLElement>('main')).find((item) =>
+    item.querySelector('h1')?.textContent?.includes('Pipeline da Loja')
+  );
+  const nativeHero = pageMain
+    ? Array.from(pageMain.querySelectorAll<HTMLElement>('header')).find((item) => item.querySelector('h1')?.textContent?.includes('Pipeline da Loja'))
+    : null;
+  if (nativeHero) nativeHero.dataset.pipelineOfficialHiddenHero = 'true';
 
   cards.forEach((card) => {
     card.classList.remove('pipeline-aura-lead-card', 'pipeline-card-actions-uniform');
@@ -49,7 +37,7 @@ export function StorePipelineV2VisualGuard() {
     let frame = 0;
     const sync = () => {
       window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(restoreOfficialV2Visual);
+      frame = window.requestAnimationFrame(applyOfficialV2Visual);
     };
 
     const observer = new MutationObserver(sync);
@@ -68,6 +56,9 @@ export function StorePipelineV2VisualGuard() {
       window.removeEventListener('pipeline-dom-sync', sync);
       window.cancelAnimationFrame(frame);
       delete document.body.dataset.pipelineV2VisualGuard;
+      document.querySelectorAll<HTMLElement>('[data-pipeline-official-hidden-hero]').forEach((element) => {
+        delete element.dataset.pipelineOfficialHiddenHero;
+      });
     };
   }, [active, pathname]);
 
@@ -75,7 +66,7 @@ export function StorePipelineV2VisualGuard() {
 
   return (
     <style jsx global>{`
-      body[data-pipeline-v2-visual-guard='true'] .pipeline-kpi-strip-shell {
+      body[data-pipeline-v2-visual-guard='true'] [data-pipeline-official-hidden-hero='true'] {
         display: none !important;
       }
 
