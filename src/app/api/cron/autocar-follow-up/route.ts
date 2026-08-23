@@ -8,6 +8,15 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
+  if (process.env.VERCEL_ENV !== 'preview') {
+    return NextResponse.json({
+      skipped: true,
+      dry_run: true,
+      external_execution: false,
+      reason: 'Smart Follow-up V1 dry-run executa somente em Vercel Preview.'
+    }, { status: 403 });
+  }
+
   const configuredSecret = process.env.CRON_SECRET || '';
   const suppliedSecret = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
   if (!configuredSecret || !safeEqual(suppliedSecret, configuredSecret)) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
