@@ -1,71 +1,72 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useState } from 'react';
+import { MoreHorizontal } from 'lucide-react';
+import type { Device } from './CampaignVisualEditorModel';
+import { navigationDefaults, type LandingNavigationSettings, type LandingView } from './CampaignLandingSectionModel';
 
-type CampaignLandingNavigationProps = {
-  primaryColor?: string;
-  homeSelector?: string;
-  vehiclesSelector?: string;
-  simulationSelector?: string;
+type Props = {
+  settings?: Partial<LandingNavigationSettings>;
+  active?: LandingView;
+  onNavigate?: (view: LandingView) => void;
   preview?: boolean;
+  device?: Device;
 };
 
-type NavigationItem = {
-  label: string;
-  selector?: string;
-  home?: boolean;
-};
+export function CampaignLandingNavigation({ settings, active = 'home', onNavigate, preview = false, device }: Props) {
+  const cfg: LandingNavigationSettings = { ...navigationDefaults, ...(settings || {}), items: settings?.items || navigationDefaults.items };
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const forcedMobile = device === 'mobile';
+  const forcedDesktop = device === 'desktop' || device === 'tablet';
+  const visibleItems = cfg.items.filter((item) => item.visible !== false);
 
-export function CampaignLandingNavigation({
-  primaryColor = '#DC2626',
-  homeSelector,
-  vehiclesSelector = '#editor-vehicles, #veiculos',
-  simulationSelector = '#editor-inline-simulator, #simulacao',
-  preview = false
-}: CampaignLandingNavigationProps) {
-  const navigate = useCallback((item: NavigationItem) => {
-    if (item.home && !homeSelector) {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
+  function choose(view: LandingView) {
+    onNavigate?.(view);
+    setMobileOpen(false);
+  }
 
-    const selector = item.home ? homeSelector : item.selector;
-    if (!selector) return;
+  const menu = <div
+    className="flex items-stretch justify-center overflow-hidden border shadow-xl backdrop-blur-xl"
+    style={{
+      width: `min(100%, ${cfg.width}px)`, minHeight: cfg.height, borderRadius: cfg.radius,
+      backgroundColor: cfg.backgroundColor, borderColor: cfg.borderColor, color: cfg.textColor
+    }}
+  >
+    {visibleItems.map((item, index) => {
+      const selected = active === item.id;
+      return <button key={item.id} type="button" onClick={() => choose(item.id)}
+        className="min-w-0 flex-1 px-4 transition hover:brightness-110"
+        style={{
+          borderLeft: index ? `1px solid ${cfg.borderColor}` : undefined,
+          backgroundColor: selected ? cfg.activeColor : 'transparent', color: selected ? cfg.activeTextColor : cfg.textColor,
+          fontSize: cfg.fontSize, fontWeight: cfg.fontWeight, letterSpacing: cfg.letterSpacing
+        }}>
+        <span className="block truncate">{item.label}</span>
+      </button>;
+    })}
+  </div>;
 
-    const target = document.querySelector<HTMLElement>(selector);
-    target?.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
-  }, [homeSelector]);
+  const desktopClass = forcedMobile ? 'hidden' : forcedDesktop ? 'flex' : 'hidden md:flex';
+  const mobileClass = forcedMobile ? 'block' : forcedDesktop ? 'hidden' : 'md:hidden';
 
-  const items: NavigationItem[] = [
-    { label: 'INÍCIO', home: true },
-    { label: 'VEÍCULOS', selector: vehiclesSelector },
-    { label: 'SIMULAÇÃO', selector: simulationSelector }
-  ];
-
-  return (
-    <nav
-      aria-label="Navegação da landing page"
-      className={`${preview ? 'relative' : 'sticky top-0'} z-[85] w-full border-b border-white/10 bg-[#071020]/95 text-white shadow-xl backdrop-blur-xl`}
-    >
-      <div className="mx-auto flex min-h-14 max-w-[1480px] items-center justify-center px-3 sm:min-h-16 sm:px-6">
-        <div className="flex w-full max-w-xl items-center justify-center divide-x divide-white/20 overflow-hidden rounded-full border border-white/15 bg-white/5 p-1">
-          {items.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              onClick={() => navigate(item)}
-              className="group relative min-h-10 min-w-0 flex-1 px-2 text-[10px] font-black tracking-[0.08em] text-white transition hover:bg-white/10 sm:px-5 sm:text-xs sm:tracking-[0.18em]"
-            >
-              <span className="block truncate">{item.label}</span>
-              <span
-                aria-hidden="true"
-                className="absolute inset-x-5 bottom-1 h-0.5 origin-center scale-x-0 rounded-full transition-transform group-hover:scale-x-100"
-                style={{ backgroundColor: primaryColor }}
-              />
-            </button>
-          ))}
-        </div>
-      </div>
+  return <>
+    <nav aria-label="Navegação da landing page" className={`${preview || !cfg.stickyDesktop ? 'relative' : 'sticky top-0'} z-[85] w-full border-b border-white/10 bg-[#071020]/95 px-3 py-2.5 backdrop-blur-xl`}>
+      <div className={`${desktopClass} mx-auto max-w-[1480px] justify-center`}>{menu}</div>
+      <div className={`${mobileClass} h-12`} />
     </nav>
-  );
+
+    <div className={`${mobileClass} ${preview ? 'absolute' : 'fixed'} right-3 top-3 z-[120]`}>
+      <button type="button" onClick={() => setMobileOpen((value) => !value)} aria-label="Abrir menu"
+        className="flex h-12 w-12 items-center justify-center border shadow-2xl backdrop-blur-xl"
+        style={{ backgroundColor: cfg.mobileButtonBackground, color: cfg.mobileButtonColor, borderColor: cfg.borderColor, borderRadius: Math.min(cfg.radius, 18) }}>
+        <MoreHorizontal size={25} />
+      </button>
+      {mobileOpen ? <div className="absolute right-0 mt-2 w-56 overflow-hidden border shadow-2xl" style={{ backgroundColor: cfg.backgroundColor, borderColor: cfg.borderColor, borderRadius: Math.min(cfg.radius, 20) }}>
+        {visibleItems.map((item) => <button key={item.id} type="button" onClick={() => choose(item.id)} className="block w-full border-b px-4 py-4 text-left last:border-b-0"
+          style={{ borderColor: cfg.borderColor, backgroundColor: active === item.id ? cfg.activeColor : 'transparent', color: active === item.id ? cfg.activeTextColor : cfg.textColor, fontSize: cfg.fontSize, fontWeight: cfg.fontWeight, letterSpacing: cfg.letterSpacing }}>
+          {item.label}
+        </button>)}
+      </div> : null}
+    </div>
+  </>;
 }
