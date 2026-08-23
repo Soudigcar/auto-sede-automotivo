@@ -14,6 +14,12 @@ function validLayout(value: unknown) {
   return value;
 }
 
+function layoutTerms(layout: unknown) {
+  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return '';
+  const footer = (layout as Record<string, any>).footer;
+  return cleanText(footer?.termsOverride, 5000);
+}
+
 export async function GET(request: Request) {
   try {
     const supabase = getAdminClient();
@@ -69,7 +75,7 @@ export async function POST(request: Request) {
 
     const { data: campaign, error: campaignError } = await supabase
       .from('site_campaigns')
-      .select('id,slug,event_id,is_active,published_at')
+      .select('id,slug,event_id,is_active,published_at,terms_text')
       .eq('id', id)
       .maybeSingle();
 
@@ -86,16 +92,28 @@ export async function POST(request: Request) {
     };
 
     if (action === 'publish') {
-      if (campaign.event_id) {
-        const { data: event, error: eventError } = await supabase
-          .from('events')
-          .select('id,status')
-          .eq('id', campaign.event_id)
-          .maybeSingle();
+      const terms = cleanText(campaign.terms_text, 5000) || layoutTerms(layout);
+      if (!terms) {
+        return NextResponse.json({ error: 'Cadastre os termos/condições da landing antes de publicar.' }, { status: 409 });
+      }
 
-        if (eventError) return NextResponse.json({ error: eventError.message }, { status: 500 });
-        if (!event || event.status !== 'active') {
+      if (campaign.event_id) {
+        const [eventResult, participationResult, assignmentResult] = await Promise.all([
+          supabase.from('events').select('id,status').eq('id', campaign.event_id).maybeSingle(),
+          supabase.from('store_event_participations').select('store_id').eq('event_id', campaign.event_id).eq('status', 'active').limit(1),
+          supabase.from('event_vehicle_assignments').select('vehicle_id').eq('event_id', campaign.event_id).eq('status', 'active').eq('show_on_landing', true).limit(1)
+        ]);
+
+        const preflightError = eventResult.error || participationResult.error || assignmentResult.error;
+        if (preflightError) return NextResponse.json({ error: preflightError.message }, { status: 500 });
+        if (!eventResult.data || eventResult.data.status !== 'active') {
           return NextResponse.json({ error: 'Ative o evento antes de publicar a landing page.' }, { status: 409 });
+        }
+        if (!participationResult.data?.length) {
+          return NextResponse.json({ error: 'Vincule ao menos uma loja ativa ao evento antes de publicar.' }, { status: 409 });
+        }
+        if (!assignmentResult.data?.length) {
+          return NextResponse.json({ error: 'A landing precisa ter ao menos um veículo ativo e visível antes de publicar.' }, { status: 409 });
         }
       }
 
