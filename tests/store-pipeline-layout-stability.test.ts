@@ -7,6 +7,7 @@ const cockpit = readFileSync('src/components/StorePipelineCockpitUx.tsx', 'utf8'
 const scheduleBridge = readFileSync('src/components/StorePipelineScheduleUxBridge.tsx', 'utf8');
 const newLeadBridge = readFileSync('src/components/StorePipelineNewLeadScheduleButton.tsx', 'utf8');
 const saleBridge = readFileSync('src/components/StorePipelineSaleActionBridge.tsx', 'utf8');
+const pipelinePage = readFileSync('src/app/loja/[slug]/pipeline/page.tsx', 'utf8');
 
 test('native v2 cards keep their compact presentation after internal navigation', () => {
   assert.match(auraTheme, /\[data-lead-id\]:not\(\[data-pipeline-card-v2="true"\]\)/);
@@ -23,4 +24,11 @@ test('legacy action bridges do not inject duplicate actions into native v2 cards
 test('desktop metrics are never pulled beneath the fixed top bar', () => {
   assert.doesNotMatch(cockpit, /margin-top:-58px!important/);
   assert.match(cockpit, /\.pipeline-cockpit-host \{ margin-top:0!important; \}/);
+});
+
+test('the compact cockpit is the only metric strip above the pipeline board', () => {
+  assert.match(cockpit, /className="pipeline-kpi-strip"/);
+  assert.match(cockpit, /Personalizar pipeline/);
+  assert.doesNotMatch(pipelinePage, /<Kpi label=/);
+  assert.doesNotMatch(pipelinePage, /function Kpi\(/);
 });

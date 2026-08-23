@@ -589,14 +589,6 @@ export default function StoreSlugPipelinePage() {
 
           {message ? <div className="mt-5 rounded-2xl bg-zinc-50 p-4 text-sm font-medium text-zinc-600">{message}</div> : null}
 
-          <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <Kpi label="Leads" value={payload.metrics.total} />
-            <Kpi label="Agendados" value={payload.metrics.scheduled} />
-            <Kpi label="Cancelados" value={payload.metrics.cancelled} />
-            <Kpi label="Vendas" value={payload.metrics.sold} />
-            <Kpi label="Perdas" value={payload.metrics.lost} />
-          </section>
-
           <div className="mt-5 overflow-x-auto pb-3">
             <div className="grid min-w-[1760px] grid-cols-8 gap-3">
               {grouped.map((column) => {
@@ -910,10 +902,6 @@ function Area({ label, value, onChange, placeholder }: { label: string; value: s
 
 function ModalActions({ onCancel, onConfirm, confirmLabel, busy }: { onCancel: () => void; onConfirm: () => void; confirmLabel: string; busy: boolean }) {
   return <div className="flex justify-end gap-3"><button className="rounded-2xl border border-zinc-200 px-5 py-3 text-sm font-black text-zinc-600" type="button" onClick={onCancel}>Voltar</button><button className="rounded-2xl bg-red-600 px-5 py-3 text-sm font-black text-white disabled:opacity-50" type="button" onClick={onConfirm} disabled={busy}>{busy ? 'Salvando...' : confirmLabel}</button></div>;
-}
-
-function Kpi({ label, value }: { label: string; value: number }) {
-  return <div className="premium-card p-4"><p className="text-xs font-bold text-zinc-400">{label}</p><strong className="mt-1 block text-2xl font-black">{value}</strong></div>;
 }
 
 function Status({ label, value, icon }: { label: string; value: number; icon: ReactNode }) {
