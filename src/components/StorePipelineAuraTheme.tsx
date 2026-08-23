@@ -104,7 +104,12 @@ export function StorePipelineAuraTheme() {
       board?.classList.add('pipeline-aura-board');
       board?.parentElement?.classList.add('pipeline-aura-board-scroll');
 
-      document.querySelectorAll<HTMLElement>('[data-lead-id]').forEach((card) => card.classList.add('pipeline-aura-lead-card'));
+      document.querySelectorAll<HTMLElement>('[data-pipeline-card-v2="true"].pipeline-aura-lead-card').forEach((card) => {
+        card.classList.remove('pipeline-aura-lead-card');
+      });
+      document.querySelectorAll<HTMLElement>('[data-lead-id]:not([data-pipeline-card-v2="true"])').forEach((card) => {
+        card.classList.add('pipeline-aura-lead-card');
+      });
     };
 
     decorate();

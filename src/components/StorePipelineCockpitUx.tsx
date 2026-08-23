@@ -925,7 +925,7 @@ const styles = `
   .pipeline-customize-save { border:1px solid #ef2d34; background:#ef2d34; color:white; }
 
   @media (min-width:1024px) {
-    body.pipeline-aura-active .pipeline-cockpit-host { margin-top:-58px!important; }
+    body.pipeline-aura-active .pipeline-cockpit-host { margin-top:0!important; }
   }
   @media (max-width:1260px) {
     .pipeline-kpi-strip { min-width:1030px; }
