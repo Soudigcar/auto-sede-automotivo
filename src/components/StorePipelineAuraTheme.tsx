@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, CalendarDays, MessageCircle, Monitor, Moon, Plus, Search, Settings2, Sparkles, Sun } from 'lucide-react';
+import { Bell, CalendarDays, Monitor, Moon, Plus, Search, Settings2, Sparkles, Sun } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 
 type Theme = 'dark' | 'light';
@@ -166,14 +166,6 @@ export function StorePipelineAuraTheme() {
         <button type="button" className="aura-customize"><Settings2 size={17} /> Personalizar pipeline</button>
       </div>
 
-      <footer className="aura-bottom-dock">
-        <div className="aura-sync"><span>Última atualização: agora há pouco</span><i /> Sincronizado com o servidor</div>
-        <div className="aura-bottom-actions">
-          <button type="button" className="aura-report"><Monitor size={17} /> Relatório do dia</button>
-          <button type="button" className="aura-assistant" onClick={() => setAuraOpen((value) => !value)}><MessageCircle size={18} /> AUTOCAR</button>
-        </div>
-      </footer>
-
       {auraOpen ? (
         <aside className="aura-panel">
           <button type="button" onClick={() => setAuraOpen(false)} aria-label="Fechar">×</button>
@@ -227,7 +219,7 @@ const styles = `
   body.pipeline-aura-active .premium-shell { background: var(--aura-bg) !important; }
   body.pipeline-aura-active .store-portal-child { padding: 0 !important; }
   body.pipeline-aura-active .pipeline-aura-page { min-height: 100vh !important; background: var(--aura-bg) !important; color: var(--aura-text) !important; }
-  body.pipeline-aura-active .pipeline-aura-canvas { padding: 104px 16px 98px !important; background: var(--aura-bg) !important; }
+  body.pipeline-aura-active .pipeline-aura-canvas { padding: 104px 16px 16px !important; background: var(--aura-bg) !important; }
   body.pipeline-aura-active .pipeline-aura-canvas > * { max-width: 1600px; margin-left: auto; margin-right: auto; }
 
   .aura-topbar {
@@ -299,14 +291,6 @@ const styles = `
   body.pipeline-aura-active .pipeline-aura-lead-card > div:first-child > span { display: none !important; }
   body.pipeline-aura-active .pipeline-aura-lead-card button { border-color: var(--aura-border) !important; }
 
-  .aura-bottom-dock { position: fixed; inset: auto 16px 16px 16px; z-index: 98; display: flex; align-items: center; justify-content: space-between; gap: 20px; pointer-events: none; }
-  .aura-sync, .aura-bottom-actions { pointer-events: auto; }
-  .aura-sync { display: flex; align-items: center; gap: 9px; border: 1px solid var(--aura-border); border-radius: 12px; background: color-mix(in srgb, var(--aura-surface) 92%, transparent); padding: 12px 16px; color: var(--aura-muted); font-size: 10px; backdrop-filter: blur(14px); }
-  .aura-sync i { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 12px rgba(34,197,94,.7); }
-  .aura-bottom-actions { display: flex; gap: 12px; }
-  .aura-bottom-actions button { display: inline-flex; min-height: 46px; align-items: center; gap: 8px; border-radius: 14px; padding: 0 22px; font-size: 12px; font-weight: 900; }
-  .aura-report { border: 1px solid var(--aura-border); background: var(--aura-surface); color: var(--aura-soft); }
-  .aura-assistant { border: 1px solid #ef2d34; background: #ef2d34; color: white; min-width: 150px; justify-content: center; box-shadow: 0 14px 34px rgba(239,45,52,.28); }
 
   .aura-panel { position: fixed; right: 24px; bottom: 82px; z-index: 130; width: 310px; border: 1px solid var(--aura-border); border-radius: 20px; background: var(--aura-surface); padding: 24px; color: var(--aura-text); box-shadow: 0 24px 70px var(--aura-shadow); }
   .aura-panel > button { position: absolute; right: 13px; top: 10px; border: 0; background: transparent; color: var(--aura-muted); font-size: 24px; }
@@ -320,7 +304,6 @@ const styles = `
   @media (min-width: 1024px) {
     body.pipeline-aura-active .pipeline-aura-sidebar { display: flex !important; }
     .aura-topbar { left: 18rem; }
-    .aura-bottom-dock { left: calc(18rem + 16px); }
   }
 
   @media (max-width: 1279px) {
@@ -362,10 +345,6 @@ const styles = `
     body.pipeline-aura-active .pipeline-aura-kpis { display: flex !important; overflow-x: auto; }
     body.pipeline-aura-active .pipeline-aura-kpis .premium-card { min-width: 160px; }
     body.pipeline-aura-active .pipeline-aura-board > div { width: min(84vw, 285px) !important; flex-basis: min(84vw, 285px) !important; }
-    .aura-bottom-dock { align-items: flex-end; }
-    .aura-sync { display: none; }
-    .aura-bottom-actions { width: 100%; }
-    .aura-bottom-actions button { flex: 1; justify-content: center; padding: 0 12px; }
     .aura-panel { right: 12px; bottom: 78px; width: calc(100vw - 24px); }
   }
 `;

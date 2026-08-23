@@ -64,3 +64,10 @@ test('scheduled cards fit vehicle interest and appointment date in the existing 
   assert.match(pipelinePage, /compactSchedule\(lead\.scheduled_at\)/);
   assert.match(pipelinePage, /min-w-0 flex-1 truncate/);
 });
+
+test('pipeline keeps the Kanban free from redundant floating bottom overlays', () => {
+  assert.doesNotMatch(auraTheme, /aura-bottom-dock/);
+  assert.doesNotMatch(auraTheme, /Relatório do dia/);
+  assert.doesNotMatch(auraTheme, /Sincronizado com o servidor/);
+  assert.match(auraTheme, /padding: 104px 16px 16px !important/);
+});
