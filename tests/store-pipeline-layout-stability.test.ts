@@ -8,6 +8,8 @@ const scheduleBridge = readFileSync('src/components/StorePipelineScheduleUxBridg
 const newLeadBridge = readFileSync('src/components/StorePipelineNewLeadScheduleButton.tsx', 'utf8');
 const saleBridge = readFileSync('src/components/StorePipelineSaleActionBridge.tsx', 'utf8');
 const pipelinePage = readFileSync('src/app/loja/[slug]/pipeline/page.tsx', 'utf8');
+const pipelineRoute = readFileSync('src/app/api/store/portal/pipeline/route.ts', 'utf8');
+const whatsappPage = readFileSync('src/app/loja/[slug]/whatsapp/page.tsx', 'utf8');
 
 test('native v2 cards keep their compact presentation after internal navigation', () => {
   assert.match(auraTheme, /\[data-lead-id\]:not\(\[data-pipeline-card-v2="true"\]\)/);
@@ -39,4 +41,26 @@ test('each desktop stage has a bounded independent lead scroller', () => {
   assert.match(cockpit, /max-height:calc\(100dvh - 176px\)!important/);
   assert.match(cockpit, /overflow-y:auto!important/);
   assert.match(cockpit, /overscroll-behavior-y:contain/);
+});
+
+test('compact cards use the WhatsApp brand mark and open the linked CRM conversation', () => {
+  assert.match(pipelinePage, /function WhatsappMark/);
+  assert.match(pipelinePage, /whatsapp_conversation_id/);
+  assert.match(pipelinePage, /router\.push\(`\/loja\/\$\{encodeURIComponent\(slug\)\}\/whatsapp\$\{query\}`\)/);
+  assert.doesNotMatch(pipelinePage, /popup\.location\.href = `https:\/\/wa\.me/);
+  assert.match(whatsappPage, /searchParams\.get\('conversation_id'\)/);
+});
+
+test('pipeline exposes cached contact photos without changing data or calling Evolution', () => {
+  assert.match(pipelineRoute, /\.from\('whatsapp_contacts'\)/);
+  assert.match(pipelineRoute, /profile_picture_url: profilePictureUrl\(contact\)/);
+  assert.doesNotMatch(pipelineRoute, /getEvolutionProfilePictureUrl/);
+  assert.match(pipelinePage, /alt=\{`Foto de \$\{name\}`\}/);
+});
+
+test('scheduled cards fit vehicle interest and appointment date in the existing metadata line', () => {
+  assert.match(pipelinePage, /columnKey === 'scheduled'/);
+  assert.match(pipelinePage, /lead\.interested_vehicle \|\| 'Veículo não informado'/);
+  assert.match(pipelinePage, /compactSchedule\(lead\.scheduled_at\)/);
+  assert.match(pipelinePage, /min-w-0 flex-1 truncate/);
 });
