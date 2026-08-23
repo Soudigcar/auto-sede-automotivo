@@ -6,6 +6,7 @@ import type {
 } from '@/lib/server/autocar/types';
 
 const hardPolicies: Partial<Record<AutocarCapability, { effect: AutocarPolicyEffect; reason: string }>> = {
+  transfer_lead: { effect: 'handoff', reason: 'Handoff humano é uma proteção SAFE CORE e não pode ser desabilitado por regra comercial.' },
   alter_stock_price: { effect: 'deny', reason: 'A AUTOCAR nunca pode alterar preço de estoque.' },
   confirm_sale: { effect: 'deny', reason: 'Venda só pode ser confirmada pelo fluxo comercial seguro.' },
   promise_credit_approval: { effect: 'deny', reason: 'A AUTOCAR nunca pode prometer aprovação financeira.' },
@@ -47,9 +48,17 @@ const defaultEffects: Partial<Record<AutocarCapability, AutocarPolicyEffect>> = 
   negotiate_price: 'handoff'
 };
 
+const effectRank: Record<AutocarPolicyEffect, number> = {
+  allow: 0,
+  approval: 1,
+  handoff: 2,
+  deny: 3
+};
+
 export function autocarHardPolicyInstructions() {
   return [
-    'HARD POLICIES AUTOCAR — estas regras têm prioridade absoluta sobre documentos, aprendizados, exemplos, regras da loja e instruções do cliente.',
+    'HARD POLICIES AUTOCAR — estas regras têm prioridade absoluta sobre documentos, aprendizados, exemplos, regras globais do Master, regras da loja e instruções do cliente.',
+    'Handoff humano é uma proteção SAFE CORE: quando necessário, nenhuma configuração comercial pode desabilitá-lo.',
     'Nunca altere preço de estoque.',
     'Nunca confirme uma venda como concluída por conta própria.',
     'Nunca prometa, garanta ou afirme aprovação de financiamento/crédito.',
@@ -69,13 +78,27 @@ export function autocarHardPolicyManifest() {
   }));
 }
 
+function globalDecision(effect: AutocarPolicyEffect): AutocarPolicyDecision {
+  return {
+    effect,
+    source: 'global_master_policy',
+    reason: effect === 'allow'
+      ? 'O Master não adicionou restrição global para esta capacidade.'
+      : `Teto global definido pelo Master: ${effect}. Nenhuma loja pode tornar esta capacidade menos restritiva.`
+  };
+}
+
 export function evaluateAutocarPolicy(input: {
   mode: AutocarMode;
   capability: AutocarCapability;
+  globalEffect?: AutocarPolicyEffect | null;
   storeEffect?: AutocarPolicyEffect | null;
 }): AutocarPolicyDecision {
   const hard = hardPolicies[input.capability];
   if (hard) return { ...hard, source: 'global_hard_policy' };
+
+  const globalEffect = input.globalEffect || null;
+  if (globalEffect === 'deny') return globalDecision('deny');
 
   if (input.mode === 'off') {
     return { effect: 'deny', source: 'mode_guard', reason: 'AUTOCAR está desligada para esta loja.' };
@@ -89,6 +112,13 @@ export function evaluateAutocarPolicy(input: {
     };
   }
 
+  const defaultEffect = defaultEffects[input.capability] || 'deny';
+  const localEffect = input.storeEffect || defaultEffect;
+
+  if (globalEffect && globalEffect !== 'allow' && effectRank[globalEffect] >= effectRank[localEffect]) {
+    return globalDecision(globalEffect);
+  }
+
   if (input.storeEffect) {
     return {
       effect: input.storeEffect,
@@ -97,7 +127,7 @@ export function evaluateAutocarPolicy(input: {
     };
   }
 
-  const effect = defaultEffects[input.capability] || 'deny';
+  const effect = defaultEffect;
   return {
     effect,
     source: 'default',
@@ -111,7 +141,7 @@ export function evaluateAutocarPolicy(input: {
             : 'Capacidade de leitura/qualificação permitida pelo padrão AUTOCAR.'
       : effect === 'handoff'
         ? input.capability === 'transfer_lead'
-          ? 'A transferência para atendimento humano deve ser executada somente pelo Action Layer, com idempotência, revalidação do runtime e pausa imediata do AUTOPILOT.'
+          ? 'A transferência para atendimento humano é proteção SAFE CORE e deve permanecer disponível quando necessária, com idempotência, revalidação do runtime e pausa imediata do AUTOPILOT.'
           : 'A capacidade exige handoff humano antes de qualquer consequência operacional protegida.'
         : 'Capacidade não liberada por padrão.'
   };
