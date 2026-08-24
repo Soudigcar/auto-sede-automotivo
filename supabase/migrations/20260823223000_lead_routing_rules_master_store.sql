@@ -223,3 +223,87 @@ $function$;
 
 revoke all on function public.route_lead_by_rules(uuid,uuid) from public, anon, authenticated;
 grant execute on function public.route_lead_by_rules(uuid,uuid) to service_role;
+
+-- Gatilho generico: aplica regras somente a leads com loja definida e ainda sem responsavel.
+-- O trigger de leads e diferido para permitir que leads_base/campanha sejam gravados na mesma transacao.
+create or replace function public.auto_route_lead_by_rules_trigger()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $trigger$
+declare
+  v_lead_id uuid;
+  v_store_id uuid;
+  v_assigned_user_id uuid;
+begin
+  if tg_table_name = 'leads' then
+    if tg_op = 'UPDATE' and new.assigned_store_id is not distinct from old.assigned_store_id then
+      return new;
+    end if;
+    v_lead_id := new.id;
+  elsif tg_table_name = 'leads_base' then
+    if tg_op = 'UPDATE'
+      and new.routed_lead_id is not distinct from old.routed_lead_id
+      and new.campaign_id is not distinct from old.campaign_id
+      and new.campaign_name is not distinct from old.campaign_name
+      and new.assigned_store_id is not distinct from old.assigned_store_id then
+      return new;
+    end if;
+    v_lead_id := new.routed_lead_id;
+  else
+    return new;
+  end if;
+
+  if v_lead_id is null then
+    return new;
+  end if;
+
+  select l.assigned_store_id, l.assigned_user_id
+    into v_store_id, v_assigned_user_id
+  from public.leads l
+  where l.id = v_lead_id;
+
+  if not found or v_store_id is null or v_assigned_user_id is not null then
+    return new;
+  end if;
+
+  -- Evita uma segunda decisao no mesmo transaction boundary quando leads_base
+  -- ja acionou o motor antes do trigger diferido de leads.
+  if exists (
+    select 1
+    from public.lead_routing_decisions d
+    where d.lead_id = v_lead_id
+      and d.created_at >= transaction_timestamp()
+  ) then
+    return new;
+  end if;
+
+  if exists (
+    select 1
+    from public.lead_unassigned_queue q
+    where q.lead_id = v_lead_id
+      and q.status = 'open'
+  ) then
+    return new;
+  end if;
+
+  perform public.route_lead_by_rules(v_lead_id, null);
+  return new;
+end;
+$trigger$;
+
+revoke all on function public.auto_route_lead_by_rules_trigger() from public, anon, authenticated;
+
+drop trigger if exists leads_auto_route_by_rules on public.leads;
+create constraint trigger leads_auto_route_by_rules
+after insert or update on public.leads
+deferrable initially deferred
+for each row
+execute function public.auto_route_lead_by_rules_trigger();
+
+drop trigger if exists leads_base_auto_route_by_rules on public.leads_base;
+create trigger leads_base_auto_route_by_rules
+after insert or update on public.leads_base
+for each row
+execute function public.auto_route_lead_by_rules_trigger();
