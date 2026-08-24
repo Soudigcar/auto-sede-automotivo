@@ -20,6 +20,7 @@ import { StorePipelineSaleActionBridge } from '@/components/StorePipelineSaleAct
 import { StorePipelineCompactCardsUx } from '@/components/StorePipelineCompactCardsUx';
 import { StoreWhatsappRealtimeSync } from '@/components/StoreWhatsappRealtimeSync';
 import { StoreWhatsappHeaderActionsUx } from '@/components/StoreWhatsappHeaderActionsUx';
+import { StorePortalMobileNavigation } from '@/components/StorePortalMobileNavigation';
 import { PrivacyConsentCenter } from '@/components/PrivacyConsentCenter';
 import { PwaInstallManager } from '@/components/PwaInstallManager';
 
@@ -77,6 +78,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StorePipelineCompactCardsUx />
         <StoreWhatsappRealtimeSync />
         <StoreWhatsappHeaderActionsUx />
+        <StorePortalMobileNavigation />
         <PrivacyConsentCenter />
         <PwaInstallManager />
       </body>
