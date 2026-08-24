@@ -19,7 +19,7 @@ import { StorePipelineNewLeadScheduleButton } from '@/components/StorePipelineNe
 import { StorePipelineSaleActionBridge } from '@/components/StorePipelineSaleActionBridge';
 import { StorePipelineCompactCardsUx } from '@/components/StorePipelineCompactCardsUx';
 import { StoreWhatsappRealtimeSync } from '@/components/StoreWhatsappRealtimeSync';
-import { StoreWhatsappHeaderActionsUx } from '@/components/StoreWhatsappHeaderActionsUx';
+import { WhatsappMobileInboxBridge } from '@/components/WhatsappMobileInboxBridge';
 import { StorePortalMobileNavigation } from '@/components/StorePortalMobileNavigation';
 import { MasterMobileNavigation } from '@/components/MasterMobileNavigation';
 import { PrivacyConsentCenter } from '@/components/PrivacyConsentCenter';
@@ -78,7 +78,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StorePipelineSaleActionBridge />
         <StorePipelineCompactCardsUx />
         <StoreWhatsappRealtimeSync />
-        <StoreWhatsappHeaderActionsUx />
+        <WhatsappMobileInboxBridge />
         <StorePortalMobileNavigation />
         <MasterMobileNavigation />
         <PrivacyConsentCenter />
