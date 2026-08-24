@@ -7,6 +7,15 @@ export const runtime = 'nodejs';
 const MAX_LEADS = 2000;
 const FINAL_BASE_STATUSES = new Set(['Venda concluída', 'Perdido']);
 
+type RoutedLeadRow = {
+  id: string;
+  event_id?: string | null;
+  assigned_store_id?: string | null;
+  assigned_user_id?: string | null;
+  assigned_user_role?: string | null;
+  status?: string | null;
+};
+
 function cleanText(value: unknown, max = 240) {
   return String(value ?? '').replace(/\0/g, '').trim().slice(0, max);
 }
@@ -154,7 +163,8 @@ export async function POST(request: Request) {
       ? await supabase.from('leads').select('id,event_id,assigned_store_id,assigned_user_id,assigned_user_role,status').in('id', routedIds)
       : { data: [], error: null } as any;
     if (routedResult.error) throw routedResult.error;
-    const routedById = new Map((routedResult.data || []).map((lead: any) => [String(lead.id), lead]));
+    const routedRows = (routedResult.data || []) as RoutedLeadRow[];
+    const routedById = new Map<string, RoutedLeadRow>(routedRows.map((lead) => [String(lead.id), lead]));
 
     const eventIds = Array.from(new Set((baseLeads || []).map((lead: any) => uuid(lead.event_id)).filter(Boolean)));
     const participationResult = eventIds.length
@@ -225,7 +235,7 @@ export async function POST(request: Request) {
       const lead = eligible[index];
       try {
         let routedLeadId = uuid(lead.routed_lead_id);
-        let routed = routedLeadId ? routedById.get(routedLeadId) : null;
+        let routed: RoutedLeadRow | null | undefined = routedLeadId ? routedById.get(routedLeadId) : null;
         const now = new Date().toISOString();
 
         if (routedLeadId && routed) {
@@ -254,7 +264,7 @@ export async function POST(request: Request) {
             .single();
           if (error || !created?.id) throw error || new Error('Não foi possível criar o lead operacional.');
           routedLeadId = created.id;
-          routed = created;
+          routed = created as RoutedLeadRow;
         }
 
         let assignedUserId = routed?.assigned_user_id || null;
