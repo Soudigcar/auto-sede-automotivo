@@ -54,6 +54,16 @@ function statusTone(message: string) {
   return 'border-amber-200 bg-amber-50 text-amber-800';
 }
 
+function outboundStatus(message: any) {
+  const status = String(message?.status || '').trim().toLowerCase();
+  if (['read', 'seen'].includes(status)) return '✓✓';
+  if (['delivered'].includes(status)) return '✓✓';
+  if (['sent', 'accepted'].includes(status)) return '✓';
+  if (['failed', 'error'].includes(status)) return '!';
+  if (['pending', 'queued', 'sending'].includes(status)) return '…';
+  return '';
+}
+
 export function WhatsappMobileInboxV2(props: Props) {
   const [chatOpen, setChatOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -95,7 +105,6 @@ export function WhatsappMobileInboxV2(props: Props) {
   const selectedAvatar = props.selectedConversation && props.getAvatarUrl ? props.getAvatarUrl(props.selectedConversation) : '';
   const visibleStatus = props.statusMessage && !props.statusMessage.toLowerCase().includes('nenhuma conversa') ? props.statusMessage : '';
   const tone = statusTone(visibleStatus);
-
   const list = useMemo(() => props.conversations, [props.conversations]);
 
   async function openConversation(id: string) {
@@ -169,14 +178,15 @@ export function WhatsappMobileInboxV2(props: Props) {
           {visibleStatus ? <div className={`mx-3 mt-2 shrink-0 rounded-xl border px-3 py-2 text-[11px] font-bold ${tone}`}>{visibleStatus}</div> : null}
 
           <div ref={historyRef} onScroll={handleHistoryScroll} className="relative min-h-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain px-2.5 py-3" style={{ WebkitOverflowScrolling: 'touch' }}>
-            <div className="mx-auto mb-3 w-fit rounded-full bg-white/80 px-3 py-1 text-[10px] font-black text-zinc-500 shadow-sm backdrop-blur">Hoje</div>
+            <div className="mx-auto mb-3 w-fit rounded-full bg-white/80 px-3 py-1 text-[10px] font-black text-zinc-500 shadow-sm backdrop-blur">Histórico da conversa</div>
             {props.messages.map((message) => {
               const outbound = message?.direction === 'outbound';
+              const status = outbound ? outboundStatus(message) : '';
               return (
                 <div key={message?.id} className={`flex ${outbound ? 'justify-end' : 'justify-start'}`}>
                   <div className={`min-w-0 max-w-[86%] rounded-[14px] px-2.5 py-2 shadow-sm ${outbound ? 'rounded-br-[4px] bg-red-600 text-white' : 'rounded-bl-[4px] bg-white text-zinc-900'}`}>
                     <WhatsappMobileMediaMessage message={message} outbound={outbound} />
-                    <div className={`mt-1 flex items-center justify-end gap-1 text-[9px] font-bold ${outbound ? 'text-white/65' : 'text-zinc-400'}`}><span>{props.getTime(message)}</span>{outbound ? <span aria-hidden="true">✓✓</span> : null}</div>
+                    <div className={`mt-1 flex items-center justify-end gap-1 text-[9px] font-bold ${outbound ? 'text-white/65' : 'text-zinc-400'}`}><span>{props.getTime(message)}</span>{status ? <span aria-label={`Status ${String(message?.status || '')}`}>{status}</span> : null}</div>
                   </div>
                 </div>
               );
@@ -210,12 +220,6 @@ export function WhatsappMobileInboxV2(props: Props) {
 
       <style jsx global>{`
         @media (max-width: 1279px) {
-          body[data-whatsapp-mobile-chat='true'] .store-mobile-app-header,
-          body[data-whatsapp-mobile-chat='true'] .store-mobile-app-bottom-nav,
-          body[data-whatsapp-mobile-chat='true'] .master-mobile-app-header,
-          body[data-whatsapp-mobile-chat='true'] .master-mobile-app-bottom-nav {
-            display: none !important;
-          }
           body[data-whatsapp-mobile-chat='true'] {
             overflow: hidden !important;
           }
