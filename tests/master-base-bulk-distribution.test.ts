@@ -37,6 +37,11 @@ test('remove-by-store is selection-only and reapplied server-side', () => {
   assert.doesNotMatch(ui, /delete\(\).*leads_base/);
 });
 
+test('server-side filtered CPF falls back to leads_base cpf', () => {
+  assert.match(api, /_commercial_cpf: commercial\?\.cpf \|\| lead\.cpf \|\| null/);
+  assert.match(api, /leadCpf\(lead\)/);
+});
+
 test('rollout has no committed trigger window before final hardening', () => {
   assert.match(baseMigration, /drop trigger if exists leads_auto_route_by_rules/);
   assert.match(baseMigration, /drop trigger if exists leads_base_auto_route_by_rules/);
