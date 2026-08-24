@@ -1,5 +1,5 @@
 import './globals.css';
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { appName } from '@/lib/constants';
 import { AuthGate } from '@/components/AuthGate';
 import { PipelineAddLeadWithStock } from '@/components/PipelineAddLeadWithStock';
@@ -21,11 +21,37 @@ import { StorePipelineCompactCardsUx } from '@/components/StorePipelineCompactCa
 import { StoreWhatsappRealtimeSync } from '@/components/StoreWhatsappRealtimeSync';
 import { StoreWhatsappHeaderActionsUx } from '@/components/StoreWhatsappHeaderActionsUx';
 import { PrivacyConsentCenter } from '@/components/PrivacyConsentCenter';
+import { PwaInstallManager } from '@/components/PwaInstallManager';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.autosede.com.br'),
   title: appName,
-  description: 'Gestão de leads e vendas para eventos automotivos'
+  description: 'Gestão de leads e vendas para eventos automotivos',
+  applicationName: appName,
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: 'Auto Controle',
+    statusBarStyle: 'black-translucent'
+  },
+  icons: {
+    icon: [
+      { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' }
+    ],
+    apple: [{ url: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }]
+  },
+  other: {
+    'mobile-web-app-capable': 'yes'
+  }
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: '#070A12',
+  colorScheme: 'dark light'
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -52,6 +78,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StoreWhatsappRealtimeSync />
         <StoreWhatsappHeaderActionsUx />
         <PrivacyConsentCenter />
+        <PwaInstallManager />
       </body>
     </html>
   );
