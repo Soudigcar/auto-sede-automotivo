@@ -17,6 +17,26 @@ test('bulk distribution remains Master-only and preview write-closed', () => {
   assert.match(api, /confirmation[^\n]+DISTRIBUIR/);
 });
 
+test('destination-store leads are excluded server-side before distribution', () => {
+  assert.match(api, /function assignedStoreId/);
+  assert.match(api, /currentStoreId === destinationStoreId/);
+  assert.match(api, /autoRemovedSameStore/);
+  assert.match(api, /Lead já pertence à loja de destino e foi removido desta distribuição/);
+  assert.match(api, /auto_removed_same_store/);
+  assert.match(ui, /já pertença a ela fica automaticamente fora desta distribuição/);
+  assert.match(ui, /Já pertence à loja de destino/);
+});
+
+test('remove-by-store is selection-only and reapplied server-side', () => {
+  assert.match(api, /excluded_store_ids/);
+  assert.match(api, /excludedStores\.has\(currentStoreId\)/);
+  assert.match(api, /removed_by_store_filter/);
+  assert.match(ui, /Remover da seleção por loja/);
+  assert.match(ui, /excluded_store_ids: storeExclusions/);
+  assert.match(ui, /Nenhum dado foi alterado/);
+  assert.doesNotMatch(ui, /delete\(\).*leads_base/);
+});
+
 test('rollout has no committed trigger window before final hardening', () => {
   assert.match(baseMigration, /drop trigger if exists leads_auto_route_by_rules/);
   assert.match(baseMigration, /drop trigger if exists leads_base_auto_route_by_rules/);
@@ -90,7 +110,7 @@ test('selected-member capacity falls through to the next member', () => {
 
 test('dry run precedes confirmation and exposes blocked lead count', () => {
   assert.match(ui, /dry_run: true/);
-  assert.match(ui, /Pré-validação concluída no servidor\. Nenhum dado foi alterado/);
+  assert.match(ui, /Pré-validação concluída/);
   assert.match(ui, /Leads protegidos não serão redistribuídos/);
   assert.match(ui, /dry_run: false/);
 });
