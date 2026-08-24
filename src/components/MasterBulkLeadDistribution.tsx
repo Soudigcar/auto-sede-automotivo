@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, CheckSquare2, Loader2, Route, Users, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CheckSquare2, Loader2, Route, Store, Users, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
 type StoreRow = { id: string; store_name: string; status?: string };
@@ -11,6 +11,7 @@ type LeadRow = {
   phone?: string;
   source?: string;
   status?: string;
+  assigned_store_id?: string | null;
   assigned_store_name?: string;
   assigned_consultant_id?: string | null;
   metadata?: any;
@@ -34,11 +35,14 @@ type Context = {
 };
 
 type DryRun = {
+  selection_before_removal?: number;
   selected: number;
   found: number;
   eligible: number;
   blocked: number;
   missing: number;
+  auto_removed_same_store?: number;
+  removed_by_store_filter?: number;
   store_name: string;
   mode: 'configured_rotation' | 'selected_members';
   routing_configured: boolean;
@@ -64,6 +68,10 @@ const roleLabels: Record<string, string> = {
 
 function leadStoreName(lead: LeadRow) {
   return String(lead.assigned_store_name || lead.metadata?.routing?.assigned_store_name || '').trim();
+}
+
+function leadStoreId(lead: LeadRow) {
+  return String(lead.assigned_store_id || lead.metadata?.routing?.assigned_store_id || '').trim();
 }
 
 function firstOptionValue(root: ParentNode | null, text: string) {
@@ -108,6 +116,8 @@ export function MasterBulkLeadDistribution({
   const [selectionMode, setSelectionMode] = useState<'manual' | 'all_filtered'>('manual');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [excludedIds, setExcludedIds] = useState<string[]>([]);
+  const [excludedStoreIds, setExcludedStoreIds] = useState<string[]>([]);
+  const [removeStoreId, setRemoveStoreId] = useState('');
   const [filterSnapshot, setFilterSnapshot] = useState<FilterSnapshot | null>(null);
   const [storeId, setStoreId] = useState('');
   const [context, setContext] = useState<Context>({ members: [], rules: [] });
@@ -129,6 +139,7 @@ export function MasterBulkLeadDistribution({
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const excludedSet = useMemo(() => new Set(excludedIds), [excludedIds]);
+  const excludedStoreSet = useMemo(() => new Set(excludedStoreIds), [excludedStoreIds]);
   const mode: 'configured_rotation' | 'selected_members' = context.routing_configured ? 'configured_rotation' : 'selected_members';
   const eligibleTeam = useMemo(() => context.members.filter((member) => member.receives_leads), [context.members]);
   const hasSelection = selectionMode === 'all_filtered' || selectedIds.length > 0;
@@ -155,6 +166,8 @@ export function MasterBulkLeadDistribution({
     setSelectionMode('manual');
     setSelectedIds([]);
     setExcludedIds([]);
+    setExcludedStoreIds([]);
+    setRemoveStoreId('');
     setFilterSnapshot(null);
     resetValidation();
   }
@@ -168,8 +181,11 @@ export function MasterBulkLeadDistribution({
     resetDestination();
   }
 
-  function isSelected(id: string) {
-    return selectionMode === 'all_filtered' ? !excludedSet.has(id) : selectedSet.has(id);
+  function isSelected(lead: LeadRow) {
+    const currentStoreId = leadStoreId(lead);
+    if (storeId && currentStoreId === storeId) return false;
+    if (currentStoreId && excludedStoreSet.has(currentStoreId)) return false;
+    return selectionMode === 'all_filtered' ? !excludedSet.has(lead.id) : selectedSet.has(lead.id);
   }
 
   function toggleLead(id: string) {
@@ -185,6 +201,8 @@ export function MasterBulkLeadDistribution({
     setSelectionMode('all_filtered');
     setSelectedIds([]);
     setExcludedIds([]);
+    setExcludedStoreIds([]);
+    setRemoveStoreId('');
     setFilterSnapshot(currentBaseFilterSnapshot(triggerRef.current));
     resetValidation();
     setMessage('Todos os leads que correspondem ao filtro atual serão resolvidos no servidor durante a pré-validação.');
@@ -196,14 +214,49 @@ export function MasterBulkLeadDistribution({
   }
 
   function selectionPayload() {
+    const storeExclusions = Array.from(new Set(excludedStoreIds));
     if (selectionMode === 'all_filtered') {
       return {
         all_filtered: true,
         filters: filterSnapshot || currentBaseFilterSnapshot(triggerRef.current),
-        excluded_lead_ids: excludedIds
+        excluded_lead_ids: excludedIds,
+        excluded_store_ids: storeExclusions
       };
     }
-    return { lead_ids: selectedIds };
+    return { lead_ids: selectedIds, excluded_store_ids: storeExclusions };
+  }
+
+  function removeStoreFromSelection(targetStoreId: string, automatic = false) {
+    if (!targetStoreId) return 0;
+    const localIds = leads.filter((lead) => leadStoreId(lead) === targetStoreId).map((lead) => lead.id);
+    const localSet = new Set(localIds);
+    let removed = 0;
+
+    if (selectionMode === 'all_filtered') {
+      removed = localIds.filter((id) => !excludedSet.has(id)).length;
+      if (!automatic) setExcludedStoreIds((current) => current.includes(targetStoreId) ? current : [...current, targetStoreId]);
+      setExcludedIds((current) => Array.from(new Set([...current, ...localIds])));
+    } else {
+      const selectedNow = selectedIds.filter((id) => localSet.has(id));
+      removed = selectedNow.length;
+      setSelectedIds((current) => current.filter((id) => !localSet.has(id)));
+      if (!automatic) setExcludedStoreIds((current) => current.includes(targetStoreId) ? current : [...current, targetStoreId]);
+    }
+
+    resetValidation();
+    return removed;
+  }
+
+  function removeSelectedStore() {
+    if (!removeStoreId) {
+      setMessage('Selecione a loja que deseja remover desta seleção.');
+      return;
+    }
+    const store = stores.find((item) => item.id === removeStoreId);
+    const removed = removeStoreFromSelection(removeStoreId, false);
+    setMessage(selectionMode === 'all_filtered'
+      ? `${store?.store_name || 'Loja'} foi removida da seleção. Na pré-validação o servidor retirará todos os leads dessa loja, inclusive os que não estão carregados nesta tela.`
+      : `${removed} lead(s) de ${store?.store_name || 'Loja'} foram removidos da seleção atual. Nenhum dado foi alterado.`);
   }
 
   async function selectStore(nextStoreId: string) {
@@ -211,8 +264,13 @@ export function MasterBulkLeadDistribution({
     resetDestination();
     if (!nextStoreId) return;
 
+    const store = stores.find((item) => item.id === nextStoreId);
+    const removedVisible = removeStoreFromSelection(nextStoreId, true);
     setLoadingContext(true);
-    setMessage('Carregando equipe e regra de distribuição...');
+    setMessage(selectionMode === 'all_filtered'
+      ? `A loja de destino será excluída automaticamente no servidor para evitar duplicidade${removedVisible ? `; ${removedVisible} lead(s) visível(is) já foram desmarcados` : ''}.`
+      : `${removedVisible} lead(s) que já pertencem a ${store?.store_name || 'essa loja'} foram desmarcados automaticamente.`);
+
     try {
       const authToken = await token();
       if (!authToken) throw new Error('Sessão expirada. Faça login novamente.');
@@ -222,7 +280,6 @@ export function MasterBulkLeadDistribution({
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Não foi possível carregar a loja.');
       setContext(result);
-      setMessage('');
     } catch (error: any) {
       setMessage(error?.message || 'Erro ao carregar a equipe da loja.');
     } finally {
@@ -259,7 +316,9 @@ export function MasterBulkLeadDistribution({
       setDryRun(result.summary);
       setEligibleLeadIds(result.eligible_lead_ids || []);
       setBlocked(result.blocked || []);
-      setMessage('Pré-validação concluída no servidor. Nenhum dado foi alterado.');
+      const sameStore = Number(result.summary?.auto_removed_same_store || 0);
+      const removedStores = Number(result.summary?.removed_by_store_filter || 0);
+      setMessage(`Pré-validação concluída. Nenhum dado foi alterado.${sameStore ? ` ${sameStore} lead(s) da própria loja de destino foram removidos automaticamente.` : ''}${removedStores ? ` ${removedStores} lead(s) foram removidos pelo filtro de loja.` : ''}`);
     } catch (error: any) {
       setMessage(error?.message || 'Erro ao pré-validar a distribuição.');
     } finally {
@@ -273,7 +332,7 @@ export function MasterBulkLeadDistribution({
       setMessage('Preview em modo somente leitura: seleção server-side e fluxo em lotes validados até a confirmação, sem gravar leads.');
       return;
     }
-    if (!window.confirm(`Distribuir ${eligibleLeadIds.length} lead(s) elegível(is) para ${dryRun.store_name}? Leads já atendidos não serão removidos da carteira.`)) return;
+    if (!window.confirm(`Distribuir ${eligibleLeadIds.length} lead(s) elegível(is) para ${dryRun.store_name}? Leads já pertencentes à loja de destino ou protegidos permanecerão fora da operação.`)) return;
 
     setBusy(true);
     let totalDistributed = 0;
@@ -291,7 +350,7 @@ export function MasterBulkLeadDistribution({
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
           body: JSON.stringify({
-            selection: { lead_ids: leadBatch },
+            selection: { lead_ids: leadBatch, excluded_store_ids: excludedStoreIds },
             store_id: storeId,
             mode,
             member_ids: mode === 'selected_members' ? selectedMemberIds : [],
@@ -319,7 +378,7 @@ export function MasterBulkLeadDistribution({
   }
 
   const localSelectionLabel = selectionMode === 'all_filtered'
-    ? `Todos os leads do filtro atual${excludedIds.length ? `, exceto ${excludedIds.length} removido(s)` : ''}`
+    ? `Todos os leads do filtro atual${excludedIds.length ? `, exceto ${excludedIds.length} lead(s) desmarcado(s)` : ''}${excludedStoreIds.length ? ` e ${excludedStoreIds.length} loja(s) removida(s)` : ''}`
     : `${selectedIds.length} de ${leads.length} lead(s) visível(is) selecionado(s)`;
 
   return (
@@ -341,7 +400,7 @@ export function MasterBulkLeadDistribution({
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-red-600">Base Master</p>
                 <h2 className="text-xl font-black text-slate-950">Selecionar e distribuir leads</h2>
-                <p className="mt-1 text-xs font-medium text-zinc-500">Evento, origem, loja, status, cidade, data de nascimento e busca são reaplicados no servidor quando você seleciona todos os filtrados.</p>
+                <p className="mt-1 text-xs font-medium text-zinc-500">A Base continua global. A loja de destino é retirada automaticamente da seleção para impedir redistribuição duplicada.</p>
               </div>
               <button type="button" onClick={close} disabled={busy} className="grid h-9 w-9 place-items-center rounded-full bg-zinc-100 text-zinc-600 hover:bg-zinc-200 disabled:opacity-50" aria-label="Fechar"><X size={18} /></button>
             </div>
@@ -357,15 +416,29 @@ export function MasterBulkLeadDistribution({
                     <button type="button" onClick={clearSelection} className="rounded-xl border border-zinc-200 px-3 py-2 text-[10px] font-black uppercase text-zinc-600">Limpar</button>
                   </div>
                 </div>
-                {selectionMode === 'all_filtered' ? <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] font-bold text-blue-900">Seleção server-side ativa. Você pode desmarcar abaixo qualquer lead visível; ele será enviado como exceção do filtro.</div> : null}
-                <input value={query} onChange={(event) => setQuery(event.target.value)} className="mt-3 h-10 w-full rounded-xl border border-zinc-200 px-3 text-xs outline-none focus:border-red-300" placeholder="Buscar dentro da lista visível..." />
+
+                {selectionMode === 'all_filtered' ? <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] font-bold text-blue-900">Seleção server-side ativa. As remoções por loja também são reaplicadas no servidor, inclusive para leads que não estão carregados nesta tela.</div> : null}
+
+                <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_220px_auto]">
+                  <input value={query} onChange={(event) => setQuery(event.target.value)} className="h-10 rounded-xl border border-zinc-200 px-3 text-xs outline-none focus:border-red-300" placeholder="Buscar dentro da lista visível..." />
+                  <select value={removeStoreId} onChange={(event) => setRemoveStoreId(event.target.value)} className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-bold text-slate-800">
+                    <option value="">Loja para remover</option>
+                    {stores.map((store) => <option key={store.id} value={store.id}>{store.store_name}</option>)}
+                  </select>
+                  <button type="button" onClick={removeSelectedStore} disabled={!removeStoreId || busy} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3 text-[10px] font-black uppercase text-amber-800 disabled:opacity-40"><Store size={13} /> Remover da seleção por loja</button>
+                </div>
+
                 <div className="mt-3 max-h-64 overflow-y-auto rounded-xl border border-zinc-100">
-                  {visibleLeads.map((lead) => (
-                    <label key={lead.id} className="grid cursor-pointer grid-cols-[22px_minmax(0,1fr)] gap-2 border-b border-zinc-100 px-3 py-2.5 last:border-0 hover:bg-zinc-50">
-                      <input type="checkbox" className="mt-0.5" checked={isSelected(lead.id)} onChange={() => toggleLead(lead.id)} />
-                      <span className="min-w-0"><strong className="block truncate text-xs text-slate-900">{lead.name || 'Lead sem nome'}</strong><small className="mt-0.5 block truncate text-[10px] text-zinc-500">{lead.phone || 'Sem telefone'} · {lead.source || 'Sem origem'} · {lead.status || 'Sem status'}{leadStoreName(lead) ? ` · ${leadStoreName(lead)}` : ''}</small></span>
-                    </label>
-                  ))}
+                  {visibleLeads.map((lead) => {
+                    const sameDestination = Boolean(storeId && leadStoreId(lead) === storeId);
+                    const removedByStore = Boolean(leadStoreId(lead) && excludedStoreSet.has(leadStoreId(lead)));
+                    return (
+                      <label key={lead.id} className={`grid grid-cols-[22px_minmax(0,1fr)] gap-2 border-b border-zinc-100 px-3 py-2.5 last:border-0 ${sameDestination || removedByStore ? 'cursor-not-allowed bg-zinc-50 opacity-55' : 'cursor-pointer hover:bg-zinc-50'}`}>
+                        <input type="checkbox" className="mt-0.5" checked={isSelected(lead)} disabled={sameDestination || removedByStore} onChange={() => toggleLead(lead.id)} />
+                        <span className="min-w-0"><strong className="block truncate text-xs text-slate-900">{lead.name || 'Lead sem nome'}</strong><small className="mt-0.5 block truncate text-[10px] text-zinc-500">{lead.phone || 'Sem telefone'} · {lead.source || 'Sem origem'} · {lead.status || 'Sem status'}{leadStoreName(lead) ? ` · ${leadStoreName(lead)}` : ''}{sameDestination ? ' · Já pertence à loja de destino' : removedByStore ? ' · Removido por loja' : ''}</small></span>
+                      </label>
+                    );
+                  })}
                 </div>
               </section>
 
@@ -375,6 +448,7 @@ export function MasterBulkLeadDistribution({
                   <option value="">Selecione a loja</option>
                   {stores.map((store) => <option key={store.id} value={store.id}>{store.store_name}</option>)}
                 </select>
+                <p className="mt-2 text-[11px] font-semibold text-zinc-500">Ao escolher a loja, qualquer lead que já pertença a ela fica automaticamente fora desta distribuição. Isso não exclui nem altera o lead.</p>
                 {loadingContext ? <p className="mt-3 flex items-center gap-2 text-xs font-bold text-zinc-500"><Loader2 className="animate-spin" size={15} /> Carregando equipe...</p> : null}
               </section>
 
@@ -407,14 +481,17 @@ export function MasterBulkLeadDistribution({
 
               <section className="rounded-2xl border border-zinc-200 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div><h3 className="text-sm font-black text-slate-950">4. Pré-validar e distribuir</h3><p className="mt-1 text-xs text-zinc-500">A pré-validação resolve a seleção completa no servidor. A execução real é dividida em lotes de até {EXECUTION_BATCH_SIZE}.</p></div>
+                  <div><h3 className="text-sm font-black text-slate-950">4. Pré-validar e distribuir</h3><p className="mt-1 text-xs text-zinc-500">A pré-validação reaplica no servidor a loja de destino e as lojas removidas da seleção. A execução real continua em lotes de até {EXECUTION_BATCH_SIZE}.</p></div>
                   <button type="button" onClick={() => void validateDistribution()} disabled={!hasSelection || !storeId || busy || (mode === 'selected_members' && !selectedMemberIds.length)} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-[10px] font-black uppercase text-white disabled:opacity-40">{busy ? <Loader2 className="animate-spin" size={14} /> : <CheckCircle2 size={14} />} Pré-validar</button>
                 </div>
 
                 {dryRun ? (
-                  <div className="mt-4 grid gap-2 sm:grid-cols-5">
-                    {[['Selecionados', dryRun.selected], ['Encontrados', dryRun.found], ['Elegíveis', dryRun.eligible], ['Protegidos', dryRun.blocked], ['Ausentes', dryRun.missing]].map(([label, value]) => <div key={String(label)} className="rounded-xl bg-zinc-50 p-3"><p className="text-[9px] font-black uppercase text-zinc-400">{label}</p><strong className="mt-1 block text-lg text-slate-950">{value}</strong></div>)}
-                  </div>
+                  <>
+                    <div className="mt-4 grid gap-2 sm:grid-cols-5">
+                      {[['Selecionados', dryRun.selected], ['Encontrados', dryRun.found], ['Elegíveis', dryRun.eligible], ['Protegidos', dryRun.blocked], ['Ausentes', dryRun.missing]].map(([label, value]) => <div key={String(label)} className="rounded-xl bg-zinc-50 p-3"><p className="text-[9px] font-black uppercase text-zinc-400">{label}</p><strong className="mt-1 block text-lg text-slate-950">{value}</strong></div>)}
+                    </div>
+                    {(dryRun.auto_removed_same_store || dryRun.removed_by_store_filter) ? <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-[11px] font-bold text-blue-900">Removidos sem alterar dados: {dryRun.auto_removed_same_store || 0} já pertenciam à loja de destino; {dryRun.removed_by_store_filter || 0} foram retirados pelo botão de loja.</div> : null}
+                  </>
                 ) : null}
 
                 {blocked.length ? <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] font-bold text-amber-900">Leads protegidos não serão redistribuídos. Exemplos: {blocked.slice(0, 3).map((item) => `${item.name || item.lead_id}: ${item.reason}`).join(' | ')}</div> : null}
