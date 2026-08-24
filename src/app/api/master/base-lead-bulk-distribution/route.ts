@@ -25,6 +25,13 @@ type SelectionFilters = {
   city_filter: string;
 };
 
+type ResolvedSelection = {
+  leadIds: string[];
+  selectionBeforeRemoval: number;
+  autoRemovedSameStore: number;
+  removedByStoreFilter: number;
+};
+
 class SelectionTooLargeError extends Error {}
 
 function cleanText(value: unknown, max = 240) {
@@ -70,6 +77,10 @@ function leadCity(lead: any) {
 
 function assignedStoreName(lead: any) {
   return String(lead?.assigned_store_name || lead?.metadata?.routing?.assigned_store_name || '').trim();
+}
+
+function assignedStoreId(lead: any) {
+  return uuid(lead?.assigned_store_id || lead?.metadata?.routing?.assigned_store_id);
 }
 
 function birthDateValue(lead: any) {
@@ -180,14 +191,27 @@ async function fetchRowsByIds(supabase: any, table: string, select: string, ids:
   return rows;
 }
 
-async function resolveAllFilteredLeadIds(supabase: any, filters: SelectionFilters, excludedLeadIds: string[]) {
+async function resolveAllFilteredLeadIds(
+  supabase: any,
+  filters: SelectionFilters,
+  excludedLeadIds: string[],
+  excludedStoreIds: string[],
+  destinationStoreId: string
+): Promise<ResolvedSelection> {
   const excluded = new Set(excludedLeadIds);
+  const excludedStores = new Set(excludedStoreIds);
   let activeEventIds: string[] = [];
+  let selectionBeforeRemoval = 0;
+  let autoRemovedSameStore = 0;
+  let removedByStoreFilter = 0;
+
   if (filters.event_filter === 'active') {
     const activeEvents = await supabase.from('events').select('id').eq('status', 'active');
     if (activeEvents.error) throw activeEvents.error;
     activeEventIds = (activeEvents.data || []).map((item: any) => String(item.id));
-    if (!activeEventIds.length) return [];
+    if (!activeEventIds.length) {
+      return { leadIds: [], selectionBeforeRemoval: 0, autoRemovedSameStore: 0, removedByStoreFilter: 0 };
+    }
   }
 
   const eventNames = new Map<string, string>();
@@ -226,29 +250,88 @@ async function resolveAllFilteredLeadIds(supabase: any, filters: SelectionFilter
     }
 
     for (const lead of page) {
+      const leadId = String(lead.id);
+      if (excluded.has(leadId)) continue;
+
       const commercial = lead.routed_lead_id ? commercialMap.get(String(lead.routed_lead_id)) : null;
       const enriched = {
         ...lead,
         _birth_date: commercial?.birth_date || lead.metadata?.birth_date || null,
         _commercial_cpf: commercial?.cpf || null
       };
-      if (!excluded.has(String(lead.id)) && baseLeadMatchesFilters(enriched, filters, eventNames)) {
-        matches.push(String(lead.id));
-        if (matches.length > MAX_FILTERED_SELECTION) {
-          throw new SelectionTooLargeError(`O filtro retornou mais de ${MAX_FILTERED_SELECTION} leads. Refine os filtros antes de distribuir.`);
-        }
+      if (!baseLeadMatchesFilters(enriched, filters, eventNames)) continue;
+
+      selectionBeforeRemoval += 1;
+      const currentStoreId = assignedStoreId(enriched);
+      if (currentStoreId && currentStoreId === destinationStoreId) {
+        autoRemovedSameStore += 1;
+        continue;
+      }
+      if (currentStoreId && excludedStores.has(currentStoreId)) {
+        removedByStoreFilter += 1;
+        continue;
+      }
+
+      matches.push(leadId);
+      if (matches.length > MAX_FILTERED_SELECTION) {
+        throw new SelectionTooLargeError(`O filtro retornou mais de ${MAX_FILTERED_SELECTION} leads. Refine os filtros antes de distribuir.`);
       }
     }
 
     if (page.length < QUERY_PAGE_SIZE) break;
   }
-  return matches;
+
+  return { leadIds: matches, selectionBeforeRemoval, autoRemovedSameStore, removedByStoreFilter };
 }
 
-async function resolveSelection(supabase: any, body: any, dryRun: boolean) {
+async function resolveExplicitLeadIds(
+  supabase: any,
+  explicitIds: string[],
+  excludedStoreIds: string[],
+  destinationStoreId: string
+): Promise<ResolvedSelection> {
+  if (!explicitIds.length) {
+    return { leadIds: [], selectionBeforeRemoval: 0, autoRemovedSameStore: 0, removedByStoreFilter: 0 };
+  }
+
+  const excludedStores = new Set(excludedStoreIds);
+  const rows = await fetchRowsByIds(supabase, 'leads_base', 'id,assigned_store_id,metadata', explicitIds);
+  const byId = new Map(rows.map((lead: any) => [String(lead.id), lead]));
+  const leadIds: string[] = [];
+  let autoRemovedSameStore = 0;
+  let removedByStoreFilter = 0;
+
+  for (const id of explicitIds) {
+    const lead = byId.get(id);
+    if (!lead) {
+      leadIds.push(id);
+      continue;
+    }
+    const currentStoreId = assignedStoreId(lead);
+    if (currentStoreId && currentStoreId === destinationStoreId) {
+      autoRemovedSameStore += 1;
+      continue;
+    }
+    if (currentStoreId && excludedStores.has(currentStoreId)) {
+      removedByStoreFilter += 1;
+      continue;
+    }
+    leadIds.push(id);
+  }
+
+  return {
+    leadIds,
+    selectionBeforeRemoval: explicitIds.length,
+    autoRemovedSameStore,
+    removedByStoreFilter
+  };
+}
+
+async function resolveSelection(supabase: any, body: any, dryRun: boolean, destinationStoreId: string): Promise<ResolvedSelection> {
   const selection = body?.selection && typeof body.selection === 'object' ? body.selection : {};
   const allFiltered = selection.all_filtered === true;
   const explicitIds = uuidList(selection.lead_ids ?? body?.lead_ids, MAX_FILTERED_SELECTION);
+  const excludedStoreIds = uuidList(selection.excluded_store_ids, 500);
 
   if (allFiltered && explicitIds.length) throw new Error('Use seleção manual ou todos os filtrados, não os dois ao mesmo tempo.');
   if (allFiltered && !dryRun) throw new Error('Todos os filtrados devem passar pela pré-validação antes do processamento em lotes.');
@@ -256,7 +339,7 @@ async function resolveSelection(supabase: any, body: any, dryRun: boolean) {
   if (allFiltered) {
     const filters = normalizeFilters(selection.filters);
     const excludedIds = uuidList(selection.excluded_lead_ids, MAX_FILTERED_SELECTION);
-    return resolveAllFilteredLeadIds(supabase, filters, excludedIds);
+    return resolveAllFilteredLeadIds(supabase, filters, excludedIds, excludedStoreIds, destinationStoreId);
   }
 
   if (explicitIds.length > MAX_MANUAL_SELECTION && dryRun) {
@@ -265,7 +348,7 @@ async function resolveSelection(supabase: any, body: any, dryRun: boolean) {
   if (explicitIds.length > EXECUTION_BATCH_SIZE && !dryRun) {
     throw new SelectionTooLargeError(`A execução aceita no máximo ${EXECUTION_BATCH_SIZE} leads por lote.`);
   }
-  return explicitIds;
+  return resolveExplicitLeadIds(supabase, explicitIds, excludedStoreIds, destinationStoreId);
 }
 
 export async function GET(request: Request) {
@@ -320,11 +403,40 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Modo de distribuição inválido.' }, { status: 400 });
     }
 
-    const leadIds = await resolveSelection(supabase, body, dryRun);
-    if (!leadIds.length) return NextResponse.json({ error: 'Nenhum lead corresponde à seleção atual.' }, { status: 400 });
-
     const context = await loadStoreContext(supabase, storeId);
     if (!context) return NextResponse.json({ error: 'Loja ativa não encontrada.' }, { status: 404 });
+
+    const resolvedSelection = await resolveSelection(supabase, body, dryRun, storeId);
+    const leadIds = resolvedSelection.leadIds;
+
+    if (!leadIds.length) {
+      if (dryRun && (resolvedSelection.autoRemovedSameStore > 0 || resolvedSelection.removedByStoreFilter > 0)) {
+        return NextResponse.json({
+          success: true,
+          dry_run: true,
+          summary: {
+            selection_before_removal: resolvedSelection.selectionBeforeRemoval,
+            selected: 0,
+            found: 0,
+            eligible: 0,
+            blocked: 0,
+            missing: 0,
+            auto_removed_same_store: resolvedSelection.autoRemovedSameStore,
+            removed_by_store_filter: resolvedSelection.removedByStoreFilter,
+            store_id: storeId,
+            store_name: context.store.store_name,
+            mode,
+            routing_configured: context.routing_configured,
+            migration_required: context.migration_required,
+            members: []
+          },
+          blocked: [],
+          missing_lead_ids: [],
+          eligible_lead_ids: []
+        });
+      }
+      return NextResponse.json({ error: 'Nenhum lead corresponde à seleção atual.' }, { status: 400 });
+    }
 
     if (mode === 'configured_rotation') {
       if (context.migration_required) {
@@ -358,7 +470,7 @@ export async function POST(request: Request) {
     const baseLeads = await fetchRowsByIds(
       supabase,
       'leads_base',
-      'id,name,event_id,status,source,campaign_id,campaign_name,assigned_consultant_id,routed_lead_id',
+      'id,name,event_id,status,source,campaign_id,campaign_name,assigned_store_id,assigned_store_name,assigned_consultant_id,routed_lead_id,metadata',
       leadIds
     );
     const baseById = new Map(baseLeads.map((lead: any) => [String(lead.id), lead]));
@@ -389,8 +501,15 @@ export async function POST(request: Request) {
 
     const eligible: any[] = [];
     const blocked: Array<{ lead_id: string; name: string; reason: string }> = [];
+    let defensiveSameStoreBlocks = 0;
+
     for (const lead of orderedBaseLeads) {
       const routed = lead.routed_lead_id ? routedById.get(String(lead.routed_lead_id)) : null;
+      if (assignedStoreId(lead) === storeId) {
+        defensiveSameStoreBlocks += 1;
+        blocked.push({ lead_id: lead.id, name: lead.name || '', reason: 'Lead já pertence à loja de destino e foi removido desta distribuição.' });
+        continue;
+      }
       if (FINAL_BASE_STATUSES.has(String(lead.status || ''))) {
         blocked.push({ lead_id: lead.id, name: lead.name || '', reason: `Status final: ${lead.status}.` });
         continue;
@@ -412,11 +531,14 @@ export async function POST(request: Request) {
 
     const eligibleLeadIds = eligible.map((lead) => String(lead.id));
     const summary = {
+      selection_before_removal: resolvedSelection.selectionBeforeRemoval,
       selected: leadIds.length,
       found: foundIds.size,
       eligible: eligible.length,
       blocked: blocked.length,
       missing: missingIds.length,
+      auto_removed_same_store: resolvedSelection.autoRemovedSameStore + defensiveSameStoreBlocks,
+      removed_by_store_filter: resolvedSelection.removedByStoreFilter,
       store_id: storeId,
       store_name: context.store.store_name,
       mode,
