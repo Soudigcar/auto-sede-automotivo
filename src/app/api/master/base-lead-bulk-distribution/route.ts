@@ -9,11 +9,7 @@ const FINAL_BASE_STATUSES = new Set(['Venda concluída', 'Perdido']);
 
 type RoutedLeadRow = {
   id: string;
-  event_id?: string | null;
-  assigned_store_id?: string | null;
   assigned_user_id?: string | null;
-  assigned_user_role?: string | null;
-  status?: string | null;
 };
 
 function cleanText(value: unknown, max = 240) {
@@ -31,11 +27,12 @@ function uuidList(value: unknown, max = MAX_LEADS) {
 }
 
 function routingMigrationMissing(error: any) {
-  return error?.code === '42P01' || error?.code === '42883' || /lead_routing_rules|route_lead_by_rules/i.test(error?.message || '');
+  const code = String(error?.code || '');
+  return code === '42P01' || code === '42883' || code === 'PGRST205' || code === 'PGRST202';
 }
 
 async function loadStoreContext(supabase: any, storeId: string) {
-  const [{ data: store }, membersResult, rulesResult] = await Promise.all([
+  const [{ data: store, error: storeError }, membersResult, rulesResult] = await Promise.all([
     supabase.from('stores').select('id,store_name,status,portal_enabled').eq('id', storeId).maybeSingle(),
     supabase
       .from('users')
@@ -54,7 +51,9 @@ async function loadStoreContext(supabase: any, storeId: string) {
       .order('created_at')
   ]);
 
+  if (storeError) throw storeError;
   if (membersResult.error) throw membersResult.error;
+
   const migrationRequired = Boolean(rulesResult.error && routingMigrationMissing(rulesResult.error));
   if (rulesResult.error && !migrationRequired) throw rulesResult.error;
 
@@ -63,6 +62,7 @@ async function loadStoreContext(supabase: any, storeId: string) {
 
   const members = (membersResult.data || []).filter((member: any) => isStoreTeamRole(member.role));
   const rules = migrationRequired ? [] : (rulesResult.data || []);
+
   return {
     store,
     members,
@@ -93,6 +93,12 @@ export async function GET(request: Request) {
       preview_read_only: process.env.VERCEL_ENV === 'preview'
     });
   } catch (error: any) {
+    if (routingMigrationMissing(error)) {
+      return NextResponse.json({
+        error: 'O Motor de Roteamento ainda não está disponível neste ambiente.',
+        migration_required: true
+      }, { status: 503 });
+    }
     return NextResponse.json({ error: error?.message || 'Não foi possível carregar a equipe da loja.' }, { status: 500 });
   }
 }
@@ -137,6 +143,7 @@ export async function POST(request: Request) {
 
     const memberById = new Map(context.members.map((member: any) => [String(member.id), member]));
     const selectedMembers = memberIds.map((id) => memberById.get(id)).filter(Boolean) as any[];
+
     if (mode === 'selected_members') {
       if (!selectedMembers.length) return NextResponse.json({ error: 'Selecione pelo menos um membro da equipe.' }, { status: 400 });
       if (selectedMembers.length !== memberIds.length || selectedMembers.some((member) => !member.receives_leads)) {
@@ -152,17 +159,19 @@ export async function POST(request: Request) {
 
     const { data: baseLeads, error: baseError } = await supabase
       .from('leads_base')
-      .select('id,name,phone,email,event_id,status,source,campaign_id,campaign_name,vehicle_name,assigned_store_id,assigned_store_name,assigned_consultant_id,assigned_at,routed_lead_id,routing_strategy,metadata')
+      .select('id,name,event_id,status,assigned_consultant_id,routed_lead_id')
       .in('id', leadIds);
     if (baseError) throw baseError;
 
     const foundIds = new Set((baseLeads || []).map((lead: any) => String(lead.id)));
     const missingIds = leadIds.filter((id) => !foundIds.has(id));
     const routedIds = (baseLeads || []).map((lead: any) => uuid(lead.routed_lead_id)).filter(Boolean);
+
     const routedResult = routedIds.length
-      ? await supabase.from('leads').select('id,event_id,assigned_store_id,assigned_user_id,assigned_user_role,status').in('id', routedIds)
+      ? await supabase.from('leads').select('id,assigned_user_id').in('id', routedIds)
       : { data: [], error: null } as any;
     if (routedResult.error) throw routedResult.error;
+
     const routedRows = (routedResult.data || []) as RoutedLeadRow[];
     const routedById = new Map<string, RoutedLeadRow>(routedRows.map((lead) => [String(lead.id), lead]));
 
@@ -176,8 +185,8 @@ export async function POST(request: Request) {
           .in('status', ['active', 'inactive'])
       : { data: [], error: null } as any;
     if (participationResult.error) throw participationResult.error;
-    const allowedEventIds = new Set((participationResult.data || []).map((item: any) => String(item.event_id)));
 
+    const allowedEventIds = new Set((participationResult.data || []).map((item: any) => String(item.event_id)));
     const eligible: any[] = [];
     const blocked: Array<{ lead_id: string; name: string; reason: string }> = [];
 
@@ -233,133 +242,64 @@ export async function POST(request: Request) {
 
     for (let index = 0; index < eligible.length; index += 1) {
       const lead = eligible[index];
-      try {
-        let routedLeadId = uuid(lead.routed_lead_id);
-        let routed: RoutedLeadRow | null | undefined = routedLeadId ? routedById.get(routedLeadId) : null;
-        const now = new Date().toISOString();
+      const selectedMember = mode === 'selected_members' ? selectedMembers[index % selectedMembers.length] : null;
 
-        if (routedLeadId && routed) {
-          const { error } = await supabase
-            .from('leads')
-            .update({ assigned_store_id: storeId, event_id: lead.event_id || routed.event_id || null, updated_at: now })
-            .eq('id', routedLeadId)
-            .is('assigned_user_id', null);
-          if (error) throw error;
-        } else {
-          const { data: created, error } = await supabase
-            .from('leads')
-            .insert({
-              event_id: lead.event_id || null,
-              customer_name: lead.name || 'Lead sem nome',
-              customer_phone: lead.phone || null,
-              customer_bank: '',
-              interested_vehicle: lead.vehicle_name || '',
-              vehicle_category_interest: '',
-              origin: lead.source || 'manual',
-              assigned_store_id: storeId,
-              status: 'new_lead',
-              notes: 'Lead distribuído em lote pela Base Master.'
-            })
-            .select('id,assigned_user_id,assigned_user_role')
-            .single();
-          if (error || !created?.id) throw error || new Error('Não foi possível criar o lead operacional.');
-          routedLeadId = created.id;
-          routed = created as RoutedLeadRow;
+      const rpcResult = await supabase.rpc('distribute_base_lead_to_store', {
+        p_base_lead_id: lead.id,
+        p_store_id: storeId,
+        p_actor_user_id: master.id,
+        p_mode: mode,
+        p_selected_user_id: selectedMember?.id || null
+      });
+
+      if (rpcResult.error) {
+        if (routingMigrationMissing(rpcResult.error)) {
+          return NextResponse.json({
+            error: 'A migration transacional da distribuição ainda não está disponível neste ambiente.',
+            migration_required: true
+          }, { status: 503 });
         }
+        results.push({ lead_id: lead.id, status: 'error', message: rpcResult.error.message || 'Falha ao distribuir o lead.' });
+        continue;
+      }
 
-        let assignedUserId = routed?.assigned_user_id || null;
-        let assignedRole = routed?.assigned_user_role || null;
-
-        if (mode === 'configured_rotation') {
-          if (!assignedUserId) {
-            const rpcResult = await supabase.rpc('route_lead_by_rules', { p_lead_id: routedLeadId, p_actor_user_id: master.id });
-            if (rpcResult.error) throw rpcResult.error;
-            if (rpcResult.data?.outcome !== 'assigned' && rpcResult.data?.outcome !== 'already_assigned') {
-              results.push({ lead_id: lead.id, status: String(rpcResult.data?.outcome || 'not_assigned'), message: 'Motor de roteamento não encontrou destinatário elegível.' });
-              continue;
-            }
-            assignedUserId = rpcResult.data?.user_id || null;
-            assignedRole = rpcResult.data?.role || null;
-          }
-        } else {
-          const member = selectedMembers[index % selectedMembers.length];
-          assignedUserId = member.id;
-          assignedRole = member.role;
-          const leadUpdate: Record<string, unknown> = {
-            assigned_user_id: member.id,
-            assigned_user_role: member.role,
-            assigned_user_at: now,
-            assignment_source: 'master_bulk_distribution',
-            updated_at: now
-          };
-          if (member.role === 'prospector') leadUpdate.captured_by_user_id = member.id;
-          if (member.role === 'pre_sales') {
-            leadUpdate.pre_sales_user_id = member.id;
-            leadUpdate.pre_sales_assigned_at = now;
-          }
-          if (member.role === 'seller') {
-            leadUpdate.seller_user_id = member.id;
-            leadUpdate.seller_assigned_at = now;
-          }
-          const { error: memberError } = await supabase.from('leads').update(leadUpdate).eq('id', routedLeadId).is('assigned_user_id', null);
-          if (memberError) throw memberError;
-          const { error: logError } = await supabase.from('lead_assignment_logs').insert({
-            lead_id: routedLeadId,
-            store_id: storeId,
-            assignment_role: member.role,
-            from_user_id: null,
-            to_user_id: member.id,
-            assignment_mode: 'manual',
-            assigned_by_user_id: master.id,
-            notes: 'Distribuição em lote pela Base Master.',
-            metadata: { source: 'master_base_bulk_distribution', batch_position: index }
-          });
-          if (logError) throw logError;
-        }
-
-        const metadata = {
-          ...(lead.metadata || {}),
-          event_id: lead.event_id || null,
-          routing: {
-            ...(lead.metadata?.routing || {}),
-            strategy: mode === 'configured_rotation' ? 'routing_rule' : 'master_bulk_distribution',
-            previous_store_id: lead.assigned_store_id || null,
-            previous_store_name: lead.assigned_store_name || null,
-            assigned_store_id: storeId,
-            assigned_store_name: context.store.store_name,
-            assigned_at: now,
-            routed_lead_id: routedLeadId,
-            assigned_user_id: assignedUserId,
-            assigned_user_role: assignedRole
-          }
-        };
-
-        const { error: baseUpdateError } = await supabase.from('leads_base').update({
-          assigned_store_id: storeId,
-          assigned_store_name: context.store.store_name,
-          assigned_consultant_id: assignedUserId,
-          assigned_at: now,
-          routed_lead_id: routedLeadId,
-          routing_strategy: mode === 'configured_rotation' ? 'routing_rule' : 'master_bulk_distribution',
-          metadata,
-          updated_at: now
-        }).eq('id', lead.id).is('assigned_consultant_id', null);
-        if (baseUpdateError) throw baseUpdateError;
-
+      const outcome = String(rpcResult.data?.outcome || 'error');
+      if (outcome === 'assigned') {
         distributed += 1;
-        results.push({ lead_id: lead.id, status: 'distributed', user_id: assignedUserId || undefined, role: assignedRole || undefined });
-      } catch (error: any) {
-        results.push({ lead_id: lead.id, status: 'error', message: error?.message || 'Falha ao distribuir o lead.' });
+        results.push({
+          lead_id: lead.id,
+          status: 'distributed',
+          user_id: rpcResult.data?.user_id || undefined,
+          role: rpcResult.data?.role || undefined
+        });
+      } else if (outcome === 'already_assigned') {
+        results.push({ lead_id: lead.id, status: 'already_assigned', user_id: rpcResult.data?.user_id || undefined });
+      } else {
+        results.push({
+          lead_id: lead.id,
+          status: outcome,
+          message: 'O lead não foi distribuído; consulte o resultado do motor de roteamento.'
+        });
       }
     }
 
     return NextResponse.json({
       success: true,
       dry_run: false,
-      summary: { ...summary, distributed, errors: results.filter((item) => item.status === 'error').length },
+      summary: {
+        ...summary,
+        distributed,
+        errors: results.filter((item) => item.status === 'error').length
+      },
       results
     });
   } catch (error: any) {
+    if (routingMigrationMissing(error)) {
+      return NextResponse.json({
+        error: 'O Motor de Roteamento ainda não está disponível neste ambiente.',
+        migration_required: true
+      }, { status: 503 });
+    }
     return NextResponse.json({ error: error?.message || 'Não foi possível distribuir os leads.' }, { status: 500 });
   }
 }
