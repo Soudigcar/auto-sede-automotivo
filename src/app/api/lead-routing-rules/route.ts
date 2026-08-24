@@ -11,6 +11,7 @@ function text(value: unknown, max = 160) { return String(value ?? '').replace(/\
 function uuid(value: unknown) { const v=text(value,80); return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v) ? v : ''; }
 function uuidList(value: unknown, max=500) { if(!Array.isArray(value)) return []; return Array.from(new Set(value.map(uuid).filter(Boolean))).slice(0,max); }
 function roleList(value: unknown) { if(!Array.isArray(value)) return []; return Array.from(new Set(value.map((v)=>text(v,40)).filter(isStoreTeamRole))); }
+function migrationMissing(error: any) { const code=String(error?.code||''); return ['42P01','42883','PGRST205','PGRST202'].includes(code); }
 
 async function auth(request: Request) {
   const supabase=createAdminClient();
@@ -22,8 +23,6 @@ async function auth(request: Request) {
   if(profile.role==='store' && profile.store_id) return { supabase, profile, storeId:profile.store_id };
   return { supabase, profile:null, storeId:'' };
 }
-
-function migrationMissing(error: any) { return error?.code==='42P01' || /lead_routing_rules/i.test(error?.message||''); }
 
 export async function GET(request: Request) {
   try {
@@ -55,8 +54,8 @@ export async function GET(request: Request) {
       throw err;
     }
     return NextResponse.json({scope:profile.role,stores:storesResult.data||[],store_id:storeId,rules:rulesResult.data||[],members:membersResult.data||[],events:eventsResult.data||[],queue:queueResult.data||[]});
-  } catch {
-    return NextResponse.json({error:'Não foi possível carregar o roteamento de leads.'},{status:500});
+  } catch(error:any) {
+    return NextResponse.json({error:error?.message||'Não foi possível carregar o roteamento de leads.'},{status:500});
   }
 }
 
@@ -107,8 +106,8 @@ export async function POST(request: Request) {
       throw result.error;
     }
     return NextResponse.json({success:true,rule:result.data});
-  } catch {
-    return NextResponse.json({error:'Não foi possível salvar a regra.'},{status:500});
+  } catch(error:any) {
+    return NextResponse.json({error:error?.message||'Não foi possível salvar a regra.'},{status:500});
   }
 }
 
@@ -124,7 +123,7 @@ export async function DELETE(request: Request) {
       throw error;
     }
     return NextResponse.json({success:true});
-  } catch {
-    return NextResponse.json({error:'Não foi possível arquivar a regra.'},{status:500});
+  } catch(error:any) {
+    return NextResponse.json({error:error?.message||'Não foi possível arquivar a regra.'},{status:500});
   }
 }
