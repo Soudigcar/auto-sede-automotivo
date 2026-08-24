@@ -9,6 +9,14 @@ const FALLBACK_INTERVAL_MS = 30_000;
 const REALTIME_DEBOUNCE_MS = 250;
 const REFRESH_EVENT = 'auto-controle:whatsapp-refresh';
 
+function refreshDesktopInbox() {
+  if (window.innerWidth < 1280) return;
+  const summary = document.querySelector<HTMLElement>('[aria-label="Resumo do Inbox WhatsApp"]');
+  if (!summary) return;
+  const refreshButton = Array.from(summary.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent?.includes('Atualizar')) || null;
+  if (refreshButton && !refreshButton.disabled) refreshButton.click();
+}
+
 export function StoreWhatsappRealtimeSync() {
   const pathname = usePathname();
   const supabase = useMemo(() => createClient(), []);
@@ -28,6 +36,7 @@ export function StoreWhatsappRealtimeSync() {
       refreshTimerRef.current = window.setTimeout(() => {
         refreshTimerRef.current = null;
         window.dispatchEvent(new CustomEvent(REFRESH_EVENT, { detail: { slug, reason } }));
+        refreshDesktopInbox();
       }, REALTIME_DEBOUNCE_MS);
     };
 
