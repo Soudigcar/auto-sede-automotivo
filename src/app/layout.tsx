@@ -21,6 +21,7 @@ import { StorePipelineCompactCardsUx } from '@/components/StorePipelineCompactCa
 import { StoreWhatsappRealtimeSync } from '@/components/StoreWhatsappRealtimeSync';
 import { StoreWhatsappHeaderActionsUx } from '@/components/StoreWhatsappHeaderActionsUx';
 import { StorePortalMobileNavigation } from '@/components/StorePortalMobileNavigation';
+import { MasterMobileNavigation } from '@/components/MasterMobileNavigation';
 import { PrivacyConsentCenter } from '@/components/PrivacyConsentCenter';
 import { PwaInstallManager } from '@/components/PwaInstallManager';
 
@@ -79,6 +80,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StoreWhatsappRealtimeSync />
         <StoreWhatsappHeaderActionsUx />
         <StorePortalMobileNavigation />
+        <MasterMobileNavigation />
         <PrivacyConsentCenter />
         <PwaInstallManager />
       </body>
