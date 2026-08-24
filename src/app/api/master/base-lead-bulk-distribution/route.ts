@@ -257,7 +257,7 @@ async function resolveAllFilteredLeadIds(
       const enriched = {
         ...lead,
         _birth_date: commercial?.birth_date || lead.metadata?.birth_date || null,
-        _commercial_cpf: commercial?.cpf || null
+        _commercial_cpf: commercial?.cpf || lead.cpf || null
       };
       if (!baseLeadMatchesFilters(enriched, filters, eventNames)) continue;
 
