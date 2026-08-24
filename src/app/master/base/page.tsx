@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { MasterLeadImportModal } from '@/components/MasterLeadImportModal';
+import { MasterBulkLeadDistribution } from '@/components/MasterBulkLeadDistribution';
 import { EventScopeSelect, eventScopeLabel } from '@/components/EventScopeSelect';
 import { createClient } from '@/lib/supabase';
 
@@ -444,7 +445,7 @@ export default function MasterBasePage() {
             </div>
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 pt-2">
               <p className="text-[9px] font-black uppercase tracking-[0.12em] text-zinc-400">{filtered.length} lead(s) encontrados</p>
-              <div className="flex items-center gap-2"><div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5"><button type="button" onClick={() => setViewMode('cards')} className={`inline-flex h-7 items-center gap-1 rounded-md px-2.5 text-[9px] font-black uppercase ${viewMode === 'cards' ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500'}`}><LayoutGrid size={12} /> Cards</button><button type="button" onClick={() => setViewMode('list')} className={`inline-flex h-7 items-center gap-1 rounded-md px-2.5 text-[9px] font-black uppercase ${viewMode === 'list' ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500'}`}><List size={12} /> Listagem</button></div><MasterLeadImportModal onImported={loadLeads} /><button type="button" onClick={() => void exportExcel()} disabled={exporting || !filtered.length} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-[9px] font-black uppercase text-white hover:bg-emerald-700 disabled:opacity-50"><FileSpreadsheet size={13} /> {exporting ? 'Exportando...' : 'Exportar Excel'}</button></div>
+              <div className="flex items-center gap-2"><div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5"><button type="button" onClick={() => setViewMode('cards')} className={`inline-flex h-7 items-center gap-1 rounded-md px-2.5 text-[9px] font-black uppercase ${viewMode === 'cards' ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500'}`}><LayoutGrid size={12} /> Cards</button><button type="button" onClick={() => setViewMode('list')} className={`inline-flex h-7 items-center gap-1 rounded-md px-2.5 text-[9px] font-black uppercase ${viewMode === 'list' ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500'}`}><List size={12} /> Listagem</button></div><MasterLeadImportModal onImported={loadLeads} /><button type="button" onClick={() => void exportExcel()} disabled={exporting || !filtered.length} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-[9px] font-black uppercase text-white hover:bg-emerald-700 disabled:opacity-50"><FileSpreadsheet size={13} /> {exporting ? 'Exportando...' : 'Exportar Excel'}</button><MasterBulkLeadDistribution leads={filtered} stores={stores} onDistributed={loadLeads} /></div>
             </div>
           </section>
 
