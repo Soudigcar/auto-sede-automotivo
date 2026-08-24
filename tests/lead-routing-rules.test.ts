@@ -2,23 +2,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const migration=fs.readFileSync('supabase/migrations/20260823223000_lead_routing_rules_master_store.sql','utf8');
-const route=fs.readFileSync('src/app/api/lead-routing-rules/route.ts','utf8');
-const portal=fs.readFileSync('src/lib/server/storePortal.ts','utf8');
-const ui=fs.readFileSync('src/components/LeadRoutingRulesManager.tsx','utf8');
+const baseMigration = fs.readFileSync('supabase/migrations/20260823223000_lead_routing_rules_master_store.sql','utf8');
+const migration = fs.readFileSync('supabase/migrations/20260824211800_lead_routing_bulk_distribution_fail_closed_v2.sql','utf8');
+const route = fs.readFileSync('src/app/api/lead-routing-rules/route.ts','utf8');
+const portal = fs.readFileSync('src/lib/server/storePortal.ts','utf8');
+const ui = fs.readFileSync('src/components/LeadRoutingRulesManager.tsx','utf8');
+
+test('base migration is structural only and leaves routing triggers disabled', () => {
+  assert.match(baseMigration, /Fase estrutural do rollout/);
+  assert.match(baseMigration, /drop trigger if exists leads_auto_route_by_rules/);
+  assert.match(baseMigration, /drop trigger if exists leads_base_auto_route_by_rules/);
+  assert.doesNotMatch(baseMigration, /create constraint trigger leads_auto_route_by_rules/);
+  assert.doesNotMatch(baseMigration, /create trigger leads_base_auto_route_by_rules/);
+});
 
 test('state is isolated per rule and matched rules fail closed',()=>{
-  assert.match(migration,/lead_routing_rule_state/);
-  assert.match(migration,/rule_id uuid primary key/);
-  assert.match(migration,/lead_unassigned_queue/);
+  assert.match(baseMigration,/lead_routing_rule_state/);
+  assert.match(baseMigration,/rule_id uuid primary key/);
+  assert.match(baseMigration,/lead_unassigned_queue/);
   assert.match(migration,/fallback_allowed',false/);
   assert.match(migration,/for update/);
 });
 
 test('eligibility respects tenant, active status, pause and capacity',()=>{
-  assert.match(migration,/u\.store_id=v_lead\.assigned_store_id/);
-  assert.match(migration,/u\.status='active'/);
-  assert.match(migration,/u\.receives_leads=true/);
+  assert.match(migration,/u\.store_id = v_lead\.assigned_store_id/);
+  assert.match(migration,/u\.status = 'active'/);
+  assert.match(migration,/u\.receives_leads = true/);
   assert.match(migration,/max_open_leads/);
   assert.match(migration,/excluded_member_ids/);
 });
@@ -28,13 +37,19 @@ test('precedence is event campaign source default then priority',()=>{
   assert.match(migration,/r\.priority asc/);
 });
 
-test('automatic ingestion wiring routes only leads with store and no assignee',()=>{
+test('automatic ingestion wiring is enabled only by final hardening',()=>{
   assert.match(migration,/auto_route_lead_by_rules_trigger/);
-  assert.match(migration,/constraint trigger leads_auto_route_by_rules/);
-  assert.match(migration,/leads_base_auto_route_by_rules/);
+  assert.match(migration,/create constraint trigger leads_auto_route_by_rules/);
+  assert.match(migration,/create trigger leads_base_auto_route_by_rules/);
   assert.match(migration,/v_store_id is null or v_assigned_user_id is not null/);
   assert.match(migration,/transaction_timestamp\(\)/);
   assert.match(migration,/perform public\.route_lead_by_rules/);
+});
+
+test('round robin serializes candidate capacity and rule state', () => {
+  assert.match(migration,/order by u\.id[\s\S]*for update/);
+  assert.match(migration,/lead_routing_rule_state[\s\S]*for update/);
+  assert.match(migration,/max_open_leads/);
 });
 
 test('management API enforces store scope server-side',()=>{
