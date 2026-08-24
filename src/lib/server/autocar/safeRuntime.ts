@@ -206,7 +206,7 @@ export async function prepareAutocarSafeInbound(input: {
       ? `Modo efetivo ${effectiveMode.toUpperCase()} não executa resposta automática.`
       : policy.reason;
 
-  const { data: claim, error: claimError } = await autocar.from('ai_runtime_message_claims').insert({
+  const { data: insertedClaim, error: claimError } = await autocar.from('ai_runtime_message_claims').insert({
     store_id: input.storeId,
     production_conversation_id: input.conversationId,
     production_message_id: input.messageId,
@@ -262,9 +262,7 @@ export async function prepareAutocarSafeInbound(input: {
             requires_human_review: documentPreparation.analysis?.requires_human_review === true
           }
         : null
-    },
-    completed_at: ready ? null : new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    }
   }).select('*').single();
 
   if (claimError) {
@@ -288,6 +286,24 @@ export async function prepareAutocarSafeInbound(input: {
       };
     }
     throw claimError;
+  }
+
+  let claim = insertedClaim;
+  if (!ready) {
+    if (!insertedClaim?.id || !insertedClaim?.created_at) {
+      throw new Error('Claim AUTOCAR skipped sem id/created_at para finalizar timestamp.');
+    }
+
+    const { data: finalizedClaim, error: finalizeError } = await autocar.from('ai_runtime_message_claims')
+      .update({ completed_at: insertedClaim.created_at })
+      .eq('id', insertedClaim.id)
+      .eq('store_id', input.storeId)
+      .eq('purpose', 'autopilot_reply')
+      .eq('status', 'skipped')
+      .select('*')
+      .single();
+    if (finalizeError) throw finalizeError;
+    claim = finalizedClaim;
   }
 
   await upsertRuntimeConversation(autocar, ref, effectiveMode, {
