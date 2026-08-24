@@ -45,6 +45,23 @@ function initials(value: string) {
   return `${parts[0]?.[0] || ''}${parts[1]?.[0] || ''}`.toUpperCase();
 }
 
+function MobileAvatar({ name, src, compact = false, online = false }: { name: string; src?: string; compact?: boolean; online?: boolean }) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
+
+  const size = compact ? 'h-10 w-10 text-xs' : 'h-12 w-12 text-sm';
+  return (
+    <span className={`relative flex ${size} shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100 font-black text-zinc-600`}>
+      {src && !failed ? <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover" onError={() => setFailed(true)} /> : <span aria-hidden="true">{initials(name)}</span>}
+      <span className="sr-only">{name}</span>
+      {online ? <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" /> : null}
+    </span>
+  );
+}
+
 function statusTone(message: string) {
   const normalized = message.toLowerCase();
   if (!message) return 'hidden';
@@ -57,11 +74,17 @@ function statusTone(message: string) {
 function outboundStatus(message: any) {
   const status = String(message?.status || '').trim().toLowerCase();
   if (['read', 'seen'].includes(status)) return '✓✓';
-  if (['delivered'].includes(status)) return '✓✓';
+  if (status === 'delivered') return '✓✓';
   if (['sent', 'accepted'].includes(status)) return '✓';
   if (['failed', 'error'].includes(status)) return '!';
   if (['pending', 'queued', 'sending'].includes(status)) return '…';
   return '';
+}
+
+function exitInbox() {
+  const pathname = window.location.pathname;
+  const store = pathname.match(/^\/loja\/([^/]+)\/whatsapp\/?$/);
+  window.location.assign(store ? `/loja/${store[1]}` : '/master/dashboard/live');
 }
 
 export function WhatsappMobileInboxV2(props: Props) {
@@ -98,7 +121,7 @@ export function WhatsappMobileInboxV2(props: Props) {
         setNearBottom(true);
       });
     }
-  }, [props.messages.length, props.selectedId, chatOpen]);
+  }, [props.messages.length, props.selectedId, chatOpen, nearBottom]);
 
   const selectedName = props.selectedConversation ? props.getName(props.selectedConversation) : '';
   const selectedPhone = props.selectedConversation ? props.getPhone(props.selectedConversation) : '';
@@ -131,9 +154,10 @@ export function WhatsappMobileInboxV2(props: Props) {
     <div className="whatsapp-mobile-v2 fixed inset-0 z-[210] flex bg-[#f0f2f5] xl:hidden" style={{ height: '100dvh' }}>
       {!chatOpen ? (
         <section className="flex min-h-0 w-full flex-col bg-white" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
-          <header className="shrink-0 border-b border-zinc-200 bg-white px-4 pb-3 pt-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0"><p className="truncate text-xl font-black tracking-tight text-zinc-950">{props.title}</p>{props.subtitle ? <p className="mt-0.5 truncate text-[11px] font-bold text-zinc-500">{props.subtitle}</p> : null}</div>
+          <header className="shrink-0 border-b border-zinc-200 bg-white px-3 pb-3 pt-3">
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={exitInbox} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-700 active:bg-zinc-100" aria-label="Voltar ao Auto Controle"><ArrowLeft size={21} /></button>
+              <div className="min-w-0 flex-1"><p className="truncate text-xl font-black tracking-tight text-zinc-950">{props.title}</p>{props.subtitle ? <p className="mt-0.5 truncate text-[11px] font-bold text-zinc-500">{props.subtitle}</p> : null}</div>
               <button type="button" onClick={() => void props.onRefresh()} disabled={props.loading} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-600" aria-label="Atualizar conversas"><RefreshCw size={17} className={props.loading ? 'animate-spin' : ''} /></button>
             </div>
             <div className="relative mt-3"><Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" size={16} /><input value={props.searchTerm} onChange={(event) => props.onSearchTermChange(event.target.value)} placeholder="Buscar conversa ou telefone" className="h-11 w-full rounded-xl bg-zinc-100 pl-10 pr-3 text-sm font-semibold text-zinc-900 outline-none placeholder:text-zinc-400 focus:ring-2 focus:ring-red-100" /></div>
@@ -144,7 +168,7 @@ export function WhatsappMobileInboxV2(props: Props) {
 
           {visibleStatus ? <div className={`mx-3 mt-2 shrink-0 rounded-xl border px-3 py-2 text-[11px] font-bold ${tone}`}>{visibleStatus}</div> : null}
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white pb-[calc(1rem+env(safe-area-inset-bottom))]">
             {list.map((conversation) => {
               const id = String(conversation?.id || '');
               const name = props.getName(conversation);
@@ -153,7 +177,7 @@ export function WhatsappMobileInboxV2(props: Props) {
               const unread = props.getUnread(conversation);
               return (
                 <button key={id} type="button" onClick={() => void openConversation(id)} className="flex w-full items-center gap-3 border-b border-zinc-100 px-4 py-3 text-left active:bg-zinc-50">
-                  <span className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100 text-sm font-black text-zinc-600">{avatar ? <img src={avatar} alt={name} className="h-full w-full object-cover" /> : initials(name)}<span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" /></span>
+                  <MobileAvatar name={name} src={avatar} online />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-3"><strong className="truncate text-[15px] font-black text-zinc-950">{name}</strong><span className={`shrink-0 text-[11px] font-bold ${unread ? 'text-red-600' : 'text-zinc-400'}`}>{props.getTime(conversation)}</span></span>
                     <span className="mt-1 flex items-center justify-between gap-3"><span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium text-zinc-500">{props.getLastMessage(conversation) || phone || 'Sem mensagem'}</span></span>{unread ? <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-black text-white">{unread > 99 ? '99+' : unread}</span> : null}</span>
@@ -169,7 +193,7 @@ export function WhatsappMobileInboxV2(props: Props) {
           <header className="z-10 flex h-[58px] shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-2 shadow-sm">
             <button type="button" onClick={() => { setChatOpen(false); setSheetOpen(false); }} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-700 active:bg-zinc-100" aria-label="Voltar para conversas"><ArrowLeft size={22} /></button>
             <button type="button" onClick={() => setSheetOpen(true)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100 text-xs font-black text-zinc-600">{selectedAvatar ? <img src={selectedAvatar} alt={selectedName} className="h-full w-full object-cover" /> : initials(selectedName)}</span>
+              <MobileAvatar name={selectedName} src={selectedAvatar} compact />
               <span className="min-w-0"><strong className="block truncate text-[14px] font-black text-zinc-950">{selectedName || 'Conversa'}</strong><span className="block truncate text-[10px] font-bold text-zinc-500">{props.channelLabel || selectedPhone || 'WhatsApp'}</span></span>
             </button>
             <button type="button" onClick={() => setSheetOpen(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-600 active:bg-zinc-100" aria-label="Mais opções"><MoreVertical size={20} /></button>
