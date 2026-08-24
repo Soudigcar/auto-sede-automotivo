@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { Download, Share2, X } from 'lucide-react';
 
 type BeforeInstallPromptEvent = Event & {
@@ -14,7 +15,15 @@ function isStandaloneMode() {
     Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone);
 }
 
+function isAutoControleRoute(pathname: string) {
+  return pathname === '/login' ||
+    pathname === '/trocar-senha' ||
+    pathname.startsWith('/master') ||
+    pathname.startsWith('/loja/');
+}
+
 export function PwaInstallManager() {
+  const pathname = usePathname();
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showIosHelp, setShowIosHelp] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -52,6 +61,7 @@ export function PwaInstallManager() {
     };
   }, []);
 
+  if (!isAutoControleRoute(pathname)) return null;
   if (dismissed || isStandaloneMode()) return null;
 
   const canPromptInstall = Boolean(installPrompt);
