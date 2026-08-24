@@ -28,6 +28,15 @@ test('precedence is event campaign source default then priority',()=>{
   assert.match(migration,/r\.priority asc/);
 });
 
+test('automatic ingestion wiring routes only leads with store and no assignee',()=>{
+  assert.match(migration,/auto_route_lead_by_rules_trigger/);
+  assert.match(migration,/constraint trigger leads_auto_route_by_rules/);
+  assert.match(migration,/leads_base_auto_route_by_rules/);
+  assert.match(migration,/v_store_id is null or v_assigned_user_id is not null/);
+  assert.match(migration,/transaction_timestamp\(\)/);
+  assert.match(migration,/perform public\.route_lead_by_rules/);
+});
+
 test('management API enforces store scope server-side',()=>{
   assert.match(route,/profile\.role==='master'/);
   assert.match(route,/profile\.role==='store'/);
