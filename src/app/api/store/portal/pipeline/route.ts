@@ -60,52 +60,72 @@ export async function GET(request: Request) {
     if (error) throw error;
 
     const loadedLeadIds = (data || []).map((lead: any) => lead.id).filter(Boolean);
-    const { data: conversationRows, error: conversationsError } = loadedLeadIds.length
-      ? await context.supabase
+    let conversationRows: any[] = [];
+    let messageRows: any[] = [];
+    let contactRows: any[] = [];
+    let whatsappEnrichment: 'ready' | 'degraded' = 'ready';
+    let whatsappWarning: string | null = null;
+
+    // WhatsApp is enrichment for the Pipeline, not a prerequisite for rendering leads.
+    // If the provider/history query is slow or fails, the store must still receive its
+    // operational leads and can continue working the Pipeline.
+    try {
+      if (loadedLeadIds.length) {
+        const conversationsResult = await context.supabase
           .from('whatsapp_conversations')
           .select('id,lead_id,contact_id,last_message_at')
           .eq('store_id', context.store.id)
           .in('lead_id', loadedLeadIds)
-          .order('last_message_at', { ascending: false })
-      : { data: [], error: null };
+          .order('last_message_at', { ascending: false });
+        if (conversationsResult.error) throw conversationsResult.error;
+        conversationRows = conversationsResult.data || [];
+      }
 
-    if (conversationsError) throw conversationsError;
-
-    const conversationIds = (conversationRows || []).map((conversation: any) => conversation.id).filter(Boolean);
-    const { data: messageRows, error: messagesError } = conversationIds.length
-      ? await context.supabase
+      const conversationIds = conversationRows.map((conversation: any) => conversation.id).filter(Boolean);
+      if (conversationIds.length) {
+        const messagesResult = await context.supabase
           .from('whatsapp_messages')
           .select('conversation_id,lead_id,direction,raw_payload,sent_at,created_at')
           .in('conversation_id', conversationIds)
-          .order('sent_at', { ascending: true })
-      : { data: [], error: null };
-    if (messagesError) throw messagesError;
+          .order('sent_at', { ascending: true });
+        if (messagesResult.error) throw messagesResult.error;
+        messageRows = messagesResult.data || [];
+      }
+
+      const contactIds = Array.from(new Set(conversationRows.map((conversation: any) => conversation.contact_id).filter(Boolean)));
+      if (contactIds.length) {
+        const contactsResult = await context.supabase
+          .from('whatsapp_contacts')
+          .select('id,metadata')
+          .eq('store_id', context.store.id)
+          .in('id', contactIds);
+        if (contactsResult.error) throw contactsResult.error;
+        contactRows = contactsResult.data || [];
+      }
+    } catch (whatsappError: any) {
+      whatsappEnrichment = 'degraded';
+      whatsappWarning = 'Os leads foram carregados, mas o enriquecimento do WhatsApp está temporariamente indisponível.';
+      conversationRows = [];
+      messageRows = [];
+      contactRows = [];
+      console.warn('[Store Pipeline] WhatsApp enrichment degraded; returning leads without blocking Pipeline.', {
+        storeId: context.store.id,
+        error: whatsappError?.message || String(whatsappError)
+      });
+    }
 
     const responseMeasurements = responseByLeadId(
-      calculateResponseTimes(conversationRows || [], messageRows || []).measurements
+      calculateResponseTimes(conversationRows, messageRows).measurements
     );
 
     const conversationByLeadId = new Map<string, any>();
-    for (const conversation of conversationRows || []) {
+    for (const conversation of conversationRows) {
       if (conversation.lead_id && !conversationByLeadId.has(conversation.lead_id)) {
         conversationByLeadId.set(conversation.lead_id, conversation);
       }
     }
 
-    const contactIds = Array.from(new Set(
-      Array.from(conversationByLeadId.values()).map((conversation: any) => conversation.contact_id).filter(Boolean)
-    ));
-    const { data: contactRows, error: contactsError } = contactIds.length
-      ? await context.supabase
-          .from('whatsapp_contacts')
-          .select('id,metadata')
-          .eq('store_id', context.store.id)
-          .in('id', contactIds)
-      : { data: [], error: null };
-
-    if (contactsError) throw contactsError;
-
-    const contactById = new Map((contactRows || []).map((contact: any) => [contact.id, contact]));
+    const contactById = new Map(contactRows.map((contact: any) => [contact.id, contact]));
     const leads = (data || []).map((lead: any) => {
       const conversation = conversationByLeadId.get(lead.id) || null;
       const contact = conversation?.contact_id ? contactById.get(conversation.contact_id) : null;
@@ -214,6 +234,10 @@ export async function GET(request: Request) {
       metrics,
       team,
       leads,
+      enrichment: {
+        whatsapp: whatsappEnrichment,
+        warning: whatsappWarning
+      },
       pagination: {
         offset,
         limit: pageSize,
