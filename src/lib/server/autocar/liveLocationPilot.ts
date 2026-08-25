@@ -1,9 +1,9 @@
 import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 import { evaluateAutocarOperationalShadowPolicy } from '@/lib/server/autocar/operationalPolicy';
-import { sendEvolutionText } from '@/lib/server/evolution';
+import { sendEvolutionLocation } from '@/lib/server/evolution';
 
 const LIVE_PURPOSE = 'live_location_send';
-const LIVE_PILOT_VERSION = 'autocar-live-location-v1';
+const LIVE_PILOT_VERSION = 'autocar-live-location-v2';
 
 const blockedLiveCapabilities = new Set([
   'send_photos',
@@ -48,16 +48,20 @@ function safeHttpsUrl(value: unknown) {
   return /^https:\/\//i.test(url) ? url : '';
 }
 
-function buildLocationText(location: any) {
+function validCoordinate(value: unknown, min: number, max: number) {
+  const coordinate = typeof value === 'number' ? value : Number(String(value ?? '').trim());
+  return Number.isFinite(coordinate) && coordinate >= min && coordinate <= max ? coordinate : null;
+}
+
+function buildLocationPreview(location: any) {
+  const name = String(location?.label || 'Localização da loja').trim();
   const address = String(location?.address || '').trim();
   const city = String(location?.city || '').trim();
   const state = String(location?.state || '').trim();
   const postalCode = String(location?.postal_code || '').trim();
-  const mapsUrl = safeHttpsUrl(location?.maps_url);
-
   const region = city && state ? `${city}/${state}` : city || state;
   const addressParts = [address, region, postalCode].filter(Boolean);
-  return `Nossa localização: ${addressParts.join(', ')}.\nGoogle Maps: ${mapsUrl}`.trim();
+  return `📍 ${name}${addressParts.length ? ` — ${addressParts.join(', ')}` : ''}`;
 }
 
 function locationGate(shadow: any) {
@@ -69,7 +73,7 @@ function locationGate(shadow: any) {
     return { allowed: false, reason: 'A última mensagem não exige envio de localização.', text: '', location: null };
   }
   if (plan?.needs_photos) {
-    return { allowed: false, reason: 'Pedido também exige fotos; execução combinada ainda não está liberada no LIVE LOCATION V1.', text: '', location: null };
+    return { allowed: false, reason: 'Pedido também exige fotos; execução combinada ainda não está liberada no LIVE LOCATION V2.', text: '', location: null };
   }
 
   const bookingState = String(shadow?.booking_guard?.state || 'NOT_APPLICABLE');
@@ -83,8 +87,10 @@ function locationGate(shadow: any) {
 
   const address = String(location?.address || '').trim();
   const mapsUrl = safeHttpsUrl(location?.maps_url);
-  if (!location?.configured || !address || !mapsUrl) {
-    return { allowed: false, reason: 'Localização não liberada: endereço e link HTTPS do Google Maps precisam estar configurados no Perfil Operacional.', text: '', location: null };
+  const latitude = validCoordinate(location?.latitude, -90, 90);
+  const longitude = validCoordinate(location?.longitude, -180, 180);
+  if (!location?.configured || !address || latitude === null || longitude === null) {
+    return { allowed: false, reason: 'Localização nativa não liberada: endereço, latitude e longitude válidos precisam estar configurados no Perfil Operacional.', text: '', location: null };
   }
 
   const actions = Array.isArray(shadow?.proposed_actions) ? shadow.proposed_actions : [];
@@ -100,7 +106,7 @@ function locationGate(shadow: any) {
       return { allowed: false, reason: `A conversa requer ${effect}; localização não será enviada automaticamente.`, text: '', location: null };
     }
     if (blockedLiveCapabilities.has(capability) && effect === 'allow') {
-      return { allowed: false, reason: `Capability ${capability} também foi liberada, mas continua fora do LIVE LOCATION V1.`, text: '', location: null };
+      return { allowed: false, reason: `Capability ${capability} também foi liberada, mas continua fora do LIVE LOCATION V2.`, text: '', location: null };
     }
   }
 
@@ -109,9 +115,15 @@ function locationGate(shadow: any) {
     return { allowed: false, reason: policy.reason, text: '', location: null };
   }
 
-  const text = buildLocationText(location);
+  const name = String(location?.label || 'Localização da loja').trim().slice(0, 120);
+  const city = String(location?.city || '').trim();
+  const state = String(location?.state || '').trim();
+  const postalCode = String(location?.postal_code || '').trim();
+  const region = city && state ? `${city}/${state}` : city || state;
+  const nativeAddress = [address, region, postalCode].filter(Boolean).join(', ').slice(0, 240);
+  const text = buildLocationPreview(location);
   if (!text || text.length > 3500) {
-    return { allowed: false, reason: 'Texto determinístico da localização ficou inválido para envio.', text: '', location: null };
+    return { allowed: false, reason: 'Prévia determinística da localização ficou inválida para envio.', text: '', location: null };
   }
 
   return {
@@ -119,10 +131,15 @@ function locationGate(shadow: any) {
     reason: policy.reason,
     text,
     location: {
+      source: 'store',
+      name,
       address,
-      city: String(location?.city || '').trim() || null,
-      state: String(location?.state || '').trim() || null,
-      postal_code: String(location?.postal_code || '').trim() || null,
+      native_address: nativeAddress,
+      city: city || null,
+      state: state || null,
+      postal_code: postalCode || null,
+      latitude,
+      longitude,
       maps_url: mapsUrl
     }
   };
@@ -161,7 +178,7 @@ async function currentLiveEligibility(storeId: string, conversationId: string, o
     return { allowed: false, reason: policy.reason, runtime, policy };
   }
 
-  return { allowed: true, reason: 'Elegível para AUTOCAR LIVE LOCATION V1.', runtime, policy };
+  return { allowed: true, reason: 'Elegível para AUTOCAR LIVE LOCATION V2.', runtime, policy };
 }
 
 async function createLocationClaim(input: {
@@ -186,13 +203,13 @@ async function createLocationClaim(input: {
     purpose: LIVE_PURPOSE,
     idempotency_key: key,
     direction: 'outbound',
-    message_type: 'text',
+    message_type: 'location',
     effective_mode: input.effectiveMode,
     status: blocked ? 'skipped' : 'ready',
     policy_capability: 'send_location',
     policy_effect: blocked ? 'deny' : 'allow',
     policy_source: 'live_location_pilot_gate',
-    policy_reason: input.gateReason || 'AUTOCAR LIVE LOCATION V1: endereço e Google Maps reais liberados após elegibilidade da loja e guard operacional.',
+    policy_reason: input.gateReason || 'AUTOCAR LIVE LOCATION V2: pin nativo oficial liberado após elegibilidade da loja e guard operacional.',
     result: {
       live_pilot_version: LIVE_PILOT_VERSION,
       planned_text: input.text,
@@ -261,7 +278,7 @@ export async function attemptAutocarLiveLocationPilot(input: {
   shadowResult: any;
 }) {
   if (!isLiveRuntimeEnvironment()) {
-    return { sent: false, skipped: true, reason: 'AUTOCAR LIVE LOCATION V1 é bloqueado fora de Preview/Production.' };
+    return { sent: false, skipped: true, reason: 'AUTOCAR LIVE LOCATION V2 é bloqueado fora de Preview/Production.' };
   }
   if (input.integration?.scope !== 'store' || input.integration?.status !== 'connected' || !input.integration?.instance_name) {
     return { sent: false, skipped: true, reason: 'Integração Evolution da loja não está conectada.' };
@@ -288,9 +305,10 @@ export async function attemptAutocarLiveLocationPilot(input: {
   if (claimResult.duplicate) {
     return { sent: false, duplicate: true, claim: claimResult.claim, reason: 'Claim LIVE de localização já existe; nenhum reenvio será feito.' };
   }
-  if (!gate.allowed || !claimResult.claim?.id) {
+  if (!gate.allowed || !gate.location || !claimResult.claim?.id) {
     return { sent: false, skipped: true, claim: claimResult.claim, reason: gate.reason || 'Claim LIVE de localização não ficou elegível.' };
   }
+  const trustedLocation = gate.location;
 
   const eligibility = await currentLiveEligibility(input.storeId, input.conversationId, shadow.operational_preview);
   if (!eligibility.allowed) {
@@ -311,7 +329,7 @@ export async function attemptAutocarLiveLocationPilot(input: {
     .eq('store_id', input.storeId)
     .maybeSingle();
   if (conversationError) throw conversationError;
-  if (!conversation) throw new Error('Conversa canônica não encontrada para LIVE LOCATION V1.');
+  if (!conversation) throw new Error('Conversa canônica não encontrada para LIVE LOCATION V2.');
 
   const { data: contact, error: contactError } = await input.productionSupabase
     .from('whatsapp_contacts')
@@ -320,10 +338,15 @@ export async function attemptAutocarLiveLocationPilot(input: {
     .maybeSingle();
   if (contactError) throw contactError;
   const recipient = normalizePhone(contact?.phone || contact?.wa_id);
-  if (!recipient) throw new Error('Contato sem telefone válido para LIVE LOCATION V1.');
+  if (!recipient) throw new Error('Contato sem telefone válido para LIVE LOCATION V2.');
 
   try {
-    const evolutionResult = await sendEvolutionText(String(input.integration.instance_name), recipient, gate.text);
+    const evolutionResult = await sendEvolutionLocation(String(input.integration.instance_name), recipient, {
+      name: trustedLocation.name,
+      address: trustedLocation.native_address,
+      latitude: trustedLocation.latitude,
+      longitude: trustedLocation.longitude
+    });
     const providerMessageId = String(
       evolutionResult?.key?.id || evolutionResult?.message?.key?.id || evolutionResult?.id || ''
     ).trim();
@@ -363,7 +386,7 @@ export async function attemptAutocarLiveLocationPilot(input: {
         base_lead_id: conversation.base_lead_id,
         wa_message_id: scopedId || providerMessageId || null,
         direction: 'outbound',
-        message_type: 'text',
+        message_type: 'location',
         body: gate.text,
         status: 'sent',
         raw_payload: {
@@ -372,7 +395,8 @@ export async function attemptAutocarLiveLocationPilot(input: {
           autocar_live_location_pilot: true,
           inbound_message_id: input.inboundMessageId,
           live_claim_id: claimResult.claim.id,
-          trusted_location: gate.location,
+          location: trustedLocation,
+          trusted_location: trustedLocation,
           evolution: evolutionResult
         },
         sent_at: sentAt
@@ -397,7 +421,8 @@ export async function attemptAutocarLiveLocationPilot(input: {
         provider: 'evolution',
         provider_message_id: providerMessageId || null,
         production_outbound_message_id: savedMessage?.id || null,
-        sent_text: gate.text,
+        sent_location: trustedLocation,
+        sent_preview: gate.text,
         sent_at: sentAt
       }
     });
@@ -415,7 +440,7 @@ export async function attemptAutocarLiveLocationPilot(input: {
       completed_at: new Date().toISOString(),
       result: {
         external_execution: 'unknown_or_failed',
-        error: String(error?.message || error || 'Falha no LIVE LOCATION V1.').slice(0, 1000),
+        error: String(error?.message || error || 'Falha no LIVE LOCATION V2.').slice(0, 1000),
         automatic_retry_disabled: true
       }
     }).catch(() => claimResult.claim);
@@ -424,7 +449,7 @@ export async function attemptAutocarLiveLocationPilot(input: {
       sent: false,
       failed: true,
       claim: failed,
-      reason: String(error?.message || error || 'Falha no LIVE LOCATION V1.').slice(0, 500)
+      reason: String(error?.message || error || 'Falha no LIVE LOCATION V2.').slice(0, 500)
     };
   }
 }
