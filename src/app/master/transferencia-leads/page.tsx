@@ -187,7 +187,7 @@ export default function MasterPrivateLeadTransferPage() {
 
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
-      <MasterSidebar />
+      <MasterSidebar active="Base" />
       <main className="ml-0 min-h-screen p-4 md:ml-[260px] md:p-7">
         <div className="mx-auto max-w-7xl space-y-5">
           <header className="rounded-3xl bg-slate-950 p-6 text-white shadow-xl">
