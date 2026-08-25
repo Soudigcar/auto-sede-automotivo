@@ -490,7 +490,7 @@ export default function MasterWhatsappCommerceActions({ conversationId, leadId, 
         <WhatsappAttachmentButton conversationId={conversationId} onRefresh={onRefresh} onStatus={onStatus} />
         <button type="button" onClick={() => void loadVehicles('stock')} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 text-[10px] font-black uppercase text-blue-700 transition hover:bg-blue-100"><Car size={14} /> Estoque</button>
         <button type="button" onClick={() => void loadVehicles('photos')} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 text-[10px] font-black uppercase text-violet-700 transition hover:bg-violet-100"><Camera size={14} /> Fotos do veículo</button>
-        <button type="button" onClick={openSchedule} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 text-[10px] font-black uppercase text-amber-700 transition hover:bg-amber-100"><CalendarDays size={14} /> Agendar</button>
+        <button type="button" onClick={openSchedule} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-700 transition hover:bg-amber-100" aria-label="Agendar atividade" title="Agendar atividade"><CalendarDays size={17} /></button>
         <button type="button" onClick={() => void openTransfer()} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-[10px] font-black uppercase text-emerald-700 transition hover:bg-emerald-100"><ArrowRightLeft size={14} /> Transferir lead</button>
       </div>
 
