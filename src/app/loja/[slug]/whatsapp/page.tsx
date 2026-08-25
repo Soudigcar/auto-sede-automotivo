@@ -594,40 +594,40 @@ export default function StoreWhatsappPage() {
                           <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${channelConnected(selectedConversation) ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`} aria-label={channelStatus(selectedConversation)} title={channelStatus(selectedConversation)}><MessageCircle size={18} /></span>
                         </div>
 
-                        <div className="flex items-center gap-2 overflow-x-auto border-t border-zinc-100 pt-2.5">
+                        <div className="flex items-center gap-1 overflow-x-auto border-t border-zinc-100 pt-1.5">
                           <span
-                            className={`inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border px-3 text-[10px] font-black uppercase ${autocarHumanActive ? 'border-amber-200 bg-amber-50 text-amber-700' : autocarError ? 'border-zinc-200 bg-zinc-100 text-zinc-500' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}
+                            className={`inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-md border px-2 text-[8px] font-black uppercase ${autocarHumanActive ? 'border-amber-200 bg-amber-50 text-amber-700' : autocarError ? 'border-zinc-200 bg-zinc-100 text-zinc-500' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}
                             title={autocarError || autocarRuntime?.pause_reason || autocarStatusLabel}
                           >
-                            {autocarLoading ? <RefreshCw size={13} className="animate-spin" /> : autocarHumanActive ? <UserCircle2 size={13} /> : <Bot size={13} />}
+                            {autocarLoading ? <RefreshCw size={11} className="animate-spin" /> : autocarHumanActive ? <UserCircle2 size={11} /> : <Bot size={11} />}
                             {autocarStatusLabel}
                           </span>
 
                           {!autocarHumanActive && autocarCanTakeOver ? (
                             <button
-                              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 text-[10px] font-black uppercase text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 text-[8px] font-black uppercase text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
                               type="button"
                               onClick={() => void assumeHumanService()}
                               disabled={autocarAction || autocarLoading}
                               title="Pausar a AUTOCAR somente nesta conversa e assumir o atendimento"
                             >
-                              {autocarAction ? <RefreshCw size={13} className="animate-spin" /> : <UserCircle2 size={13} />}
+                              {autocarAction ? <RefreshCw size={11} className="animate-spin" /> : <UserCircle2 size={11} />}
                               {autocarAction ? 'Assumindo...' : 'Assumir atendimento'}
                             </button>
                           ) : null}
 
-                          <button className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 text-[10px] font-black uppercase text-zinc-600 transition hover:border-red-200 hover:text-red-600" type="button" onClick={markSelectedAsRead} title="Marcar como lida"><CheckCircle2 size={13} /> Marcar como lida</button>
+                          <button className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-2 text-[8px] font-black uppercase text-zinc-600 transition hover:border-red-200 hover:text-red-600" type="button" onClick={markSelectedAsRead} title="Marcar como lida"><CheckCircle2 size={11} /> Marcar como lida</button>
 
-                          <label className="relative inline-flex h-9 w-[235px] shrink-0 items-center rounded-lg border border-zinc-200 bg-white">
-                            <span className="pointer-events-none absolute left-3 text-[9px] font-black uppercase tracking-wide text-zinc-400">Etapa</span>
-                            <select className="h-full w-full appearance-none rounded-lg bg-transparent pl-14 pr-8 text-[10px] font-black uppercase text-zinc-700 outline-none transition focus:ring-2 focus:ring-red-100 disabled:cursor-not-allowed disabled:opacity-50" value={pipelineStageValue(selectedConversation)} onChange={(event) => void changePipelineStage(event.target.value)} disabled={stageUpdating || !pipelineLeadId(selectedConversation)} aria-label="Alterar etapa da Pipeline">
+                          <label className="relative inline-flex h-7 w-[175px] shrink-0 items-center rounded-md border border-zinc-200 bg-white">
+                            <span className="pointer-events-none absolute left-2 text-[7px] font-black uppercase tracking-wide text-zinc-400">Etapa</span>
+                            <select className="h-full w-full appearance-none rounded-md bg-transparent pl-11 pr-6 text-[8px] font-black uppercase text-zinc-700 outline-none transition focus:ring-2 focus:ring-red-100 disabled:cursor-not-allowed disabled:opacity-50" value={pipelineStageValue(selectedConversation)} onChange={(event) => void changePipelineStage(event.target.value)} disabled={stageUpdating || !pipelineLeadId(selectedConversation)} aria-label="Alterar etapa da Pipeline">
                               {!pipelineStageValue(selectedConversation) ? <option value="">Sem etapa</option> : null}
                               {pipelineStages.map((stage) => <option key={stage.key} value={stage.key}>{stage.label}{stage.secureFlow ? ' • fluxo seguro' : ''}</option>)}
                             </select>
-                            <ArrowDownUp className="pointer-events-none absolute right-3 text-zinc-400" size={13} />
+                            <ArrowDownUp className="pointer-events-none absolute right-2 text-zinc-400" size={11} />
                           </label>
 
-                          <Link href={`/loja/${slug}/pipeline`} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 text-[10px] font-black uppercase text-zinc-600 transition hover:border-red-200 hover:text-red-600"><ArrowUpRight size={13} /> Abrir Pipeline</Link>
+                          <Link href={`/loja/${slug}/pipeline`} className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-2 text-[8px] font-black uppercase text-zinc-600 transition hover:border-red-200 hover:text-red-600"><ArrowUpRight size={11} /> Abrir Pipeline</Link>
                         </div>
                       </div>
                     </div>
