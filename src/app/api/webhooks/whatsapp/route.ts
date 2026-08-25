@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createHash } from 'node:crypto';
 import { RequestSecurityError, publicError, readRawBody, safeEqual, verifySha256Hmac } from '@/lib/server/requestSecurity';
 
 export const runtime = 'nodejs';
 
-const retiredDefaultVerifyToken = 'auto-controle-whatsapp-2026';
+const retiredDefaultVerifyTokenHash = 'c2b725a714be1f0a49058aa3a4ed9e744e4207d0e66ec53bd32502a0fa347cfa';
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -63,7 +64,8 @@ function getMessageBody(message: any) {
 async function verifyToken(supabase: any, requestedToken: string) {
   if (!requestedToken) return false;
   const configured = text(process.env.WHATSAPP_VERIFY_TOKEN);
-  return configured !== retiredDefaultVerifyToken && safeEqual(requestedToken, configured);
+  const configuredHash = createHash('sha256').update(configured).digest('hex');
+  return Boolean(configured) && configuredHash !== retiredDefaultVerifyTokenHash && safeEqual(requestedToken, configured);
 }
 
 async function findOrCreateLead(supabase: any, numberConfig: any, contactName: string, phone: string, firstMessage: string) {
@@ -123,7 +125,7 @@ async function findOrCreateLead(supabase: any, numberConfig: any, contactName: s
     const { data: lead, error: leadError } = await supabase
       .from('leads')
       .insert({
-        event_id: store?.event_id || null,
+        event_id: null,
         customer_name: contactName || phone,
         customer_phone: phone,
         customer_bank: '',
