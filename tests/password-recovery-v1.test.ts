@@ -29,11 +29,14 @@ test('manual member creation never exposes a credential and is preview-safe', ()
   const route = source('src/app/api/store/team/route.ts');
   const action = route.slice(route.indexOf("action === 'create_member'"), route.indexOf("action === 'generate_link'"));
   const previewIndex = action.indexOf("process.env.VERCEL_ENV === 'preview'");
+  const rateLimitIndex = action.indexOf('await enforceRateLimit');
   const createUserIndex = action.indexOf('admin.createUser');
   const resetIndex = action.indexOf('resetPasswordForEmail');
   assert.ok(previewIndex >= 0);
-  assert.ok(createUserIndex > previewIndex);
+  assert.ok(rateLimitIndex > previewIndex);
+  assert.ok(createUserIndex > rateLimitIndex);
   assert.ok(resetIndex > createUserIndex);
+  assert.match(action, /team-create-member:/);
   assert.match(action, /createBootstrapSecret/);
   assert.match(action, /credential_delivery: 'email'/);
   assert.match(action, /manager_invite/);
