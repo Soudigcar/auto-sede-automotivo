@@ -166,6 +166,8 @@ export async function POST(request: Request) {
         });
       }
 
+      await enforceRateLimit(request, `team-create-member:${profile.id}`, 10, 60 * 60);
+
       const { data: existingProfile, error: profileLookupError } = await supabase
         .from('users')
         .select('id')
