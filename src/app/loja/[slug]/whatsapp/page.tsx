@@ -519,7 +519,7 @@ export default function StoreWhatsappPage() {
               <InboxMetric label="Não lidas" value={stats.unread} helper="pendentes" icon={<Inbox size={15} />} accent="red" />
               <InboxMetric label="Em atendimento" value={stats.active} helper="abertas" icon={<UsersRound size={15} />} accent="green" />
               <InboxMetric label="Leads" value={stats.leads} helper="vinculados" icon={<UserCircle2 size={15} />} accent="blue" />
-              <button className="inline-flex h-[46px] items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700 disabled:opacity-60" type="button" onClick={() => loadData(selectedId)} disabled={loading}><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Atualizar</button>
+              <button className="inline-flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full bg-red-600 text-white shadow-md shadow-red-600/15 transition hover:bg-red-700 disabled:opacity-60" type="button" onClick={() => loadData(selectedId)} disabled={loading} aria-label="Atualizar conversas" title="Atualizar conversas"><RefreshCw size={18} className={loading ? 'animate-spin' : ''} /></button>
             </div>
           </div>
 
@@ -591,7 +591,7 @@ export default function StoreWhatsappPage() {
                               <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold text-zinc-400"><span>{selectedConversation.lead?.origin || selectedConversation.base_lead?.source || 'WhatsApp'}</span><span>•</span><span>{store?.store_name || 'Loja'}</span><span>•</span><span>{pipelineLeadId(selectedConversation) ? leadStatusLabel(pipelineStageValue(selectedConversation)) : 'Sem etapa na Pipeline'}</span></div>
                             </div>
                           </button>
-                          <span className={`inline-flex w-fit shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-[10px] font-black uppercase ${channelConnected(selectedConversation) ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`}><MessageCircle size={14} /> {channelStatus(selectedConversation)}</span>
+                          <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${channelConnected(selectedConversation) ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`} aria-label={channelStatus(selectedConversation)} title={channelStatus(selectedConversation)}><MessageCircle size={18} /></span>
                         </div>
 
                         <div className="flex items-center gap-2 overflow-x-auto border-t border-zinc-100 pt-2.5">
