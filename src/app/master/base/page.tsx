@@ -153,6 +153,29 @@ function eventPeriod(event: any) {
   return [date(event?.start_date), date(event?.end_date)].filter(Boolean).join(' a ');
 }
 
+function recordHasExplicitEventEvidence(record: any) {
+  const metadata = record?.metadata || {};
+  const firstMessage = String(metadata?.wati?.first_message || '').toLowerCase();
+  return String(metadata?.event_id || '') === String(record?.event_id || '')
+    || Boolean(String(metadata?.event_name || '').trim())
+    || Boolean(String(metadata?.meta_form_id || '').trim())
+    || /(festival|evento|feir[aã]o|encontro de neg[oó]cios)/i.test(firstMessage);
+}
+
+function credibleEventIds(lead: any, eventMap: Map<string, any>): string[] {
+  const records = Array.isArray(lead?._base_records) ? lead._base_records : [lead];
+  return Array.from(new Set<string>(records.filter((record: any) => {
+    if (!record?.event_id) return false;
+    const event = eventMap.get(String(record.event_id));
+    if (!event) return false;
+    if (recordHasExplicitEventEvidence(record)) return true;
+    if (String(event.status || '').toLowerCase() === 'active') return true;
+    const createdDate = String(record.created_at || '').slice(0, 10);
+    return Boolean(createdDate && event.start_date && event.end_date
+      && createdDate >= String(event.start_date) && createdDate <= String(event.end_date));
+  }).map((record: any) => String(record.event_id))));
+}
+
 function sourceBucket(lead: any) {
   const source = String(lead?.source || '').toLowerCase();
   const metadata = lead?.metadata || {};
@@ -286,12 +309,12 @@ export default function MasterBasePage() {
   const activeEventIds = useMemo(() => new Set(events.filter((event) => event.status === 'active').map((event) => event.id)), [events]);
 
   const eventScopedLeads = useMemo(() => leads.filter((lead) => {
-    const eventIds = Array.isArray(lead._event_ids) ? lead._event_ids : (lead.event_id ? [lead.event_id] : []);
+    const eventIds = credibleEventIds(lead, eventMap);
     if (eventFilter === 'all') return true;
     if (eventFilter === 'active') return eventIds.some((id: string) => activeEventIds.has(id));
     if (eventFilter === 'unassigned') return !eventIds.length;
     return eventIds.includes(eventFilter);
-  }), [activeEventIds, eventFilter, leads]);
+  }), [activeEventIds, eventFilter, eventMap, leads]);
 
   const sources = useMemo(() => Array.from(new Set(eventScopedLeads.flatMap((lead) => lead._sources || (lead.source ? [lead.source] : [])))).sort(), [eventScopedLeads]);
   const assignedStores = useMemo(() => Array.from(new Set(eventScopedLeads.flatMap((lead) => linkedStoreNames(lead)))).sort(), [eventScopedLeads]);
@@ -307,7 +330,7 @@ export default function MasterBasePage() {
       if (birthDateFilter && birthDateValue(lead) !== birthDateFilter) return false;
       if (!term) return true;
 
-      const eventNames = (lead._event_ids || [lead.event_id]).filter(Boolean).map((id: string) => eventMap.get(id)?.event_name).filter(Boolean).join(' ');
+      const eventNames = credibleEventIds(lead, eventMap).map((id: string) => eventMap.get(id)?.event_name).filter(Boolean).join(' ');
       return [lead.id, lead.name, lead.phone, leadCpf(lead), lead.email, lead.campaign_name, lead.vehicle_name, (lead._sources || [lead.source]).join(' '), linkedStoreNames(lead).join(' '), eventNames || 'Sem evento', leadCity(lead), birthDateValue(lead)]
         .some((value) => String(value || '').toLowerCase().includes(term));
     });
@@ -413,7 +436,7 @@ export default function MasterBasePage() {
         Origem: lead.source || '',
         'Categoria de origem': sourceBucket(lead),
         Campanha: lead.campaign_name || '',
-        Eventos: (lead._event_ids || [lead.event_id]).filter(Boolean).map((id: string) => eventMap.get(id)?.event_name).filter(Boolean).join(', '),
+        Eventos: credibleEventIds(lead, eventMap).map((id: string) => eventMap.get(id)?.event_name).filter(Boolean).join(', '),
         Lojas: linkedStoreNames(lead).join(', '),
         Status: lead.status || '',
         Veículo: lead.vehicle_name || '',
@@ -523,7 +546,7 @@ export default function MasterBasePage() {
           ) : (
             <section className="mt-4 space-y-3">{filtered.map((lead) => {
               const storeNames = linkedStoreNames(lead);
-              const leadEventNames = (lead._event_ids || [lead.event_id]).filter(Boolean).map((id: string) => eventMap.get(id)?.event_name).filter(Boolean);
+              const leadEventNames = credibleEventIds(lead, eventMap).map((id: string) => eventMap.get(id)?.event_name).filter(Boolean);
               return <div key={lead.id} className="premium-card overflow-hidden p-4"><div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_300px]"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-base font-black text-zinc-950">{lead.name}</h2><span className="rounded-full bg-red-50 px-2.5 py-1 text-[10px] font-black text-red-600">{lead.status}</span><span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[10px] font-bold text-zinc-500">{lead.source}</span><StoreBadges names={storeNames} /></div><div className="mt-3 grid gap-2 text-xs text-zinc-600 md:grid-cols-3"><ContactItem icon={<Phone size={14} />} value={lead.phone || '-'} /><ContactItem icon={<Mail size={14} />} value={lead.email || '-'} /><ContactItem icon={<UserCheck size={14} />} value={`CPF: ${formatCpf(leadCpf(lead))}`} /><ContactItem icon={<Car size={14} />} value={lead.vehicle_name || '-'} /><ContactItem icon={<Building2 size={14} />} value={storeNames.length ? `${storeNames.length} loja(s) vinculada(s)` : 'Não enviado'} /><ContactItem icon={<MapPin size={14} />} value={leadCity(lead) || 'Cidade não informada'} /></div><div className="mt-3 grid gap-2 md:grid-cols-3"><Info label="ID canônico na Base" value={lead.id} /><Info label="Eventos" value={leadEventNames.join(', ') || 'Sem evento'} /><Info label="Nascimento" value={formatBirthDate(birthDateValue(lead))} /></div></div><div className="rounded-2xl border border-zinc-100 bg-zinc-50 p-3"><label className="text-[10px] font-black uppercase text-zinc-400">Status do lead na Base</label><select className="premium-input mt-1 h-9 min-h-9 bg-white text-xs" value={lead.status} onChange={(event) => void updateLeadStatus(lead, event.target.value)}>{statuses.map((item) => <option key={item}>{item}</option>)}</select><div className="mt-3"><p className="text-[10px] font-black uppercase text-zinc-400">Presente nas lojas</p><div className="mt-2"><StoreBadges names={storeNames} emptyLabel="Ainda não distribuído" /></div></div><p className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[10px] font-bold leading-relaxed text-blue-800">Cada loja mantém atendimento, responsável e histórico independentes.</p></div></div></div>;
             })}</section>
           )}

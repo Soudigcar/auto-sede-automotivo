@@ -69,3 +69,16 @@ test('Master filters and export use every linked store without exposing them in 
   assert.match(masterBasePage, /Lojas: linkedStoreNames\(lead\)\.join/);
   assert.doesNotMatch(masterBasePage, /src\/app\/store/);
 });
+
+test('generic WhatsApp leads do not inherit stale store events', () => {
+  assert.match(officialWebhook, /p_event_id: null/);
+  assert.match(evolutionWebhook, /p_event_id: null/);
+  assert.doesNotMatch(evolutionWebhook, /p_event_id: store\.event_id/);
+});
+
+test('Master Base hides unsupported inactive-event attribution but keeps explicit evidence', () => {
+  assert.match(masterBasePage, /credibleEventIds/);
+  assert.match(masterBasePage, /recordHasExplicitEventEvidence/);
+  assert.match(masterBasePage, /meta_form_id/);
+  assert.match(masterBasePage, /festival\|evento/);
+});

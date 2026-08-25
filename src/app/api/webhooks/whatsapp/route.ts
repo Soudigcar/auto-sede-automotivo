@@ -108,7 +108,9 @@ async function findOrCreateLead(supabase: any, numberConfig: any, contactName: s
     p_customer_name: contactName || phone,
     p_origin: 'WhatsApp Oficial',
     p_notes: leadNotes,
-    p_event_id: store?.event_id || null
+    // A loja participar de um evento não prova que todo contato do WhatsApp veio dele.
+    // O evento só deve ser atribuído por uma campanha/formulário com proveniência explícita.
+    p_event_id: null
   });
   if (leadError) throw leadError;
   const leadId = leadResolution?.lead_id || null;

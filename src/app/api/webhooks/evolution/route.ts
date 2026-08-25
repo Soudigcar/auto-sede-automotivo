@@ -178,7 +178,7 @@ async function findOrCreateLead(supabase: any, integration: any, contactName: st
 
   const { data: store, error: storeError } = await supabase
     .from('stores')
-    .select('id, store_name, event_id')
+    .select('id, store_name')
     .eq('id', integration.store_id)
     .single();
   if (storeError) throw storeError;
@@ -192,7 +192,8 @@ async function findOrCreateLead(supabase: any, integration: any, contactName: st
     p_customer_name: contactName || phone,
     p_origin: 'WhatsApp Oficial',
     p_notes: leadNotes,
-    p_event_id: store.event_id || null
+    // Não herdar o evento cadastrado na loja: WhatsApp genérico não comprova origem de evento.
+    p_event_id: null
   });
   if (leadError) throw leadError;
   const leadId = leadResolution?.lead_id || null;
