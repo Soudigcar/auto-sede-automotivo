@@ -7,6 +7,8 @@ const desktop = readFileSync('src/components/WhatsappAttachmentButton.tsx', 'utf
 const mobile = readFileSync('src/components/WhatsappMobileInboxBridge.tsx', 'utf8');
 const mobileInbox = readFileSync('src/components/WhatsappMobileInboxV2.tsx', 'utf8');
 const recorder = readFileSync('src/components/WhatsappAudioRecorderButton.tsx', 'utf8');
+const storeActions = readFileSync('src/components/WhatsappCommerceActions.tsx', 'utf8');
+const masterActions = readFileSync('src/components/MasterWhatsappCommerceActions.tsx', 'utf8');
 
 test('Evolution media uses the documented JSON base64 contract', () => {
   assert.match(route, /new Uint8Array\(await fileValue\.arrayBuffer\(\)\)/);
@@ -47,4 +49,13 @@ test('audio recorder provides a safe WhatsApp-like review flow on desktop and mo
   assert.match(desktop, /WhatsappAudioRecorderButton/);
   assert.match(mobile, /audioRecorder=\{<WhatsappAudioRecorderButton/);
   assert.match(mobileInbox, /props\.messageText\.trim\(\).*props\.audioRecorder/);
+});
+
+test('compact WhatsApp actions keep attachment and scheduling as icon-only buttons', () => {
+  assert.match(desktop, /aria-label="Anexar foto, vídeo, áudio ou documento"/);
+  assert.doesNotMatch(desktop, /<Paperclip size=\{17\} \/> Anexar/);
+  assert.match(storeActions, /aria-label="Agendar atividade"/);
+  assert.doesNotMatch(storeActions, /<CalendarDays size=\{16\} \/> Agendar/);
+  assert.match(masterActions, /aria-label="Agendar atividade"/);
+  assert.doesNotMatch(masterActions, /<CalendarDays size=\{17\} \/> Agendar/);
 });
