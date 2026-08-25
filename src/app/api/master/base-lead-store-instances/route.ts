@@ -58,9 +58,9 @@ async function hydrateInstances(supabase: any, baseRows: any[]) {
     : { data: [], error: null };
   if (usersResult.error) throw usersResult.error;
 
-  const storeById = new Map((storesResult.data || []).map((row: any) => [String(row.id), row]));
-  const leadById = new Map((leadsResult.data || []).map((row: any) => [String(row.id), row]));
-  const userById = new Map((usersResult.data || []).map((row: any) => [String(row.id), row]));
+  const storeById = new Map<string, any>((storesResult.data || []).map((row: any) => [String(row.id), row] as [string, any]));
+  const leadById = new Map<string, any>((leadsResult.data || []).map((row: any) => [String(row.id), row] as [string, any]));
+  const userById = new Map<string, any>((usersResult.data || []).map((row: any) => [String(row.id), row] as [string, any]));
   const instancesByCanonical = new Map<string, any[]>();
 
   for (const instance of instances) {
