@@ -23,12 +23,47 @@ export async function GET(request: Request) {
     if (!master) return NextResponse.json({ error: 'Acesso restrito ao Master.' }, { status: 403 });
 
     const url = new URL(request.url);
+    const summaryOnly = url.searchParams.get('summary') === '1';
     const ids = Array.from(new Set(
       String(url.searchParams.get('base_lead_ids') || '')
         .split(',')
         .map(uuid)
         .filter(Boolean)
     )).slice(0, MAX_IDS);
+
+    if (summaryOnly) {
+      const instanceResult = await supabase
+        .from('lead_store_instances')
+        .select('canonical_lead_id,store_id,lead_id');
+      if (instanceResult.error) {
+        if (migrationMissing(instanceResult.error)) {
+          return NextResponse.json({
+            success: true,
+            migration_required: true,
+            summary: { canonical_leads: 0, store_instances: 0, multistore_leads: 0, stores_involved: 0 }
+          });
+        }
+        throw instanceResult.error;
+      }
+
+      const rows = instanceResult.data || [];
+      const stores = new Set(rows.map((row: any) => String(row.store_id)));
+      const counts = new Map<string, number>();
+      for (const row of rows) {
+        const key = String(row.canonical_lead_id);
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+      return NextResponse.json({
+        success: true,
+        migration_required: false,
+        summary: {
+          canonical_leads: counts.size,
+          store_instances: rows.length,
+          multistore_leads: Array.from(counts.values()).filter((count) => count > 1).length,
+          stores_involved: stores.size
+        }
+      });
+    }
 
     if (!ids.length) return NextResponse.json({ success: true, instances_by_base_lead: {} });
 
