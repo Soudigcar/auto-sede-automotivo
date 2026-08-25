@@ -9,6 +9,7 @@ const mobileInbox = readFileSync('src/components/WhatsappMobileInboxV2.tsx', 'ut
 const recorder = readFileSync('src/components/WhatsappAudioRecorderButton.tsx', 'utf8');
 const storeActions = readFileSync('src/components/WhatsappCommerceActions.tsx', 'utf8');
 const masterActions = readFileSync('src/components/MasterWhatsappCommerceActions.tsx', 'utf8');
+const storeInbox = readFileSync('src/app/loja/[slug]/whatsapp/page.tsx', 'utf8');
 
 test('Evolution media uses the documented JSON base64 contract', () => {
   assert.match(route, /new Uint8Array\(await fileValue\.arrayBuffer\(\)\)/);
@@ -58,4 +59,17 @@ test('compact WhatsApp actions keep attachment and scheduling as icon-only butto
   assert.doesNotMatch(storeActions, /<CalendarDays size=\{16\} \/> Agendar/);
   assert.match(masterActions, /aria-label="Agendar atividade"/);
   assert.doesNotMatch(masterActions, /<CalendarDays size=\{17\} \/> Agendar/);
+});
+
+test('vehicle actions share one compact entry without the obsolete 24 hour warning', () => {
+  assert.doesNotMatch(storeInbox, /Janela de 24h/);
+  assert.doesNotMatch(storeActions, /Janela de 24h/);
+  assert.equal((storeActions.match(/loadVehicles\('stock'\)/g) || []).length, 1);
+  assert.equal((masterActions.match(/loadVehicles\('stock'\)/g) || []).length, 1);
+  assert.doesNotMatch(storeActions, /loadVehicles\('photos'\)/);
+  assert.doesNotMatch(masterActions, /loadVehicles\('photos'\)/);
+  assert.match(storeActions, /Definir como interesse/);
+  assert.match(storeActions, /Enviar fotos/);
+  assert.match(masterActions, /Definir como interesse/);
+  assert.match(masterActions, /Enviar fotos/);
 });
