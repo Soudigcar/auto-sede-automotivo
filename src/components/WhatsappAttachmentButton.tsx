@@ -142,22 +142,23 @@ export function WhatsappAttachmentButton({
         type="button"
         onClick={() => setAutocarOpen(true)}
         disabled={!conversationId}
-        className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 text-[10px] font-black uppercase text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+        aria-label="Abrir AUTOCAR"
         title="Analisar conversa ativa com a I.A AUTOCAR"
       >
-        <Sparkles size={14} /> AUTOCAR
+        <Sparkles size={16} />
       </button>
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={sending || !conversationId}
-        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"
         aria-label="Anexar foto, vídeo, áudio ou documento"
         title="Anexar foto, vídeo, áudio ou documento"
       >
         <Paperclip size={17} />
       </button>
-      <WhatsappAudioRecorderButton conversationId={conversationId} onRefresh={onRefresh} onStatus={onStatus} disabled={sending} />
+      <WhatsappAudioRecorderButton conversationId={conversationId} onRefresh={onRefresh} onStatus={onStatus} disabled={sending} compact />
 
       {autocarOpen ? (
         <div className="fixed inset-0 z-[555] flex items-end justify-center bg-black/25 p-3 backdrop-blur-[1px] lg:items-center" onMouseDown={(event) => { if (event.currentTarget === event.target) setAutocarOpen(false); }}>
