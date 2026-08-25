@@ -55,6 +55,7 @@ test('manager recovery is tenant-scoped and never returns credentials', () => {
 test('all password-setting flows share the strong account policy', () => {
   const policy = source('src/lib/storeTeamRegistration.ts');
   const registration = source('src/app/api/public/team-registration/route.ts');
+  const legacyRegistration = source('src/app/api/store/team-register/route.ts');
   const change = source('src/app/api/auth/change-password/route.ts');
   const recovery = source('src/app/api/auth/password-recovery/complete/route.ts');
   const changePage = source('src/app/trocar-senha/page.tsx');
@@ -65,6 +66,8 @@ test('all password-setting flows share the strong account policy', () => {
   assert.match(policy, /!\/\\d\//);
   assert.match(policy, /!\/\[\^A-Za-z0-9\]\//);
   assert.match(registration, /teamRegistrationPasswordError/);
+  assert.match(legacyRegistration, /accountPasswordError/);
+  assert.doesNotMatch(legacyRegistration, /password\.length < 12/);
   assert.match(change, /accountPasswordError/);
   assert.match(recovery, /accountPasswordError/);
   assert.match(changePage, /ACCOUNT_PASSWORD_MIN_LENGTH/);
