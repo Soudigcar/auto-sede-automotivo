@@ -80,5 +80,9 @@ test('Master Base hides unsupported inactive-event attribution but keeps explici
   assert.match(masterBasePage, /credibleEventIds/);
   assert.match(masterBasePage, /recordHasExplicitEventEvidence/);
   assert.match(masterBasePage, /meta_form_id/);
+  assert.match(masterBasePage, /meta_leadgen_id/);
+  assert.match(masterBasePage, /umbler_talk/);
   assert.match(masterBasePage, /festival\|evento/);
+  assert.doesNotMatch(masterBasePage, /Boolean\(String\(metadata\?\.event_name/);
+  assert.doesNotMatch(masterBasePage, /return String\(metadata\?\.event_id/);
 });

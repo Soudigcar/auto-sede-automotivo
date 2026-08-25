@@ -156,9 +156,14 @@ function eventPeriod(event: any) {
 function recordHasExplicitEventEvidence(record: any) {
   const metadata = record?.metadata || {};
   const firstMessage = String(metadata?.wati?.first_message || '').toLowerCase();
-  return String(metadata?.event_id || '') === String(record?.event_id || '')
-    || Boolean(String(metadata?.event_name || '').trim())
-    || Boolean(String(metadata?.meta_form_id || '').trim())
+  const metadataSource = String(metadata?.source || '').toLowerCase();
+  const hasMetaFormEvidence = Boolean(String(metadata?.meta_form_id || '').trim())
+    && (metadataSource.includes('facebook_lead_ads') || Boolean(String(metadata?.meta_leadgen_id || '').trim()));
+  const hasEventIntegrationEvidence = ['umbler_talk', 'event_link'].includes(metadataSource)
+    && String(metadata?.event_id || '') === String(record?.event_id || '');
+
+  return hasMetaFormEvidence
+    || hasEventIntegrationEvidence
     || /(festival|evento|feir[aã]o|encontro de neg[oó]cios)/i.test(firstMessage);
 }
 
