@@ -13,6 +13,13 @@ const MIME_CANDIDATES = [
   'audio/mp4'
 ];
 
+type MicrophonePermissionState = PermissionState | 'unknown';
+
+type PolicyDocument = Document & {
+  permissionsPolicy?: { allowsFeature?: (feature: string) => boolean };
+  featurePolicy?: { allowsFeature?: (feature: string) => boolean };
+};
+
 function formatDuration(seconds: number) {
   const safe = Math.max(0, Math.floor(seconds));
   return `${String(Math.floor(safe / 60)).padStart(2, '0')}:${String(safe % 60).padStart(2, '0')}`;
@@ -34,18 +41,56 @@ function isMicrophonePermissionError(error: any) {
   return name === 'NotAllowedError' || name === 'PermissionDeniedError';
 }
 
-function microphoneErrorMessage(error: any) {
+function microphoneAllowedByPolicy() {
+  if (typeof document === 'undefined') return null;
+  const policyDocument = document as PolicyDocument;
+  const policy = policyDocument.permissionsPolicy || policyDocument.featurePolicy;
+  if (!policy?.allowsFeature) return null;
+  try {
+    return policy.allowsFeature('microphone');
+  } catch {
+    return null;
+  }
+}
+
+async function microphonePermissionState(): Promise<MicrophonePermissionState> {
+  if (typeof navigator === 'undefined' || !navigator.permissions?.query) return 'unknown';
+  try {
+    const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+    return status.state;
+  } catch {
+    return 'unknown';
+  }
+}
+
+async function microphoneErrorMessage(error: any) {
   const name = String(error?.name || '');
+  const rawMessage = String(error?.message || '').trim();
+  const policyAllowed = microphoneAllowedByPolicy();
+  const permissionState = await microphonePermissionState();
+
+  if (typeof window !== 'undefined' && !window.isSecureContext) {
+    return 'O microfone foi bloqueado porque esta página não está em um contexto HTTPS seguro.';
+  }
+
+  if (policyAllowed === false) {
+    return 'O microfone está autorizado no Chrome, mas foi bloqueado pela política de segurança da página. Código: POLICY_BLOCK.';
+  }
+
+  if (isMicrophonePermissionError(error) && permissionState === 'granted') {
+    return 'O Chrome está autorizado neste site, mas o sistema operacional está impedindo o acesso ao microfone. No Mac: Ajustes do Sistema > Privacidade e Segurança > Microfone > ative Google Chrome. Código: OS_BLOCK.';
+  }
+
   if (isMicrophonePermissionError(error)) {
-    return 'Permita o acesso ao microfone no navegador para gravar áudio.';
+    return `O navegador ainda está recusando o microfone. Permissão detectada: ${permissionState}. Código: BROWSER_BLOCK${rawMessage ? ` (${rawMessage})` : ''}.`;
   }
   if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
-    return 'Nenhum microfone foi encontrado neste dispositivo.';
+    return 'Nenhum microfone foi encontrado neste dispositivo. Código: DEVICE_NOT_FOUND.';
   }
   if (name === 'NotReadableError' || name === 'TrackStartError') {
-    return 'O microfone está ocupado ou indisponível. Feche outro aplicativo que possa estar usando o microfone e tente novamente.';
+    return 'O microfone está ocupado ou indisponível. Feche outro aplicativo que possa estar usando o microfone e tente novamente. Código: DEVICE_BUSY.';
   }
-  return 'Não foi possível iniciar o microfone. Verifique a permissão do navegador e tente novamente.';
+  return `Não foi possível iniciar o microfone. Código: ${name || 'UNKNOWN'}${rawMessage ? ` (${rawMessage})` : ''}.`;
 }
 
 export function WhatsappAudioRecorder({
@@ -112,6 +157,13 @@ export function WhatsappAudioRecorder({
     if (!conversationId || disabled || state !== 'idle') return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       onStatus('Este navegador não oferece suporte à gravação de áudio. Atualize o navegador ou use outro dispositivo.');
+      return;
+    }
+
+    const policyAllowed = microphoneAllowedByPolicy();
+    if (policyAllowed === false) {
+      permissionErrorShownRef.current = true;
+      onStatus('O microfone está autorizado no Chrome, mas foi bloqueado pela política de segurança da página. Código: POLICY_BLOCK.');
       return;
     }
 
@@ -186,8 +238,8 @@ export function WhatsappAudioRecorder({
       stopTimer();
       stopTracks();
       setState('idle');
-      permissionErrorShownRef.current = isMicrophonePermissionError(error);
-      onStatus(microphoneErrorMessage(error));
+      permissionErrorShownRef.current = isMicrophonePermissionError(error) || microphoneAllowedByPolicy() === false;
+      onStatus(await microphoneErrorMessage(error));
     }
   }
 
@@ -264,6 +316,7 @@ export function WhatsappAudioRecorder({
 
     function clearPermissionWarningIfGranted(status: PermissionStatus) {
       if (status.state !== 'granted' || !permissionErrorShownRef.current) return;
+      if (microphoneAllowedByPolicy() === false) return;
       permissionErrorShownRef.current = false;
       onStatus('');
     }
