@@ -22,7 +22,7 @@ test('gravador negocia formatos, limita tamanho e libera o microfone', async () 
   assert.match(code, /audio\/mp4/);
   assert.match(code, /MAX_AUDIO_BYTES = 4 \* 1024 \* 1024/);
   assert.match(code, /MAX_RECORDING_SECONDS = 180/);
-  assert.match(code, /getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
+  assert.match(code, /getTracks\(\)\.forEach\(\(\(track\) => track\.stop\(\)\)\)/);
   assert.match(code, /URL\.revokeObjectURL/);
   assert.match(code, /NotAllowedError/);
 });
@@ -95,14 +95,15 @@ test('recuperação de mídia usa conexão live e proíbe cache de áudio no nav
   assert.match(code, /Pragma: 'no-cache'/);
 });
 
-test('microfone fica liberado somente nas rotas de Inbox WhatsApp', async () => {
+test('Inbox WhatsApp não emite Permissions-Policy concorrente e o restante continua bloqueado', async () => {
   const nextConfig = await source(nextConfigPath);
   const proxy = await source(proxyPath);
 
   assert.doesNotMatch(nextConfig, /microphone=\(\)/);
   assert.match(proxy, /DEFAULT_PERMISSIONS_POLICY = 'camera=\(\), microphone=\(\), geolocation=\(\), payment=\(\), usb=\(\), browsing-topics=\(\)'/);
-  assert.match(proxy, /WHATSAPP_PERMISSIONS_POLICY = 'camera=\(\), microphone=\(self\), geolocation=\(\), payment=\(\), usb=\(\), browsing-topics=\(\)'/);
   assert.match(proxy, /pathname === '\/master\/whatsapp\/inbox'/);
   assert.match(proxy, /\^\\\/loja\\\/\[\^\/\]\+\\\/whatsapp/);
-  assert.match(proxy, /isWhatsappInboxPath\(pathname\) \? WHATSAPP_PERMISSIONS_POLICY : DEFAULT_PERMISSIONS_POLICY/);
+  assert.match(proxy, /if \(!isWhatsappInboxPath\(pathname\)\)/);
+  assert.match(proxy, /response\.headers\.set\('Permissions-Policy', DEFAULT_PERMISSIONS_POLICY\)/);
+  assert.doesNotMatch(proxy, /microphone=\(self\)/);
 });
