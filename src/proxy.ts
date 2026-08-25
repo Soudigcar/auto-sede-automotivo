@@ -30,7 +30,6 @@ const PUBLIC_PREFIXES = [
 ];
 
 const DEFAULT_PERMISSIONS_POLICY = 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()';
-const WHATSAPP_PERMISSIONS_POLICY = 'camera=(), microphone=(self), geolocation=(), payment=(), usb=(), browsing-topics=()';
 
 function requestHost(request: NextRequest) {
   const forwarded = request.headers.get('x-forwarded-host') || request.headers.get('host') || '';
@@ -46,10 +45,12 @@ function isWhatsappInboxPath(pathname: string) {
 }
 
 function applyPermissionsPolicy(response: NextResponse, pathname: string) {
-  response.headers.set(
-    'Permissions-Policy',
-    isWhatsappInboxPath(pathname) ? WHATSAPP_PERMISSIONS_POLICY : DEFAULT_PERMISSIONS_POLICY
-  );
+  // Microphone defaults to `self` when no Permissions-Policy header is present.
+  // Do not emit a competing policy on WhatsApp inbox routes; all other routes
+  // remain explicitly locked down.
+  if (!isWhatsappInboxPath(pathname)) {
+    response.headers.set('Permissions-Policy', DEFAULT_PERMISSIONS_POLICY);
+  }
   return response;
 }
 
