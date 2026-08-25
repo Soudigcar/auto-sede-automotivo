@@ -7,6 +7,8 @@ const attachmentUiPath = new URL('../src/components/WhatsappAttachmentButton.tsx
 const audioRoutePath = new URL('../src/app/api/whatsapp/messages/send-audio/route.ts', import.meta.url);
 const attachmentRoutePath = new URL('../src/app/api/whatsapp/messages/send-attachment/route.ts', import.meta.url);
 const mediaRoutePath = new URL('../src/app/api/whatsapp/messages/media/route.ts', import.meta.url);
+const nextConfigPath = new URL('../next.config.ts', import.meta.url);
+const proxyPath = new URL('../src/proxy.ts', import.meta.url);
 
 async function source(url: URL) {
   return readFile(url, 'utf8');
@@ -91,4 +93,16 @@ test('recuperação de mídia usa conexão live e proíbe cache de áudio no nav
   assert.match(code, /resolveEvolutionAvailability\(integration, liveState\)/);
   assert.match(code, /Cache-Control': 'private, no-store, max-age=0'/);
   assert.match(code, /Pragma: 'no-cache'/);
+});
+
+test('microfone fica liberado somente nas rotas de Inbox WhatsApp', async () => {
+  const nextConfig = await source(nextConfigPath);
+  const proxy = await source(proxyPath);
+
+  assert.doesNotMatch(nextConfig, /microphone=\(\)/);
+  assert.match(proxy, /DEFAULT_PERMISSIONS_POLICY = 'camera=\(\), microphone=\(\), geolocation=\(\), payment=\(\), usb=\(\), browsing-topics=\(\)'/);
+  assert.match(proxy, /WHATSAPP_PERMISSIONS_POLICY = 'camera=\(\), microphone=\(self\), geolocation=\(\), payment=\(\), usb=\(\), browsing-topics=\(\)'/);
+  assert.match(proxy, /pathname === '\/master\/whatsapp\/inbox'/);
+  assert.match(proxy, /\^\\\/loja\\\/\[\^\/\]\+\\\/whatsapp/);
+  assert.match(proxy, /isWhatsappInboxPath\(pathname\) \? WHATSAPP_PERMISSIONS_POLICY : DEFAULT_PERMISSIONS_POLICY/);
 });
