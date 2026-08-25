@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { calculateResponseTimes, responseByLeadId } from '@/lib/commercialMetrics';
 import { cleanText } from '@/lib/server/storeTeam';
-import { applyStoreLeadScope, authorizeStorePortal } from '@/lib/server/storePortal';
+import { applyStoreLeadScope, authorizeStorePortal, storeVisibleLeadOrigin } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -113,6 +113,7 @@ export async function GET(request: Request) {
 
       return {
         ...lead,
+        origin: storeVisibleLeadOrigin(lead.origin),
         customer_phone: null,
         customer_phone_masked: maskPhone(lead.customer_phone),
         has_phone: Boolean(String(lead.customer_phone || '').replace(/\D/g, '')),

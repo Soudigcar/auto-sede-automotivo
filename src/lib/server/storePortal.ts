@@ -56,6 +56,7 @@ export function storePortalRoleLabel(role: StorePortalRole) { return roleLabels[
 export function storePortalPermissions(role: StorePortalRole) { return [...rolePermissions[role]]; }
 export function storePortalMenu(role: StorePortalRole, slug: string): StorePortalMenuItem[] { const permissions=new Set(rolePermissions[role]); return menuCatalog.filter((item)=>permissions.has(item.permission)).map((item)=>({...item,href:item.segment?`/loja/${slug}/${item.segment}`:`/loja/${slug}`})); }
 export function storePortalScopeLabel(role: StorePortalRole) { if(role==='master'||role==='store') return 'Todos os leads vinculados à loja'; return 'Leads sob sua responsabilidade atual'; }
+export function storeVisibleLeadOrigin(value: unknown) { const origin=cleanText(value,180); return origin==='master_transfer'?'Transferência Master':origin; }
 
 export function canAccessStoreLead(profile:any,role:StorePortalRole,lead:any){ if(role==='master') return true; if(!profile?.store_id||profile.store_id!==lead?.assigned_store_id) return false; if(role==='store') return true; return Boolean(profile?.id&&lead?.assigned_user_id===profile.id); }
 
