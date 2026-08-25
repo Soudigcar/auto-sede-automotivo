@@ -244,16 +244,19 @@ export default function StoreTeamPage() {
     setBusyKey(`member:${draft.id}`);
     setMessage(`Salvando ${draft.full_name}...`);
     try {
-      await postAction({
+      const data = await postAction({
         action: 'update_member',
         member_id: draft.id,
+        full_name: draft.full_name,
+        phone: draft.phone,
+        role: draft.role,
         status: draft.status,
         receives_leads: draft.receives_leads,
         routing_order: draft.routing_order,
         max_open_leads: draft.max_open_leads
       });
       await loadTeam();
-      setMessage('Colaborador atualizado com sucesso.');
+      setMessage(data.message || 'Perfil do colaborador atualizado com sucesso.');
     } catch (error: any) {
       setMessage(error?.message || 'Erro ao atualizar colaborador.');
     } finally {
@@ -383,7 +386,7 @@ export default function StoreTeamPage() {
           <section className="mt-8">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700"><UsersRound size={22} /></div>
-              <div><h2 className="text-2xl font-black text-zinc-950">Colaboradores cadastrados</h2><p className="premium-muted text-sm">Marque o rodízio para ativar automaticamente o colaborador.</p></div>
+              <div><h2 className="text-2xl font-black text-zinc-950">Colaboradores cadastrados</h2><p className="premium-muted text-sm">Edite o perfil, cargo e regras de distribuição sem alterar o e-mail ou a loja do colaborador.</p></div>
             </div>
 
             {loading ? (
@@ -398,7 +401,7 @@ export default function StoreTeamPage() {
               <div className="mt-5 grid gap-4 xl:grid-cols-2">
                 {members.map((member) => (
                   <MemberCard
-                    key={`${member.id}:${member.status}:${member.receives_leads}:${member.routing_order}:${member.max_open_leads ?? 'none'}`}
+                    key={`${member.id}:${member.full_name}:${member.phone || ''}:${member.role}:${member.status}:${member.receives_leads}:${member.routing_order}:${member.max_open_leads ?? 'none'}`}
                     member={member}
                     saving={busyKey === `member:${member.id}`}
                     recovering={busyKey === `recovery:${member.id}`}
@@ -444,6 +447,8 @@ function MemberCard({ member, saving, recovering, copiedRecovery, onSave, onSend
     }));
   }
 
+  const profileValid = draft.full_name.trim().length >= 3 && ['pre_sales', 'seller', 'prospector'].includes(draft.role);
+
   return (
     <article className="premium-card p-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -457,6 +462,37 @@ function MemberCard({ member, saving, recovering, copiedRecovery, onSave, onSend
           <p className="mt-1 text-xs text-zinc-400">{draft.phone || 'Telefone não informado'}</p>
         </div>
         {draft.status === 'active' ? <ShieldCheck className="text-emerald-500" size={22} /> : <UserRoundCog className="text-zinc-300" size={22} />}
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+        <div className="flex items-center gap-2">
+          <UserRoundCog size={17} className="text-red-600" />
+          <p className="text-sm font-black text-zinc-800">Editar perfil</p>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="text-xs font-black uppercase tracking-wide text-zinc-500">
+            Nome
+            <input type="text" maxLength={180} value={draft.full_name} onChange={(event) => setDraft((current) => ({ ...current, full_name: event.target.value }))} className="premium-input mt-2 text-sm normal-case" />
+          </label>
+          <label className="text-xs font-black uppercase tracking-wide text-zinc-500">
+            Telefone
+            <input type="tel" maxLength={40} value={draft.phone || ''} onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))} className="premium-input mt-2 text-sm normal-case" placeholder="Telefone do colaborador" />
+          </label>
+          <label className="text-xs font-black uppercase tracking-wide text-zinc-500">
+            Cargo
+            <select value={draft.role} onChange={(event) => setDraft((current) => ({ ...current, role: event.target.value }))} className="premium-input mt-2 text-sm normal-case">
+              <option value="pre_sales">Pré-vendas</option>
+              <option value="seller">Vendedor</option>
+              <option value="prospector">Prospectador</option>
+            </select>
+          </label>
+          <label className="text-xs font-black uppercase tracking-wide text-zinc-500">
+            E-mail
+            <input type="email" value={draft.email} readOnly disabled className="premium-input mt-2 cursor-not-allowed text-sm normal-case opacity-60" />
+            <span className="mt-1 block text-[10px] font-semibold normal-case tracking-normal text-zinc-400">O e-mail identifica a conta e não pode ser alterado nesta edição.</span>
+          </label>
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-zinc-500">Ao mudar o cargo, as permissões passam a seguir o novo perfil. Ao entrar ou sair de Prospectador, o histórico de prospecção é preservado.</p>
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
@@ -484,8 +520,8 @@ function MemberCard({ member, saving, recovering, copiedRecovery, onSave, onSend
         <input type="checkbox" checked={Boolean(draft.receives_leads)} onChange={(event) => changeRouting(event.target.checked)} className="h-5 w-5 accent-red-600" />
       </label>
 
-      <button type="button" onClick={() => onSave(draft)} disabled={saving} className="premium-button-primary mt-4 w-full justify-center disabled:opacity-50">
-        {saving ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />} Salvar colaborador
+      <button type="button" onClick={() => onSave(draft)} disabled={saving || !profileValid} className="premium-button-primary mt-4 w-full justify-center disabled:opacity-50">
+        {saving ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />} Salvar alterações
       </button>
 
       <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
