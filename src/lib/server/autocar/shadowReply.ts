@@ -211,7 +211,7 @@ export async function generateAutocarShadowReply(input: {
     body: conversationBody(message),
     sent_at: message.sent_at || message.created_at || null
   })).filter((message: any) => Boolean(String(message.body || '').trim()));
-  const lastInbound = [...transcript].reverse().find((message) => message.direction === 'inbound');
+  const lastInbound = [...transcript].reverse().find((message: any) => message.direction === 'inbound');
   if (!lastInbound?.body) throw new Error('A conversa não possui mensagem inbound textual, visual ou documental suficiente para o Shadow Mode.');
 
   const intelligence = await buildAutocarIntelligenceContext({
@@ -230,7 +230,7 @@ export async function generateAutocarShadowReply(input: {
     }),
     classifyAutocarHumanRequestV2({
       currentInbound: String(lastInbound.body),
-      recentConversation: recentConversation.map((message) => ({ direction: message.direction, body: message.body }))
+      recentConversation: recentConversation.map((message: any) => ({ direction: message.direction, body: message.body }))
     })
   ]);
 
