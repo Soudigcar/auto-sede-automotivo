@@ -36,7 +36,7 @@ const statuses = [
 ];
 
 const BASE_PAGE_SIZE = 200;
-const BASE_LEAD_SELECT = 'id,name,phone,cpf,email,campaign_id,campaign_name,vehicle_name,source,assigned_store_id,assigned_store_name,assigned_consultant_id,routed_lead_id,event_id,status,metadata,canonical_lead_id,created_at,updated_at';
+const BASE_LEAD_SELECT = 'id,name,phone,cpf,email,campaign_id,campaign_name,vehicle_name,source,assigned_store_id,assigned_store_name,assigned_consultant_id,routed_lead_id,event_id,status,metadata,created_at,updated_at';
 
 type ViewMode = 'cards' | 'list';
 type EditableField = 'name' | 'phone' | 'cpf' | 'birth_date' | 'city' | 'source' | 'campaign_name' | 'vehicle_name';
