@@ -421,15 +421,22 @@ export async function POST(request: Request) {
 
     if (action === 'update_member') {
       const memberId = cleanText(body.member_id, 80);
+      const fullName = cleanText(body.full_name, 180);
+      const phone = cleanText(body.phone, 40);
+      const role = cleanText(body.role, 40);
       const status = cleanText(body.status, 30) as MemberStatus;
 
-      if (!memberId || !memberStatuses.includes(status)) {
-        return NextResponse.json({ error: 'Colaborador ou status inválido.' }, { status: 400 });
+      if (Object.prototype.hasOwnProperty.call(body, 'email') || Object.prototype.hasOwnProperty.call(body, 'store_id')) {
+        return NextResponse.json({ error: 'E-mail e loja não podem ser alterados nesta edição.' }, { status: 400 });
+      }
+
+      if (!memberId || fullName.length < 3 || !isStoreTeamRole(role) || !memberStatuses.includes(status)) {
+        return NextResponse.json({ error: 'Perfil do colaborador inválido.' }, { status: 400 });
       }
 
       const { data: member, error: memberError } = await supabase
         .from('users')
-        .select('id, full_name, email, phone, role, store_id, status')
+        .select('id, full_name, email, phone, role, store_id, status, receives_leads, routing_order, max_open_leads')
         .eq('id', memberId)
         .eq('store_id', store.id)
         .in('role', ['pre_sales', 'seller', 'prospector'])
@@ -443,61 +450,170 @@ export async function POST(request: Request) {
       const receivesLeads = status === 'active' && Boolean(body.receives_leads);
       const routingOrder = parseRoutingOrder(body.routing_order);
       const maxOpenLeads = parseNullablePositiveInteger(body.max_open_leads);
+      const previousRole = member.role;
 
+      if (process.env.VERCEL_ENV === 'preview') {
+        return NextResponse.json({
+          success: true,
+          preview_mode: true,
+          message: `Preview validado para ${fullName}. Nenhum dado real foi alterado.`,
+          role_label: storeTeamRoleLabels[role]
+        });
+      }
+
+      let latestProspector: any = null;
+      if (previousRole === 'prospector' || role === 'prospector') {
+        const { data: prospectors, error: prospectorLookupError } = await supabase
+          .from('prospectors')
+          .select('id, user_id, store_id, event_id, full_name, email, phone, status, created_at')
+          .eq('user_id', member.id)
+          .eq('store_id', store.id)
+          .order('created_at', { ascending: false });
+
+        if (prospectorLookupError) throw prospectorLookupError;
+        latestProspector = prospectors?.[0] || null;
+      }
+
+      const updatedAt = new Date().toISOString();
       const { error: updateError } = await supabase
         .from('users')
         .update({
+          full_name: fullName,
+          phone: phone || null,
+          role,
           status,
           receives_leads: receivesLeads,
           routing_order: routingOrder,
           max_open_leads: maxOpenLeads,
-          updated_at: new Date().toISOString()
+          updated_at: updatedAt
         })
         .eq('id', member.id)
         .eq('store_id', store.id);
 
       if (updateError) throw updateError;
 
-      if (member.role === 'prospector') {
-        const { data: prospector } = await supabase
-          .from('prospectors')
-          .select('id')
-          .eq('user_id', member.id)
-          .maybeSingle();
+      async function rollbackMember() {
+        return supabase
+          .from('users')
+          .update({
+            full_name: member.full_name,
+            phone: member.phone,
+            role: member.role,
+            status: member.status,
+            receives_leads: member.receives_leads,
+            routing_order: member.routing_order,
+            max_open_leads: member.max_open_leads,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', member.id)
+          .eq('store_id', store.id);
+      }
 
-        const prospectorStatus = status === 'active' ? 'active' : 'inactive';
+      const prospectorStatus = status === 'active' ? 'active' : 'inactive';
 
-        if (prospector) {
-          const { error } = await supabase
+      if (role === 'prospector') {
+        if (previousRole !== 'prospector' && latestProspector) {
+          const { error: deactivateHistoricalError } = await supabase
+            .from('prospectors')
+            .update({ status: 'inactive', updated_at: updatedAt })
+            .eq('user_id', member.id)
+            .eq('store_id', store.id);
+
+          if (deactivateHistoricalError) {
+            await rollbackMember();
+            throw deactivateHistoricalError;
+          }
+        }
+
+        if (latestProspector) {
+          const { error: prospectorUpdateError } = await supabase
             .from('prospectors')
             .update({
               store_id: store.id,
               event_id: store.event_id,
-              full_name: member.full_name,
+              full_name: fullName,
               email: member.email,
-              phone: member.phone,
+              phone: phone || null,
               status: prospectorStatus,
-              updated_at: new Date().toISOString()
+              updated_at: updatedAt
             })
-            .eq('id', prospector.id);
+            .eq('id', latestProspector.id)
+            .eq('store_id', store.id);
 
-          if (error) throw error;
-        } else if (status === 'active') {
-          const { error } = await supabase.from('prospectors').insert({
+          if (prospectorUpdateError) {
+            await rollbackMember();
+            throw prospectorUpdateError;
+          }
+        } else {
+          const { error: prospectorInsertError } = await supabase.from('prospectors').insert({
             user_id: member.id,
             store_id: store.id,
             event_id: store.event_id,
-            full_name: member.full_name,
+            full_name: fullName,
             email: member.email,
-            phone: member.phone,
-            status: 'active'
+            phone: phone || null,
+            status: prospectorStatus
           });
 
-          if (error) throw error;
+          if (prospectorInsertError) {
+            await rollbackMember();
+            throw prospectorInsertError;
+          }
+        }
+      } else if (previousRole === 'prospector') {
+        const { error: prospectorDeactivateError } = await supabase
+          .from('prospectors')
+          .update({
+            full_name: fullName,
+            email: member.email,
+            phone: phone || null,
+            status: 'inactive',
+            updated_at: updatedAt
+          })
+          .eq('user_id', member.id)
+          .eq('store_id', store.id);
+
+        if (prospectorDeactivateError) {
+          await rollbackMember();
+          throw prospectorDeactivateError;
         }
       }
 
-      return NextResponse.json({ success: true });
+      await Promise.allSettled([
+        supabase.from('audit_logs').insert({
+          event_id: store.event_id || null,
+          action_type: 'team_member_profile_updated',
+          entity_type: 'users',
+          entity_id: member.id,
+          old_value: {
+            store_id: store.id,
+            full_name: member.full_name,
+            phone: member.phone,
+            role: member.role,
+            status: member.status,
+            receives_leads: member.receives_leads,
+            routing_order: member.routing_order,
+            max_open_leads: member.max_open_leads
+          },
+          new_value: {
+            store_id: store.id,
+            full_name: fullName,
+            phone: phone || null,
+            role,
+            status,
+            receives_leads: receivesLeads,
+            routing_order: routingOrder,
+            max_open_leads: maxOpenLeads,
+            updated_by_user_id: profile.id
+          }
+        })
+      ]);
+
+      return NextResponse.json({
+        success: true,
+        role_changed: previousRole !== role,
+        role_label: storeTeamRoleLabels[role]
+      });
     }
 
     return NextResponse.json({ error: 'Ação não reconhecida.' }, { status: 400 });
