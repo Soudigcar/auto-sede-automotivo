@@ -247,6 +247,42 @@ begin
     updated_at = v_now
   where id = v_base.id;
 
+  insert into public.audit_logs(
+    event_id,
+    user_id,
+    user_role,
+    action_type,
+    entity_type,
+    entity_id,
+    old_value,
+    new_value,
+    integrity_level
+  )
+  values(
+    v_base.event_id,
+    p_actor_user_id,
+    'master',
+    'master_lead_transfer',
+    'leads_base',
+    v_base.id,
+    jsonb_build_object(
+      'store_id',v_base.assigned_store_id,
+      'store_name',v_base.assigned_store_name,
+      'status',v_base.status,
+      'consultant_id',v_base.assigned_consultant_id,
+      'operational',v_history_entry->'previous_operational'
+    ),
+    jsonb_build_object(
+      'store_id',v_store.id,
+      'store_name',v_store.store_name,
+      'status','Novo lead',
+      'operational_origin','master_transfer',
+      'operational_event_id',null,
+      'routed_lead_id',v_routed_id
+    ),
+    'trusted_database'
+  );
+
   return jsonb_build_object(
     'outcome','transferred',
     'base_lead_id',v_base.id,
