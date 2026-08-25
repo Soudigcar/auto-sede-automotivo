@@ -2,6 +2,10 @@
 -- operational lead and preserving the historical Master-only context.
 -- Existing transferred rows are NOT reprocessed by this migration.
 
+-- The first migration creates a wrapper while developing the atomic flow. The deferred
+-- trigger is the final mechanism, so remove the unused wrapper before exposing the change.
+drop function if exists public.master_transfer_base_lead_to_store_routed(uuid,uuid,uuid);
+
 create or replace function public.route_master_transfer_after_sanitization_trigger()
 returns trigger
 language plpgsql
