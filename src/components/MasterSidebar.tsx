@@ -1,22 +1,25 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Activity, BarChart3, Bot, BrainCircuit, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, FlaskConical, Gauge, Globe2, Inbox, Landmark, LogOut, Megaphone, Plug, ShoppingBag, Store, UserCog } from 'lucide-react';
+import { Activity, ArrowRightLeft, BarChart3, Bot, BrainCircuit, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, FlaskConical, Gauge, Globe2, Inbox, Landmark, LogOut, Megaphone, Plug, Route, ShoppingBag, Store, UserCog } from 'lucide-react';
 import { MasterOlxImportBridge } from '@/components/marketplace/MasterOlxImportBridge';
 
-const masterMenu = [
+export const masterMenu = [
   { label: 'Dashboard', href: '/master/dashboard/live', icon: BarChart3 },
   { label: 'Monitoramento', href: '/master/lead-monitoring', icon: Activity },
   { label: 'Eventos', href: '/master/events', icon: CalendarDays },
   { label: 'Lojas & Estoque', href: '/master/stores/events', icon: Store },
   { label: 'Equipe', href: '/master/users', icon: UserCog },
+  { label: 'Roteamento de Leads', href: '/master/lead-routing', icon: Route },
   { label: 'Relatórios', href: '/master/reports', icon: FileText },
   { label: 'Financeiro', href: '/master/finance', icon: Landmark },
   { label: 'Portal Oficial', href: '/master/portal', icon: Globe2 },
   { label: 'Marketplace', href: '/master/marketplace', icon: ShoppingBag },
   { label: 'Campanhas e Landings', href: '/master/campaigns', icon: Megaphone },
   { label: 'Base', href: '/master/base', icon: Database },
+  { label: 'Transferir Leads', href: '/master/transferencia-leads', icon: ArrowRightLeft, child: true },
   { label: 'Integrações', href: '/master/integrations', icon: Plug },
   { label: 'Inbox WhatsApp', href: '/master/whatsapp/inbox', icon: Inbox },
   { label: 'I.A AUTOCAR', href: '/master/autocar', icon: Bot },
@@ -27,6 +30,7 @@ const masterMenu = [
 ];
 
 export function MasterSidebar({ active }: { active: string }) {
+  const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
@@ -56,10 +60,14 @@ export function MasterSidebar({ active }: { active: string }) {
       <nav className="mt-8 space-y-3 text-sm">
         {masterMenu.map((item) => {
           const Icon = item.icon;
-          const isActive = active === item.href || active === item.label || (item.href === '/master/integrations' && active.startsWith('/master/integrations'));
-          const base = collapsed ? 'flex items-center justify-center rounded-2xl px-0 py-4' : 'flex items-center gap-3 rounded-2xl px-4 py-4';
-          const state = isActive ? 'bg-red-600 font-bold shadow-lg shadow-red-600/20' : 'text-zinc-400 hover:bg-white/5 hover:text-white';
-          return <Link key={item.href} href={item.href} title={item.label} className={`${base} ${state}`}><Icon size={18} />{!collapsed ? <span>{item.label}</span> : null}</Link>;
+          const routeActive = pathname === item.href || (item.href === '/master/integrations' && pathname.startsWith('/master/integrations'));
+          const legacyActive = active === item.href || active === item.label || (item.href === '/master/integrations' && active.startsWith('/master/integrations'));
+          const isActive = pathname ? routeActive : legacyActive;
+          const base = collapsed
+            ? 'flex items-center justify-center rounded-2xl px-0 py-4'
+            : `flex items-center gap-3 rounded-2xl py-4 ${item.child ? 'ml-5 px-3 text-xs' : 'px-4'}`;
+          const state = isActive ? 'bg-red-600 font-bold shadow-lg shadow-red-600/20' : item.child ? 'text-zinc-500 hover:bg-white/5 hover:text-white' : 'text-zinc-400 hover:bg-white/5 hover:text-white';
+          return <Link key={item.href} href={item.href} prefetch={false} title={item.label} className={`${base} ${state}`}><Icon size={item.child ? 16 : 18} />{!collapsed ? <span>{item.label}</span> : null}</Link>;
         })}
       </nav>
     </aside>

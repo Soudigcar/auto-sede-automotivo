@@ -9,7 +9,7 @@ import {
 
 const protectedState = { human_state: 'human_active', paused_by_source: 'autocar_handoff' };
 const route = readFileSync('src/app/api/store/portal/autocar/runtime/route.ts', 'utf8');
-const sql = readFileSync('supabase/migrations/20260823180000_harden_autocar_protected_resume_governance_v2.sql', 'utf8');
+const sql = readFileSync('supabase/migrations/20260824145455_harden_autocar_protected_resume_governance_v2.sql', 'utf8');
 
 test('detecta handoff protegido inclusive com normalização', () => {
   assert.equal(isProtectedAutocarResumeState(protectedState), true);

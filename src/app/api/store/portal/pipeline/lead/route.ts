@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cleanText } from '@/lib/server/storeTeam';
-import { authorizeStorePortal, canAccessStoreLead } from '@/lib/server/storePortal';
+import { authorizeStorePortal, canAccessStoreLead, storeVisibleLeadOrigin } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -40,7 +40,10 @@ export async function GET(request: Request) {
       .limit(100);
     if (notesError) throw notesError;
 
-    return NextResponse.json({ lead, notes: notes || [] });
+    return NextResponse.json({
+      lead: { ...lead, origin: storeVisibleLeadOrigin(lead.origin) },
+      notes: notes || []
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Não foi possível carregar os detalhes do lead.' }, { status: 500 });
   }
