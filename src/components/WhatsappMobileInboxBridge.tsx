@@ -9,6 +9,7 @@ import { WhatsappMobileInboxV2 } from '@/components/WhatsappMobileInboxV2';
 import WhatsappCommerceActions from '@/components/WhatsappCommerceActions';
 import MasterWhatsappCommerceActions from '@/components/MasterWhatsappCommerceActions';
 import { WhatsappAudioRecorderButton } from '@/components/WhatsappAudioRecorderButton';
+import { WhatsappLocationButton } from '@/components/WhatsappLocationButton';
 
 const STORE_PATH = /^\/loja\/([^/]+)\/whatsapp\/?$/;
 const MASTER_PATH = '/master/whatsapp/inbox';
@@ -415,6 +416,9 @@ export function WhatsappMobileInboxBridge() {
       <div className="grid grid-cols-2 gap-2">
         <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={attachmentSending} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white text-xs font-black text-zinc-700 disabled:opacity-50"><Paperclip size={15} /> Anexar</button>
         <button type="button" onClick={() => void markRead()} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white text-xs font-black text-zinc-700"><CheckCircle2 size={15} /> Marcar lida</button>
+      </div>
+      <div className="flex items-center gap-2">
+        <WhatsappLocationButton conversationId={selectedId} onRefresh={() => loadData(selectedId, true)} onStatus={setStatusMessage} disabled={!connected(selectedConversation) || sending || attachmentSending} />
       </div>
 
       {selectedLeadId && targetStoreSlug ? (
