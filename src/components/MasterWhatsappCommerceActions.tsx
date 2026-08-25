@@ -486,11 +486,11 @@ export default function MasterWhatsappCommerceActions({ conversationId, leadId, 
 
   return (
     <>
-      <div ref={actionBarRef} className="flex min-w-0 items-center gap-2 overflow-x-auto py-0.5">
+      <div ref={actionBarRef} className="flex min-w-0 items-center gap-1.5 overflow-x-auto py-0.5">
         <WhatsappAttachmentButton conversationId={conversationId} onRefresh={onRefresh} onStatus={onStatus} />
-        <button type="button" onClick={() => void loadVehicles('stock')} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-700 transition hover:bg-blue-100" aria-label="Abrir veículos publicados no portal" title="Veículos: definir interesse ou enviar fotos"><Car size={17} /></button>
-        <button type="button" onClick={openSchedule} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-700 transition hover:bg-amber-100" aria-label="Agendar atividade" title="Agendar atividade"><CalendarDays size={17} /></button>
-        <button type="button" onClick={() => void openTransfer()} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-[10px] font-black uppercase text-emerald-700 transition hover:bg-emerald-100"><ArrowRightLeft size={14} /> Transferir lead</button>
+        <button type="button" onClick={() => void loadVehicles('stock')} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-700 transition hover:bg-blue-100" aria-label="Abrir veículos publicados no portal" title="Veículos: definir interesse ou enviar fotos"><Car size={16} /></button>
+        <button type="button" onClick={openSchedule} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-700 transition hover:bg-amber-100" aria-label="Agendar atividade" title="Agendar atividade"><CalendarDays size={16} /></button>
+        <button type="button" onClick={() => void openTransfer()} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100" aria-label="Transferir lead" title="Transferir lead"><ArrowRightLeft size={16} /></button>
       </div>
 
       {mode ? (
