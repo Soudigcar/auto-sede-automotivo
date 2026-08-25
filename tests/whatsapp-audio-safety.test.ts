@@ -22,7 +22,7 @@ test('gravador negocia formatos, limita tamanho e libera o microfone', async () 
   assert.match(code, /audio\/mp4/);
   assert.match(code, /MAX_AUDIO_BYTES = 4 \* 1024 \* 1024/);
   assert.match(code, /MAX_RECORDING_SECONDS = 180/);
-  assert.match(code, /getTracks\(\)\.forEach\(\(\(track\) => track\.stop\(\)\)\)/);
+  assert.match(code, /getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
   assert.match(code, /URL\.revokeObjectURL/);
   assert.match(code, /NotAllowedError/);
 });
