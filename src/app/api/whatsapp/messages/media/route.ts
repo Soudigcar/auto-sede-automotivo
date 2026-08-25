@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { evolutionRequest } from '@/lib/server/evolution';
 import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import { readManagedEvolutionState } from '@/lib/server/managedWhatsappEvolution';
+import { resolveEvolutionAvailability } from '@/lib/server/storeWhatsappChannel';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -103,10 +105,13 @@ export async function GET(request: Request) {
     const messageType = String(message.message_type || '').toLowerCase();
     if (!SUPPORTED_MEDIA_TYPES.has(messageType)) return NextResponse.json({ error: 'Esta mensagem não possui mídia compatível.' }, { status: 415 });
 
-    const { data: integration, error: integrationError } = await supabase.from('store_whatsapp_integrations').select('instance_name, status, provider').eq('crm_number_id', message.whatsapp_number_id).maybeSingle();
+    const { data: integration, error: integrationError } = await supabase.from('store_whatsapp_integrations').select('instance_name, status, scope, provider').eq('crm_number_id', message.whatsapp_number_id).maybeSingle();
     if (integrationError) return NextResponse.json({ error: integrationError.message }, { status: 400 });
     if (!integration?.instance_name || integration.provider !== 'evolution') return NextResponse.json({ error: 'Mídia disponível apenas para conversas Evolution nesta etapa.' }, { status: 409 });
-    if (integration.status !== 'connected') return NextResponse.json({ error: 'WhatsApp está desconectado. Reconecte para recuperar esta mídia.' }, { status: 409 });
+
+    const liveState = await readManagedEvolutionState(integration);
+    const availability = resolveEvolutionAvailability(integration, liveState);
+    if (!availability.connected) return NextResponse.json({ error: 'WhatsApp está desconectado. Reconecte para recuperar esta mídia.' }, { status: 409 });
     if (!message.raw_payload) return NextResponse.json({ error: 'Payload original da mídia não está disponível.' }, { status: 404 });
 
     const evolutionMessage = evolutionMessagePayload(message.raw_payload);
@@ -128,7 +133,8 @@ export async function GET(request: Request) {
         'Content-Type': mime,
         'Content-Length': String(buffer.byteLength),
         'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${filename}"`,
-        'Cache-Control': 'private, max-age=300'
+        'Cache-Control': 'private, no-store, max-age=0',
+        Pragma: 'no-cache'
       }
     });
   } catch (error: any) {

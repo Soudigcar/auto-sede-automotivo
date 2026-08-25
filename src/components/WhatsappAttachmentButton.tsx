@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { FileText, Image as ImageIcon, Loader2, Paperclip, Send, Sparkles, Video, Volume2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import AutocarCopilotInline from '@/components/AutocarCopilotInline';
+import { WhatsappAudioRecorder } from '@/components/WhatsappAudioRecorder';
 
 const MAX_MEDIA_BYTES = 4 * 1024 * 1024;
 
@@ -135,6 +136,7 @@ export function WhatsappAttachmentButton({
       >
         <Sparkles size={14} /> AUTOCAR
       </button>
+      <WhatsappAudioRecorder conversationId={conversationId} onRefresh={onRefresh} onStatus={onStatus} />
       <button
         type="button"
         onClick={() => inputRef.current?.click()}

@@ -9,8 +9,8 @@ import { resolveEvolutionAvailability } from '@/lib/server/storeWhatsappChannel'
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const MAX_MEDIA_BYTES = 4 * 1024 * 1024;
-const BLOCKED_EXTENSIONS = ['.exe', '.msi', '.bat', '.cmd', '.com', '.scr', '.ps1', '.sh', '.apk', '.dmg', '.pkg'];
+const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
+const ALLOWED_AUDIO_MIME_PREFIX = 'audio/';
 
 function cleanText(value: unknown, maxLength = 20_000) {
   return String(value || '').trim().slice(0, maxLength);
@@ -26,8 +26,10 @@ function getAdminClient() {
 async function getProfile(supabase: any, token: string) {
   const { data: authData, error: authError } = await supabase.auth.getUser(token);
   if (authError || !authData.user) return null;
+
   const { data: byAuth } = await supabase.from('users').select('*').eq('auth_user_id', authData.user.id).maybeSingle();
   if (byAuth?.status === 'active' && asStorePortalRole(byAuth.role)) return byAuth;
+
   if (authData.user.email) {
     const { data: byEmail } = await supabase.from('users').select('*').ilike('email', authData.user.email).maybeSingle();
     if (byEmail?.status === 'active' && asStorePortalRole(byEmail.role)) return byEmail;
@@ -39,35 +41,9 @@ function normalizePhone(value: unknown) {
   return String(value || '').split('@')[0].split(':')[0].replace(/\D/g, '');
 }
 
-function mediaTypeFor(file: File) {
-  const mime = String(file.type || '').toLowerCase();
-  if (mime.startsWith('image/')) return 'image';
-  if (mime.startsWith('video/')) return 'video';
-  if (mime.startsWith('audio/')) return 'audio';
-  return 'document';
-}
-
-function fallbackMime(mediaType: string) {
-  if (mediaType === 'image') return 'image/jpeg';
-  if (mediaType === 'video') return 'video/mp4';
-  if (mediaType === 'audio') return 'audio/mpeg';
-  return 'application/octet-stream';
-}
-
-function safeFilename(value: unknown) {
-  return cleanText(value, 180).replace(/[\r\n]/g, '').replace(/[\\/]/g, '_') || 'arquivo';
-}
-
-function isBlockedFilename(filename: string) {
-  const normalized = filename.toLowerCase();
-  return BLOCKED_EXTENSIONS.some((extension) => normalized.endsWith(extension));
-}
-
-function previewLabel(mediaType: string, filename: string, caption: string) {
-  if (mediaType === 'image') return caption || '[Imagem]';
-  if (mediaType === 'video') return caption || '[Vídeo]';
-  if (mediaType === 'audio') return '[Áudio]';
-  return caption || filename || '[Documento]';
+function safeFilename(value: unknown, mime: string) {
+  const fallback = mime.includes('ogg') ? 'audio-whatsapp.ogg' : mime.includes('mp4') ? 'audio-whatsapp.m4a' : 'audio-whatsapp.webm';
+  return cleanText(value, 180).replace(/[\r\n]/g, '').replace(/[\\/]/g, '_') || fallback;
 }
 
 function evolutionMessageId(result: any) {
@@ -82,30 +58,39 @@ export async function POST(request: Request) {
 
     const profile = await getProfile(supabase, token);
     const role = asStorePortalRole(profile?.role);
-    if (!profile || !role) return NextResponse.json({ error: 'Usuário sem permissão para enviar anexos no WhatsApp.' }, { status: 403 });
+    if (!profile || !role) return NextResponse.json({ error: 'Usuário sem permissão para enviar áudio no WhatsApp.' }, { status: 403 });
 
     const form = await request.formData();
     const conversationId = cleanText(form.get('conversation_id'), 120);
-    const caption = cleanText(form.get('caption'), 2_000);
     const fileValue = form.get('file');
-    if (!conversationId || !(fileValue instanceof File)) return NextResponse.json({ error: 'Informe a conversa e o arquivo.' }, { status: 400 });
-    if (!fileValue.size) return NextResponse.json({ error: 'O arquivo selecionado está vazio.' }, { status: 400 });
-    if (fileValue.size > MAX_MEDIA_BYTES) return NextResponse.json({ error: 'O anexo excede o limite de 4 MB desta etapa.' }, { status: 413 });
+    if (!conversationId || !(fileValue instanceof File)) return NextResponse.json({ error: 'Informe a conversa e o áudio.' }, { status: 400 });
+    if (!fileValue.size) return NextResponse.json({ error: 'O áudio gravado está vazio.' }, { status: 400 });
+    if (fileValue.size > MAX_AUDIO_BYTES) return NextResponse.json({ error: 'O áudio excede o limite seguro de 4 MB.' }, { status: 413 });
 
-    const filename = safeFilename(fileValue.name);
-    if (isBlockedFilename(filename)) return NextResponse.json({ error: 'Este tipo de arquivo não é permitido no Inbox.' }, { status: 415 });
+    const mime = cleanText(fileValue.type, 160).toLowerCase();
+    if (!mime.startsWith(ALLOWED_AUDIO_MIME_PREFIX)) return NextResponse.json({ error: 'O arquivo recebido não é um áudio válido.' }, { status: 415 });
 
-    const { data: conversation, error: conversationError } = await supabase.from('whatsapp_conversations').select('*').eq('id', conversationId).maybeSingle();
+    const { data: conversation, error: conversationError } = await supabase
+      .from('whatsapp_conversations')
+      .select('*')
+      .eq('id', conversationId)
+      .maybeSingle();
     if (conversationError) return NextResponse.json({ error: conversationError.message }, { status: 400 });
 
     let lead: any = null;
     if (conversation?.lead_id) {
-      const { data, error } = await supabase.from('leads').select('id, assigned_store_id, assigned_user_id').eq('id', conversation.lead_id).maybeSingle();
+      const { data, error } = await supabase
+        .from('leads')
+        .select('id, assigned_store_id, assigned_user_id')
+        .eq('id', conversation.lead_id)
+        .maybeSingle();
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
       lead = data;
     }
 
-    if (!conversation || !canAccessStoreConversation(profile, role, conversation, lead)) return NextResponse.json({ error: 'Conversa não encontrada ou sem permissão.' }, { status: 404 });
+    if (!conversation || !canAccessStoreConversation(profile, role, conversation, lead)) {
+      return NextResponse.json({ error: 'Conversa não encontrada ou sem permissão.' }, { status: 404 });
+    }
 
     const [contactResponse, integrationResponse] = await Promise.all([
       supabase.from('whatsapp_contacts').select('id, phone, wa_id').eq('id', conversation.contact_id).maybeSingle(),
@@ -117,7 +102,9 @@ export async function POST(request: Request) {
     const contact = contactResponse.data;
     const integration = integrationResponse.data;
     if (!contact) return NextResponse.json({ error: 'Contato da conversa não encontrado.' }, { status: 404 });
-    if (!integration || integration.provider !== 'evolution' || !integration.instance_name) return NextResponse.json({ error: 'Envio de anexos está disponível para conversas Evolution nesta etapa.' }, { status: 409 });
+    if (!integration || integration.provider !== 'evolution' || !integration.instance_name) {
+      return NextResponse.json({ error: 'A gravação de voz está disponível para conversas conectadas pela Evolution.' }, { status: 409 });
+    }
 
     const liveState = await readManagedEvolutionState(integration);
     const availability = resolveEvolutionAvailability(integration, liveState);
@@ -145,34 +132,31 @@ export async function POST(request: Request) {
           source: 'inbox'
         });
         if (takeover?.human_state !== 'human_active') {
-          return NextResponse.json({ error: 'Não foi possível confirmar o atendimento humano antes do envio do anexo.' }, { status: 409 });
+          return NextResponse.json({ error: 'Não foi possível confirmar o atendimento humano antes do envio do áudio.' }, { status: 409 });
         }
       } catch (error: any) {
         return NextResponse.json({
-          error: 'Não foi possível assumir a conversa com segurança antes do envio do anexo.',
+          error: 'Não foi possível assumir a conversa com segurança antes do envio do áudio.',
           detail: String(error?.message || error || '').slice(0, 300)
         }, { status: 500 });
       }
     }
 
-    const mediaType = mediaTypeFor(fileValue);
-    const mime = cleanText(fileValue.type, 160) || fallbackMime(mediaType);
+    const filename = safeFilename(fileValue.name, mime);
     const evolutionForm = new FormData();
     evolutionForm.set('number', recipient);
-    evolutionForm.set('mediatype', mediaType);
-    evolutionForm.set('mimetype', mime);
     evolutionForm.set('delay', '500');
-    if (caption && mediaType !== 'audio') evolutionForm.set('caption', caption);
-    if (mediaType === 'document') evolutionForm.set('fileName', filename);
+    evolutionForm.set('encoding', 'true');
     evolutionForm.set('file', fileValue, filename);
 
-    const result = await evolutionMultipartRequest(`/message/sendMedia/${encodeURIComponent(integration.instance_name)}`, evolutionForm);
+    const result = await evolutionMultipartRequest(
+      `/message/sendWhatsAppAudio/${encodeURIComponent(integration.instance_name)}`,
+      evolutionForm
+    );
     const waMessageId = evolutionMessageId(result);
     const sentAt = new Date().toISOString();
-    const body = previewLabel(mediaType, filename, caption);
 
-    let savedMessage: any = null;
-    const { data: inserted, error: saveError } = await supabase.from('whatsapp_messages').insert({
+    const { data: savedMessage, error: saveError } = await supabase.from('whatsapp_messages').insert({
       store_id: conversation.store_id,
       whatsapp_number_id: conversation.whatsapp_number_id,
       conversation_id: conversation.id,
@@ -181,11 +165,13 @@ export async function POST(request: Request) {
       base_lead_id: conversation.base_lead_id,
       wa_message_id: waMessageId,
       direction: 'outbound',
-      message_type: mediaType,
-      body,
+      message_type: 'audio',
+      body: '[Áudio]',
       status: 'sent',
       raw_payload: {
         ...(result && typeof result === 'object' ? result : { provider_result: result }),
+        voice_note: true,
+        source_mimetype: mime,
         metric_sender_type: 'human',
         metric_sender_user_id: profile.id,
         metric_sender_role: profile.role,
@@ -197,14 +183,19 @@ export async function POST(request: Request) {
     if (saveError) {
       if (waMessageId) {
         const { data: existing } = await supabase.from('whatsapp_messages').select('*').eq('wa_message_id', waMessageId).maybeSingle();
-        savedMessage = existing || null;
+        if (existing) return NextResponse.json({ success: true, message: existing, provider: 'evolution', voice_note: true });
       }
-      if (!savedMessage) return NextResponse.json({ error: saveError.message }, { status: 400 });
-    } else savedMessage = inserted;
+      return NextResponse.json({ error: saveError.message }, { status: 400 });
+    }
 
-    await supabase.from('whatsapp_conversations').update({ last_message: body, last_message_at: sentAt, unread_count: 0, updated_at: sentAt }).eq('id', conversation.id);
+    await supabase.from('whatsapp_conversations').update({
+      last_message: '[Áudio]',
+      last_message_at: sentAt,
+      unread_count: 0,
+      updated_at: sentAt
+    }).eq('id', conversation.id);
 
-    if (conversation.store_id && savedMessage?.id) {
+    if (conversation.store_id) {
       try {
         await markAutocarHumanActive({
           productionSupabase: supabase,
@@ -217,7 +208,7 @@ export async function POST(request: Request) {
           source: 'inbox'
         });
       } catch (error: any) {
-        console.warn('[AUTOCAR human takeover] Anexo enviado, mas não foi possível vincular a mensagem ao handoff.', {
+        console.warn('[AUTOCAR human takeover] Áudio enviado, mas não foi possível vincular a mensagem ao handoff.', {
           storeId: conversation.store_id,
           conversationId: conversation.id,
           error: error?.message || String(error)
@@ -225,8 +216,8 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ success: true, message: savedMessage, provider: 'evolution', media_type: mediaType });
+    return NextResponse.json({ success: true, message: savedMessage, provider: 'evolution', voice_note: true });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Erro ao enviar anexo pelo WhatsApp.' }, { status: 500 });
+    return NextResponse.json({ error: error?.message || 'Erro ao enviar áudio pelo WhatsApp.' }, { status: 500 });
   }
 }

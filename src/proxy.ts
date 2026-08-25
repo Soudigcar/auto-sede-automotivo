@@ -31,6 +31,8 @@ const PUBLIC_PREFIXES = [
   '/robots.txt'
 ];
 
+const DEFAULT_PERMISSIONS_POLICY = 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()';
+
 function requestHost(request: NextRequest) {
   const forwarded = request.headers.get('x-forwarded-host') || request.headers.get('host') || '';
   return forwarded.split(',')[0].trim().split(':')[0].toLowerCase();
@@ -38,6 +40,20 @@ function requestHost(request: NextRequest) {
 
 function matchesPrefix(pathname: string, prefix: string) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+function isWhatsappInboxPath(pathname: string) {
+  return pathname === '/master/whatsapp/inbox' || /^\/loja\/[^/]+\/whatsapp\/?$/.test(pathname);
+}
+
+function applyPermissionsPolicy(response: NextResponse, pathname: string) {
+  // Microphone defaults to `self` when no Permissions-Policy header is present.
+  // Do not emit a competing policy on WhatsApp inbox routes; all other routes
+  // remain explicitly locked down.
+  if (!isWhatsappInboxPath(pathname)) {
+    response.headers.set('Permissions-Policy', DEFAULT_PERMISSIONS_POLICY);
+  }
+  return response;
 }
 
 function redirectToHost(request: NextRequest, hostname: string, pathname?: string) {
@@ -49,11 +65,11 @@ function redirectToHost(request: NextRequest, hostname: string, pathname?: strin
   return NextResponse.redirect(url, 308);
 }
 
-function internalResponse() {
+function internalResponse(pathname: string) {
   const response = NextResponse.next();
   response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   response.headers.set('Cache-Control', 'private, no-store');
-  return response;
+  return applyPermissionsPolicy(response, pathname);
 }
 
 export function proxy(request: NextRequest) {
@@ -77,7 +93,7 @@ export function proxy(request: NextRequest) {
     if (INTERNAL_PREFIXES.some((prefix) => matchesPrefix(pathname, prefix))) {
       return redirectToHost(request, INTERNAL_HOST);
     }
-    return NextResponse.next();
+    return applyPermissionsPolicy(NextResponse.next(), pathname);
   }
 
   if (host === INTERNAL_HOST) {
@@ -89,11 +105,11 @@ export function proxy(request: NextRequest) {
       return redirectToHost(request, OFFICIAL_HOST);
     }
 
-    return internalResponse();
+    return internalResponse(pathname);
   }
 
   // Preview deployments and local development remain accessible for validation.
-  return NextResponse.next();
+  return applyPermissionsPolicy(NextResponse.next(), pathname);
 }
 
 export const config = {
