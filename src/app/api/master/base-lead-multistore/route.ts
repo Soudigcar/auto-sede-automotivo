@@ -19,11 +19,19 @@ function uuidList(value: unknown, max = MAX_BATCH) {
   return Array.from(new Set(value.map(uuid).filter(Boolean))).slice(0, max);
 }
 
+function normalizedPhone(value: unknown) {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  const local = digits.startsWith('55') && (digits.length === 12 || digits.length === 13)
+    ? digits.slice(2)
+    : digits;
+  return /^[1-9][0-9]{9,10}$/.test(local) ? local : '';
+}
+
 function migrationMissing(error: any) {
   const code = String(error?.code || '');
   const message = String(error?.message || '');
   return code === '42P01' || code === '42703' || code === '42883' || code === 'PGRST202' || code === 'PGRST205'
-    || /distribute_base_lead_multistore|lead_store_instances|canonical_lead_id/i.test(message);
+    || /distribute_base_lead_multistore|find_store_lead_phone_conflicts|lead_store_instances|canonical_lead_id/i.test(message);
 }
 
 export async function POST(request: Request) {
@@ -77,7 +85,7 @@ export async function POST(request: Request) {
 
     const baseResult = await supabase
       .from('leads_base')
-      .select('id,name,status,routed_lead_id,canonical_lead_id')
+      .select('id,name,phone,status,routed_lead_id,canonical_lead_id')
       .in('id', leadIds);
     if (baseResult.error) {
       if (migrationMissing(baseResult.error)) {
@@ -113,6 +121,24 @@ export async function POST(request: Request) {
     }
 
     const existingCanonicalIds = new Set((instancesResult.data || []).map((row: any) => String(row.canonical_lead_id)));
+    const selectedPhones = Array.from(new Set(ordered.map((lead: any) => cleanText(lead.phone, 40)).filter(Boolean)));
+    const destinationResult = selectedPhones.length
+      ? await supabase.rpc('find_store_lead_phone_conflicts', {
+          p_store_id: storeId,
+          p_phones: selectedPhones
+        })
+      : { data: [], error: null };
+    if (destinationResult.error) {
+      if (migrationMissing(destinationResult.error)) {
+        return NextResponse.json({ error: 'A proteção contra leads duplicados ainda não está instalada neste ambiente.', migration_required: true }, { status: 503 });
+      }
+      throw destinationResult.error;
+    }
+    const destinationLeadByPhone = new Map<string, string>();
+    for (const row of destinationResult.data || []) {
+      const phone = normalizedPhone(row.normalized_phone);
+      if (phone && !destinationLeadByPhone.has(phone)) destinationLeadByPhone.set(phone, String(row.lead_id));
+    }
     const eligible: any[] = [];
     const alreadyPresent: any[] = [];
     const blocked: Array<{ lead_id: string; name: string; reason: string }> = [];
@@ -121,6 +147,15 @@ export async function POST(request: Request) {
       const routed = lead.routed_lead_id ? routedById.get(String(lead.routed_lead_id)) : null;
       if (lead.canonical_lead_id && existingCanonicalIds.has(String(lead.canonical_lead_id))) {
         alreadyPresent.push(lead);
+        continue;
+      }
+      const phone = normalizedPhone(lead.phone);
+      if (phone && destinationLeadByPhone.has(phone)) {
+        blocked.push({
+          lead_id: lead.id,
+          name: lead.name || '',
+          reason: 'Cliente já possui atendimento nesta loja; revisão necessária antes de distribuir.'
+        });
         continue;
       }
       if (String(lead.status || '') === 'Venda concluída' || String(routed?.status || '') === 'sale_confirmed') {

@@ -7,7 +7,7 @@ export const runtime = 'nodejs';
  * Legacy endpoint kept only as a fail-closed compatibility boundary.
  *
  * The old implementation reassigned public.leads.assigned_store_id and replaced
- * leads_base.routed_lead_id. That violates the multistore invariant where one
+ * replaced the Base routing link. That violates the multistore invariant where one
  * canonical Master lead may have independent operational rows in many stores.
  *
  * All new Master distribution must go through /api/master/base-lead-multistore.

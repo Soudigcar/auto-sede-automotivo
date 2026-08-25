@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createHash } from 'node:crypto';
 import { RequestSecurityError, publicError, readRawBody, safeEqual, verifySha256Hmac } from '@/lib/server/requestSecurity';
 
 export const runtime = 'nodejs';
 
-const retiredDefaultVerifyToken = 'auto-controle-whatsapp-2026';
+const retiredDefaultVerifyTokenHash = 'c2b725a714be1f0a49058aa3a4ed9e744e4207d0e66ec53bd32502a0fa347cfa';
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -63,7 +64,8 @@ function getMessageBody(message: any) {
 async function verifyToken(supabase: any, requestedToken: string) {
   if (!requestedToken) return false;
   const configured = text(process.env.WHATSAPP_VERIFY_TOKEN);
-  return configured !== retiredDefaultVerifyToken && safeEqual(requestedToken, configured);
+  const configuredHash = createHash('sha256').update(configured).digest('hex');
+  return Boolean(configured) && configuredHash !== retiredDefaultVerifyTokenHash && safeEqual(requestedToken, configured);
 }
 
 async function findOrCreateLead(supabase: any, numberConfig: any, contactName: string, phone: string, firstMessage: string) {
@@ -71,121 +73,67 @@ async function findOrCreateLead(supabase: any, numberConfig: any, contactName: s
   const store = numberConfig.stores || null;
 
   if (!storeId) {
-    const { data: existingBase } = await supabase
-      .from('leads_base')
-      .select('id, routed_lead_id')
-      .eq('phone', phone)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const { data: baseResolution, error: baseError } = await supabase.rpc('find_or_create_base_lead_by_phone', {
+      p_store_id: null,
+      p_store_name: null,
+      p_phone: phone,
+      p_name: contactName || phone,
+      p_source: 'WhatsApp Oficial',
+      p_campaign_name: numberConfig.label || 'WhatsApp Oficial',
+      p_routed_lead_id: null,
+      p_routing_strategy: 'whatsapp_unassigned',
+      p_notes: firstMessage ? `Primeira mensagem: ${firstMessage}` : 'Lead criado automaticamente pelo WhatsApp Oficial.',
+      p_metadata: {
+        whatsapp: {
+          phone_number_id: numberConfig.phone_number_id,
+          number_label: numberConfig.label
+        }
+      }
+    });
+    if (baseError) throw baseError;
+    return {
+      leadId: baseResolution?.routed_lead_id || null,
+      baseLeadId: baseResolution?.base_lead_id || null
+    };
+  }
 
-    if (existingBase?.id) {
-      return { leadId: existingBase.routed_lead_id || null, baseLeadId: existingBase.id };
+  const leadNotes = [
+    'Lead criado automaticamente pelo WhatsApp Oficial.',
+    numberConfig.label ? `Número: ${numberConfig.label}.` : '',
+    firstMessage ? `Primeira mensagem: ${firstMessage}` : ''
+  ].filter(Boolean).join(' ');
+  const { data: leadResolution, error: leadError } = await supabase.rpc('find_or_create_store_lead_by_phone', {
+    p_store_id: storeId,
+    p_phone: phone,
+    p_customer_name: contactName || phone,
+    p_origin: 'WhatsApp Oficial',
+    p_notes: leadNotes,
+    p_event_id: store?.event_id || null
+  });
+  if (leadError) throw leadError;
+  const leadId = leadResolution?.lead_id || null;
+
+  const { data: baseResolution, error: baseError } = await supabase.rpc('find_or_create_base_lead_by_phone', {
+    p_store_id: storeId,
+    p_store_name: store?.store_name || null,
+    p_phone: phone,
+    p_name: contactName || phone,
+    p_source: 'WhatsApp Oficial',
+    p_campaign_name: numberConfig.label || 'WhatsApp Oficial',
+    p_routed_lead_id: leadId,
+    p_routing_strategy: 'whatsapp_phone_number_store',
+    p_notes: firstMessage ? `Primeira mensagem: ${firstMessage}` : 'Lead criado automaticamente pelo WhatsApp Oficial.',
+    p_metadata: {
+      whatsapp: {
+        phone_number_id: numberConfig.phone_number_id,
+        number_label: numberConfig.label,
+        store_id: storeId,
+        store_name: store?.store_name || null
+      }
     }
-
-    const { data: baseLead, error: baseError } = await supabase
-      .from('leads_base')
-      .insert({
-        name: contactName || phone,
-        phone,
-        source: 'WhatsApp Oficial',
-        campaign_name: numberConfig.label || 'WhatsApp Oficial',
-        status: 'Novo lead',
-        notes: firstMessage ? `Primeira mensagem: ${firstMessage}` : 'Lead criado automaticamente pelo WhatsApp Oficial.',
-        routing_strategy: 'whatsapp_unassigned',
-        metadata: {
-          whatsapp: {
-            phone_number_id: numberConfig.phone_number_id,
-            number_label: numberConfig.label
-          }
-        }
-      })
-      .select('id')
-      .single();
-
-    if (baseError) throw baseError;
-
-    return { leadId: null, baseLeadId: baseLead?.id || null };
-  }
-
-  const { data: existingLead } = await supabase
-    .from('leads')
-    .select('id')
-    .eq('assigned_store_id', storeId)
-    .eq('customer_phone', phone)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  let leadId = existingLead?.id || null;
-
-  if (!leadId) {
-    const { data: lead, error: leadError } = await supabase
-      .from('leads')
-      .insert({
-        event_id: store?.event_id || null,
-        customer_name: contactName || phone,
-        customer_phone: phone,
-        customer_bank: '',
-        interested_vehicle: '',
-        vehicle_category_interest: '',
-        origin: 'WhatsApp Oficial',
-        assigned_store_id: storeId,
-        status: 'new_lead',
-        notes: [
-          'Lead criado automaticamente pelo WhatsApp Oficial.',
-          numberConfig.label ? `Número: ${numberConfig.label}.` : '',
-          firstMessage ? `Primeira mensagem: ${firstMessage}` : ''
-        ].filter(Boolean).join(' ')
-      })
-      .select('id')
-      .single();
-
-    if (leadError) throw leadError;
-    leadId = lead?.id || null;
-  }
-
-  const { data: existingBase } = await supabase
-    .from('leads_base')
-    .select('id')
-    .eq('phone', phone)
-    .eq('assigned_store_id', storeId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  let baseLeadId = existingBase?.id || null;
-
-  if (!baseLeadId) {
-    const { data: baseLead, error: baseError } = await supabase
-      .from('leads_base')
-      .insert({
-        name: contactName || phone,
-        phone,
-        source: 'WhatsApp Oficial',
-        campaign_name: numberConfig.label || 'WhatsApp Oficial',
-        status: 'Novo lead',
-        assigned_store_id: storeId,
-        assigned_store_name: store?.store_name || null,
-        assigned_at: new Date().toISOString(),
-        routed_lead_id: leadId,
-        routing_strategy: 'whatsapp_phone_number_store',
-        notes: firstMessage ? `Primeira mensagem: ${firstMessage}` : 'Lead criado automaticamente pelo WhatsApp Oficial.',
-        metadata: {
-          whatsapp: {
-            phone_number_id: numberConfig.phone_number_id,
-            number_label: numberConfig.label,
-            store_id: storeId,
-            store_name: store?.store_name || null
-          }
-        }
-      })
-      .select('id')
-      .single();
-
-    if (baseError) throw baseError;
-    baseLeadId = baseLead?.id || null;
-  }
+  });
+  if (baseError) throw baseError;
+  const baseLeadId = baseResolution?.base_lead_id || null;
 
   return { leadId, baseLeadId };
 }
