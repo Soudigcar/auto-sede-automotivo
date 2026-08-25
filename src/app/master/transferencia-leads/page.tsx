@@ -116,7 +116,19 @@ export default function MasterPrivateLeadTransferPage() {
   }, [destinationStoreId, leads, query]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const effectiveIds = selectedIds;
+  const sameStoreSelectedIds = useMemo(() => {
+    if (!destinationStoreId) return new Set<string>();
+    return new Set(
+      leads
+        .filter((lead) => lead.assigned_store_id === destinationStoreId)
+        .map((lead) => lead.id)
+    );
+  }, [destinationStoreId, leads]);
+  const effectiveIds = useMemo(
+    () => selectedIds.filter((id) => !sameStoreSelectedIds.has(id)),
+    [selectedIds, sameStoreSelectedIds]
+  );
+  const autoExcludedSameStoreCount = selectedIds.length - effectiveIds.length;
 
   function resetValidation() {
     setDryRun(null);
@@ -215,7 +227,7 @@ export default function MasterPrivateLeadTransferPage() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div><h2 className="font-black">1. Selecione os leads</h2><p className="mt-1 text-xs text-zinc-500">Venda concluída permanece protegida. Perdidos podem ser reabertos pelo Master.</p></div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-xl bg-red-50 px-3 py-2 text-[10px] font-black uppercase text-red-700">{selectedIds.length} selecionado(s)</span>
+                    <span className="rounded-xl bg-red-50 px-3 py-2 text-[10px] font-black uppercase text-red-700">{effectiveIds.length} selecionado(s)</span>
                     <button type="button" onClick={chooseAll} disabled={loading} className="rounded-xl bg-slate-950 px-4 py-2 text-[10px] font-black uppercase text-white disabled:opacity-40">Selecionar todos visíveis</button>
                   </div>
                 </div>
@@ -230,7 +242,7 @@ export default function MasterPrivateLeadTransferPage() {
               </div>
 
               <aside className="space-y-4">
-                <section className="rounded-3xl border border-zinc-200 bg-white p-5"><h2 className="font-black">2. Loja responsável</h2><select value={destinationStoreId} onChange={(event) => { setDestinationStoreId(event.target.value); setSelectedIds([]); resetValidation(); }} className="mt-3 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-bold"><option value="">Selecione a loja</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.store_name}</option>)}</select>{destination ? <p className="mt-2 text-xs text-zinc-500">Leads que já pertencem a {destination.store_name} ficam automaticamente fora.</p> : null}</section>
+                <section className="rounded-3xl border border-zinc-200 bg-white p-5"><h2 className="font-black">2. Loja responsável</h2><select value={destinationStoreId} onChange={(event) => { setDestinationStoreId(event.target.value); resetValidation(); }} className="mt-3 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-bold"><option value="">Selecione a loja</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.store_name}</option>)}</select>{destination ? <p className="mt-2 text-xs text-zinc-500">{autoExcludedSameStoreCount ? `${autoExcludedSameStoreCount} lead(s) selecionado(s) já pertencem a ${destination.store_name} e ficaram automaticamente fora desta transferência.` : `Leads que já pertencem a ${destination.store_name} ficam automaticamente fora.`}</p> : null}</section>
                 <section className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-blue-950"><div className="flex gap-3"><ShieldCheck size={20} className="shrink-0" /><div><strong className="text-sm">Privacidade entre lojas</strong><p className="mt-1 text-xs leading-relaxed">Origem, evento, campanha, loja anterior e histórico ficam preservados na Base Master. A loja receptora recebe origem operacional “Transferência Master” e evento operacional vazio.</p></div></div></section>
                 <button type="button" onClick={() => void validate()} disabled={loading || !destinationStoreId || !effectiveIds.length || busy} className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-xs font-black uppercase text-white disabled:opacity-40">{busy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Pré-validar {effectiveIds.length || ''}</button>
               </aside>
