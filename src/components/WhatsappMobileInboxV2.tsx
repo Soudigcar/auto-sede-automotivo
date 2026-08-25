@@ -195,7 +195,7 @@ export function WhatsappMobileInboxV2(props: Props) {
             <button type="button" onClick={() => { setChatOpen(false); setSheetOpen(false); }} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-700 active:bg-zinc-100" aria-label="Voltar para conversas"><ArrowLeft size={22} /></button>
             <button type="button" onClick={() => setSheetOpen(true)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
               <MobileAvatar name={selectedName} src={selectedAvatar} compact />
-              <span className="min-w-0"><strong className="block truncate text-[14px] font-black text-zinc-950">{selectedName || 'Conversa'}</strong><span className="block truncate text-[10px] font-bold text-zinc-500">{props.channelLabel || selectedPhone || 'WhatsApp'}</span></span>
+              <span className="min-w-0"><strong className="block truncate text-[14px] font-black text-zinc-950">{selectedName || 'Conversa'}</strong><span className="block truncate text-[10px] font-bold text-zinc-500">{selectedPhone || 'WhatsApp'}</span></span>
             </button>
             <button type="button" onClick={() => setSheetOpen(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-600 active:bg-zinc-100" aria-label="Mais opções"><MoreVertical size={20} /></button>
           </header>
