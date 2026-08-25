@@ -13,7 +13,9 @@ const INTERNAL_PREFIXES = [
   '/routes',
   '/store',
   '/loja',
-  '/trocar-senha'
+  '/trocar-senha',
+  '/recuperar-senha',
+  '/redefinir-senha'
 ];
 
 const PUBLIC_PREFIXES = [
