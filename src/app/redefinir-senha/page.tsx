@@ -3,10 +3,25 @@
 import Link from 'next/link';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, KeyRound, Loader2, ShieldCheck } from 'lucide-react';
-import { createClient } from '@/lib/supabase';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 export default function RedefinePasswordPage() {
-  const supabase = useMemo(() => createClient(), []);
+  const supabase = useMemo(
+    () =>
+      createSupabaseClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+        {
+          auth: {
+            flowType: 'implicit',
+            detectSessionInUrl: true,
+            persistSession: true,
+            autoRefreshToken: true
+          }
+        }
+      ),
+    []
+  );
   const [ready, setReady] = useState(false);
   const [checking, setChecking] = useState(true);
   const [password, setPassword] = useState('');
