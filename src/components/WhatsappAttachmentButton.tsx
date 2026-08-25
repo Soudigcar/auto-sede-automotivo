@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { FileText, Image as ImageIcon, Loader2, Paperclip, Send, Sparkles, Video, Volume2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import AutocarCopilotInline from '@/components/AutocarCopilotInline';
+import { WhatsappAudioRecorderButton } from '@/components/WhatsappAudioRecorderButton';
 
 const MAX_MEDIA_BYTES = 4 * 1024 * 1024;
 
@@ -155,6 +156,7 @@ export function WhatsappAttachmentButton({
       >
         <Paperclip size={14} /> Anexar
       </button>
+      <WhatsappAudioRecorderButton conversationId={conversationId} onRefresh={onRefresh} onStatus={onStatus} disabled={sending} />
 
       {autocarOpen ? (
         <div className="fixed inset-0 z-[555] flex items-end justify-center bg-black/25 p-3 backdrop-blur-[1px] lg:items-center" onMouseDown={(event) => { if (event.currentTarget === event.target) setAutocarOpen(false); }}>
