@@ -6,7 +6,9 @@ const migration = fs.readFileSync('supabase/migrations/20260825133000_master_lea
 const routingHardening = fs.readFileSync('supabase/migrations/20260825134500_master_multistore_fail_closed_routing.sql', 'utf8');
 const distributionApi = fs.readFileSync('src/app/api/master/base-lead-multistore/route.ts', 'utf8');
 const instancesApi = fs.readFileSync('src/app/api/master/base-lead-store-instances/route.ts', 'utf8');
+const legacyAssignApi = fs.readFileSync('src/app/api/base-lead-assign/route.ts', 'utf8');
 const distributionUi = fs.readFileSync('src/app/master/transferencia-leads/page.tsx', 'utf8');
+const coverageUi = fs.readFileSync('src/components/MasterLeadStoreCoverage.tsx', 'utf8');
 const pipeline = fs.readFileSync('src/app/api/store/portal/pipeline/route.ts', 'utf8');
 const sidebar = fs.readFileSync('src/components/MasterSidebar.tsx', 'utf8');
 
@@ -53,6 +55,13 @@ test('legacy distribution and transfer wrappers route through public fail-closed
   assert.match(transferWrapper, /distribute_base_lead_multistore/);
 });
 
+test('legacy direct store reassignment route is fail-closed', () => {
+  assert.match(legacyAssignApi, /LEGACY_STORE_REASSIGN_DISABLED/);
+  assert.match(legacyAssignApi, /Distribuição Multiloja/);
+  assert.doesNotMatch(legacyAssignApi, /\.from\('leads'\)[\s\S]*\.update\(/);
+  assert.doesNotMatch(legacyAssignApi, /routed_lead_id/);
+});
+
 test('multistore control plane is service-role only', () => {
   assert.match(migration, /alter table public\.lead_master_identities enable row level security/);
   assert.match(migration, /alter table public\.lead_store_instances enable row level security/);
@@ -75,10 +84,15 @@ test('Preview remains write-closed for multistore distribution', () => {
   assert.match(distributionApi, /confirmation[^\n]+DISTRIBUIR/);
 });
 
-test('Master exposes multistore coverage without exposing instance tables to stores', () => {
+test('Master exposes global and per-lead multistore coverage', () => {
   assert.match(instancesApi, /requireMaster/);
   assert.match(instancesApi, /summary/);
+  assert.match(instancesApi, /browse/);
+  assert.match(instancesApi, /hydrateInstances/);
   assert.match(instancesApi, /multistore_leads/);
+  assert.match(coverageUi, /Ver lojas por lead/);
+  assert.match(coverageUi, /Base Master/);
+  assert.match(coverageUi, /store_count/);
   assert.match(sidebar, /MasterLeadStoreCoverage/);
   assert.match(sidebar, /Distribuir Leads/);
 });
