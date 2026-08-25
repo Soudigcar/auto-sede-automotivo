@@ -10,6 +10,7 @@ const recorder = readFileSync('src/components/WhatsappAudioRecorderButton.tsx', 
 const storeActions = readFileSync('src/components/WhatsappCommerceActions.tsx', 'utf8');
 const masterActions = readFileSync('src/components/MasterWhatsappCommerceActions.tsx', 'utf8');
 const storeInbox = readFileSync('src/app/loja/[slug]/whatsapp/page.tsx', 'utf8');
+const masterInbox = readFileSync('src/app/master/whatsapp/inbox/page.tsx', 'utf8');
 
 test('Evolution media uses the documented JSON base64 contract', () => {
   assert.match(route, /new Uint8Array\(await fileValue\.arrayBuffer\(\)\)/);
@@ -72,4 +73,13 @@ test('vehicle actions share one compact entry without the obsolete 24 hour warni
   assert.match(storeActions, /Enviar fotos/);
   assert.match(masterActions, /Definir como interesse/);
   assert.match(masterActions, /Enviar fotos/);
+});
+
+test('connection status and refresh controls are compact icon-only actions', () => {
+  for (const inbox of [storeInbox, masterInbox]) {
+    assert.match(inbox, /aria-label="Atualizar conversas"/);
+    assert.doesNotMatch(inbox, /<RefreshCw[^>]*\/> Atualizar/);
+    assert.match(inbox, /aria-label=\{channelStatus\(selectedConversation\)\}/);
+    assert.doesNotMatch(inbox, /\/> \{channelStatus\(selectedConversation\)\}<\/span>/);
+  }
 });
