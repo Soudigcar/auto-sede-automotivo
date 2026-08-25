@@ -73,16 +73,16 @@ async function microphoneErrorMessage(error: any) {
     return 'O microfone foi bloqueado porque esta página não está em um contexto HTTPS seguro.';
   }
 
-  if (policyAllowed === false) {
-    return 'O microfone está autorizado no Chrome, mas foi bloqueado pela política de segurança da página. Código: POLICY_BLOCK.';
+  if (policyAllowed === false && isMicrophonePermissionError(error)) {
+    return `O navegador recusou o microfone e a política da página também reportou bloqueio. Código: POLICY_BLOCK${rawMessage ? ` (${rawMessage})` : ''}.`;
   }
 
   if (isMicrophonePermissionError(error) && permissionState === 'granted') {
-    return 'O Chrome está autorizado neste site, mas o sistema operacional está impedindo o acesso ao microfone. No Mac: Ajustes do Sistema > Privacidade e Segurança > Microfone > ative Google Chrome. Código: OS_BLOCK.';
+    return `O Chrome está autorizado neste site, mas o acesso real ao microfone foi recusado. Verifique no Mac: Ajustes do Sistema > Privacidade e Segurança > Microfone > Google Chrome. Código: OS_BLOCK${rawMessage ? ` (${rawMessage})` : ''}.`;
   }
 
   if (isMicrophonePermissionError(error)) {
-    return `O navegador ainda está recusando o microfone. Permissão detectada: ${permissionState}. Código: BROWSER_BLOCK${rawMessage ? ` (${rawMessage})` : ''}.`;
+    return `O navegador recusou o microfone. Permissão detectada: ${permissionState}. Código: BROWSER_BLOCK${rawMessage ? ` (${rawMessage})` : ''}.`;
   }
   if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
     return 'Nenhum microfone foi encontrado neste dispositivo. Código: DEVICE_NOT_FOUND.';
@@ -160,13 +160,6 @@ export function WhatsappAudioRecorder({
       return;
     }
 
-    const policyAllowed = microphoneAllowedByPolicy();
-    if (policyAllowed === false) {
-      permissionErrorShownRef.current = true;
-      onStatus('O microfone está autorizado no Chrome, mas foi bloqueado pela política de segurança da página. Código: POLICY_BLOCK.');
-      return;
-    }
-
     const mime = recorderMimeType();
     if (!mime) {
       onStatus('Não foi encontrado um formato de áudio compatível para gravação neste navegador.');
@@ -238,7 +231,7 @@ export function WhatsappAudioRecorder({
       stopTimer();
       stopTracks();
       setState('idle');
-      permissionErrorShownRef.current = isMicrophonePermissionError(error) || microphoneAllowedByPolicy() === false;
+      permissionErrorShownRef.current = isMicrophonePermissionError(error);
       onStatus(await microphoneErrorMessage(error));
     }
   }
@@ -316,7 +309,6 @@ export function WhatsappAudioRecorder({
 
     function clearPermissionWarningIfGranted(status: PermissionStatus) {
       if (status.state !== 'granted' || !permissionErrorShownRef.current) return;
-      if (microphoneAllowedByPolicy() === false) return;
       permissionErrorShownRef.current = false;
       onStatus('');
     }
