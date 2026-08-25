@@ -19,7 +19,7 @@ export const masterMenu = [
   { label: 'Marketplace', href: '/master/marketplace', icon: ShoppingBag },
   { label: 'Campanhas e Landings', href: '/master/campaigns', icon: Megaphone },
   { label: 'Base', href: '/master/base', icon: Database },
-  { label: 'Transferir Leads', href: '/master/transferencia-leads', icon: ArrowRightLeft, child: true },
+  { label: 'Distribuir Leads', href: '/master/transferencia-leads', icon: ArrowRightLeft, child: true },
   { label: 'Integrações', href: '/master/integrations', icon: Plug },
   { label: 'Inbox WhatsApp', href: '/master/whatsapp/inbox', icon: Inbox },
   { label: 'I.A AUTOCAR', href: '/master/autocar', icon: Bot },
