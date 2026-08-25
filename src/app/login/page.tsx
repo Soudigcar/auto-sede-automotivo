@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Suspense, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Car, LogIn } from 'lucide-react';
@@ -118,7 +119,10 @@ function LoginContent() {
             <label className="mt-6 block text-sm font-bold text-zinc-700">E-mail</label>
             <input className="mt-2 w-full rounded-xl border border-zinc-800 bg-[#111827] px-4 py-3 font-semibold text-white outline-none focus:border-red-500" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="seuemail@dominio.com.br" autoComplete="email" disabled={isSubmitting} />
 
-            <label className="mt-4 block text-sm font-bold text-zinc-700">Senha</label>
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <label className="block text-sm font-bold text-zinc-700">Senha</label>
+              <Link href="/recuperar-senha" className="text-xs font-black text-red-600 hover:text-red-700">Esqueci minha senha</Link>
+            </div>
             <input className="mt-2 w-full rounded-xl border border-zinc-800 bg-[#111827] px-4 py-3 font-semibold text-white outline-none focus:border-red-500" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Digite sua senha" autoComplete="current-password" disabled={isSubmitting} />
 
             <button className="btn-primary mt-6 w-full justify-center disabled:cursor-wait disabled:opacity-60" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Entrando...' : 'Entrar no sistema'}</button>

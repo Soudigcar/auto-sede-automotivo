@@ -11,6 +11,7 @@ import {
   resolveManagedStore,
   storeTeamRoleLabels
 } from '@/lib/server/storeTeam';
+import { enforceRateLimit } from '@/lib/server/rateLimit';
 
 export const runtime = 'nodejs';
 
@@ -35,8 +36,12 @@ function parseRoutingOrder(value: unknown) {
   return Math.min(parsed, 9999);
 }
 
-function createTemporaryPassword() {
-  return `Auto#${randomBytes(9).toString('base64url')}`;
+function createBootstrapSecret() {
+  return `Bootstrap#${randomBytes(24).toString('base64url')}aA1!`;
+}
+
+function recoveryRedirectUrl(request: Request) {
+  return `${publicAppUrl(request).replace(/\/$/, '')}/redefinir-senha`;
 }
 
 async function loadTeam(supabase: any, store: any, request: Request) {
@@ -58,8 +63,6 @@ async function loadTeam(supabase: any, store: any, request: Request) {
 
   if (membersError) throw membersError;
   if (linksError) throw linksError;
-
-  const baseUrl = publicAppUrl(request);
 
   return {
     store: {
@@ -153,6 +156,18 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Selecione Pré-vendas, Vendedor ou Prospectador.' }, { status: 400 });
       }
 
+      if (process.env.VERCEL_ENV === 'preview') {
+        return NextResponse.json({
+          success: true,
+          preview_mode: true,
+          message: `Preview validado para ${fullName}. Nenhum usuário foi criado e nenhum e-mail real foi enviado.`,
+          role_label: storeTeamRoleLabels[role],
+          credential_delivery: 'email'
+        });
+      }
+
+      await enforceRateLimit(request, `team-create-member:${profile.id}`, 10, 60 * 60);
+
       const { data: existingProfile, error: profileLookupError } = await supabase
         .from('users')
         .select('id')
@@ -164,10 +179,10 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Já existe um usuário cadastrado com este e-mail.' }, { status: 409 });
       }
 
-      const temporaryPassword = createTemporaryPassword();
+      const bootstrapSecret = createBootstrapSecret();
       const { data: createdAuth, error: authError } = await supabase.auth.admin.createUser({
         email,
-        password: temporaryPassword,
+        password: bootstrapSecret,
         email_confirm: true,
         user_metadata: {
           full_name: fullName,
@@ -228,6 +243,19 @@ export async function POST(request: Request) {
         }
       }
 
+      const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: recoveryRedirectUrl(request)
+      });
+
+      if (recoveryError) {
+        if (role === 'prospector') {
+          await supabase.from('prospectors').delete().eq('user_id', member.id).eq('store_id', store.id).catch(() => undefined);
+        }
+        await supabase.from('users').delete().eq('id', member.id).eq('store_id', store.id).catch(() => undefined);
+        await supabase.auth.admin.deleteUser(createdAuth.user.id).catch(() => undefined);
+        return NextResponse.json({ error: 'Não foi possível enviar o acesso confidencial. Nenhuma conta foi mantida.' }, { status: 502 });
+      }
+
       await Promise.allSettled([
         supabase.from('audit_logs').insert({
           event_id: store.event_id || null,
@@ -240,18 +268,31 @@ export async function POST(request: Request) {
             status: 'active',
             receives_leads: receivesLeads,
             created_by_user_id: profile.id,
-            created_manually: true
+            created_manually: true,
+            credential_delivery: 'email'
+          }
+        }),
+        supabase.from('audit_logs').insert({
+          event_id: store.event_id || null,
+          action_type: 'password_recovery_requested',
+          entity_type: 'users',
+          entity_id: member.id,
+          new_value: {
+            store_id: store.id,
+            role,
+            requested_by_user_id: profile.id,
+            source: 'manager_invite',
+            channel: 'email'
           }
         })
       ]);
 
       return NextResponse.json({
         success: true,
-        message: `${fullName} foi adicionado à equipe e já pode acessar o sistema.`,
+        message: `${fullName} foi adicionado à equipe. O próprio colaborador recebeu no e-mail o link confidencial para definir a senha.`,
         member,
         role_label: storeTeamRoleLabels[role],
-        temporary_password: temporaryPassword,
-        password_notice: 'Copie esta senha agora. Ela não será exibida novamente.'
+        credential_delivery: 'email'
       });
     }
 
@@ -320,6 +361,62 @@ export async function POST(request: Request) {
       if (error) throw error;
 
       return NextResponse.json({ success: true });
+    }
+
+    if (action === 'send_password_recovery') {
+      const memberId = cleanText(body.member_id, 80);
+      if (!memberId) return NextResponse.json({ error: 'Informe o colaborador.' }, { status: 400 });
+
+      const { data: member, error: memberError } = await supabase
+        .from('users')
+        .select('id,auth_user_id,full_name,email,role,store_id,status')
+        .eq('id', memberId)
+        .eq('store_id', store.id)
+        .in('role', ['pre_sales', 'seller', 'prospector'])
+        .maybeSingle();
+
+      if (memberError) throw memberError;
+      if (!member) return NextResponse.json({ error: 'Colaborador não pertence a esta loja.' }, { status: 404 });
+      if (!member.auth_user_id || !member.email) {
+        return NextResponse.json({ error: 'Este colaborador ainda não possui uma conta de acesso válida.' }, { status: 409 });
+      }
+
+      if (process.env.VERCEL_ENV === 'preview') {
+        return NextResponse.json({
+          success: true,
+          preview_mode: true,
+          message: `Preview validado para ${member.full_name}. Nenhum e-mail real foi enviado.`
+        });
+      }
+
+      await enforceRateLimit(request, `password-recovery-manager:${profile.id}`, 10, 60 * 60);
+      const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(member.email, {
+        redirectTo: recoveryRedirectUrl(request)
+      });
+      if (recoveryError) {
+        return NextResponse.json({ error: 'Não foi possível enviar a recuperação agora. Tente novamente.' }, { status: 502 });
+      }
+
+      await Promise.allSettled([
+        supabase.from('audit_logs').insert({
+          event_id: store.event_id || null,
+          action_type: 'password_recovery_requested',
+          entity_type: 'users',
+          entity_id: member.id,
+          new_value: {
+            store_id: store.id,
+            role: member.role,
+            requested_by_user_id: profile.id,
+            source: 'manager',
+            channel: 'email'
+          }
+        })
+      ]);
+
+      return NextResponse.json({
+        success: true,
+        message: `Instruções de recuperação enviadas para o e-mail cadastrado de ${member.full_name}.`
+      });
     }
 
     if (action === 'update_member') {
