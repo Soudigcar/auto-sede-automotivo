@@ -9,15 +9,31 @@ const desktopActions = readFileSync('src/components/WhatsappAttachmentButton.tsx
 const mobileActions = readFileSync('src/components/WhatsappMobileInboxBridge.tsx', 'utf8');
 const desktopMessages = readFileSync('src/components/WhatsappMediaMessage.tsx', 'utf8');
 const mobileMessages = readFileSync('src/components/WhatsappMobileMediaMessage.tsx', 'utf8');
+const evolution = readFileSync('src/lib/server/evolution.ts', 'utf8');
+const autocarLiveLocation = readFileSync('src/lib/server/autocar/liveLocationPilot.ts', 'utf8');
 
 test('location endpoint authorizes the conversation and uses native Evolution location sending', () => {
   assert.match(route, /canAccessStoreConversation/);
   assert.match(route, /readManagedEvolutionState/);
   assert.match(route, /availability\.connected/);
   assert.match(route, /markAutocarHumanActive/);
-  assert.match(route, /\/message\/sendLocation\//);
-  assert.match(route, /body: \{ number: recipient, name, address, latitude, longitude/);
+  assert.match(route, /sendEvolutionLocation\(integration\.instance_name, recipient/);
+  assert.match(evolution, /\/message\/sendLocation\//);
+  assert.match(evolution, /latitude: location\.latitude/);
+  assert.match(evolution, /longitude: location\.longitude/);
   assert.match(route, /message_type: 'location'/);
+});
+
+test('AUTOCAR sends the official store position as a native location instead of a Maps text', () => {
+  assert.match(autocarLiveLocation, /sendEvolutionLocation/);
+  assert.doesNotMatch(autocarLiveLocation, /sendEvolutionText/);
+  assert.match(autocarLiveLocation, /validCoordinate\(location\?\.latitude, -90, 90\)/);
+  assert.match(autocarLiveLocation, /validCoordinate\(location\?\.longitude, -180, 180\)/);
+  assert.match(autocarLiveLocation, /message_type: 'location'/);
+  assert.match(autocarLiveLocation, /location: trustedLocation/);
+  assert.match(autocarLiveLocation, /sent_location: trustedLocation/);
+  assert.match(autocarLiveLocation, /autocar-live-location-v2/);
+  assert.doesNotMatch(autocarLiveLocation, /Google Maps: \$\{mapsUrl\}/);
 });
 
 test('store location is trusted server-side while current coordinates are validated', () => {
