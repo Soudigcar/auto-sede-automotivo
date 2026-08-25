@@ -11,6 +11,7 @@ import {
   resolveManagedStore,
   storeTeamRoleLabels
 } from '@/lib/server/storeTeam';
+import { enforceRateLimit } from '@/lib/server/rateLimit';
 
 export const runtime = 'nodejs';
 
@@ -39,6 +40,10 @@ function createTemporaryPassword() {
   return `Auto#${randomBytes(9).toString('base64url')}`;
 }
 
+function recoveryRedirectUrl(request: Request) {
+  return `${publicAppUrl(request).replace(/\/$/, '')}/redefinir-senha`;
+}
+
 async function loadTeam(supabase: any, store: any, request: Request) {
   const [{ data: members, error: membersError }, { data: links, error: linksError }] = await Promise.all([
     supabase
@@ -58,8 +63,6 @@ async function loadTeam(supabase: any, store: any, request: Request) {
 
   if (membersError) throw membersError;
   if (linksError) throw linksError;
-
-  const baseUrl = publicAppUrl(request);
 
   return {
     store: {
@@ -320,6 +323,62 @@ export async function POST(request: Request) {
       if (error) throw error;
 
       return NextResponse.json({ success: true });
+    }
+
+    if (action === 'send_password_recovery') {
+      const memberId = cleanText(body.member_id, 80);
+      if (!memberId) return NextResponse.json({ error: 'Informe o colaborador.' }, { status: 400 });
+
+      const { data: member, error: memberError } = await supabase
+        .from('users')
+        .select('id,auth_user_id,full_name,email,role,store_id,status')
+        .eq('id', memberId)
+        .eq('store_id', store.id)
+        .in('role', ['pre_sales', 'seller', 'prospector'])
+        .maybeSingle();
+
+      if (memberError) throw memberError;
+      if (!member) return NextResponse.json({ error: 'Colaborador não pertence a esta loja.' }, { status: 404 });
+      if (!member.auth_user_id || !member.email) {
+        return NextResponse.json({ error: 'Este colaborador ainda não possui uma conta de acesso válida.' }, { status: 409 });
+      }
+
+      if (process.env.VERCEL_ENV === 'preview') {
+        return NextResponse.json({
+          success: true,
+          preview_mode: true,
+          message: `Preview validado para ${member.full_name}. Nenhum e-mail real foi enviado.`
+        });
+      }
+
+      await enforceRateLimit(request, `password-recovery-manager:${profile.id}`, 10, 60 * 60);
+      const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(member.email, {
+        redirectTo: recoveryRedirectUrl(request)
+      });
+      if (recoveryError) {
+        return NextResponse.json({ error: 'Não foi possível enviar a recuperação agora. Tente novamente.' }, { status: 502 });
+      }
+
+      await Promise.allSettled([
+        supabase.from('audit_logs').insert({
+          event_id: store.event_id || null,
+          action_type: 'password_recovery_requested',
+          entity_type: 'users',
+          entity_id: member.id,
+          new_value: {
+            store_id: store.id,
+            role: member.role,
+            requested_by_user_id: profile.id,
+            source: 'manager',
+            channel: 'email'
+          }
+        })
+      ]);
+
+      return NextResponse.json({
+        success: true,
+        message: `Instruções de recuperação enviadas para o e-mail cadastrado de ${member.full_name}.`
+      });
     }
 
     if (action === 'update_member') {
