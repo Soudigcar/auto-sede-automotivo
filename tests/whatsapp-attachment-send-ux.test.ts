@@ -53,13 +53,20 @@ test('audio recorder provides a safe WhatsApp-like review flow on desktop and mo
   assert.match(mobileInbox, /props\.messageText\.trim\(\).*props\.audioRecorder/);
 });
 
-test('compact WhatsApp actions keep attachment and scheduling as icon-only buttons', () => {
+test('compact WhatsApp composer actions use a consistent icon-only pattern', () => {
+  assert.match(desktop, /aria-label="Abrir AUTOCAR"/);
+  assert.doesNotMatch(desktop, /<Sparkles size=\{16\} \/> AUTOCAR/);
   assert.match(desktop, /aria-label="Anexar foto, vídeo, áudio ou documento"/);
   assert.doesNotMatch(desktop, /<Paperclip size=\{17\} \/> Anexar/);
+  assert.match(desktop, /WhatsappAudioRecorderButton[^>]*compact/);
   assert.match(storeActions, /aria-label="Agendar atividade"/);
   assert.doesNotMatch(storeActions, /<CalendarDays size=\{16\} \/> Agendar/);
   assert.match(masterActions, /aria-label="Agendar atividade"/);
   assert.doesNotMatch(masterActions, /<CalendarDays size=\{17\} \/> Agendar/);
+  for (const actions of [storeActions, masterActions]) {
+    assert.match(actions, /aria-label="Transferir lead"/);
+    assert.doesNotMatch(actions, /<ArrowRightLeft[^>]*\/> Transferir lead/);
+  }
 });
 
 test('vehicle actions share one compact entry without the obsolete 24 hour warning', () => {
@@ -84,4 +91,12 @@ test('connection status and refresh controls are compact icon-only actions', () 
   }
   assert.match(mobileInbox, /\{selectedPhone \|\| 'WhatsApp'\}/);
   assert.doesNotMatch(mobileInbox, /\{props\.channelLabel \|\| selectedPhone/);
+});
+
+test('conversation context controls use the reduced desktop sizing', () => {
+  assert.match(storeInbox, /inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-md/);
+  assert.match(storeInbox, /text-\[8px\] font-black uppercase/);
+  assert.match(storeInbox, /h-7 w-\[175px\]/);
+  assert.match(masterInbox, /inline-flex h-7 items-center gap-1[^\n]+Marcar como lida/);
+  assert.match(masterInbox, /h-7 w-\[175px\]/);
 });
