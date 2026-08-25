@@ -60,7 +60,7 @@ export function MasterSidebar({ active }: { active: string }) {
           const isActive = active === item.href || active === item.label || (item.href === '/master/integrations' && active.startsWith('/master/integrations'));
           const base = collapsed ? 'flex items-center justify-center rounded-2xl px-0 py-4' : 'flex items-center gap-3 rounded-2xl px-4 py-4';
           const state = isActive ? 'bg-red-600 font-bold shadow-lg shadow-red-600/20' : 'text-zinc-400 hover:bg-white/5 hover:text-white';
-          return <Link key={item.href} href={item.href} title={item.label} className={`${base} ${state}`}><Icon size={18} />{!collapsed ? <span>{item.label}</span> : null}</Link>;
+          return <Link key={item.href} href={item.href} prefetch={false} title={item.label} className={`${base} ${state}`}><Icon size={18} />{!collapsed ? <span>{item.label}</span> : null}</Link>;
         })}
       </nav>
     </aside>
