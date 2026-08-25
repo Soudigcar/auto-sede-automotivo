@@ -2,15 +2,16 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Activity, BarChart3, Bot, BrainCircuit, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, FlaskConical, Gauge, Globe2, Inbox, Landmark, LogOut, Megaphone, Plug, ShoppingBag, Store, UserCog } from 'lucide-react';
+import { Activity, BarChart3, Bot, BrainCircuit, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, FlaskConical, Gauge, Globe2, Inbox, Landmark, LogOut, Megaphone, Plug, Route, ShoppingBag, Store, UserCog } from 'lucide-react';
 import { MasterOlxImportBridge } from '@/components/marketplace/MasterOlxImportBridge';
 
-const masterMenu = [
+export const masterMenu = [
   { label: 'Dashboard', href: '/master/dashboard/live', icon: BarChart3 },
   { label: 'Monitoramento', href: '/master/lead-monitoring', icon: Activity },
   { label: 'Eventos', href: '/master/events', icon: CalendarDays },
   { label: 'Lojas & Estoque', href: '/master/stores/events', icon: Store },
   { label: 'Equipe', href: '/master/users', icon: UserCog },
+  { label: 'Roteamento de Leads', href: '/master/lead-routing', icon: Route },
   { label: 'Relatórios', href: '/master/reports', icon: FileText },
   { label: 'Financeiro', href: '/master/finance', icon: Landmark },
   { label: 'Portal Oficial', href: '/master/portal', icon: Globe2 },
