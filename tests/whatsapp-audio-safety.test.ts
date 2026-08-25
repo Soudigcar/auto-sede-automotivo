@@ -6,6 +6,7 @@ const recorderPath = new URL('../src/components/WhatsappAudioRecorder.tsx', impo
 const attachmentUiPath = new URL('../src/components/WhatsappAttachmentButton.tsx', import.meta.url);
 const audioRoutePath = new URL('../src/app/api/whatsapp/messages/send-audio/route.ts', import.meta.url);
 const attachmentRoutePath = new URL('../src/app/api/whatsapp/messages/send-attachment/route.ts', import.meta.url);
+const mediaRoutePath = new URL('../src/app/api/whatsapp/messages/media/route.ts', import.meta.url);
 
 async function source(url: URL) {
   return readFile(url, 'utf8');
@@ -81,4 +82,13 @@ test('anexos tradicionais também passam a usar estado live e handoff pré-envio
   assert.ok(providerIndex >= 0);
   assert.ok(liveIndex < providerIndex);
   assert.ok(takeoverIndex < providerIndex);
+});
+
+test('recuperação de mídia usa conexão live e proíbe cache de áudio no navegador', async () => {
+  const code = await source(mediaRoutePath);
+
+  assert.match(code, /readManagedEvolutionState\(integration\)/);
+  assert.match(code, /resolveEvolutionAvailability\(integration, liveState\)/);
+  assert.match(code, /Cache-Control': 'private, no-store, max-age=0'/);
+  assert.match(code, /Pragma: 'no-cache'/);
 });
