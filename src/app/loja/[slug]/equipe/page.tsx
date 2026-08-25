@@ -10,6 +10,7 @@ import {
   Clipboard,
   Copy,
   ExternalLink,
+  KeyRound,
   Link2,
   Loader2,
   LogOut,
@@ -260,6 +261,27 @@ export default function StoreTeamPage() {
     }
   }
 
+  async function sendPasswordRecovery(member: TeamMember) {
+    setBusyKey(`recovery:${member.id}`);
+    setMessage(`Preparando recuperação de acesso para ${member.full_name}...`);
+    try {
+      const data = await postAction({ action: 'send_password_recovery', member_id: member.id });
+      setMessage(data.message || 'Solicitação de recuperação enviada.');
+    } catch (error: any) {
+      setMessage(error?.message || 'Erro ao solicitar recuperação de senha.');
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  async function copyRecoveryPage(member: TeamMember) {
+    const recoveryUrl = `${window.location.origin}/recuperar-senha`;
+    await navigator.clipboard.writeText(recoveryUrl);
+    setCopiedKey(`recovery:${member.id}`);
+    setMessage('Página genérica de recuperação copiada. Ela não contém token nem credencial.');
+    window.setTimeout(() => setCopiedKey(''), 1800);
+  }
+
   if (message && !store && !loading) {
     return <main className="flex min-h-screen items-center justify-center bg-[#071020] p-6 text-center text-white">{message}</main>;
   }
@@ -379,7 +401,11 @@ export default function StoreTeamPage() {
                     key={`${member.id}:${member.status}:${member.receives_leads}:${member.routing_order}:${member.max_open_leads ?? 'none'}`}
                     member={member}
                     saving={busyKey === `member:${member.id}`}
+                    recovering={busyKey === `recovery:${member.id}`}
+                    copiedRecovery={copiedKey === `recovery:${member.id}`}
                     onSave={saveMember}
+                    onSendRecovery={sendPasswordRecovery}
+                    onCopyRecovery={copyRecoveryPage}
                   />
                 ))}
               </div>
@@ -391,7 +417,15 @@ export default function StoreTeamPage() {
   );
 }
 
-function MemberCard({ member, saving, onSave }: { member: TeamMember; saving: boolean; onSave: (draft: TeamMember) => Promise<void> }) {
+function MemberCard({ member, saving, recovering, copiedRecovery, onSave, onSendRecovery, onCopyRecovery }: {
+  member: TeamMember;
+  saving: boolean;
+  recovering: boolean;
+  copiedRecovery: boolean;
+  onSave: (draft: TeamMember) => Promise<void>;
+  onSendRecovery: (member: TeamMember) => Promise<void>;
+  onCopyRecovery: (member: TeamMember) => Promise<void>;
+}) {
   const [draft, setDraft] = useState<TeamMember>(member);
 
   function changeStatus(status: string) {
@@ -453,6 +487,17 @@ function MemberCard({ member, saving, onSave }: { member: TeamMember; saving: bo
       <button type="button" onClick={() => onSave(draft)} disabled={saving} className="premium-button-primary mt-4 w-full justify-center disabled:opacity-50">
         {saving ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />} Salvar colaborador
       </button>
+
+      <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-red-600 shadow-sm"><KeyRound size={17} /></div>
+          <div><p className="text-sm font-black text-zinc-800">Acesso e Segurança</p><p className="mt-1 text-xs leading-relaxed text-zinc-500">O colaborador recebe a recuperação no próprio e-mail. A loja nunca vê senha ou token.</p></div>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <button type="button" onClick={() => onSendRecovery(member)} disabled={recovering} className="premium-button-secondary justify-center text-sm disabled:opacity-50">{recovering ? <Loader2 size={16} className="animate-spin" /> : <KeyRound size={16} />} {recovering ? 'Enviando...' : 'Enviar redefinição'}</button>
+          <button type="button" onClick={() => onCopyRecovery(member)} className="premium-button-secondary justify-center text-sm">{copiedRecovery ? <Check size={16} /> : <Copy size={16} />} {copiedRecovery ? 'Copiado' : 'Copiar recuperação'}</button>
+        </div>
+      </div>
     </article>
   );
 }
