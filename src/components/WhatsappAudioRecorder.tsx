@@ -29,9 +29,14 @@ function recorderMimeType() {
   return MIME_CANDIDATES.find((candidate) => MediaRecorder.isTypeSupported(candidate)) || '';
 }
 
+function isMicrophonePermissionError(error: any) {
+  const name = String(error?.name || '');
+  return name === 'NotAllowedError' || name === 'PermissionDeniedError';
+}
+
 function microphoneErrorMessage(error: any) {
   const name = String(error?.name || '');
-  if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+  if (isMicrophonePermissionError(error)) {
     return 'Permita o acesso ao microfone no navegador para gravar áudio.';
   }
   if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
@@ -60,6 +65,7 @@ export function WhatsappAudioRecorder({
   const chunksRef = useRef<BlobPart[]>([]);
   const timerRef = useRef<number | null>(null);
   const previousConversationRef = useRef(conversationId);
+  const permissionErrorShownRef = useRef(false);
   const [state, setState] = useState<'idle' | 'recording' | 'ready' | 'sending'>('idle');
   const [seconds, setSeconds] = useState(0);
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -119,6 +125,7 @@ export function WhatsappAudioRecorder({
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
       });
+      permissionErrorShownRef.current = false;
       streamRef.current = stream;
       chunksRef.current = [];
       setSeconds(0);
@@ -179,6 +186,7 @@ export function WhatsappAudioRecorder({
       stopTimer();
       stopTracks();
       setState('idle');
+      permissionErrorShownRef.current = isMicrophonePermissionError(error);
       onStatus(microphoneErrorMessage(error));
     }
   }
@@ -249,6 +257,47 @@ export function WhatsappAudioRecorder({
       resetRecorder();
     }
   }, [conversationId]);
+
+  useEffect(() => {
+    let disposed = false;
+    let permissionStatus: PermissionStatus | null = null;
+
+    function clearPermissionWarningIfGranted(status: PermissionStatus) {
+      if (status.state !== 'granted' || !permissionErrorShownRef.current) return;
+      permissionErrorShownRef.current = false;
+      onStatus('');
+    }
+
+    async function syncMicrophonePermission() {
+      if (!navigator.permissions?.query) return;
+      try {
+        const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+        if (disposed) return;
+        if (permissionStatus && permissionStatus !== status) permissionStatus.onchange = null;
+        permissionStatus = status;
+        status.onchange = () => clearPermissionWarningIfGranted(status);
+        clearPermissionWarningIfGranted(status);
+      } catch {
+        // Alguns navegadores não expõem o estado do microfone via Permissions API.
+      }
+    }
+
+    const handleFocus = () => void syncMicrophonePermission();
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void syncMicrophonePermission();
+    };
+
+    void syncMicrophonePermission();
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      disposed = true;
+      if (permissionStatus) permissionStatus.onchange = null;
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [onStatus]);
 
   useEffect(() => () => {
     stopTimer();
