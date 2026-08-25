@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { evolutionMultipartRequest } from '@/lib/server/evolution';
-import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import { asStorePortalRole, canAccessStoreConversation } from '@/lib/server/storePortal';
+import { markAutocarHumanActive } from '@/lib/server/autocar/safeRuntime';
+import { readManagedEvolutionState } from '@/lib/server/managedWhatsappEvolution';
+import { resolveEvolutionAvailability } from '@/lib/server/storeWhatsappChannel';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,16 +33,6 @@ async function getProfile(supabase: any, token: string) {
     if (byEmail?.status === 'active' && asStorePortalRole(byEmail.role)) return byEmail;
   }
   return null;
-}
-
-function canAccessConversation(profile: any, conversation: any, lead: any) {
-  const role = asStorePortalRole(profile?.role);
-  if (!role || !profile || !conversation) return false;
-  if (role === 'master') return true;
-  if (!profile.store_id || profile.store_id !== conversation.store_id) return false;
-  if (role === 'store') return true;
-  if (!lead || conversation.lead_id !== lead.id) return false;
-  return canAccessStoreLead(profile, role, lead);
 }
 
 function normalizePhone(value: unknown) {
@@ -88,7 +81,8 @@ export async function POST(request: Request) {
     if (!token) return NextResponse.json({ error: 'Sessão não encontrada.' }, { status: 401 });
 
     const profile = await getProfile(supabase, token);
-    if (!profile) return NextResponse.json({ error: 'Usuário sem permissão para enviar anexos no WhatsApp.' }, { status: 403 });
+    const role = asStorePortalRole(profile?.role);
+    if (!profile || !role) return NextResponse.json({ error: 'Usuário sem permissão para enviar anexos no WhatsApp.' }, { status: 403 });
 
     const form = await request.formData();
     const conversationId = cleanText(form.get('conversation_id'), 120);
@@ -111,7 +105,7 @@ export async function POST(request: Request) {
       lead = data;
     }
 
-    if (!conversation || !canAccessConversation(profile, conversation, lead)) return NextResponse.json({ error: 'Conversa não encontrada ou sem permissão.' }, { status: 404 });
+    if (!conversation || !canAccessStoreConversation(profile, role, conversation, lead)) return NextResponse.json({ error: 'Conversa não encontrada ou sem permissão.' }, { status: 404 });
 
     const [contactResponse, integrationResponse] = await Promise.all([
       supabase.from('whatsapp_contacts').select('id, phone, wa_id').eq('id', conversation.contact_id).maybeSingle(),
@@ -123,14 +117,43 @@ export async function POST(request: Request) {
     const contact = contactResponse.data;
     const integration = integrationResponse.data;
     if (!contact) return NextResponse.json({ error: 'Contato da conversa não encontrado.' }, { status: 404 });
-    if (!integration || integration.provider !== 'evolution') return NextResponse.json({ error: 'Envio de anexos está disponível para conversas Evolution nesta etapa.' }, { status: 409 });
-    if (integration.status !== 'connected') {
+    if (!integration || integration.provider !== 'evolution' || !integration.instance_name) return NextResponse.json({ error: 'Envio de anexos está disponível para conversas Evolution nesta etapa.' }, { status: 409 });
+
+    const liveState = await readManagedEvolutionState(integration);
+    const availability = resolveEvolutionAvailability(integration, liveState);
+    if (!availability.connected) {
       const owner = integration.scope === 'master' ? 'central do Master' : 'da loja';
-      return NextResponse.json({ error: `WhatsApp ${owner} está desconectado. Reconecte em Integrações.` }, { status: 409 });
+      return NextResponse.json({
+        error: `WhatsApp ${owner} não está conectado neste momento. Aguarde a reconexão ou avise o Gestor.`,
+        channel_status: availability.status
+      }, { status: 409 });
     }
 
     const recipient = normalizePhone(contact.phone || contact.wa_id);
     if (!recipient) return NextResponse.json({ error: 'Contato sem telefone válido para envio.' }, { status: 400 });
+
+    if (conversation.store_id) {
+      try {
+        const takeover = await markAutocarHumanActive({
+          productionSupabase: supabase,
+          storeId: conversation.store_id,
+          conversationId: conversation.id,
+          whatsappNumberId: conversation.whatsapp_number_id,
+          leadId: conversation.lead_id || null,
+          messageId: null,
+          profileId: profile.id || null,
+          source: 'inbox'
+        });
+        if (takeover?.human_state !== 'human_active') {
+          return NextResponse.json({ error: 'Não foi possível confirmar o atendimento humano antes do envio do anexo.' }, { status: 409 });
+        }
+      } catch (error: any) {
+        return NextResponse.json({
+          error: 'Não foi possível assumir a conversa com segurança antes do envio do anexo.',
+          detail: String(error?.message || error || '').slice(0, 300)
+        }, { status: 500 });
+      }
+    }
 
     const mediaType = mediaTypeFor(fileValue);
     const mime = cleanText(fileValue.type, 160) || fallbackMime(mediaType);
@@ -180,6 +203,28 @@ export async function POST(request: Request) {
     } else savedMessage = inserted;
 
     await supabase.from('whatsapp_conversations').update({ last_message: body, last_message_at: sentAt, unread_count: 0, updated_at: sentAt }).eq('id', conversation.id);
+
+    if (conversation.store_id && savedMessage?.id) {
+      try {
+        await markAutocarHumanActive({
+          productionSupabase: supabase,
+          storeId: conversation.store_id,
+          conversationId: conversation.id,
+          whatsappNumberId: conversation.whatsapp_number_id,
+          leadId: conversation.lead_id || null,
+          messageId: savedMessage.id,
+          profileId: profile.id || null,
+          source: 'inbox'
+        });
+      } catch (error: any) {
+        console.warn('[AUTOCAR human takeover] Anexo enviado, mas não foi possível vincular a mensagem ao handoff.', {
+          storeId: conversation.store_id,
+          conversationId: conversation.id,
+          error: error?.message || String(error)
+        });
+      }
+    }
+
     return NextResponse.json({ success: true, message: savedMessage, provider: 'evolution', media_type: mediaType });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Erro ao enviar anexo pelo WhatsApp.' }, { status: 500 });
