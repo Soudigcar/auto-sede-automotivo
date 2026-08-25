@@ -82,4 +82,6 @@ test('connection status and refresh controls are compact icon-only actions', () 
     assert.match(inbox, /aria-label=\{channelStatus\(selectedConversation\)\}/);
     assert.doesNotMatch(inbox, /\/> \{channelStatus\(selectedConversation\)\}<\/span>/);
   }
+  assert.match(mobileInbox, /\{selectedPhone \|\| 'WhatsApp'\}/);
+  assert.doesNotMatch(mobileInbox, /\{props\.channelLabel \|\| selectedPhone/);
 });
