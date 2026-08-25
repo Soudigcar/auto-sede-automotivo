@@ -10,6 +10,7 @@ import {
   Filter,
   LayoutGrid,
   List,
+  Loader2,
   Mail,
   MapPin,
   Pencil,
@@ -35,8 +36,10 @@ const statuses = [
   'Perdido'
 ];
 
-type ViewMode = 'cards' | 'list';
+const BASE_PAGE_SIZE = 200;
+const BASE_LEAD_SELECT = 'id,name,phone,cpf,email,campaign_id,campaign_name,vehicle_name,source,assigned_store_id,assigned_store_name,assigned_consultant_id,routed_lead_id,event_id,status,metadata,created_at,updated_at';
 
+type ViewMode = 'cards' | 'list';
 type EditableField = 'name' | 'phone' | 'cpf' | 'birth_date' | 'city' | 'source' | 'campaign_name' | 'vehicle_name';
 
 function money(value: number) {
@@ -115,65 +118,93 @@ export default function MasterBasePage() {
   const [cityFilter, setCityFilter] = useState('all');
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [message, setMessage] = useState('Carregando base...');
+  const [loading, setLoading] = useState(true);
   const [busyLeadId, setBusyLeadId] = useState('');
   const [exporting, setExporting] = useState(false);
   const [editingCell, setEditingCell] = useState('');
   const [editValue, setEditValue] = useState('');
 
+  async function loadBasePages() {
+    const rows: any[] = [];
+    for (let offset = 0; ; offset += BASE_PAGE_SIZE) {
+      const pageResult = await supabase
+        .from('leads_base')
+        .select(BASE_LEAD_SELECT)
+        .order('created_at', { ascending: false })
+        .range(offset, offset + BASE_PAGE_SIZE - 1);
+      if (pageResult.error) throw pageResult.error;
+      const page = pageResult.data || [];
+      rows.push(...page);
+      setLeads([...rows]);
+      if (page.length < BASE_PAGE_SIZE) break;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    return rows;
+  }
+
   async function loadLeads() {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData.session?.access_token || '';
+    setLoading(true);
+    setMessage('Carregando base...');
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token || '';
 
-    const [leadResult, commercialResult, directStoreResult, eventResult, participationResult] = await Promise.all([
-      supabase.from('leads_base').select('*').order('created_at', { ascending: false }),
-      supabase.from('lead_commercial_details').select('lead_id,birth_date,cpf'),
-      supabase.from('stores').select('id,store_name,status,portal_enabled,slug').order('store_name', { ascending: true }),
-      supabase.from('events').select('id,event_name,status,start_date,end_date,state,city,location,created_at').neq('status', 'deleted').order('start_date', { ascending: false, nullsFirst: false }),
-      supabase.from('store_event_participations').select('event_id,store_id,status')
-    ]);
+      const baseRowsPromise = loadBasePages();
+      const [commercialResult, directStoreResult, eventResult, participationResult, leadRows] = await Promise.all([
+        supabase.from('lead_commercial_details').select('lead_id,birth_date,cpf'),
+        supabase.from('stores').select('id,store_name,status,portal_enabled,slug').order('store_name', { ascending: true }),
+        supabase.from('events').select('id,event_name,status,start_date,end_date,state,city,location,created_at').neq('status', 'deleted').order('start_date', { ascending: false, nullsFirst: false }),
+        supabase.from('store_event_participations').select('event_id,store_id,status'),
+        baseRowsPromise
+      ]);
 
-    const { data: leadRows, error: leadError } = leadResult;
-    if (leadError || eventResult.error || participationResult.error) {
-      setMessage('Não foi possível carregar a Base por evento. Atualize a página e tente novamente.');
-      return;
-    }
-
-    const commercialMap = new Map((commercialResult.data || []).map((item: any) => [String(item.lead_id), item]));
-    const enrichedLeads = (leadRows || []).map((lead: any) => {
-      const commercial = lead.routed_lead_id ? commercialMap.get(String(lead.routed_lead_id)) : null;
-      return {
-        ...lead,
-        _birth_date: commercial?.birth_date || lead.metadata?.birth_date || null,
-        _commercial_cpf: commercial?.cpf || null
-      };
-    });
-
-    let storeRows = (directStoreResult.data || []).filter((store: any) => {
-      const storeStatus = String(store.status || '').toLowerCase();
-      return storeStatus !== 'deleted' && storeStatus !== 'excluido';
-    });
-
-    if (!storeRows.length) {
-      try {
-        const storeResponse = await fetch('/api/base-stores', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-        if (storeResponse.ok) {
-          const storeResult = await storeResponse.json();
-          storeRows = storeResult.stores || [];
-        }
-      } catch {
-        storeRows = [];
+      if (eventResult.error || participationResult.error) {
+        setMessage('Não foi possível carregar a Base por evento. Atualize a página e tente novamente.');
+        return;
       }
-    }
 
-    setLeads(enrichedLeads);
-    setStores(storeRows || []);
-    setEvents(eventResult.data || []);
-    setParticipations(participationResult.data || []);
-    setMessage('');
+      const commercialMap = new Map((commercialResult.data || []).map((item: any) => [String(item.lead_id), item]));
+      const enrichedLeads = (leadRows || []).map((lead: any) => {
+        const commercial = lead.routed_lead_id ? commercialMap.get(String(lead.routed_lead_id)) : null;
+        return {
+          ...lead,
+          _birth_date: commercial?.birth_date || lead.metadata?.birth_date || null,
+          _commercial_cpf: commercial?.cpf || null
+        };
+      });
+
+      let storeRows = (directStoreResult.data || []).filter((store: any) => {
+        const storeStatus = String(store.status || '').toLowerCase();
+        return storeStatus !== 'deleted' && storeStatus !== 'excluido';
+      });
+
+      if (!storeRows.length) {
+        try {
+          const storeResponse = await fetch('/api/base-stores', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+          if (storeResponse.ok) {
+            const storeResult = await storeResponse.json();
+            storeRows = storeResult.stores || [];
+          }
+        } catch {
+          storeRows = [];
+        }
+      }
+
+      setLeads(enrichedLeads);
+      setStores(storeRows || []);
+      setEvents(eventResult.data || []);
+      setParticipations(participationResult.data || []);
+      setMessage('');
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
-    loadLeads().catch(() => setMessage('Erro ao carregar a Base.'));
+    loadLeads().catch(() => {
+      setLoading(false);
+      setMessage('Erro ao carregar a Base.');
+    });
   }, []);
 
   const eventMap = useMemo(() => new Map(events.map((event) => [event.id, event])), [events]);
@@ -419,7 +450,7 @@ export default function MasterBasePage() {
             <p className="premium-muted mt-3 max-w-3xl text-sm">Todos os leads permanecem nesta base geral, com visão consolidada ou separada por evento, origem e loja.</p>
           </header>
 
-          {message ? <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">{message}</div> : null}
+          {message ? <div className="mt-4 flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">{loading ? <Loader2 size={16} className="animate-spin" /> : null}{message}</div> : null}
 
           <div className={`mt-4 rounded-2xl border px-4 py-3 ${historicalScope ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-blue-200 bg-blue-50 text-blue-900'}`}>
             <div className="flex items-start gap-3"><CalendarRange className="mt-0.5 shrink-0" size={18} /><div><p className="text-[10px] font-black uppercase tracking-[0.16em]">Indicadores do escopo</p><strong className="mt-0.5 block text-sm">{scopeTitle}</strong>{selectedEvent ? <span className="text-[11px] font-bold opacity-70">{eventPeriod(selectedEvent)} · {[selectedEvent.city, selectedEvent.state].filter(Boolean).join(' / ')}</span> : null}</div></div>
@@ -445,11 +476,11 @@ export default function MasterBasePage() {
             </div>
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 pt-2">
               <p className="text-[9px] font-black uppercase tracking-[0.12em] text-zinc-400">{filtered.length} lead(s) encontrados</p>
-              <div className="flex items-center gap-2"><div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5"><button type="button" onClick={() => setViewMode('cards')} className={`inline-flex h-7 items-center gap-1 rounded-md px-2.5 text-[9px] font-black uppercase ${viewMode === 'cards' ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500'}`}><LayoutGrid size={12} /> Cards</button><button type="button" onClick={() => setViewMode('list')} className={`inline-flex h-7 items-center gap-1 rounded-md px-2.5 text-[9px] font-black uppercase ${viewMode === 'list' ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500'}`}><List size={12} /> Listagem</button></div><MasterLeadImportModal onImported={loadLeads} /><button type="button" onClick={() => void exportExcel()} disabled={exporting || !filtered.length} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-[9px] font-black uppercase text-white hover:bg-emerald-700 disabled:opacity-50"><FileSpreadsheet size={13} /> {exporting ? 'Exportando...' : 'Exportar Excel'}</button><MasterBulkLeadDistribution leads={filtered} stores={stores} onDistributed={loadLeads} /></div>
+              <div className="flex items-center gap-2"><div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5"><button type="button" onClick={() => setViewMode('cards')} className={`inline-flex h-7 items-center gap-1 rounded-md px-2.5 text-[9px] font-black uppercase ${viewMode === 'cards' ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500'}`}><LayoutGrid size={12} /> Cards</button><button type="button" onClick={() => setViewMode('list')} className={`inline-flex h-7 items-center gap-1 rounded-md px-2.5 text-[9px] font-black uppercase ${viewMode === 'list' ? 'bg-white text-red-600 shadow-sm' : 'text-zinc-500'}`}><List size={12} /> Listagem</button></div><MasterLeadImportModal onImported={loadLeads} /><button type="button" onClick={() => void exportExcel()} disabled={exporting || !filtered.length || loading} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-[9px] font-black uppercase text-white hover:bg-emerald-700 disabled:opacity-50"><FileSpreadsheet size={13} /> {exporting ? 'Exportando...' : 'Exportar Excel'}</button><MasterBulkLeadDistribution leads={filtered} stores={stores} onDistributed={loadLeads} /></div>
             </div>
           </section>
 
-          {viewMode === 'list' ? (
+          {loading && !leads.length ? <section className="premium-card mt-4 flex min-h-64 items-center justify-center gap-2 text-sm font-bold text-zinc-500"><Loader2 size={20} className="animate-spin" /> Carregando leads da Base...</section> : viewMode === 'list' ? (
             <section className="premium-card mt-4 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="min-w-[1700px] w-full border-collapse text-left text-[11px]">
