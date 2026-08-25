@@ -2,12 +2,9 @@ import { NextResponse } from 'next/server';
 import { createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
 import { enforceRateLimit } from '@/lib/server/rateLimit';
 import { publicError, readJsonBody } from '@/lib/server/requestSecurity';
+import { accountPasswordError } from '@/lib/storeTeamRegistration';
 
 export const runtime = 'nodejs';
-
-function strongPassword(value: string) {
-  return value.length >= 12 && /[a-z]/.test(value) && /[A-Z]/.test(value) && /\d/.test(value) && /[^A-Za-z0-9]/.test(value);
-}
 
 export async function POST(request: Request) {
   try {
@@ -38,8 +35,9 @@ export async function POST(request: Request) {
     const password = String(body.password || '');
     const confirmation = String(body.password_confirmation || '');
 
-    if (!strongPassword(password)) {
-      return NextResponse.json({ error: 'Use ao menos 12 caracteres, com maiúscula, minúscula, número e símbolo.' }, { status: 400 });
+    const passwordError = accountPasswordError(password);
+    if (passwordError) {
+      return NextResponse.json({ error: passwordError }, { status: 400 });
     }
     if (password !== confirmation) {
       return NextResponse.json({ error: 'A confirmação da senha não confere.' }, { status: 400 });
@@ -63,7 +61,8 @@ export async function POST(request: Request) {
         new_value: {
           store_id: profile.store_id || null,
           changed_by_user_id: profile.id,
-          source: 'email_recovery'
+          source: 'email_recovery',
+          credential_policy_version: 'strong-v1'
         }
       })
     ]);

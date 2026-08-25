@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
+import { accountPasswordError } from '@/lib/storeTeamRegistration';
 
 export const runtime = 'nodejs';
 
@@ -25,16 +26,13 @@ export async function POST(request: Request) {
     const password = String(body.password || '');
     const confirmation = String(body.password_confirmation || '');
 
-    if (password.length < 8) {
-      return NextResponse.json({ error: 'A nova senha deve ter pelo menos 8 caracteres.' }, { status: 400 });
+    const passwordError = accountPasswordError(password);
+    if (passwordError) {
+      return NextResponse.json({ error: passwordError }, { status: 400 });
     }
 
     if (password !== confirmation) {
       return NextResponse.json({ error: 'A confirmação da senha não confere.' }, { status: 400 });
-    }
-
-    if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
-      return NextResponse.json({ error: 'Use pelo menos uma letra e um número na nova senha.' }, { status: 400 });
     }
 
     const { error: authError } = await supabase.auth.admin.updateUserById(authData.user.id, {
@@ -58,7 +56,7 @@ export async function POST(request: Request) {
         entity_id: profile.id,
         new_value: {
           changed_by_user_id: profile.id,
-          temporary_password_replaced: true,
+          credential_policy_version: 'strong-v1',
           legacy_profile_without_auth_user_id: !profile.auth_user_id
         }
       })

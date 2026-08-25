@@ -25,6 +25,25 @@ test('public recovery is neutral, rate limited and preview-safe', () => {
   assert.doesNotMatch(route, /token:/);
 });
 
+test('manual member creation never exposes a credential and is preview-safe', () => {
+  const route = source('src/app/api/store/team/route.ts');
+  const action = route.slice(route.indexOf("action === 'create_member'"), route.indexOf("action === 'generate_link'"));
+  const previewIndex = action.indexOf("process.env.VERCEL_ENV === 'preview'");
+  const rateLimitIndex = action.indexOf('await enforceRateLimit');
+  const createUserIndex = action.indexOf('admin.createUser');
+  const resetIndex = action.indexOf('resetPasswordForEmail');
+  assert.ok(previewIndex >= 0);
+  assert.ok(rateLimitIndex > previewIndex);
+  assert.ok(createUserIndex > rateLimitIndex);
+  assert.ok(resetIndex > createUserIndex);
+  assert.match(action, /team-create-member:/);
+  assert.match(action, /createBootstrapSecret/);
+  assert.match(action, /credential_delivery: 'email'/);
+  assert.match(action, /manager_invite/);
+  assert.doesNotMatch(action, /temporary_password/);
+  assert.doesNotMatch(action, /password_notice/);
+});
+
 test('manager recovery is tenant-scoped and never returns credentials', () => {
   const route = source('src/app/api/store/team/route.ts');
   const action = route.slice(route.indexOf("action === 'send_password_recovery'"), route.indexOf("action === 'update_member'"));
@@ -36,11 +55,33 @@ test('manager recovery is tenant-scoped and never returns credentials', () => {
   assert.doesNotMatch(action, /token_hash/);
 });
 
-test('recovery completion requires strong password and blocks Preview writes', () => {
+test('all password-setting flows share the strong account policy', () => {
+  const policy = source('src/lib/storeTeamRegistration.ts');
+  const registration = source('src/app/api/public/team-registration/route.ts');
+  const legacyRegistration = source('src/app/api/store/team-register/route.ts');
+  const change = source('src/app/api/auth/change-password/route.ts');
+  const recovery = source('src/app/api/auth/password-recovery/complete/route.ts');
+  const changePage = source('src/app/trocar-senha/page.tsx');
+
+  assert.match(policy, /ACCOUNT_PASSWORD_MIN_LENGTH = 12/);
+  assert.match(policy, /!\/\[a-z\]\//);
+  assert.match(policy, /!\/\[A-Z\]\//);
+  assert.match(policy, /!\/\\d\//);
+  assert.match(policy, /!\/\[\^A-Za-z0-9\]\//);
+  assert.match(registration, /teamRegistrationPasswordError/);
+  assert.match(legacyRegistration, /accountPasswordError/);
+  assert.doesNotMatch(legacyRegistration, /password\.length < 12/);
+  assert.match(change, /accountPasswordError/);
+  assert.match(recovery, /accountPasswordError/);
+  assert.match(changePage, /ACCOUNT_PASSWORD_MIN_LENGTH/);
+  assert.match(changePage, /ACCOUNT_PASSWORD_HINT/);
+  assert.doesNotMatch(changePage, /senha recebida do Gestor/i);
+  assert.doesNotMatch(changePage, /Mínimo 8 caracteres/);
+});
+
+test('recovery completion blocks Preview writes', () => {
   const route = source('src/app/api/auth/password-recovery/complete/route.ts');
-  assert.match(route, /value\.length >= 12/);
-  assert.match(route, /\[A-Z\]/);
-  assert.match(route, /\[a-z\]/);
+  assert.match(route, /accountPasswordError/);
   assert.match(route, /VERCEL_ENV === 'preview'/);
   assert.match(route, /updateUserById/);
   assert.match(route, /password_recovery_completed/);
