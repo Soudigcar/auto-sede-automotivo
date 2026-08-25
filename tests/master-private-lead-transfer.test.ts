@@ -33,6 +33,20 @@ test('sale completed stays protected while lost leads are not globally blocked',
   assert.doesNotMatch(migration, /v_base\.status in \('Venda concluída','Perdido'\)/);
 });
 
+test('origin constraint keeps every audited value and adds only master_transfer', () => {
+  for (const value of [
+    'street_survey','quick_registration','manual','event_landing','Facebook Lead Ads','facebook_lead_ads',
+    'WhatsApp Oficial','whatsapp_official','WATI / Click-to-WhatsApp','wati_leads','WATI','marketplace_site',
+    'Umbler Talk / WhatsApp','umbler_talk','inventory_sale_door','inventory_sale_internet','inventory_sale_event'
+  ]) {
+    assert.match(migration, new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  assert.match(migration, /'master_transfer'::text/);
+  assert.match(migration, /v_current_definition is distinct from v_expected_definition/);
+  assert.match(migration, /migration abortada/);
+  assert.match(migration, /validate constraint leads_origin_check/);
+});
+
 test('operational lead is sanitized for the receiving store', () => {
   assert.match(migration, /event_id = null/);
   assert.match(migration, /origin = 'master_transfer'/);
