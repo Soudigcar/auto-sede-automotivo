@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const migration = fs.readFileSync('supabase/migrations/20260825133000_master_lead_multistore_v1.sql', 'utf8');
+const routingHardening = fs.readFileSync('supabase/migrations/20260825134500_master_multistore_fail_closed_routing.sql', 'utf8');
 const distributionApi = fs.readFileSync('src/app/api/master/base-lead-multistore/route.ts', 'utf8');
 const instancesApi = fs.readFileSync('src/app/api/master/base-lead-store-instances/route.ts', 'utf8');
 const distributionUi = fs.readFileSync('src/app/master/transferencia-leads/page.tsx', 'utf8');
@@ -37,9 +38,17 @@ test('distribution is idempotent by canonical lead plus store', () => {
   assert.match(distributionUi, /não será duplicado/i);
 });
 
-test('legacy distribution and transfer wrappers route through multistore core', () => {
-  const bulkWrapper = migration.match(/create or replace function public\.distribute_base_lead_to_store[\s\S]*?revoke all on function public\.distribute_base_lead_to_store/)?.[0] || '';
-  const transferWrapper = migration.match(/create or replace function public\.master_transfer_base_lead_to_store[\s\S]*?revoke all on function public\.master_transfer_base_lead_to_store/)?.[0] || '';
+test('configured rotation is transactionally fail-closed', () => {
+  assert.match(routingHardening, /rename to distribute_base_lead_multistore_impl/);
+  assert.match(routingHardening, /p_mode = 'configured_rotation'/);
+  assert.match(routingHardening, /v_routing_outcome <> 'assigned'/);
+  assert.match(routingHardening, /Roteamento multiloja fail-closed cancelado/);
+  assert.match(routingHardening, /revoke all on function public\.distribute_base_lead_multistore_impl.*service_role/);
+});
+
+test('legacy distribution and transfer wrappers route through public fail-closed multistore core', () => {
+  const bulkWrapper = routingHardening.match(/create or replace function public\.distribute_base_lead_to_store[\s\S]*?revoke all on function public\.distribute_base_lead_to_store/)?.[0] || '';
+  const transferWrapper = routingHardening.match(/create or replace function public\.master_transfer_base_lead_to_store[\s\S]*?revoke all on function public\.master_transfer_base_lead_to_store/)?.[0] || '';
   assert.match(bulkWrapper, /distribute_base_lead_multistore/);
   assert.match(transferWrapper, /distribute_base_lead_multistore/);
 });
@@ -49,7 +58,7 @@ test('multistore control plane is service-role only', () => {
   assert.match(migration, /alter table public\.lead_store_instances enable row level security/);
   assert.match(migration, /revoke all on table public\.lead_master_identities from public, anon, authenticated/);
   assert.match(migration, /revoke all on table public\.lead_store_instances from public, anon, authenticated/);
-  assert.match(migration, /grant execute on function public\.distribute_base_lead_multistore.*to service_role/);
+  assert.match(routingHardening, /grant execute on function public\.distribute_base_lead_multistore.*to service_role/);
 });
 
 test('master_transfer deferred trigger ignores generic unrelated updates', () => {
