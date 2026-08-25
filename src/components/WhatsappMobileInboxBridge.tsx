@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase';
 import { WhatsappMobileInboxV2 } from '@/components/WhatsappMobileInboxV2';
 import WhatsappCommerceActions from '@/components/WhatsappCommerceActions';
 import MasterWhatsappCommerceActions from '@/components/MasterWhatsappCommerceActions';
+import { WhatsappAudioRecorderButton } from '@/components/WhatsappAudioRecorderButton';
 
 const STORE_PATH = /^\/loja\/([^/]+)\/whatsapp\/?$/;
 const MASTER_PATH = '/master/whatsapp/inbox';
@@ -486,6 +487,7 @@ export function WhatsappMobileInboxBridge() {
       channelLabel={channelLabel(selectedConversation)}
       detailsContent={detailsContent}
       actionContent={actionContent}
+      audioRecorder={<WhatsappAudioRecorderButton conversationId={selectedId} onRefresh={() => loadData(selectedId, true)} onStatus={setStatusMessage} disabled={!connected(selectedConversation) || sending || attachmentSending} compact />}
     />
   );
 }
