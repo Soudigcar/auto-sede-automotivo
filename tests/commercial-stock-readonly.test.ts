@@ -18,8 +18,8 @@ test('pre-sales, seller and prospector receive stock view permission without sto
 });
 
 test('commercial users see Estoque in a dedicated read-only route', () => {
-  assert.match(portalPolicy, /key: 'stock', label: 'Estoque', segment: 'estoque-consulta', permission: 'view_stock'/);
-  assert.match(portalPolicy, /key: 'stock', label: 'Estoque', segment: 'estoque', permission: 'manage_stock'/);
+  assert.match(portalPolicy, /key:\s*'stock',\s*label:\s*'Estoque',\s*segment:\s*'estoque-consulta',\s*permission:\s*'view_stock'/);
+  assert.match(portalPolicy, /key:\s*'stock',\s*label:\s*'Estoque',\s*segment:\s*'estoque',\s*permission:\s*'manage_stock'/);
 });
 
 test('read-only stock endpoint is bound to authenticated store_id and exposes no mutation method', () => {
