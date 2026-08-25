@@ -37,6 +37,7 @@ type Props = {
   channelLabel?: string;
   detailsContent?: ReactNode;
   actionContent?: ReactNode;
+  audioRecorder?: ReactNode;
 };
 
 function initials(value: string) {
@@ -225,7 +226,7 @@ export function WhatsappMobileInboxV2(props: Props) {
             <div className="flex items-end gap-1.5">
               <button type="button" onClick={() => setSheetOpen(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-zinc-600 shadow-sm" aria-label="Abrir ações"><Plus size={21} /></button>
               <textarea value={props.messageText} onChange={(event) => props.onMessageTextChange(event.target.value)} rows={1} placeholder="Mensagem" disabled={props.sending} className="max-h-28 min-h-10 min-w-0 flex-1 resize-none rounded-[20px] border border-zinc-200 bg-white px-4 py-2.5 text-[15px] font-medium leading-5 text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-red-200" />
-              <button type="submit" disabled={props.sending || !props.messageText.trim() || !props.canSend} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-600 text-white shadow-sm disabled:bg-zinc-300" aria-label="Enviar mensagem"><Send size={17} /></button>
+              {props.messageText.trim() ? <button type="submit" disabled={props.sending || !props.canSend} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-600 text-white shadow-sm disabled:bg-zinc-300" aria-label="Enviar mensagem"><Send size={17} /></button> : props.audioRecorder}
             </div>
           </form>
 
