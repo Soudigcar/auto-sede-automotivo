@@ -32,6 +32,7 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const storeId = cleanText(body?.store_id, 100);
     const conversationId = cleanText(body?.conversation_id, 100);
+    const messageId = cleanText(body?.message_id, 100);
     if (!storeId || !conversationId) {
       return NextResponse.json({ error: 'Loja e conversa são obrigatórias para o replay.' }, { status: 400 });
     }
@@ -42,7 +43,8 @@ export async function POST(request: Request) {
     const result = await replayAutocarConversationV2({
       productionSupabase: production,
       storeId,
-      conversationId
+      conversationId,
+      messageId: messageId || null
     });
 
     return NextResponse.json({
@@ -52,7 +54,8 @@ export async function POST(request: Request) {
         branch: ALLOWED_BRANCH,
         store_id: PILOT_STORE_ID,
         read_only: true,
-        external_execution: false
+        external_execution: false,
+        historical_message_selection: Boolean(messageId)
       },
       ...result
     });
