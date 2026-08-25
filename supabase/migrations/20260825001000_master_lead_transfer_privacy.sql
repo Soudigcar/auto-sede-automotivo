@@ -1,6 +1,64 @@
 -- Master lead transfer with store-facing provenance privacy.
 -- Keeps historical source/event/campaign in leads_base for Master while the operational
 -- lead received by the destination store is sanitized as master_transfer.
+--
+-- Fail closed on schema drift: only replace the origin constraint when it is exactly the
+-- audited Production definition. This preserves every existing origin and adds only
+-- master_transfer for the sanitized operational record.
+do $constraint_guard$
+declare
+  v_current_definition text;
+  v_expected_definition constant text := $expected$CHECK (((origin)::text = ANY (ARRAY['street_survey'::text, 'quick_registration'::text, 'manual'::text, 'event_landing'::text, 'Facebook Lead Ads'::text, 'facebook_lead_ads'::text, 'WhatsApp Oficial'::text, 'whatsapp_official'::text, 'WATI / Click-to-WhatsApp'::text, 'wati_leads'::text, 'WATI'::text, 'marketplace_site'::text, 'Umbler Talk / WhatsApp'::text, 'umbler_talk'::text, 'inventory_sale_door'::text, 'inventory_sale_internet'::text, 'inventory_sale_event'::text])))$expected$;
+begin
+  select pg_get_constraintdef(c.oid)
+  into v_current_definition
+  from pg_constraint c
+  join pg_class t on t.oid = c.conrelid
+  join pg_namespace n on n.oid = t.relnamespace
+  where n.nspname = 'public'
+    and t.relname = 'leads'
+    and c.conname = 'leads_origin_check';
+
+  if v_current_definition is null then
+    raise exception 'leads_origin_check ausente; migration abortada para evitar drift.';
+  end if;
+
+  if v_current_definition is distinct from v_expected_definition then
+    raise exception 'leads_origin_check divergiu do baseline auditado; migration abortada. Atual=%, Esperado=%',
+      v_current_definition,
+      v_expected_definition;
+  end if;
+end;
+$constraint_guard$;
+
+alter table public.leads
+  drop constraint leads_origin_check;
+
+alter table public.leads
+  add constraint leads_origin_check
+  check (((origin)::text = any (array[
+    'street_survey'::text,
+    'quick_registration'::text,
+    'manual'::text,
+    'event_landing'::text,
+    'Facebook Lead Ads'::text,
+    'facebook_lead_ads'::text,
+    'WhatsApp Oficial'::text,
+    'whatsapp_official'::text,
+    'WATI / Click-to-WhatsApp'::text,
+    'wati_leads'::text,
+    'WATI'::text,
+    'marketplace_site'::text,
+    'Umbler Talk / WhatsApp'::text,
+    'umbler_talk'::text,
+    'inventory_sale_door'::text,
+    'inventory_sale_internet'::text,
+    'inventory_sale_event'::text,
+    'master_transfer'::text
+  ]))) not valid;
+
+alter table public.leads
+  validate constraint leads_origin_check;
 
 create or replace function public.master_transfer_base_lead_to_store(
   p_base_lead_id uuid,
