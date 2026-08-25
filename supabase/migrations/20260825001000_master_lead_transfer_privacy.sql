@@ -24,6 +24,14 @@ declare
   v_previous_routed_user_id uuid;
   v_previous_routed_user_role text;
   v_previous_routed_status text;
+  v_previous_routed_origin text;
+  v_previous_routed_event_id uuid;
+  v_previous_routed_notes text;
+  v_previous_scheduled_at timestamptz;
+  v_previous_appointment_notes text;
+  v_previous_appointment_cancelled_at timestamptz;
+  v_previous_appointment_cancelled_reason text;
+  v_previous_lost_reason text;
 begin
   if p_actor_user_id is null or not exists (
     select 1
@@ -87,6 +95,14 @@ begin
       v_previous_routed_user_id := v_routed.assigned_user_id;
       v_previous_routed_user_role := v_routed.assigned_user_role;
       v_previous_routed_status := v_routed.status;
+      v_previous_routed_origin := v_routed.origin;
+      v_previous_routed_event_id := v_routed.event_id;
+      v_previous_routed_notes := v_routed.notes;
+      v_previous_scheduled_at := v_routed.scheduled_at;
+      v_previous_appointment_notes := v_routed.appointment_notes;
+      v_previous_appointment_cancelled_at := v_routed.appointment_cancelled_at;
+      v_previous_appointment_cancelled_reason := v_routed.appointment_cancelled_reason;
+      v_previous_lost_reason := v_routed.lost_reason;
 
       if v_routed.status = 'sale_confirmed' then
         return jsonb_build_object(
@@ -178,11 +194,21 @@ begin
     'original_source',v_base.source,
     'original_campaign_id',v_base.campaign_id,
     'original_campaign_name',v_base.campaign_name,
-    'previous_status',v_base.status,
+    'previous_base_status',v_base.status,
     'previous_consultant_id',v_base.assigned_consultant_id,
-    'previous_routed_user_id',v_previous_routed_user_id,
-    'previous_routed_user_role',v_previous_routed_user_role,
-    'previous_routed_status',v_previous_routed_status
+    'previous_operational',jsonb_build_object(
+      'user_id',v_previous_routed_user_id,
+      'user_role',v_previous_routed_user_role,
+      'status',v_previous_routed_status,
+      'origin',v_previous_routed_origin,
+      'event_id',v_previous_routed_event_id,
+      'notes',v_previous_routed_notes,
+      'scheduled_at',v_previous_scheduled_at,
+      'appointment_notes',v_previous_appointment_notes,
+      'appointment_cancelled_at',v_previous_appointment_cancelled_at,
+      'appointment_cancelled_reason',v_previous_appointment_cancelled_reason,
+      'lost_reason',v_previous_lost_reason
+    )
   );
 
   v_metadata := jsonb_set(
