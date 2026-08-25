@@ -255,6 +255,13 @@ export default function StoreTeamPage() {
         routing_order: draft.routing_order,
         max_open_leads: draft.max_open_leads
       });
+
+      if (data.preview_mode) {
+        setMembers((current) => current.map((member) => member.id === draft.id ? { ...member, ...draft } : member));
+        setMessage(`SIMULAÇÃO DO PREVIEW — ${roleLabels[draft.role] || draft.role} selecionado. Nenhum dado real foi alterado.`);
+        return;
+      }
+
       await loadTeam();
       setMessage(data.message || 'Perfil do colaborador atualizado com sucesso.');
     } catch (error: any) {
