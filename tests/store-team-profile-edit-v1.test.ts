@@ -31,6 +31,22 @@ test('loja edita perfil e cargo sem enviar identidade imutável', () => {
   assert.match(page, /value=\{draft\.email\} readOnly disabled/);
 });
 
+test('Preview mantém alteração simulada visível e não recarrega banco antes do aviso', () => {
+  const page = source('src/app/loja/[slug]/equipe/page.tsx');
+  const save = page.slice(page.indexOf('async function saveMember'), page.indexOf('async function sendPasswordRecovery'));
+  const previewIndex = save.indexOf('if (data.preview_mode)');
+  const localUpdateIndex = save.indexOf('setMembers', previewIndex);
+  const previewMessageIndex = save.indexOf('SIMULAÇÃO DO PREVIEW', previewIndex);
+  const reloadIndex = save.indexOf('await loadTeam()', previewIndex);
+
+  assert.ok(previewIndex >= 0);
+  assert.ok(localUpdateIndex > previewIndex);
+  assert.ok(previewMessageIndex > localUpdateIndex);
+  assert.ok(reloadIndex > previewMessageIndex);
+  assert.match(save, /member\.id === draft\.id \? \{ \.\.\.member, \.\.\.draft \} : member/);
+  assert.match(save, /Nenhum dado real foi alterado/);
+});
+
 test('update_member mantém gestor e tenant scope e bloqueia email ou loja', () => {
   const route = source('src/app/api/store/team/route.ts');
   const action = updateAction(route);
