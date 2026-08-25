@@ -16,7 +16,7 @@ test('login exposes self-service recovery without secret link', () => {
 test('public recovery is neutral, rate limited and preview-safe', () => {
   const route = source('src/app/api/auth/password-recovery/route.ts');
   const previewIndex = route.indexOf("process.env.VERCEL_ENV === 'preview'");
-  const rateLimitIndex = route.indexOf('enforceRateLimit');
+  const rateLimitIndex = route.indexOf('await enforceRateLimit');
   const resetIndex = route.indexOf('resetPasswordForEmail');
   assert.ok(previewIndex >= 0);
   assert.ok(rateLimitIndex > previewIndex);
