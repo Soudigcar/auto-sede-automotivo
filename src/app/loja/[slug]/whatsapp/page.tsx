@@ -668,7 +668,6 @@ export default function StoreWhatsappPage() {
                         <textarea className="min-h-16 w-full resize-none bg-transparent px-2 py-2 text-sm font-semibold text-zinc-800 outline-none placeholder:text-zinc-400" placeholder="Digite sua mensagem..." value={messageText} onChange={(event) => setMessageText(event.target.value)} disabled={sending} />
                         <div className="flex flex-col gap-2 border-t border-zinc-200 pt-2 lg:flex-row lg:items-center lg:justify-between">
                           <div className="flex min-w-0 flex-1 flex-col gap-2 xl:flex-row xl:items-center">
-                            <p className="px-2 text-[10px] font-bold leading-relaxed text-zinc-400">Janela de 24h: fora dela, a Meta pode exigir template aprovado.</p>
                             <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
                               <WhatsappAttachmentButton conversationId={selectedId} onRefresh={() => loadData(selectedId)} onStatus={setStatusMessage} />
                               <WhatsappCommerceActions slug={slug} conversationId={selectedId} leadId={pipelineLeadId(selectedConversation)} onRefresh={() => loadData(selectedId)} onStatus={setStatusMessage} />
