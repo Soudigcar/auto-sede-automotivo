@@ -85,7 +85,13 @@ export function EventCampaignLanding() {
 
   return (
     <main id="landing-inicio" className="min-h-screen bg-slate-50 text-slate-950">
-      <MetaPixelTracker />
+      <MetaPixelTracker context={{
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+        campaignSlug: slug,
+        eventId: eventInfo?.id,
+        eventName: eventInfo?.event_name
+      }} />
 
       <section className="relative min-h-[760px] overflow-hidden px-4 pb-20 pt-5 text-white sm:px-6 lg:px-8" style={{ backgroundColor: secondary }}>
         {heroImage ? (

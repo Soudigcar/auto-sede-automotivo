@@ -1,10 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { ArrowLeft, Copy, Save, ShieldCheck } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { createClient } from '@/lib/supabase';
+
+const META_LEADS_CALLBACK_URL = 'https://sistemaautomotivo.autosede.com.br/api/webhooks/meta-leads';
 
 const defaultForm = {
   is_active: false,
@@ -22,11 +24,8 @@ export default function MetaLeadsIntegrationPage() {
   const [form, setForm] = useState(defaultForm);
   const [message, setMessage] = useState('Carregando integração...');
   const [saving, setSaving] = useState(false);
-  const [origin, setOrigin] = useState('');
 
-  const callbackUrl = useMemo(() => {
-    return `${origin || 'https://sistemaautomotivo.autosede.com.br'}/api/webhooks/meta-leads`;
-  }, [origin]);
+  const callbackUrl = META_LEADS_CALLBACK_URL;
 
   async function getAuthToken() {
     const { data } = await supabase.auth.getSession();
@@ -129,7 +128,6 @@ export default function MetaLeadsIntegrationPage() {
   }
 
   useEffect(() => {
-    if (typeof window !== 'undefined') setOrigin(window.location.origin);
     loadIntegration();
   }, []);
 

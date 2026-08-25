@@ -117,6 +117,13 @@ export async function POST(request: Request) {
     const masterProfile = await getMasterProfile(supabase, token);
     if (!masterProfile) return NextResponse.json({ error: 'Apenas usuário Master pode salvar esta integração.' }, { status: 403 });
 
+    if (process.env.VERCEL_ENV === 'preview') {
+      return NextResponse.json({
+        error: 'O Preview está em modo somente leitura. A configuração real da Meta não foi alterada.',
+        preview_read_only: true
+      }, { status: 409 });
+    }
+
     const body = await request.json();
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return NextResponse.json({ error: 'Payload de configuração inválido.' }, { status: 400 });

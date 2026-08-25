@@ -84,7 +84,17 @@ export function CampaignLandingAdminForm({
         </label>
         <label className="text-xs font-black text-zinc-600">
           Slug público
-          <input className="premium-input mt-2" value={form.slug} onChange={(event) => setForm({ ...form, slug: event.target.value })} />
+          <input
+            className="premium-input mt-2 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+            value={form.slug}
+            disabled={Boolean(form.published_at)}
+            onChange={(event) => setForm({ ...form, slug: event.target.value })}
+          />
+          <span className="mt-2 block text-[10px] font-bold text-zinc-400">
+            {form.published_at
+              ? 'Endereço protegido após a publicação para preservar anúncios, Pixel e links compartilhados.'
+              : 'O endereço ficará protegido depois que a landing for publicada.'}
+          </span>
         </label>
         <label className="text-xs font-black text-zinc-600">
           Taxa mensal (%)

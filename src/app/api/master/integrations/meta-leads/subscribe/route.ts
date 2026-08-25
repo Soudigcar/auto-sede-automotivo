@@ -132,6 +132,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Apenas usuário Master pode inscrever a página.' }, { status: 403 });
     }
 
+    if (process.env.VERCEL_ENV === 'preview') {
+      return NextResponse.json({
+        error: 'O Preview não pode alterar a inscrição leadgen da página real.',
+        preview_read_only: true
+      }, { status: 409 });
+    }
+
     const integration = await getIntegration(supabase);
     const settings = integration.settings || {};
     const pageId = cleanText(settings.page_id);
