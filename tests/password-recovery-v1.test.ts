@@ -46,6 +46,15 @@ test('recovery completion requires strong password and blocks Preview writes', (
   assert.match(route, /password_recovery_completed/);
 });
 
+test('recovery callback explicitly matches the implicit email flow', () => {
+  const page = source('src/app/redefinir-senha/page.tsx');
+  assert.match(page, /from '@supabase\/supabase-js'/);
+  assert.match(page, /flowType:\s*'implicit'/);
+  assert.match(page, /detectSessionInUrl:\s*true/);
+  assert.match(page, /event === 'PASSWORD_RECOVERY'/);
+  assert.doesNotMatch(page, /from '@\/lib\/supabase'/);
+});
+
 test('store UI offers recovery email and generic copy-only page', () => {
   const page = source('src/app/loja/[slug]/equipe/page.tsx');
   assert.match(page, /send_password_recovery/);
