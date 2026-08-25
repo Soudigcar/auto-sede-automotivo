@@ -151,10 +151,11 @@ export function WhatsappAttachmentButton({
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={sending || !conversationId}
-        className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 text-[10px] font-black uppercase text-zinc-700 transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+        aria-label="Anexar foto, vídeo, áudio ou documento"
         title="Anexar foto, vídeo, áudio ou documento"
       >
-        <Paperclip size={14} /> Anexar
+        <Paperclip size={17} />
       </button>
       <WhatsappAudioRecorderButton conversationId={conversationId} onRefresh={onRefresh} onStatus={onStatus} disabled={sending} />
 
