@@ -12,6 +12,13 @@ function uuid(value: unknown) { const v=text(value,80); return /^[0-9a-f]{8}-[0-
 function uuidList(value: unknown, max=500) { if(!Array.isArray(value)) return []; return Array.from(new Set(value.map(uuid).filter(Boolean))).slice(0,max); }
 function roleList(value: unknown) { if(!Array.isArray(value)) return []; return Array.from(new Set(value.map((v)=>text(v,40)).filter(isStoreTeamRole))); }
 function migrationMissing(error: any) { const code=String(error?.code||''); return ['42P01','42883','PGRST205','PGRST202'].includes(code); }
+function optionalIsoDate(value: unknown): { value: string | null; valid: boolean } {
+  const raw=text(value,80);
+  if(!raw) return {value:null,valid:true};
+  const date=new Date(raw);
+  if(Number.isNaN(date.getTime())) return {value:null,valid:false};
+  return {value:date.toISOString(),valid:true};
+}
 
 async function auth(request: Request) {
   const supabase=createAdminClient();
@@ -81,10 +88,14 @@ export async function POST(request: Request) {
     const targetRoles=roleList(body.target_roles);
     const targetMemberIds=uuidList(body.target_member_ids);
     const excludedMemberIds=uuidList(body.excluded_member_ids);
-    const startsAt=body.starts_at ? new Date(String(body.starts_at)).toISOString() : null;
-    const endsAt=body.ends_at ? new Date(String(body.ends_at)).toISOString() : null;
+    const startsAtResult=optionalIsoDate(body.starts_at);
+    const endsAtResult=optionalIsoDate(body.ends_at);
 
     if(!name || !validMatchTypes.has(matchType) || !validStrategies.has(strategy) || !validStatuses.has(status)) return NextResponse.json({error:'Configuração inválida.'},{status:400});
+    if(!startsAtResult.valid || !endsAtResult.valid) return NextResponse.json({error:'Data de início ou fim inválida.'},{status:400});
+    const startsAt=startsAtResult.value;
+    const endsAt=endsAtResult.value;
+    if(startsAt && endsAt && Date.parse(startsAt)>Date.parse(endsAt)) return NextResponse.json({error:'A data de fim deve ser posterior à data de início.'},{status:400});
     if(matchType==='event' && !eventId) return NextResponse.json({error:'Selecione o evento.'},{status:400});
     if(matchType==='campaign' && !campaignId && !campaignKey) return NextResponse.json({error:'Informe a campanha.'},{status:400});
     if(matchType==='source' && !sourceKey) return NextResponse.json({error:'Informe a origem.'},{status:400});
