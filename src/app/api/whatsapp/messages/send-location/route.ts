@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { evolutionRequest } from '@/lib/server/evolution';
+import { sendEvolutionLocation } from '@/lib/server/evolution';
 import { markAutocarHumanActive } from '@/lib/server/autocar/safeRuntime';
 import { readManagedEvolutionState } from '@/lib/server/managedWhatsappEvolution';
 import { asStorePortalRole, canAccessStoreConversation } from '@/lib/server/storePortal';
@@ -184,10 +184,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const result = await evolutionRequest(`/message/sendLocation/${encodeURIComponent(integration.instance_name)}`, {
-      method: 'POST',
-      body: { number: recipient, name, address, latitude, longitude, delay: 500 }
-    });
+    const result = await sendEvolutionLocation(integration.instance_name, recipient, { name, address, latitude, longitude });
     const waMessageId = evolutionMessageId(result);
     const sentAt = new Date().toISOString();
     const previewBody = `📍 ${name}${address ? ` — ${address}` : ''}`;
