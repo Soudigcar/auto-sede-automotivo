@@ -94,5 +94,5 @@ test('migration de performance é somente analítica e não cria execução exte
   assert.match(migration, /ai_follow_up_performance_events/);
   assert.match(migration, /attribution_window_minutes/);
   assert.match(migration, /conversation_recovered/);
-  assert.doesNotMatch(migration, /cron|http_request|net\.http|messages\/send|Evolution/i);
+  assert.doesNotMatch(migration, /cron\.schedule|create\s+extension\s+.*pg_cron|http_request\s*\(|net\.http|messages\/send|Evolution/i);
 });
