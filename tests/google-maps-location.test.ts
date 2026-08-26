@@ -95,6 +95,7 @@ test('resolver exige link HTTPS oficial do Google Maps', async () => {
 });
 
 test('perfil resolve o link ao colar e repete a resolução no servidor antes de salvar', () => {
+  assert.match(profileUi, /onPaste=\{\(event\) => \{/);
   assert.match(profileUi, /onBlur=\{\(event\) => void resolveMapsLocation/);
   assert.match(profileUi, /Latitude automática/);
   assert.match(profileUi, /Longitude automática/);

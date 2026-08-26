@@ -299,6 +299,10 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
                       setMapsMessage(mapsUrl ? 'Ao sair do campo, o sistema identificará a localização.' : '');
                       setMapsError(false);
                     }}
+                    onPaste={(event) => {
+                      const mapsUrl = event.clipboardData.getData('text').trim();
+                      if (mapsUrl) window.setTimeout(() => void resolveMapsLocation(mapsUrl, true), 0);
+                    }}
                     onBlur={(event) => void resolveMapsLocation(event.currentTarget.value)}
                   />
                   <button
