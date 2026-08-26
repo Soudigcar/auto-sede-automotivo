@@ -111,6 +111,15 @@ export default function MasterLeadMultistorePage() {
   }, [leads, query]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const sameStoreSelectedIds = useMemo(() => new Set(
+    leads
+      .filter((lead) => selectedSet.has(lead.id) && lead.assigned_store_id === destinationStoreId)
+      .map((lead) => lead.id)
+  ), [destinationStoreId, leads, selectedSet]);
+  const effectiveIds = useMemo(
+    () => selectedIds.filter((id) => !sameStoreSelectedIds.has(id)),
+    [sameStoreSelectedIds, selectedIds]
+  );
 
   function resetValidation() {
     setDryRun(null);
@@ -134,7 +143,7 @@ export default function MasterLeadMultistorePage() {
   }
 
   async function validate() {
-    if (!destinationStoreId || !selectedIds.length) return;
+    if (!destinationStoreId || !effectiveIds.length) return;
     setBusy(true);
     resetValidation();
     setMessage('Pré-validando distribuição multiloja sem gravar dados...');
@@ -151,7 +160,7 @@ export default function MasterLeadMultistorePage() {
       const allBlocked: Array<{ lead_id: string; name: string; reason: string }> = [];
       let lastSummary: DryRun | null = null;
 
-      for (const leadBatch of chunks(selectedIds, EXECUTION_BATCH_SIZE)) {
+      for (const leadBatch of chunks(effectiveIds, EXECUTION_BATCH_SIZE)) {
         const response = await fetch('/api/master/base-lead-multistore', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
@@ -172,7 +181,7 @@ export default function MasterLeadMultistorePage() {
       if (!lastSummary) throw new Error('Nenhum lote pôde ser validado.');
       setDryRun({
         ...lastSummary,
-        selected: selectedIds.length,
+        selected: effectiveIds.length,
         found: totalFound,
         eligible: totalEligible,
         already_present: totalAlreadyPresent,
@@ -246,7 +255,7 @@ export default function MasterLeadMultistorePage() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div><h2 className="font-black">1. Selecione os leads</h2><p className="mt-1 text-xs text-zinc-500">Venda concluída permanece protegida. A seleção não depende da loja histórica exibida na Base.</p></div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-xl bg-red-50 px-3 py-2 text-[10px] font-black uppercase text-red-700">{selectedIds.length} selecionado(s)</span>
+                    <span className="rounded-xl bg-red-50 px-3 py-2 text-[10px] font-black uppercase text-red-700">{effectiveIds.length} selecionado(s)</span>
                     <button type="button" onClick={chooseAll} disabled={loading} className="rounded-xl bg-slate-950 px-4 py-2 text-[10px] font-black uppercase text-white disabled:opacity-40">Selecionar todos visíveis</button>
                   </div>
                 </div>
@@ -262,8 +271,9 @@ export default function MasterLeadMultistorePage() {
 
               <aside className="space-y-4">
                 <section className="rounded-3xl border border-zinc-200 bg-white p-5"><h2 className="font-black">2. Loja destino</h2><select value={destinationStoreId} onChange={(event) => { setDestinationStoreId(event.target.value); resetValidation(); }} className="mt-3 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-bold"><option value="">Selecione a loja</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.store_name}</option>)}</select>{destination ? <p className="mt-2 text-xs text-zinc-500">Se o lead já possuir uma instância em {destination.store_name}, ele será reconhecido e não será duplicado.</p> : null}</section>
-                <section className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-blue-950"><div className="flex gap-3"><ShieldCheck size={20} className="shrink-0" /><div><strong className="text-sm">Isolamento entre lojas</strong><p className="mt-1 text-xs leading-relaxed">A loja destino recebe apenas sua instância operacional com origem “Transferência Master”. Evento, campanha e histórico de outras lojas permanecem exclusivos do Master e não entram no roteamento da loja destino.</p></div></div></section>
-                <button type="button" onClick={() => void validate()} disabled={loading || !destinationStoreId || !selectedIds.length || busy} className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-xs font-black uppercase text-white disabled:opacity-40">{busy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Pré-validar {selectedIds.length || ''}</button>
+                <section className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-blue-950"><div className="flex gap-3"><ShieldCheck size={20} className="shrink-0" /><div><strong className="text-sm">Isolamento entre lojas · Transferência Master</strong><p className="mt-1 text-xs leading-relaxed">Origem, evento, campanha, loja anterior e histórico ficam preservados na Base Master. A loja destino recebe somente sua instância operacional, com evento operacional vazio e sem usar o histórico de outra loja no roteamento.</p></div></div></section>
+                {sameStoreSelectedIds.size ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-900">{sameStoreSelectedIds.size} lead(s) já pertencem à loja destino e foram retirados somente desta pré-validação. Sua seleção geral foi preservada.</p> : null}
+                <button type="button" onClick={() => void validate()} disabled={loading || !destinationStoreId || !effectiveIds.length || busy} className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-xs font-black uppercase text-white disabled:opacity-40">{busy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Pré-validar {effectiveIds.length || ''}</button>
               </aside>
             </section>
 
