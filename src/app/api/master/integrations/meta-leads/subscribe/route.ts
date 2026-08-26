@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getMetaServerConfig, redactMetaSecrets, stripStoredMetaSecrets } from '@/lib/server/metaServerConfig';
+import { effectiveMetaGraphVersion, FALLBACK_META_GRAPH_VERSION } from '@/lib/server/metaGraphVersion';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -9,7 +10,7 @@ const defaultSettings = {
   app_id: '',
   page_id: '',
   form_id: '',
-  graph_version: 'v20.0',
+  graph_version: FALLBACK_META_GRAPH_VERSION,
   routing_mode: 'base_only'
 };
 
@@ -99,7 +100,7 @@ async function graphGetWithToken(path: string, token: string, graphVersion: stri
 }
 
 async function resolvePageAccessToken(settings: any, serverToken: string) {
-  const graphVersion = cleanText(settings.graph_version) || defaultSettings.graph_version;
+  const graphVersion = effectiveMetaGraphVersion(settings.graph_version);
   const savedToken = cleanText(serverToken);
   const pageId = cleanText(settings.page_id);
 
@@ -132,12 +133,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Apenas usuário Master pode inscrever a página.' }, { status: 403 });
     }
 
+    if (process.env.VERCEL_ENV === 'preview') {
+      return NextResponse.json({
+        error: 'O Preview não pode alterar a inscrição leadgen da página real.',
+        preview_read_only: true
+      }, { status: 409 });
+    }
+
     const integration = await getIntegration(supabase);
     const settings = integration.settings || {};
     const pageId = cleanText(settings.page_id);
     const serverConfig = getMetaServerConfig();
     const pageAccessToken = serverConfig.pageAccessToken;
-    const graphVersion = cleanText(settings.graph_version) || defaultSettings.graph_version;
+    const graphVersion = effectiveMetaGraphVersion(settings.graph_version);
 
     if (!integration?.is_active) {
       return NextResponse.json(
