@@ -50,7 +50,10 @@ test('audio recorder provides a safe WhatsApp-like review flow on desktop and mo
   assert.match(recorder, /URL\.revokeObjectURL/);
   assert.match(desktop, /WhatsappAudioRecorderButton/);
   assert.match(mobile, /audioRecorder=\{<WhatsappAudioRecorderButton/);
-  assert.match(mobileInbox, /props\.messageText\.trim\(\).*props\.audioRecorder/);
+  assert.match(mobile, /compact touchTarget/);
+  assert.match(mobileInbox, /\{props\.audioRecorder\}[\s\S]*aria-label="Enviar mensagem"/);
+  assert.match(mobileInbox, /!props\.messageText\.trim\(\)/);
+  assert.doesNotMatch(mobileInbox, /props\.messageText\.trim\(\) \?[^\n]+props\.audioRecorder/);
 });
 
 test('compact WhatsApp composer actions use a consistent icon-only pattern', () => {
@@ -67,6 +70,14 @@ test('compact WhatsApp composer actions use a consistent icon-only pattern', () 
     assert.match(actions, /aria-label="Transferir lead"/);
     assert.doesNotMatch(actions, /<ArrowRightLeft[^>]*\/> Transferir lead/);
   }
+  assert.match(mobile, /whatsapp-mobile-quick-actions/);
+  assert.match(mobile, /aria-label="Anexar arquivo"/);
+  assert.match(mobile, /aria-label="Marcar conversa como lida"/);
+  assert.match(mobile, /<WhatsappLocationButton/);
+  assert.match(mobile, /WhatsappLocationButton touchTarget/);
+  assert.match(mobile, /<WhatsappCommerceActions compact/);
+  assert.match(mobile, /<MasterWhatsappCommerceActions compact/);
+  assert.match(masterActions, /!compact \? <WhatsappAttachmentButton/);
 });
 
 test('vehicle actions share one compact entry without the obsolete 24 hour warning', () => {

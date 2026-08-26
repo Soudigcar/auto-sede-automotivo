@@ -413,12 +413,11 @@ export function WhatsappMobileInboxBridge() {
   const actionContent = selectedConversation ? (
     <div className="space-y-3">
       <input ref={attachmentInputRef} type="file" className="hidden" onChange={(event) => chooseAttachment(event.target.files?.[0] || null)} disabled={attachmentSending} />
-      <div className="grid grid-cols-2 gap-2">
-        <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={attachmentSending} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white text-xs font-black text-zinc-700 disabled:opacity-50"><Paperclip size={15} /> Anexar</button>
-        <button type="button" onClick={() => void markRead()} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white text-xs font-black text-zinc-700"><CheckCircle2 size={15} /> Marcar lida</button>
-      </div>
-      <div className="flex items-center gap-2">
-        <WhatsappLocationButton conversationId={selectedId} onRefresh={() => loadData(selectedId, true)} onStatus={setStatusMessage} disabled={!connected(selectedConversation) || sending || attachmentSending} />
+      <div className="whatsapp-mobile-quick-actions flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Ações rápidas da conversa">
+        <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={attachmentSending} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 disabled:opacity-50" aria-label="Anexar arquivo" title="Anexar arquivo"><Paperclip size={16} /></button>
+        <WhatsappLocationButton touchTarget conversationId={selectedId} onRefresh={() => loadData(selectedId, true)} onStatus={setStatusMessage} disabled={!connected(selectedConversation) || sending || attachmentSending} />
+        <button type="button" onClick={() => void markRead()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700" aria-label="Marcar conversa como lida" title="Marcar conversa como lida"><CheckCircle2 size={16} /></button>
+        {mode === 'store' ? <WhatsappCommerceActions compact slug={slug} conversationId={selectedId} leadId={selectedLeadId} onRefresh={() => loadData(selectedId, true)} onStatus={setStatusMessage} /> : <MasterWhatsappCommerceActions compact conversationId={selectedId} leadId={selectedLeadId} baseLeadId={selectedBaseLeadId} onRefresh={() => loadData(selectedId, true)} onStatus={setStatusMessage} />}
       </div>
 
       {selectedLeadId && targetStoreSlug ? (
@@ -431,15 +430,13 @@ export function WhatsappMobileInboxBridge() {
         </div>
       ) : null}
 
-      {mode === 'store' ? <WhatsappCommerceActions slug={slug} conversationId={selectedId} leadId={selectedLeadId} onRefresh={() => loadData(selectedId, true)} onStatus={setStatusMessage} /> : <MasterWhatsappCommerceActions conversationId={selectedId} leadId={selectedLeadId} baseLeadId={selectedBaseLeadId} onRefresh={() => loadData(selectedId, true)} onStatus={setStatusMessage} />}
-
       <div className="grid grid-cols-2 gap-2">
         {targetStoreSlug ? <Link href={`/loja/${targetStoreSlug}/pipeline`} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-red-600 px-3 text-center text-xs font-black text-white">Pipeline <ExternalLink size={14} /></Link> : null}
         {targetStoreSlug ? <Link href={`/loja/${targetStoreSlug}/calendario`} className="flex min-h-11 items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 text-center text-xs font-black text-zinc-700">Calendário</Link> : null}
       </div>
 
       {attachmentFile ? (
-        <div className="fixed inset-0 z-[620] flex items-end bg-black/45 p-3 backdrop-blur-[2px]" onMouseDown={(event) => { if (event.currentTarget === event.target && !attachmentSending) resetAttachment(); }}>
+        <div className="fixed inset-0 z-[690] flex items-end bg-black/45 p-3 backdrop-blur-[2px]" onMouseDown={(event) => { if (event.currentTarget === event.target && !attachmentSending) resetAttachment(); }}>
           <div className="max-h-[90vh] w-full overflow-y-auto rounded-[24px] bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
               <div><p className="text-[9px] font-black uppercase tracking-[0.15em] text-red-600">WhatsApp</p><h3 className="mt-1 text-base font-black text-zinc-950">Confirmar envio</h3></div>
@@ -491,7 +488,7 @@ export function WhatsappMobileInboxBridge() {
       channelLabel={channelLabel(selectedConversation)}
       detailsContent={detailsContent}
       actionContent={actionContent}
-      audioRecorder={<WhatsappAudioRecorderButton conversationId={selectedId} onRefresh={() => loadData(selectedId, true)} onStatus={setStatusMessage} disabled={!connected(selectedConversation) || sending || attachmentSending} compact />}
+      audioRecorder={<WhatsappAudioRecorderButton conversationId={selectedId} onRefresh={() => loadData(selectedId, true)} onStatus={setStatusMessage} disabled={!connected(selectedConversation) || sending || attachmentSending} compact touchTarget />}
     />
   );
 }

@@ -33,13 +33,15 @@ export function WhatsappAudioRecorderButton({
   onRefresh,
   onStatus,
   disabled = false,
-  compact = false
+  compact = false,
+  touchTarget = false
 }: {
   conversationId: string;
   onRefresh: () => Promise<void> | void;
   onStatus: (message: string) => void;
   disabled?: boolean;
   compact?: boolean;
+  touchTarget?: boolean;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -231,7 +233,7 @@ export function WhatsappAudioRecorderButton({
         type="button"
         onClick={() => void startRecording()}
         disabled={disabled || !conversationId || state !== 'idle'}
-        className={compact ? 'flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-700 shadow-sm transition hover:bg-red-100 disabled:bg-zinc-100 disabled:text-zinc-400' : 'inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 text-[10px] font-black uppercase text-red-700 transition hover:bg-red-100 disabled:opacity-50'}
+        className={compact ? `flex shrink-0 items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-700 shadow-sm transition hover:bg-red-100 disabled:bg-zinc-100 disabled:text-zinc-400 ${touchTarget ? 'h-11 w-11' : 'h-9 w-9'}` : 'inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 text-[10px] font-black uppercase text-red-700 transition hover:bg-red-100 disabled:opacity-50'}
         aria-label="Gravar áudio"
         title="Gravar e enviar áudio"
       >

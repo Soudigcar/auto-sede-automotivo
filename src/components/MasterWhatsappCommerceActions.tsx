@@ -258,12 +258,13 @@ function keepLatestMessageVisible(root: HTMLElement) {
   };
 }
 
-export default function MasterWhatsappCommerceActions({ conversationId, leadId, baseLeadId, onRefresh, onStatus }: {
+export default function MasterWhatsappCommerceActions({ conversationId, leadId, baseLeadId, onRefresh, onStatus, compact = false }: {
   conversationId: string;
   leadId: string;
   baseLeadId: string;
   onRefresh: () => Promise<void> | void;
   onStatus: (message: string) => void;
+  compact?: boolean;
 }) {
   const supabase = createClient();
   const actionBarRef = useRef<HTMLDivElement>(null);
@@ -468,6 +469,7 @@ export default function MasterWhatsappCommerceActions({ conversationId, leadId, 
   }, [conversationId]);
 
   useEffect(() => {
+    if (compact) return;
     const actionBar = actionBarRef.current;
     if (!actionBar) return;
     const root = actionBar.closest('main') as HTMLElement | null;
@@ -482,19 +484,19 @@ export default function MasterWhatsappCommerceActions({ conversationId, leadId, 
       cleanViewport();
       cleanScroll();
     };
-  }, [conversationId]);
+  }, [compact, conversationId]);
 
   return (
     <>
-      <div ref={actionBarRef} className="flex min-w-0 items-center gap-1.5 overflow-x-auto py-0.5">
-        <WhatsappAttachmentButton conversationId={conversationId} onRefresh={onRefresh} onStatus={onStatus} />
-        <button type="button" onClick={() => void loadVehicles('stock')} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-700 transition hover:bg-blue-100" aria-label="Abrir veículos publicados no portal" title="Veículos: definir interesse ou enviar fotos"><Car size={16} /></button>
-        <button type="button" onClick={openSchedule} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-700 transition hover:bg-amber-100" aria-label="Agendar atividade" title="Agendar atividade"><CalendarDays size={16} /></button>
-        <button type="button" onClick={() => void openTransfer()} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100" aria-label="Transferir lead" title="Transferir lead"><ArrowRightLeft size={16} /></button>
+      <div ref={actionBarRef} className={compact ? 'flex shrink-0 items-center gap-2' : 'flex min-w-0 items-center gap-1.5 overflow-x-auto py-0.5'}>
+        {!compact ? <WhatsappAttachmentButton conversationId={conversationId} onRefresh={onRefresh} onStatus={onStatus} /> : null}
+        <button type="button" onClick={() => void loadVehicles('stock')} className={`inline-flex shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-700 transition hover:bg-blue-100 ${compact ? 'h-11 w-11' : 'h-9 w-9'}`} aria-label="Abrir veículos publicados no portal" title="Veículos: definir interesse ou enviar fotos"><Car size={16} /></button>
+        <button type="button" onClick={openSchedule} className={`inline-flex shrink-0 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-700 transition hover:bg-amber-100 ${compact ? 'h-11 w-11' : 'h-9 w-9'}`} aria-label="Agendar atividade" title="Agendar atividade"><CalendarDays size={16} /></button>
+        <button type="button" onClick={() => void openTransfer()} className={`inline-flex shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100 ${compact ? 'h-11 w-11' : 'h-9 w-9'}`} aria-label="Transferir lead" title="Transferir lead"><ArrowRightLeft size={16} /></button>
       </div>
 
       {mode ? (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[2px]" onMouseDown={(event) => { if (event.currentTarget === event.target && !saving) setMode(null); }}>
+        <div className={`fixed inset-0 flex justify-center bg-black/35 backdrop-blur-[2px] ${compact ? 'z-[680] items-end p-3' : 'z-[500] items-center p-4'}`} onMouseDown={(event) => { if (event.currentTarget === event.target && !saving) setMode(null); }}>
           <div className="max-h-[85vh] w-full max-w-2xl overflow-hidden rounded-[24px] border border-zinc-200 bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
               <div>
