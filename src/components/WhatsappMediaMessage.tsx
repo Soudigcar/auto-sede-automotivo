@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Download, FileText, Image as ImageIcon, Loader2, RefreshCw, Video, Volume2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { WhatsappLocationMessage } from '@/components/WhatsappLocationMessage';
+import { apiErrorMessage } from '@/lib/client/apiErrorMessage';
 
 type WhatsappMediaMessageProps = {
   message: any;
@@ -51,7 +52,7 @@ export function WhatsappMediaMessage({ message, outbound = false, compact = fals
 
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
-        throw new Error(result?.error || 'Não foi possível carregar esta mídia.');
+        throw new Error(apiErrorMessage(result, 'Não foi possível carregar esta mídia.'));
       }
 
       const blob = await response.blob();
@@ -61,7 +62,7 @@ export function WhatsappMediaMessage({ message, outbound = false, compact = fals
         return url;
       });
     } catch (loadError: any) {
-      setError(loadError?.message || 'Não foi possível carregar esta mídia.');
+      setError(apiErrorMessage(loadError, 'Não foi possível carregar esta mídia.'));
     } finally {
       setLoading(false);
     }

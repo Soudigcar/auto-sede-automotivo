@@ -19,6 +19,18 @@ export type EvolutionWebhookConfig = {
   events: string[];
 };
 
+export class EvolutionApiError extends Error {
+  readonly status: number;
+  readonly operation: string;
+
+  constructor(message: string, status: number, operation: string) {
+    super(message);
+    this.name = 'EvolutionApiError';
+    this.status = status;
+    this.operation = operation;
+  }
+}
+
 function requiredEnvironment(name: string) {
   const value = String(process.env[name] || '').trim();
   if (!value) throw new Error(`Variável privada ${name} não configurada no servidor.`);
@@ -47,6 +59,23 @@ export function evolutionWebhookUrl() {
   return requiredEnvironment('EVOLUTION_WEBHOOK_URL').replace(/\/$/, '');
 }
 
+function sanitizeProviderMessage(value: unknown) {
+  return String(value || '')
+    .replace(/https?:\/\/\S+/gi, '[url]')
+    .replace(/\b\d{8,}\b/g, '[número]')
+    .trim()
+    .slice(0, 500);
+}
+
+function evolutionOperation(path: string) {
+  return path
+    .split('?')[0]
+    .split('/')
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('/');
+}
+
 function safeErrorMessage(result: any, status: number) {
   const candidate =
     result?.response?.message ||
@@ -54,12 +83,25 @@ function safeErrorMessage(result: any, status: number) {
     result?.error ||
     `Evolution API respondeu com HTTP ${status}.`;
 
-  if (Array.isArray(candidate)) return candidate.map(String).join(', ').slice(0, 500);
+  if (Array.isArray(candidate)) return sanitizeProviderMessage(candidate.map(String).join(', '));
   if (typeof candidate === 'object') return `Evolution API respondeu com HTTP ${status}.`;
-  return String(candidate).slice(0, 500);
+  return sanitizeProviderMessage(candidate) || `Evolution API respondeu com HTTP ${status}.`;
 }
 
-async function parseEvolutionResponse(response: Response) {
+function evolutionTransportError(error: unknown, path: string) {
+  const operation = evolutionOperation(path);
+  const name = error instanceof Error ? error.name : '';
+  const timeout = name === 'TimeoutError' || name === 'AbortError';
+  const status = timeout ? 504 : 503;
+  const message = timeout
+    ? 'A Evolution API não respondeu dentro do tempo limite.'
+    : 'Não foi possível conectar à Evolution API.';
+
+  console.error('[Evolution API] transport failure', { operation, status, error_type: name || 'unknown' });
+  return new EvolutionApiError(message, status, operation);
+}
+
+async function parseEvolutionResponse(response: Response, path: string) {
   const raw = await response.text();
   let result: any = {};
 
@@ -72,39 +114,52 @@ async function parseEvolutionResponse(response: Response) {
   }
 
   if (!response.ok) {
-    throw new Error(safeErrorMessage(result, response.status));
+    const operation = evolutionOperation(path);
+    const message = safeErrorMessage(result, response.status);
+    console.error('[Evolution API] request rejected', { operation, status: response.status, message });
+    throw new EvolutionApiError(message, response.status, operation);
   }
 
   return result;
 }
 
 export async function evolutionRequest(path: string, options: EvolutionRequestOptions = {}) {
-  const response = await fetch(`${evolutionBaseUrl()}${path}`, {
-    method: options.method || 'GET',
-    headers: {
-      apikey: evolutionApiKey(),
-      'Content-Type': 'application/json'
-    },
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(EVOLUTION_TIMEOUT_MS)
-  });
+  try {
+    const response = await fetch(`${evolutionBaseUrl()}${path}`, {
+      method: options.method || 'GET',
+      headers: {
+        apikey: evolutionApiKey(),
+        'Content-Type': 'application/json'
+      },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(EVOLUTION_TIMEOUT_MS)
+    });
 
-  return parseEvolutionResponse(response);
+    return parseEvolutionResponse(response, path);
+  } catch (error) {
+    if (error instanceof EvolutionApiError) throw error;
+    throw evolutionTransportError(error, path);
+  }
 }
 
 export async function evolutionMultipartRequest(path: string, body: FormData) {
-  const response = await fetch(`${evolutionBaseUrl()}${path}`, {
-    method: 'POST',
-    headers: {
-      apikey: evolutionApiKey()
-    },
-    body,
-    cache: 'no-store',
-    signal: AbortSignal.timeout(EVOLUTION_TIMEOUT_MS)
-  });
+  try {
+    const response = await fetch(`${evolutionBaseUrl()}${path}`, {
+      method: 'POST',
+      headers: {
+        apikey: evolutionApiKey()
+      },
+      body,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(EVOLUTION_TIMEOUT_MS)
+    });
 
-  return parseEvolutionResponse(response);
+    return parseEvolutionResponse(response, path);
+  } catch (error) {
+    if (error instanceof EvolutionApiError) throw error;
+    throw evolutionTransportError(error, path);
+  }
 }
 
 export function evolutionInstanceName(scopeKey: string) {

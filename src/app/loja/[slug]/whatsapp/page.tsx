@@ -34,6 +34,7 @@ import { createClient } from '@/lib/supabase';
 import WhatsappCommerceActions from '@/components/WhatsappCommerceActions';
 import { WhatsappAttachmentButton } from '@/components/WhatsappAttachmentButton';
 import { WhatsappMediaMessage } from '@/components/WhatsappMediaMessage';
+import { apiErrorMessage } from '@/lib/client/apiErrorMessage';
 
 const pipelineStages = [
   { key: 'new_lead', label: 'Novo Lead Recebido', secureFlow: false },
@@ -226,7 +227,7 @@ export default function StoreWhatsappPage() {
         cache: 'no-store'
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Não foi possível consultar a AUTOCAR desta conversa.');
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível consultar a AUTOCAR desta conversa.'));
       if (autocarRequestRef.current !== conversationId) return;
       setAutocarRuntime(result.runtime || null);
       setAutocarCanTakeOver(result.can_take_over === true);
@@ -234,7 +235,7 @@ export default function StoreWhatsappPage() {
       if (autocarRequestRef.current !== conversationId) return;
       setAutocarRuntime(null);
       setAutocarCanTakeOver(false);
-      setAutocarError(error?.message || 'Não foi possível consultar a AUTOCAR desta conversa.');
+      setAutocarError(apiErrorMessage(error, 'Não foi possível consultar a AUTOCAR desta conversa.'));
     } finally {
       if (autocarRequestRef.current === conversationId) setAutocarLoading(false);
     }
@@ -254,14 +255,14 @@ export default function StoreWhatsappPage() {
         body: JSON.stringify({ slug, conversation_id: conversationId, action: 'human-active' })
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Não foi possível assumir esta conversa.');
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível assumir esta conversa.'));
       if (autocarRequestRef.current !== conversationId) return;
       setAutocarRuntime(result.runtime || null);
       setAutocarError('');
       setStatusMessage('Atendimento humano assumido. A AUTOCAR foi pausada somente nesta conversa.');
     } catch (error: any) {
       if (autocarRequestRef.current !== conversationId) return;
-      setStatusMessage(error?.message || 'Não foi possível assumir esta conversa.');
+      setStatusMessage(apiErrorMessage(error, 'Não foi possível assumir esta conversa.'));
     } finally {
       setAutocarAction(false);
     }
@@ -278,7 +279,7 @@ export default function StoreWhatsappPage() {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new InboxRequestError(result.error || 'Não foi possível carregar WhatsApp.', response.status);
+      throw new InboxRequestError(apiErrorMessage(result, 'Não foi possível carregar WhatsApp.'), response.status);
     }
     return result;
   }
@@ -334,7 +335,7 @@ export default function StoreWhatsappPage() {
           setConversations([]);
           setSelectedId('');
           setMessages([]);
-          setStatusMessage(fallbackError?.message || error.message);
+          setStatusMessage(apiErrorMessage(fallbackError, apiErrorMessage(error, 'Erro ao carregar conversas.')));
           return;
         }
       }
@@ -342,7 +343,7 @@ export default function StoreWhatsappPage() {
       setConversations([]);
       setSelectedId('');
       setMessages([]);
-      setStatusMessage(error?.message || 'Erro ao carregar conversas.');
+      setStatusMessage(apiErrorMessage(error, 'Erro ao carregar conversas.'));
     } finally {
       if (requestId === inboxRequestRef.current) setLoading(false);
     }
@@ -365,12 +366,12 @@ export default function StoreWhatsappPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ action: 'mark-read', slug, conversation_id: selectedId })
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Não foi possível marcar como lida.');
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível marcar como lida.'));
       setStatusMessage('Conversa marcada como lida.');
       await loadData(selectedId);
     } catch (error: any) {
-      setStatusMessage(error?.message || 'Erro ao marcar conversa como lida.');
+      setStatusMessage(apiErrorMessage(error, 'Erro ao marcar conversa como lida.'));
     }
   }
 
@@ -399,12 +400,12 @@ export default function StoreWhatsappPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ command: 'change_stage', slug, lead_id: leadId, target_status: targetStatus })
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Não foi possível alterar a etapa da Pipeline.');
-      setStatusMessage(result.message || `Lead movido para ${targetStage.label}.`);
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível alterar a etapa da Pipeline.'));
+      setStatusMessage(apiErrorMessage(result?.message, `Lead movido para ${targetStage.label}.`));
       await loadData(selectedId);
     } catch (error: any) {
-      setStatusMessage(error?.message || 'Erro ao alterar a etapa da Pipeline.');
+      setStatusMessage(apiErrorMessage(error, 'Erro ao alterar a etapa da Pipeline.'));
     } finally {
       setStageUpdating(false);
     }
@@ -424,13 +425,13 @@ export default function StoreWhatsappPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ conversation_id: selectedId, body })
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Não foi possível enviar mensagem.');
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível enviar mensagem.'));
       setMessageText('');
       setStatusMessage('Mensagem enviada.');
       await loadData(selectedId);
     } catch (error: any) {
-      setStatusMessage(error?.message || 'Erro ao enviar mensagem.');
+      setStatusMessage(apiErrorMessage(error, 'Erro ao enviar mensagem.'));
     }
     setSending(false);
   }

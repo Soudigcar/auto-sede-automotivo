@@ -19,6 +19,9 @@ test('Evolution media uses the documented JSON base64 contract', () => {
   assert.match(route, /evolutionRequest\(`\/message\/sendMedia\//);
   assert.doesNotMatch(route, /evolutionMultipartRequest/);
   assert.match(route, /sendEvolutionAudio/);
+  assert.match(route, /readManagedEvolutionState/);
+  assert.match(route, /resolveEvolutionAvailability/);
+  assert.match(route, /markAutocarHumanActive/);
 });
 
 test('desktop attachment confirmation renders image content instead of only its filename', () => {

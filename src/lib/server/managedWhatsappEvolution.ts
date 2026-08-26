@@ -11,6 +11,7 @@ import {
   restoreEvolutionWebhook
 } from '@/lib/server/evolution';
 import { cleanText } from '@/lib/server/storeTeam';
+import { normalizeWhatsappRecipient } from '@/lib/server/whatsappRecipient';
 
 export type EvolutionIntegrationScope = 'master' | 'store';
 export type EvolutionIntegrationStatus =
@@ -50,7 +51,7 @@ function instanceDetails(result: any) {
   const owner = cleanText(item.ownerJid || item.number, 120);
 
   return {
-    phoneNumber: owner.replace(/@.*$/, '').replace(/\D/g, '') || null,
+    phoneNumber: normalizeWhatsappRecipient(owner) || null,
     profileName: cleanText(item.profileName, 160) || null,
     profilePictureUrl: cleanText(item.profilePicUrl || item.profilePictureUrl, 1_000) || null
   };

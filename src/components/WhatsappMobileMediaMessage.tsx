@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, FileText, Loader2, Pause, Play, RefreshCw, Video } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { WhatsappLocationMessage } from '@/components/WhatsappLocationMessage';
+import { apiErrorMessage } from '@/lib/client/apiErrorMessage';
 
 type Props = {
   message: any;
@@ -128,7 +129,7 @@ export function WhatsappMobileMediaMessage({ message, outbound = false }: Props)
       });
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
-        throw new Error(result?.error || `Não foi possível carregar ${labelForType(type)}.`);
+        throw new Error(apiErrorMessage(result, `Não foi possível carregar ${labelForType(type)}.`));
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -137,7 +138,7 @@ export function WhatsappMobileMediaMessage({ message, outbound = false }: Props)
         return url;
       });
     } catch (loadError: any) {
-      setError(loadError?.message || `Não foi possível carregar ${labelForType(type)}.`);
+      setError(apiErrorMessage(loadError, `Não foi possível carregar ${labelForType(type)}.`));
     } finally {
       setLoading(false);
     }

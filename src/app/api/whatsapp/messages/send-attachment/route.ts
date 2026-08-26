@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { evolutionRequest } from '@/lib/server/evolution';
+import { EvolutionApiError, evolutionRequest } from '@/lib/server/evolution';
 import { sendEvolutionAudio } from '@/lib/server/evolutionAudio';
+import { markAutocarHumanActive } from '@/lib/server/autocar/safeRuntime';
+import { readManagedEvolutionState } from '@/lib/server/managedWhatsappEvolution';
 import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import { resolveEvolutionAvailability } from '@/lib/server/storeWhatsappChannel';
+import { isConnectedWhatsappNumber, normalizeWhatsappRecipient } from '@/lib/server/whatsappRecipient';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,10 +47,6 @@ function canAccessConversation(profile: any, conversation: any, lead: any) {
   return canAccessStoreLead(profile, role, lead);
 }
 
-function normalizePhone(value: unknown) {
-  return String(value || '').split('@')[0].split(':')[0].replace(/\D/g, '');
-}
-
 function mediaTypeFor(file: File) {
   const mime = String(file.type || '').toLowerCase();
   if (mime.startsWith('image/')) return 'image';
@@ -82,8 +82,25 @@ function evolutionMessageId(result: any) {
   return result?.key?.id || result?.message?.key?.id || result?.data?.key?.id || result?.data?.message?.key?.id || result?.id || null;
 }
 
+function evolutionSendError(error: EvolutionApiError) {
+  const providerUnavailable = error.status >= 500;
+  const providerDetail = /^Evolution API respondeu com HTTP/i.test(error.message)
+    ? ''
+    : ` ${error.message}`;
+
+  return NextResponse.json({
+    error: providerUnavailable
+      ? 'O provedor do WhatsApp não conseguiu processar o anexo agora. Tente novamente em instantes.'
+      : `O WhatsApp recusou o anexo.${providerDetail}`,
+    code: 'EVOLUTION_SEND_FAILED',
+    retryable: providerUnavailable
+  }, { status: providerUnavailable ? 502 : 422 });
+}
+
 export async function POST(request: Request) {
+  let failureStage = 'initialization';
   try {
+    failureStage = 'authorization';
     const supabase = getAdminClient();
     const token = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
     if (!token) return NextResponse.json({ error: 'Sessão não encontrada.' }, { status: 401 });
@@ -114,9 +131,10 @@ export async function POST(request: Request) {
 
     if (!conversation || !canAccessConversation(profile, conversation, lead)) return NextResponse.json({ error: 'Conversa não encontrada ou sem permissão.' }, { status: 404 });
 
+    failureStage = 'conversation_context';
     const [contactResponse, integrationResponse] = await Promise.all([
       supabase.from('whatsapp_contacts').select('id, phone, wa_id').eq('id', conversation.contact_id).maybeSingle(),
-      supabase.from('store_whatsapp_integrations').select('instance_name, status, scope, provider').eq('crm_number_id', conversation.whatsapp_number_id).maybeSingle()
+      supabase.from('store_whatsapp_integrations').select('instance_name, status, scope, provider, phone_number').eq('crm_number_id', conversation.whatsapp_number_id).maybeSingle()
     ]);
     const relationError = contactResponse.error || integrationResponse.error;
     if (relationError) return NextResponse.json({ error: relationError.message }, { status: 400 });
@@ -125,14 +143,45 @@ export async function POST(request: Request) {
     const integration = integrationResponse.data;
     if (!contact) return NextResponse.json({ error: 'Contato da conversa não encontrado.' }, { status: 404 });
     if (!integration || integration.provider !== 'evolution') return NextResponse.json({ error: 'Envio de anexos está disponível para conversas Evolution nesta etapa.' }, { status: 409 });
-    if (integration.status !== 'connected') {
+
+    failureStage = 'channel_check';
+    const liveState = await readManagedEvolutionState(integration);
+    const availability = resolveEvolutionAvailability(integration, liveState);
+    if (!availability.connected) {
       const owner = integration.scope === 'master' ? 'central do Master' : 'da loja';
-      return NextResponse.json({ error: `WhatsApp ${owner} está desconectado. Reconecte em Integrações.` }, { status: 409 });
+      return NextResponse.json({
+        error: `WhatsApp ${owner} não está conectado neste momento. Aguarde a reconexão ou avise o Gestor.`,
+        channel_status: availability.status
+      }, { status: 409 });
     }
 
-    const recipient = normalizePhone(contact.phone || contact.wa_id);
+    const recipient = normalizeWhatsappRecipient(contact.phone || contact.wa_id);
     if (!recipient) return NextResponse.json({ error: 'Contato sem telefone válido para envio.' }, { status: 400 });
+    if (isConnectedWhatsappNumber(recipient, liveState?.phone_number)) {
+      return NextResponse.json({
+        error: 'Este contato é o próprio número conectado da loja. Escolha uma conversa de cliente para enviar.',
+        code: 'SELF_RECIPIENT'
+      }, { status: 422 });
+    }
 
+    if (conversation.store_id) {
+      failureStage = 'human_takeover';
+      const takeover = await markAutocarHumanActive({
+        productionSupabase: supabase,
+        storeId: conversation.store_id,
+        conversationId: conversation.id,
+        whatsappNumberId: conversation.whatsapp_number_id,
+        leadId: conversation.lead_id || null,
+        messageId: null,
+        profileId: profile.id || null,
+        source: 'inbox'
+      });
+      if (takeover?.human_state !== 'human_active') {
+        return NextResponse.json({ error: 'Não foi possível confirmar o atendimento humano antes do envio.' }, { status: 409 });
+      }
+    }
+
+    failureStage = 'provider_send';
     const mediaType = mediaTypeFor(fileValue);
     const mime = cleanText(fileValue.type, 160) || fallbackMime(mediaType);
     const bytes = new Uint8Array(await fileValue.arrayBuffer());
@@ -156,6 +205,7 @@ export async function POST(request: Request) {
       });
     }
     const waMessageId = evolutionMessageId(result);
+    failureStage = 'message_persistence';
     const sentAt = new Date().toISOString();
     const body = previewLabel(mediaType, filename, caption);
 
@@ -193,6 +243,18 @@ export async function POST(request: Request) {
     await supabase.from('whatsapp_conversations').update({ last_message: body, last_message_at: sentAt, unread_count: 0, updated_at: sentAt }).eq('id', conversation.id);
     return NextResponse.json({ success: true, message: savedMessage, provider: 'evolution', media_type: mediaType });
   } catch (error: any) {
+    if (error instanceof EvolutionApiError) {
+      console.error('[WhatsApp attachment send] provider failure', {
+        stage: failureStage,
+        operation: error.operation,
+        status: error.status
+      });
+      return evolutionSendError(error);
+    }
+    console.error('[WhatsApp attachment send] request failure', {
+      stage: failureStage,
+      error_type: error instanceof Error ? error.name : 'unknown'
+    });
     return NextResponse.json({ error: error?.message || 'Erro ao enviar anexo pelo WhatsApp.' }, { status: 500 });
   }
 }

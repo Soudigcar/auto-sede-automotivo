@@ -63,6 +63,14 @@ test('mobile AUTOCAR lookup failures do not replace the chat status banner', () 
   assert.doesNotMatch(loadAutocar, /setStatusMessage/);
 });
 
+test('desktop inbox never renders structured API errors as object coercions', () => {
+  assert.match(page, /import \{ apiErrorMessage \}/);
+  assert.match(page, /new InboxRequestError\(apiErrorMessage\(result/);
+  assert.match(page, /setStatusMessage\(apiErrorMessage\(error, 'Erro ao enviar mensagem\.'\)\)/);
+  assert.doesNotMatch(page, /new Error\(result\.error \|\|/);
+  assert.doesNotMatch(page, /setStatusMessage\(error\?\.message \|\|/);
+});
+
 test('denied detail requests emit diagnostic reasons without message content', () => {
   assert.match(route, /reason: 'missing_or_store_mismatch'/);
   assert.match(route, /reason: requestedConversation\?\.lead_id && !requestedLead \? 'missing_lead' : 'responsibility_scope'/);
