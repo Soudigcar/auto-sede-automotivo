@@ -156,6 +156,16 @@ function channelStatus(conversation: any) {
   return conversation?.number?.is_active ? 'WhatsApp ativo' : 'WhatsApp desconectado';
 }
 
+class InboxRequestError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'InboxRequestError';
+    this.status = status;
+  }
+}
+
 export default function StoreWhatsappPage() {
   const supabase = createClient();
   const params = useParams();
@@ -183,6 +193,7 @@ export default function StoreWhatsappPage() {
   const [autocarAction, setAutocarAction] = useState(false);
   const [autocarError, setAutocarError] = useState('');
   const autocarRequestRef = useRef('');
+  const inboxRequestRef = useRef(0);
 
   async function getAuthToken() {
     const { data } = await supabase.auth.getSession();
@@ -261,36 +272,80 @@ export default function StoreWhatsappPage() {
     if (!token) return null;
     const params = new URLSearchParams({ slug });
     if (conversationId) params.set('conversation_id', conversationId);
-    const response = await fetch(`/api/store-whatsapp?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Não foi possível carregar WhatsApp.');
+    const response = await fetch(`/api/store-whatsapp?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store'
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new InboxRequestError(result.error || 'Não foi possível carregar WhatsApp.', response.status);
+    }
     return result;
   }
 
   async function loadData(preferredConversationId?: string) {
+    const requestId = ++inboxRequestRef.current;
+    const requestedConversationId = preferredConversationId || selectedId;
     setLoading(true);
+    setStatusMessage('');
     try {
-      const firstResult = await fetchInbox(preferredConversationId || selectedId);
-      if (!firstResult) return;
+      const firstResult = await fetchInbox(requestedConversationId);
+      if (!firstResult || requestId !== inboxRequestRef.current) return;
       setStore(firstResult.store);
       setConversations(firstResult.conversations || []);
-      const nextSelectedId = preferredConversationId || selectedId || firstResult.conversations?.[0]?.id || '';
+      const nextSelectedId = requestedConversationId || firstResult.conversations?.[0]?.id || '';
       setSelectedId(nextSelectedId);
       if (nextSelectedId && !firstResult.selected_conversation_id) {
         const secondResult = await fetchInbox(nextSelectedId);
-        if (secondResult) {
+        if (secondResult && requestId === inboxRequestRef.current) {
           setConversations(secondResult.conversations || []);
           setMessages(secondResult.messages || []);
         }
-      } else {
+      } else if (requestId === inboxRequestRef.current) {
         setMessages(firstResult.messages || []);
       }
+      if (requestId !== inboxRequestRef.current) return;
       setStatusMessage(firstResult.conversations?.length ? '' : 'Nenhuma conversa recebida ainda.');
       void loadAutocarRuntime(nextSelectedId);
     } catch (error: any) {
+      if (requestId !== inboxRequestRef.current) return;
+
+      if (error instanceof InboxRequestError && error.status === 404 && requestedConversationId) {
+        try {
+          const fallbackList = await fetchInbox();
+          if (!fallbackList || requestId !== inboxRequestRef.current) return;
+          const fallbackId = String(fallbackList.conversations?.[0]?.id || '');
+          const fallbackResult = fallbackId ? await fetchInbox(fallbackId) : fallbackList;
+          if (!fallbackResult || requestId !== inboxRequestRef.current) return;
+
+          setStore(fallbackResult.store || fallbackList.store);
+          setConversations(fallbackResult.conversations || fallbackList.conversations || []);
+          setSelectedId(fallbackId);
+          setMessages(fallbackResult.messages || []);
+          setStatusMessage(
+            fallbackId
+              ? 'A conversa anterior não está mais disponível para este acesso. Exibindo a conversa mais recente da sua carteira.'
+              : 'Nenhuma conversa disponível para este acesso.'
+          );
+          void loadAutocarRuntime(fallbackId);
+          return;
+        } catch (fallbackError: any) {
+          if (requestId !== inboxRequestRef.current) return;
+          setConversations([]);
+          setSelectedId('');
+          setMessages([]);
+          setStatusMessage(fallbackError?.message || error.message);
+          return;
+        }
+      }
+
+      setConversations([]);
+      setSelectedId('');
+      setMessages([]);
       setStatusMessage(error?.message || 'Erro ao carregar conversas.');
+    } finally {
+      if (requestId === inboxRequestRef.current) setLoading(false);
     }
-    setLoading(false);
   }
 
   async function selectConversation(conversationId: string) {
@@ -385,6 +440,9 @@ export default function StoreWhatsappPage() {
     const requestedConversationId = String(searchParams.get('conversation_id') || '').trim();
 
     void loadData(requestedConversationId || undefined);
+    return () => {
+      inboxRequestRef.current += 1;
+    };
   }, [slug]);
 
   const selectedConversation = useMemo(() => conversations.find((conversation) => conversation.id === selectedId) || null, [conversations, selectedId]);

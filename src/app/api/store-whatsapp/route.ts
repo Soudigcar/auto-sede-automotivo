@@ -5,11 +5,25 @@ import { getEvolutionProfilePictureUrl } from '@/lib/server/evolution';
 import { evolutionDisplayBody } from '@/lib/server/evolutionMessage';
 import { readManagedEvolutionState } from '@/lib/server/managedWhatsappEvolution';
 import { publicWhatsappNumber } from '@/lib/server/storeWhatsappChannel';
+import { includeRequestedConversation } from '@/lib/server/storeWhatsappInbox';
 
 export const runtime = 'nodejs';
 
 function cleanText(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function noStoreJson(payload: unknown, status = 200) {
+  return NextResponse.json(payload, {
+    status,
+    headers: {
+      'Cache-Control': 'private, no-store, max-age=0'
+    }
+  });
+}
+
+function shortId(value: unknown) {
+  return cleanText(value).slice(0, 8) || null;
 }
 
 const PROFILE_PICTURE_CACHE_MS = 24 * 60 * 60 * 1_000;
@@ -154,18 +168,45 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Loja não encontrada ou sem permissão.' }, { status: 404 });
     }
 
-    const { data: storeConversations, error: conversationsError } = await supabase
-      .from('whatsapp_conversations')
-      .select('*')
-      .eq('store_id', store.id)
-      .order('last_message_at', { ascending: false })
-      .limit(100);
+    const [recentConversationsResponse, requestedConversationResponse] = await Promise.all([
+      supabase
+        .from('whatsapp_conversations')
+        .select('*')
+        .eq('store_id', store.id)
+        .order('last_message_at', { ascending: false })
+        .limit(100),
+      conversationId
+        ? supabase
+            .from('whatsapp_conversations')
+            .select('*')
+            .eq('id', conversationId)
+            .eq('store_id', store.id)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null })
+    ]);
+
+    const storeConversations = recentConversationsResponse.data || [];
+    const conversationsError = recentConversationsResponse.error || requestedConversationResponse.error;
 
     if (conversationsError) {
-      return NextResponse.json({ error: conversationsError.message }, { status: 400 });
+      return noStoreJson({ error: conversationsError.message }, 400);
     }
 
-    const allLeadIds = unique((storeConversations || []).map((item: any) => item.lead_id));
+    const requestedConversation = requestedConversationResponse.data || null;
+    if (conversationId && !requestedConversation) {
+      console.warn('[Store WhatsApp] Conversa solicitada ausente do escopo da loja.', {
+        reason: 'missing_or_store_mismatch',
+        profile: shortId(profile.id),
+        role: profile.role,
+        store: shortId(store.id),
+        conversation: shortId(conversationId)
+      });
+      return noStoreJson({ error: 'Conversa não encontrada nesta loja.' }, 404);
+    }
+
+    const conversationCandidates = includeRequestedConversation(storeConversations, requestedConversation);
+
+    const allLeadIds = unique(conversationCandidates.map((item: any) => item.lead_id));
     const { data: accessLeads, error: accessLeadsError } = allLeadIds.length
       ? await supabase
           .from('leads')
@@ -178,7 +219,7 @@ export async function GET(request: Request) {
     }
 
     const accessLeadsById = buildMap(accessLeads || []);
-    const conversations = (storeConversations || []).filter((conversation: any) =>
+    const conversations = conversationCandidates.filter((conversation: any) =>
       canAccessConversation(profile, store, conversation, accessLeadsById[conversation.lead_id])
     );
 
@@ -243,13 +284,27 @@ export async function GET(request: Request) {
       const allowed = enrichedConversations.some((conversation: any) => conversation.id === conversationId);
 
       if (!allowed) {
-        return NextResponse.json({ error: 'Conversa não encontrada nesta loja.' }, { status: 404 });
+        const requestedLead = requestedConversation?.lead_id
+          ? accessLeadsById[requestedConversation.lead_id]
+          : null;
+        console.warn('[Store WhatsApp] Conversa solicitada negada pelo escopo operacional.', {
+          reason: requestedConversation?.lead_id && !requestedLead ? 'missing_lead' : 'responsibility_scope',
+          profile: shortId(profile.id),
+          role: profile.role,
+          store: shortId(store.id),
+          conversation: shortId(conversationId),
+          conversationStoreMatches: requestedConversation?.store_id === store.id,
+          leadStoreMatches: requestedLead?.assigned_store_id === store.id,
+          leadAssigneeMatches: requestedLead?.assigned_user_id === profile.id
+        });
+        return noStoreJson({ error: 'Conversa não encontrada nesta loja.' }, 404);
       }
 
       const { data: messageRows, error: messagesError } = await supabase
         .from('whatsapp_messages')
         .select('*')
         .eq('conversation_id', conversationId)
+        .eq('store_id', store.id)
         .order('sent_at', { ascending: true })
         .order('created_at', { ascending: true })
         .limit(250);
@@ -264,7 +319,7 @@ export async function GET(request: Request) {
       }));
     }
 
-    return NextResponse.json({
+    return noStoreJson({
       success: true,
       store,
       conversations: enrichedConversations,
