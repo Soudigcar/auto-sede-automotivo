@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, FileText, Loader2, Pause, Play, RefreshCw, Video } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import { WhatsappLocationMessage } from '@/components/WhatsappLocationMessage';
 
 type Props = {
   message: any;
@@ -152,6 +153,8 @@ export function WhatsappMobileMediaMessage({ message, outbound = false }: Props)
       });
     };
   }, [message?.id, supported]);
+
+  if (type === 'location') return <WhatsappLocationMessage message={message} outbound={outbound} compact />;
 
   if (!supported) return <p className="whitespace-pre-wrap break-words text-[15px] font-medium leading-[1.35]">{body || '[Mensagem sem texto]'}</p>;
 
