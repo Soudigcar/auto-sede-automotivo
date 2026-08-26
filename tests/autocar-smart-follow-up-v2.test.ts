@@ -7,6 +7,9 @@ const sidebar = readFileSync('src/components/MasterSidebar.tsx', 'utf8');
 const page = readFileSync('src/app/master/autocar/follow-up-v2/page.tsx', 'utf8');
 const followUpUi = readFileSync('src/components/MasterAutocarFollowUpV2.tsx', 'utf8');
 const storeGovernanceUi = readFileSync('src/components/MasterAutocarFollowUpStoreGovernanceV2.tsx', 'utf8');
+const storeFollowUpPage = readFileSync('src/app/loja/[slug]/autocar/follow-up/page.tsx', 'utf8');
+const storeFollowUpUi = readFileSync('src/components/StoreAutocarFollowUpV2.tsx', 'utf8');
+const storeAutocarLayout = readFileSync('src/app/loja/[slug]/autocar/layout.tsx', 'utf8');
 const migration = readFileSync('supabase/migrations/20260826102000_autocar_smart_follow_up_v2_config.sql', 'utf8');
 
 test('Smart Follow-up V2 nasce fail-closed e sem AUTOPILOT', () => {
@@ -99,6 +102,18 @@ test('governança por loja mostra pedido, teto Master e configuração efetiva s
   assert.match(storeGovernanceUi, /Nada desta seção é salvo nesta etapa/);
   assert.match(storeGovernanceUi, /clampStoreFollowUpSettings/);
   assert.doesNotMatch(storeGovernanceUi, /POST|PATCH|PUT|DELETE|messages\/send|sendWhatsApp|Evolution/);
+});
+
+test('loja possui Follow-up dentro da própria AUTOCAR e edição depende da permissão manage do backend', () => {
+  assert.match(storeAutocarLayout, /StoreAutocarFollowUpEntry/);
+  assert.match(storeFollowUpPage, /foundation-status/);
+  assert.match(storeFollowUpPage, /permissions\?\.manage/);
+  assert.doesNotMatch(storeFollowUpPage, /profile\.role === 'store'/);
+  assert.match(storeFollowUpUi, /Configuração da/);
+  assert.match(storeFollowUpUi, /Jornadas da loja/);
+  assert.match(storeFollowUpUi, /O que realmente vale/);
+  assert.match(storeFollowUpUi, /clampStoreFollowUpSettings/);
+  assert.doesNotMatch(storeFollowUpUi, /POST|PATCH|PUT|DELETE|messages\/send|sendWhatsApp|Evolution/);
 });
 
 test('migration de performance é somente analítica e não cria execução externa', () => {
