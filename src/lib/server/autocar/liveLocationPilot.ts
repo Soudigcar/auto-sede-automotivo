@@ -89,7 +89,8 @@ function locationGate(shadow: any) {
   const mapsUrl = safeHttpsUrl(location?.maps_url);
   const latitude = validCoordinate(location?.latitude, -90, 90);
   const longitude = validCoordinate(location?.longitude, -180, 180);
-  if (!location?.configured || !address || latitude === null || longitude === null) {
+  const nullIsland = latitude !== null && longitude !== null && Math.abs(latitude) <= 0.000001 && Math.abs(longitude) <= 0.000001;
+  if (!location?.configured || !address || latitude === null || longitude === null || nullIsland) {
     return { allowed: false, reason: 'Localização nativa não liberada: endereço, latitude e longitude válidos precisam estar configurados no Perfil Operacional.', text: '', location: null };
   }
 
