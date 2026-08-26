@@ -64,8 +64,8 @@ export async function GET(request: Request) {
     let next: string | null = `https://graph.facebook.com/${version}/${pageId}/leadgen_forms?fields=id,name,status,created_time,locale&limit=100`;
 
     for (let page = 0; next && page < 10; page += 1) {
-      const response = await fetch(next, { cache: 'no-store', headers: { authorization: `Bearer ${token}` } });
-      const result = await response.json();
+      const response: Response = await fetch(next, { cache: 'no-store', headers: { authorization: `Bearer ${token}` } });
+      const result: any = await response.json();
       if (!response.ok) throw new Error(result?.error?.message || 'Não foi possível listar os formulários da página.');
       for (const form of Array.isArray(result?.data) ? result.data : []) {
         forms.push({
