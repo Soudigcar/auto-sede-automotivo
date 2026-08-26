@@ -40,7 +40,7 @@ export async function classifyAutocarHumanRequestV2(input: {
       'Classifique exclusivamente se a MENSAGEM ATUAL do cliente contém um pedido semântico para transferir ou envolver uma pessoa humana no atendimento.',
       'A mensagem atual tem prioridade absoluta. O histórico serve somente para resolver referência direta e inequívoca; nunca carregue uma intenção antiga para uma saudação ou nova pergunta independente.',
       'Marque true para pedidos como falar com vendedor, consultor, gerente, atendente, pessoa, humano, ligação/retorno de alguém da equipe, ou equivalentes semanticamente claros.',
-      'Marque false quando o cliente apenas pergunta preço, desconto, parcela, financiamento, troca, estoque, revisão, garantia, documentação, localização, fotos, agendamento ou faz uma saudação, mesmo que a resposta dependa de validação humana.',
+      'Marque false quando o cliente apenas pergunta preço, desconto, parcela, financiamento, troca, estoque, revisões, garantia, documentos, localização, fotos, agendamento ou faz uma saudação, mesmo que a resposta dependa de validação humana.',
       'Perguntar se existe vendedor disponível não é por si só pedir transferência; é necessário haver intenção de falar com alguém.',
       'Não infira pedido humano apenas porque a AUTOCAR não sabe um dado, porque uma policy protege uma ação ou porque o caso é complexo.',
       'confidence deve ficar entre 0 e 1. reason deve ser curto, descritivo e não conter cadeia de pensamento privada.'
