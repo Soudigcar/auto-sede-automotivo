@@ -1,5 +1,5 @@
--- Smart Follow-up V2 configuration layer.
--- This migration only defines configuration/audit structures. It does not create
+-- Smart Follow-up V2 configuration + attribution schema.
+-- This migration only defines configuration/analytics structures. It does not create
 -- any scheduler, cron, outbound WhatsApp path, or enable create_follow_up.
 
 create table if not exists public.ai_follow_up_global_settings (
@@ -46,6 +46,7 @@ create table if not exists public.ai_follow_up_scenarios (
   title text not null,
   description text not null default '',
   enabled boolean not null default false,
+  attribution_window_minutes integer not null default 1440 check (attribution_window_minutes between 15 and 10080),
   version integer not null default 1 check (version > 0),
   updated_by_profile_id uuid null,
   created_at timestamptz not null default now(),
@@ -70,6 +71,28 @@ create table if not exists public.ai_follow_up_scenario_steps (
   unique (scenario_id, step_order)
 );
 
+create table if not exists public.ai_follow_up_performance_events (
+  id uuid primary key default gen_random_uuid(),
+  store_id uuid not null references public.ai_store_refs(store_id) on delete cascade,
+  scenario_key text not null check (scenario_key in ('silent_lead','simulation_pending','vehicle_interest','visit_confirmation','post_visit','no_show','callback_requested')),
+  production_conversation_id uuid not null,
+  production_lead_id uuid null,
+  follow_up_event_id uuid null references public.ai_follow_up_events(id) on delete set null,
+  event_type text not null check (event_type in ('eligible','prepared','sent','customer_replied','conversation_recovered','appointment_created','appointment_showed_up','sale_confirmed','cancelled','blocked')),
+  attribution_window_minutes integer not null check (attribution_window_minutes between 15 and 10080),
+  source_occurred_at timestamptz not null,
+  attributed_to_follow_up boolean not null default false,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists ai_follow_up_performance_events_store_scenario_created_idx
+  on public.ai_follow_up_performance_events(store_id, scenario_key, created_at desc);
+create index if not exists ai_follow_up_performance_events_conversation_created_idx
+  on public.ai_follow_up_performance_events(production_conversation_id, created_at desc);
+create index if not exists ai_follow_up_performance_events_type_created_idx
+  on public.ai_follow_up_performance_events(event_type, created_at desc);
+
 create table if not exists public.ai_follow_up_config_audit (
   id uuid primary key default gen_random_uuid(),
   scope text not null check (scope in ('global','store','scenario')),
@@ -84,12 +107,14 @@ alter table public.ai_follow_up_global_settings enable row level security;
 alter table public.ai_follow_up_store_settings enable row level security;
 alter table public.ai_follow_up_scenarios enable row level security;
 alter table public.ai_follow_up_scenario_steps enable row level security;
+alter table public.ai_follow_up_performance_events enable row level security;
 alter table public.ai_follow_up_config_audit enable row level security;
 
 comment on table public.ai_follow_up_global_settings is 'Master ceiling for Smart Follow-up V2. Does not enable outbound execution by itself.';
 comment on table public.ai_follow_up_store_settings is 'Store preferences constrained by the Master Smart Follow-up ceiling.';
-comment on table public.ai_follow_up_scenarios is 'Versionable Smart Follow-up V2 journeys. Disabled by default.';
+comment on table public.ai_follow_up_scenarios is 'Versionable Smart Follow-up V2 journeys with configurable attribution windows. Disabled by default.';
 comment on table public.ai_follow_up_scenario_steps is 'Delay steps for Smart Follow-up V2 journeys; no scheduler is created by this migration.';
+comment on table public.ai_follow_up_performance_events is 'Append-only journey funnel and attribution events. Does not send or schedule follow-ups.';
 comment on table public.ai_follow_up_config_audit is 'Append-only audit trail for Smart Follow-up V2 configuration changes.';
 
 insert into public.ai_follow_up_global_settings (id)
