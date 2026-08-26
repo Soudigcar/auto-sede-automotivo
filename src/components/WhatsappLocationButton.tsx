@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Loader2, LocateFixed, MapPin, Navigation, Send, Store, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import { apiErrorMessage } from '@/lib/client/apiErrorMessage';
 
 type LocationChoice = {
   source: 'store' | 'current';
@@ -65,12 +66,12 @@ export function WhatsappLocationButton({
         cache: 'no-store'
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Não foi possível consultar a localização da loja.');
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível consultar a localização da loja.'));
       const nextStoreLocation = result.store_location as LocationChoice | null;
       setStoreLocation(nextStoreLocation);
       setChoice(nextStoreLocation);
     } catch (openError: any) {
-      setError(openError?.message || 'Não foi possível preparar o envio de localização.');
+      setError(apiErrorMessage(openError, 'Não foi possível preparar o envio de localização.'));
       setStoreLocation(null);
     } finally {
       setLoading(false);
@@ -116,13 +117,13 @@ export function WhatsappLocationButton({
         body: JSON.stringify({ conversation_id: conversationId, ...choice })
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Não foi possível enviar a localização.');
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível enviar a localização.'));
       setOpen(false);
       setChoice(null);
       onStatus('Localização enviada com sucesso.');
       await onRefresh();
     } catch (sendError: any) {
-      const message = sendError?.message || 'Erro ao enviar localização pelo WhatsApp.';
+      const message = apiErrorMessage(sendError, 'Erro ao enviar localização pelo WhatsApp.');
       setError(message);
       onStatus(message);
     } finally {

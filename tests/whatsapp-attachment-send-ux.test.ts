@@ -33,7 +33,7 @@ test('mobile attachment flow previews and requires explicit send', () => {
   assert.match(mobile, /Confirmar envio/);
   assert.match(mobile, /URL\.createObjectURL\(attachmentFile\)/);
   assert.match(mobile, /void sendAttachment\(\)/);
-  assert.match(mobile, /result\.error \|\| 'Não foi possível enviar o anexo\.'/);
+  assert.match(mobile, /apiErrorMessage\(result, 'Não foi possível enviar o anexo\.'\)/);
 });
 
 test('audio recorder provides a safe WhatsApp-like review flow on desktop and mobile', () => {

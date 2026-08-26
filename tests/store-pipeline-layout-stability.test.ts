@@ -12,6 +12,7 @@ const pipelineRoute = readFileSync('src/app/api/store/portal/pipeline/route.ts',
 const pipelineWhatsappRoute = readFileSync('src/app/api/store/portal/pipeline/whatsapp/route.ts', 'utf8');
 const whatsappPage = readFileSync('src/app/loja/[slug]/whatsapp/page.tsx', 'utf8');
 const domSync = readFileSync('src/components/StorePipelineDomSync.tsx', 'utf8');
+const addLead = readFileSync('src/components/PipelineAddLeadWithStock.tsx', 'utf8');
 
 test('direct pipeline load keeps DOM synchronization across the auth main replacement', () => {
   assert.match(domSync, /observer\.observe\(document\.body, \{ childList: true, subtree: true \}\)/);
@@ -116,4 +117,9 @@ test('pipeline keeps the Kanban free from redundant floating bottom overlays', (
   assert.doesNotMatch(auraTheme, /Relatório do dia/);
   assert.doesNotMatch(auraTheme, /Sincronizado com o servidor/);
   assert.match(auraTheme, /padding: 104px 16px 16px !important/);
+});
+
+test('mobile add-lead action stays above the bottom navigation and iOS safe area', () => {
+  assert.match(addLead, /bottom:calc\(112px \+ env\(safe-area-inset-bottom\)\)/);
+  assert.doesNotMatch(addLead, /pipeline-stock-add-button\{top:auto;right:16px;bottom:82px\}/);
 });

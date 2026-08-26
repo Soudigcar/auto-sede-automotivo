@@ -5,6 +5,7 @@ import { includeRequestedConversation } from '../src/lib/server/storeWhatsappInb
 
 const route = readFileSync('src/app/api/store-whatsapp/route.ts', 'utf8');
 const page = readFileSync('src/app/loja/[slug]/whatsapp/page.tsx', 'utf8');
+const mobileBridge = readFileSync('src/components/WhatsappMobileInboxBridge.tsx', 'utf8');
 
 test('conversation detail is resolved directly inside the authenticated store', () => {
   assert.match(route, /requestedConversationResponse[\s\S]*?\.eq\('id', conversationId\)[\s\S]*?\.eq\('store_id', store\.id\)[\s\S]*?\.maybeSingle\(\)/);
@@ -32,18 +33,34 @@ test('message history repeats the store boundary and authenticated GET responses
   assert.match(page, /cache: 'no-store'/);
 });
 
-test('mobile inbox ignores late responses from an obsolete navigation', () => {
-  assert.match(page, /const inboxRequestRef = useRef\(0\)/);
-  assert.match(page, /const requestId = \+\+inboxRequestRef\.current/);
-  assert.match(page, /requestId !== inboxRequestRef\.current/);
-  assert.match(page, /inboxRequestRef\.current \+= 1/);
+test('desktop and mobile inboxes ignore late responses from an obsolete navigation', () => {
+  for (const inbox of [page, mobileBridge]) {
+    assert.match(inbox, /const inboxRequestRef = useRef\(0\)/);
+    assert.match(inbox, /const requestId = \+\+inboxRequestRef\.current/);
+    assert.match(inbox, /requestId !== inboxRequestRef\.current/);
+    assert.match(inbox, /inboxRequestRef\.current \+= 1/);
+  }
 });
 
-test('a stale or revoked conversation falls back without retaining another history on screen', () => {
+test('desktop and mobile fall back from stale access without retaining another history', () => {
   assert.match(page, /error instanceof InboxRequestError && error\.status === 404/);
-  assert.match(page, /const fallbackList = await fetchInbox\(\)/);
-  assert.match(page, /setConversations\(\[\]\)[\s\S]*?setSelectedId\(''\)[\s\S]*?setMessages\(\[\]\)/);
-  assert.match(page, /não está mais disponível para este acesso/);
+  assert.match(mobileBridge, /error instanceof MobileInboxRequestError && error\.status === 404/);
+
+  for (const inbox of [page, mobileBridge]) {
+    assert.match(inbox, /const fallbackList = await fetchInbox\(\)/);
+    assert.match(inbox, /setConversations\(\[\]\)[\s\S]*?setSelectedId\(''\)[\s\S]*?setMessages\(\[\]\)/);
+    assert.match(inbox, /não está mais disponível para este acesso/);
+  }
+});
+
+test('mobile AUTOCAR lookup failures do not replace the chat status banner', () => {
+  const loadAutocar = mobileBridge.slice(
+    mobileBridge.indexOf('async function loadAutocar'),
+    mobileBridge.indexOf('async function fetchInbox')
+  );
+
+  assert.match(loadAutocar, /setAutocarError\(apiErrorMessage\(error/);
+  assert.doesNotMatch(loadAutocar, /setStatusMessage/);
 });
 
 test('denied detail requests emit diagnostic reasons without message content', () => {

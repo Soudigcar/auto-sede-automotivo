@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase';
 import AutocarCopilotInline from '@/components/AutocarCopilotInline';
 import { WhatsappAudioRecorderButton } from '@/components/WhatsappAudioRecorderButton';
 import { WhatsappLocationButton } from '@/components/WhatsappLocationButton';
+import { apiErrorMessage } from '@/lib/client/apiErrorMessage';
 
 const MAX_MEDIA_BYTES = 4 * 1024 * 1024;
 
@@ -114,13 +115,13 @@ export function WhatsappAttachmentButton({
         body: form
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Não foi possível enviar o anexo.');
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível enviar o anexo.'));
 
       onStatus('Anexo enviado com sucesso.');
       reset();
       await onRefresh();
     } catch (error: any) {
-      onStatus(error?.message || 'Erro ao enviar anexo pelo WhatsApp.');
+      onStatus(apiErrorMessage(error, 'Erro ao enviar anexo pelo WhatsApp.'));
     } finally {
       setSending(false);
     }

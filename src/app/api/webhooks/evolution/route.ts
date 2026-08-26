@@ -9,6 +9,10 @@ import { cleanText, createAdminClient } from '@/lib/server/storeTeam';
 import { processAutocarShadowInbound } from '@/lib/server/autocar/autoShadow';
 import { markAutocarHumanActive } from '@/lib/server/autocar/safeRuntime';
 import { publicError, readJsonBody } from '@/lib/server/requestSecurity';
+import {
+  evolutionMessageIsFromMe,
+  whatsappCustomerDisplayName
+} from '@/lib/server/whatsappCustomerIdentity';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -318,12 +322,30 @@ async function processMessage(supabase: any, integration: any, data: any) {
   const phone = normalizePhone(remoteJid);
   if (phone.length < 8) return { skipped: true, reason: 'Mensagem sem telefone resolvido.' };
 
-  const fromMe = key.fromMe === true;
+  const fromMe = evolutionMessageIsFromMe(key.fromMe ?? data?.fromMe);
   const body = evolutionMessageContent(data);
   const sentAt = messageDate(data?.messageTimestamp);
-  const profileName = fromMe ? phone : cleanText(data?.pushName, 180) || phone;
   const number = await ensureCrmNumber(supabase, integration);
   const scopedMessageId = scopedEvolutionMessageId(number.id, messageId);
+
+  const { data: existingContact, error: existingContactError } = await supabase
+    .from('whatsapp_contacts')
+    .select('id, profile_name')
+    .eq('whatsapp_number_id', number.id)
+    .eq('phone', phone)
+    .order('last_seen_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existingContactError) throw existingContactError;
+
+  const businessNames = [integration.profile_name, number.label];
+  const profileName = whatsappCustomerDisplayName(
+    fromMe
+      ? [existingContact?.profile_name]
+      : [existingContact?.profile_name, data?.pushName],
+    phone,
+    businessNames
+  );
 
   const { data: duplicate, error: duplicateError } = await supabase
     .from('whatsapp_messages')

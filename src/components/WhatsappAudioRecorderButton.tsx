@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Mic, Pause, Play, RotateCcw, Send, Square, Trash2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import { apiErrorMessage } from '@/lib/client/apiErrorMessage';
 
 const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
 const MAX_RECORDING_SECONDS = 5 * 60;
@@ -214,13 +215,13 @@ export function WhatsappAudioRecorderButton({
         body: form
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Não foi possível enviar o áudio.');
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível enviar o áudio.'));
       reset();
       onStatus('Áudio enviado com sucesso.');
       await onRefresh();
     } catch (error: any) {
       setState('preview');
-      onStatus(error?.message || 'Erro ao enviar áudio pelo WhatsApp.');
+      onStatus(apiErrorMessage(error, 'Erro ao enviar áudio pelo WhatsApp.'));
     }
   }
 

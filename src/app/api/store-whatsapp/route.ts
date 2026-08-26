@@ -6,6 +6,7 @@ import { evolutionDisplayBody } from '@/lib/server/evolutionMessage';
 import { readManagedEvolutionState } from '@/lib/server/managedWhatsappEvolution';
 import { publicWhatsappNumber } from '@/lib/server/storeWhatsappChannel';
 import { includeRequestedConversation } from '@/lib/server/storeWhatsappInbox';
+import { whatsappCustomerDisplayName } from '@/lib/server/whatsappCustomerIdentity';
 
 export const runtime = 'nodejs';
 
@@ -236,7 +237,7 @@ export async function GET(request: Request) {
         ? supabase.from('whatsapp_numbers').select('id, label, phone_number, phone_number_id, status, is_active, settings').in('id', numberIds)
         : Promise.resolve({ data: [], error: null }),
       numberIds.length
-        ? supabase.from('store_whatsapp_integrations').select('crm_number_id, instance_name, status, scope').in('crm_number_id', numberIds).eq('scope', 'store')
+        ? supabase.from('store_whatsapp_integrations').select('crm_number_id, instance_name, profile_name, status, scope').in('crm_number_id', numberIds).eq('scope', 'store')
         : Promise.resolve({ data: [], error: null }),
       leadIds.length
         ? supabase.from('leads').select('id, customer_name, customer_phone, status, interested_vehicle, origin, scheduled_at, created_at').in('id', leadIds)
@@ -270,13 +271,28 @@ export async function GET(request: Request) {
     const leadsById = buildMap(leadsResponse.data || []);
     const baseLeadsById = buildMap(baseLeadsResponse.data || []);
 
-    const enrichedConversations = conversations.map((conversation: any) => ({
-      ...conversation,
-      contact: contactsById[conversation.contact_id] || null,
-      number: numbersById[conversation.whatsapp_number_id] || null,
-      lead: leadsById[conversation.lead_id] || null,
-      base_lead: baseLeadsById[conversation.base_lead_id] || null
-    }));
+    const enrichedConversations = conversations.map((conversation: any) => {
+      const contact = contactsById[conversation.contact_id] || null;
+      const number = numbersById[conversation.whatsapp_number_id] || null;
+      const integration = integrationsByNumberId[conversation.whatsapp_number_id] || null;
+      const lead = leadsById[conversation.lead_id] || null;
+      const baseLead = baseLeadsById[conversation.base_lead_id] || null;
+      const phone = contact?.phone || lead?.customer_phone || baseLead?.phone || '';
+      const businessNames = [store.store_name, integration?.profile_name, number?.label];
+      const displayName = whatsappCustomerDisplayName(
+        [contact?.profile_name, lead?.customer_name, baseLead?.name],
+        phone,
+        businessNames
+      );
+
+      return {
+        ...conversation,
+        contact: contact ? { ...contact, profile_name: displayName } : null,
+        number,
+        lead: lead ? { ...lead, customer_name: displayName } : null,
+        base_lead: baseLead ? { ...baseLead, name: displayName } : null
+      };
+    });
 
     let messages: any[] = [];
 
