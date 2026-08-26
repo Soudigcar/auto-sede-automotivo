@@ -1,0 +1,64 @@
+import { NextResponse } from 'next/server';
+import { authorizeStorePortal } from '@/lib/server/storePortal';
+import { ensureAutocarDevStore, getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
+import { getAutocarRuntimeClient } from '@/lib/server/autocar/runtimeEnvironment';
+import {
+  FOLLOW_UP_V2_AUTOPILOT_LOCKED,
+  readStoreFollowUpV2,
+  saveStoreFollowUpV2
+} from '@/lib/server/autocar/followUpV2ConfigStore';
+import type { FollowUpConfigV2 } from '@/lib/server/autocar/smartFollowUpV2';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+function humanError(error: any) {
+  const text = String(error?.message || error || 'Falha no Smart Follow-up V2.');
+  if (/does not exist|relation .* not found|schema cache/i.test(text)) {
+    return 'Persistência do Smart Follow-up V2 ainda não está disponível neste ambiente.';
+  }
+  return text.slice(0, 500);
+}
+
+export async function GET(request: Request) {
+  try {
+    const slug = String(new URL(request.url).searchParams.get('slug') || '').trim();
+    const context = await authorizeStorePortal(request, slug);
+    if ('error' in context) return context.error;
+    if (!context.permissions.includes('view_autocar')) {
+      return NextResponse.json({ error: 'Usuário sem permissão para visualizar a AUTOCAR.' }, { status: 403 });
+    }
+    await ensureAutocarDevStore(getAutocarDevClient(), context.store);
+    const config = await readStoreFollowUpV2(getAutocarRuntimeClient(), context.store.id);
+    return NextResponse.json({
+      success: true,
+      autopilot_locked: FOLLOW_UP_V2_AUTOPILOT_LOCKED,
+      permissions: { manage: context.permissions.includes('manage_autocar') },
+      store: { id: context.store.id, store_name: context.store.store_name, slug: context.store.slug },
+      config
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: humanError(error), persistence_available: false }, { status: 503 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const slug = String(body?.slug || '').trim();
+    const context = await authorizeStorePortal(request, slug);
+    if ('error' in context) return context.error;
+    if (!context.permissions.includes('manage_autocar')) {
+      return NextResponse.json({ error: 'Somente o gestor da loja pode alterar o Smart Follow-up.' }, { status: 403 });
+    }
+    const config = body?.config as FollowUpConfigV2;
+    if (!config) return NextResponse.json({ error: 'Configuração do Follow-up obrigatória.' }, { status: 400 });
+    await ensureAutocarDevStore(getAutocarDevClient(), context.store);
+    const saved = await saveStoreFollowUpV2(getAutocarRuntimeClient(), context.store.id, config, context.profile.id);
+    return NextResponse.json({ success: true, autopilot_locked: true, config: saved });
+  } catch (error: any) {
+    const text = humanError(error);
+    const status = /AUTOPILOT|inválid|não habilitou|não autorizado/i.test(text) ? 400 : 500;
+    return NextResponse.json({ error: text }, { status });
+  }
+}

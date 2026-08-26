@@ -15,6 +15,8 @@ import {
 import { evolutionDisplayBody } from '@/lib/server/evolutionMessage';
 import { autocarVisionContextText } from '@/lib/server/autocar/visionPipeline';
 import { autocarDocumentContextText } from '@/lib/server/autocar/documentPipeline';
+import { classifyAutocarHumanRequestV2 } from '@/lib/server/autocar/humanRequestClassifierV2';
+import { resolveAutocarHandoffV2 } from '@/lib/server/autocar/handoffSemanticsV2';
 
 const shadowCapabilities: AutocarCapability[] = [
   'respond_first_contact', 'qualify_lead', 'consult_stock', 'send_vehicles', 'send_photos',
@@ -28,6 +30,7 @@ const responseSchema = {
   properties: {
     response: { type: 'string' }, summary: { type: 'string' }, next_best_action: { type: 'string' },
     referenced_vehicle_ids: { type: 'array', items: { type: 'string' } },
+    presented_vehicle_ids: { type: 'array', items: { type: 'string' } },
     proposed_actions: {
       type: 'array', items: {
         type: 'object', additionalProperties: false,
@@ -36,7 +39,7 @@ const responseSchema = {
       }
     }
   },
-  required: ['response', 'summary', 'next_best_action', 'referenced_vehicle_ids', 'proposed_actions']
+  required: ['response', 'summary', 'next_best_action', 'referenced_vehicle_ids', 'presented_vehicle_ids', 'proposed_actions']
 };
 
 const operationalPlanSchema = {
@@ -190,7 +193,7 @@ export async function generateAutocarShadowReply(input: {
     conversation.lead_id
       ? input.productionSupabase.from('leads').select('id,customer_name,customer_phone,status,interested_vehicle,interested_vehicle_id,interested_vehicle_price,scheduled_at,notes,origin,assigned_store_id').eq('id', conversation.lead_id).eq('assigned_store_id', input.storeId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
-    input.productionSupabase.from('whatsapp_messages').select('id,direction,message_type,body,raw_payload,sent_at,created_at').eq('store_id', input.storeId).eq('conversation_id', input.conversationId).order('sent_at', { ascending: false }).order('created_at', { ascending: false }).limit(40)
+    input.productionSupabase.from('whatsapp_messages').select('id,direction,message_type,body,raw_payload,sent_at,created_at').eq('store_id', input.storeId).eq('conversation_id', input.conversationId).order('sent_at', { ascending: false }).order('created_at', { ascending: false }).limit(24)
   ]);
   if (leadError) throw leadError;
   if (messagesError) throw messagesError;
@@ -209,7 +212,7 @@ export async function generateAutocarShadowReply(input: {
     body: conversationBody(message),
     sent_at: message.sent_at || message.created_at || null
   })).filter((message: any) => Boolean(String(message.body || '').trim()));
-  const lastInbound = [...transcript].reverse().find((message) => message.direction === 'inbound');
+  const lastInbound = [...transcript].reverse().find((message: any) => message.direction === 'inbound');
   if (!lastInbound?.body) throw new Error('A conversa não possui mensagem inbound textual, visual ou documental suficiente para o Shadow Mode.');
 
   const intelligence = await buildAutocarIntelligenceContext({
@@ -218,18 +221,27 @@ export async function generateAutocarShadowReply(input: {
   const recentConversation = transcript.slice(-12).map((message: any) => ({
     direction: String(message.direction || ''),
     type: String(message.type || 'text'),
-    body: String(message.body || '').slice(0, 2000),
+    body: String(message.body || '').slice(0, 1600),
     sent_at: message.sent_at || null
   }));
-  const operationalPreview = await buildOperationalPreview({
-    productionSupabase: input.productionSupabase, storeId: input.storeId, leadId: lead?.id || null,
-    lastInbound: String(lastInbound.body), recentConversation, intelligence
-  });
+  const [operationalPreview, humanRequest] = await Promise.all([
+    buildOperationalPreview({
+      productionSupabase: input.productionSupabase, storeId: input.storeId, leadId: lead?.id || null,
+      lastInbound: String(lastInbound.body), recentConversation, intelligence
+    }),
+    classifyAutocarHumanRequestV2({
+      currentInbound: String(lastInbound.body),
+      recentConversation: recentConversation.map((message: any) => ({ direction: message.direction, body: message.body }))
+    })
+  ]);
 
   const instructions = [
     intelligence.hardPolicyInstructions,
+    intelligence.commercialConstitution,
     autocarModeInstructions('autopilot'),
     'Você é a AUTOCAR em SHADOW MODE: produza exatamente a resposta textual que seria enviada ao cliente, mas não execute nem envie nada.',
+    'A mensagem atual do cliente é a fonte primária da intenção. conversa_recente é somente contexto auxiliar para referências e continuidade clara.',
+    `O classificador semântico independente informou customer_requested_human=${humanRequest.customer_requested_human ? 'true' : 'false'}. Só inclua transfer_lead quando esse valor for true.`,
     'O backend já determinou a loja e a conversa. Nunca escolha, altere ou peça store_id.',
     'Contexto visual AUTOCAR Vision V1 é evidência descritiva auxiliar. Nunca trate inferência visual de marca/modelo, dano, quilometragem ou painel como fato oficial quando não houver confirmação no CRM/estoque.',
     'Se a análise visual indicar documento ou dados pessoais, não peça nem repita CPF, CNH, placa, endereço ou identificadores extraídos da imagem nesta fase.',
@@ -245,7 +257,9 @@ export async function generateAutocarShadowReply(input: {
     'store_inventory é a fonte oficial de disponibilidade de veículos. Só afirme disponibilidade, preço, ano, quilometragem ou características quando existirem nos dados fornecidos.',
     'Nunca invente desconto, aprovação de financiamento, avaliação definitiva de troca, venda concluída ou condição comercial ausente.',
     'A resposta deve ser curta, natural, comercial e em português do Brasil.',
-    'referenced_vehicle_ids deve conter apenas IDs exatos existentes em store_inventory que foram efetivamente citados na resposta.',
+    'referenced_vehicle_ids deve conter apenas IDs exatos existentes em store_inventory de todos os veículos efetivamente citados na resposta, inclusive veículos mencionados apenas como contexto.',
+    'presented_vehicle_ids deve conter somente os IDs exatos dos veículos que estão sendo oferecidos ou apresentados como opções novas nesta resposta, em ordem de apresentação e no máximo 3. Veículo citado apenas como contexto, por exemplo em “além do Logan”, entra em referenced_vehicle_ids mas não em presented_vehicle_ids.',
+    'Todo ID em presented_vehicle_ids também deve aparecer em referenced_vehicle_ids. Se não houver novas opções sendo apresentadas, use presented_vehicle_ids vazio.',
     'proposed_actions deve listar todas as capacidades operacionais que a resposta ou o próximo passo implicariam. O backend decidirá a permissão.'
   ].join(' ');
 
@@ -253,9 +267,15 @@ export async function generateAutocarShadowReply(input: {
     task: 'commercial_reply',
     instructions,
     input: {
+      mensagem_atual: {
+        id: lastInbound.id,
+        body: String(lastInbound.body).slice(0, 3000),
+        sent_at: lastInbound.sent_at || null
+      },
       loja: store,
       crm: { lead: lead || null, base_lead: baseLead || null, commercial: commercial || null },
-      conversa: transcript,
+      conversa_recente: recentConversation,
+      human_request: humanRequest,
       intelligence: serializeAutocarIntelligenceContext(intelligence),
       operational_preview: operationalPreview
     },
@@ -266,10 +286,21 @@ export async function generateAutocarShadowReply(input: {
   const parsed = finalResult.parsed;
   const raw = finalResult.payload;
 
-  const actions = (Array.isArray(parsed.proposed_actions) ? parsed.proposed_actions : []).slice(0, 12).map((action: any) => {
+  let actions = (Array.isArray(parsed.proposed_actions) ? parsed.proposed_actions : []).slice(0, 12).map((action: any) => {
     const capability = String(action?.capability || '') as AutocarCapability;
     return { capability, reason: String(action?.reason || '').trim(), decision: evaluateAutocarPolicy({ mode: 'autopilot', capability }) };
   });
+  if (!humanRequest.customer_requested_human) {
+    actions = actions.filter((action: any) => action.capability !== 'transfer_lead');
+  }
+  const handoffSemantics = resolveAutocarHandoffV2({
+    customerRequestedHuman: humanRequest.customer_requested_human,
+    proposedActions: actions
+  });
+  const referencedVehicles = realReferencedVehicles(intelligence, parsed.referenced_vehicle_ids);
+  const referencedIds = new Set(referencedVehicles.map((vehicle: any) => String(vehicle?.id || '')));
+  const presentedVehicles = realReferencedVehicles(intelligence, parsed.presented_vehicle_ids)
+    .filter((vehicle: any) => referencedIds.has(String(vehicle?.id || '')));
 
   return {
     response: String(parsed.response || '').trim(),
@@ -277,17 +308,24 @@ export async function generateAutocarShadowReply(input: {
     next_best_action: String(parsed.next_best_action || '').trim(),
     response_policy: evaluateAutocarPolicy({ mode: 'autopilot', capability: 'respond_first_contact' }),
     proposed_actions: actions,
-    referenced_vehicles: realReferencedVehicles(intelligence, parsed.referenced_vehicle_ids),
+    human_request: humanRequest,
+    handoff_semantics: handoffSemantics,
+    referenced_vehicles: referencedVehicles,
+    presented_vehicles: presentedVehicles,
     operational_preview: operationalPreview,
     intelligence: {
-      training_matches: intelligence.training.length, method_matches: intelligence.methodKnowledge.length,
+      training_matches: intelligence.training.length,
+      method_matches: intelligence.methodKnowledge.length,
       store_knowledge_matches: intelligence.storeKnowledge.length,
       inventory_available_count: intelligence.inventory?.available_count ?? 0,
-      inventory_matches: intelligence.inventory?.matched_count ?? 0, hard_policies_applied: true
+      inventory_matches: intelligence.inventory?.matched_count ?? 0,
+      hard_policies_applied: true,
+      context_engine: intelligence.retrieval
     },
     model: finalResult.routing.model,
     model_routing: {
       planner: operationalPreview.planner_model_routing || null,
+      human_request: routingSummary((humanRequest as any).model_routing),
       commercial: routingSummary(finalResult.routing)
     },
     usage: { input_tokens: Number(raw?.usage?.input_tokens || 0), output_tokens: Number(raw?.usage?.output_tokens || 0) },
