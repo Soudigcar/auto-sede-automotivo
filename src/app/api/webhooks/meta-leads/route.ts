@@ -2,13 +2,14 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getMetaServerConfig, stripStoredMetaSecrets } from '@/lib/server/metaServerConfig';
 import { RequestSecurityError, publicError, readRawBody, safeEqual, verifySha256Hmac } from '@/lib/server/requestSecurity';
+import { effectiveMetaGraphVersion, FALLBACK_META_GRAPH_VERSION } from '@/lib/server/metaGraphVersion';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const defaults = {
   page_id: '',
-  graph_version: 'v20.0',
+  graph_version: FALLBACK_META_GRAPH_VERSION,
   form_mappings: [] as any[]
 };
 
@@ -73,7 +74,7 @@ function extract(metaLead: any) {
 }
 
 async function pageToken(settings: any) {
-  const version = clean(settings.graph_version) || defaults.graph_version;
+  const version = effectiveMetaGraphVersion(settings.graph_version);
   const saved = getMetaServerConfig().pageAccessToken;
   const pageId = clean(settings.page_id);
   if (!saved || !pageId) return saved;
@@ -87,7 +88,7 @@ async function pageToken(settings: any) {
 async function fetchLead(id: string, settings: any) {
   const token = await pageToken(settings);
   if (!token) throw new Error('Page Access Token não configurado.');
-  const version = clean(settings.graph_version) || defaults.graph_version;
+  const version = effectiveMetaGraphVersion(settings.graph_version);
   const url = new URL(`https://graph.facebook.com/${version}/${id}`);
   url.searchParams.set('fields', 'created_time,id,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,form_id,field_data');
   const response = await fetch(url.toString(), { cache: 'no-store', headers: { authorization: `Bearer ${token}` } });
@@ -111,18 +112,21 @@ function webhookEvents(body: any) {
 }
 
 async function ingest(supabase: any, settings: any, event: any) {
-  let mapping = mappingFor(settings, event);
-  if (!mapping) return { leadgen_id: event.leadgen_id, form_id: event.form_id || null, status: 'ignored_form_not_mapped' };
-  const eventRecord = await validEvent(supabase, mapping.event_id);
-  if (!eventRecord) return { leadgen_id: event.leadgen_id, form_id: mapping.form_id, status: 'ignored_event_inactive' };
-
   const duplicateMetadata = { meta_leadgen_id: event.leadgen_id };
   const { data: existing } = await supabase.from('leads_base').select('id,routed_lead_id,assigned_store_id').contains('metadata', duplicateMetadata).limit(1);
   if (existing?.length) return { leadgen_id: event.leadgen_id, id: existing[0].id, status: 'duplicate' };
 
   const metaLead = await fetchLead(event.leadgen_id, settings);
-  mapping = mappingFor(settings, event, metaLead);
-  if (!mapping) return { leadgen_id: event.leadgen_id, status: 'ignored_form_not_mapped' };
+  const mapping = mappingFor(settings, event, metaLead);
+  if (!mapping) {
+    return {
+      leadgen_id: event.leadgen_id,
+      form_id: digits(event.form_id || metaLead?.form_id) || null,
+      status: 'ignored_form_not_mapped'
+    };
+  }
+  const eventRecord = await validEvent(supabase, mapping.event_id);
+  if (!eventRecord) return { leadgen_id: event.leadgen_id, form_id: mapping.form_id, status: 'ignored_event_inactive' };
   const lead = extract(metaLead);
   const phone = digits(lead.phone);
   const { data: picked, error: pickError } = await supabase.rpc('pick_next_lead_store_by_event', { p_event_id: eventRecord.id, p_routing_key: `facebook_lead_form:${mapping.form_id}` });

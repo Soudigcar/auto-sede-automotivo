@@ -76,6 +76,7 @@ export async function GET() {
 
     return NextResponse.json({
       active: true,
+      scope: 'global',
       pixel_id: pixelIds[0],
       pixel_ids: pixelIds,
       events: {

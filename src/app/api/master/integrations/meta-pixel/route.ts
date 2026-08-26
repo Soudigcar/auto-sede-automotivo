@@ -93,9 +93,10 @@ function normalizeIntegration(integration: any) {
     settings: {
       ...(integration?.settings || {}),
       additional_pixel_ids: additionalPixelIds,
-      campaign_id: cleanText(integration?.settings?.campaign_id),
-      campaign_name: cleanText(integration?.settings?.campaign_name),
-      campaign_slug: cleanText(integration?.settings?.campaign_slug),
+      scope: 'global',
+      test_campaign_id: cleanText(integration?.settings?.test_campaign_id || integration?.settings?.campaign_id),
+      test_campaign_name: cleanText(integration?.settings?.test_campaign_name || integration?.settings?.campaign_name),
+      test_campaign_slug: cleanText(integration?.settings?.test_campaign_slug || integration?.settings?.campaign_slug),
       events: {
         ...defaultEvents,
         ...(integration?.settings?.events || {})
@@ -134,9 +135,10 @@ async function getOrCreateIntegration(supabase: any) {
       is_active: false,
       settings: {
         additional_pixel_ids: [],
-        campaign_id: '',
-        campaign_name: '',
-        campaign_slug: '',
+        scope: 'global',
+        test_campaign_id: '',
+        test_campaign_name: '',
+        test_campaign_slug: '',
         events: defaultEvents
       }
     })
@@ -199,12 +201,19 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
+    if (process.env.VERCEL_ENV === 'preview') {
+      return NextResponse.json({
+        error: 'O Preview está em modo somente leitura. A configuração real do Pixel não foi alterada.',
+        preview_read_only: true
+      }, { status: 409 });
+    }
+
     const primaryPixelId = cleanPixelId(body.pixel_id);
     const additionalPixelIds = parsePixelIds(body.additional_pixel_ids);
     const pixelIds = Array.from(new Set([primaryPixelId, ...additionalPixelIds].filter(Boolean)));
     const isActive = Boolean(body.is_active);
     const name = cleanText(body.name) || 'Pixel do Facebook / Meta';
-    const campaignId = cleanText(body.campaign_id);
+    const testCampaignId = cleanText(body.test_campaign_id || body.campaign_id);
     const events = {
       ...defaultEvents,
       ...(body.events || {})
@@ -218,11 +227,11 @@ export async function POST(request: Request) {
     }
 
     let selectedCampaign: any = null;
-    if (campaignId) {
+    if (testCampaignId) {
       const { data, error } = await supabase
         .from('site_campaigns')
         .select('id, name, slug, title, is_active, published_at')
-        .eq('id', campaignId)
+        .eq('id', testCampaignId)
         .maybeSingle();
 
       if (error || !data || !data.is_active || !data.published_at || !data.slug) {
@@ -242,9 +251,10 @@ export async function POST(request: Request) {
       is_active: isActive,
       settings: {
         additional_pixel_ids: additionalPixelIds,
-        campaign_id: selectedCampaign?.id || '',
-        campaign_name: selectedCampaign?.name || '',
-        campaign_slug: selectedCampaign?.slug || '',
+        scope: 'global',
+        test_campaign_id: selectedCampaign?.id || '',
+        test_campaign_name: selectedCampaign?.name || '',
+        test_campaign_slug: selectedCampaign?.slug || '',
         events
       },
       updated_by: masterProfile.id,

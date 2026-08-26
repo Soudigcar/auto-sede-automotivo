@@ -50,18 +50,24 @@ export async function POST(request: Request) {
     if (eventError) return NextResponse.json({ error: eventError.message }, { status: 500 });
     if (!event) return NextResponse.json({ error: 'Evento não encontrado.' }, { status: 404 });
 
-    if (id) {
-      const { data: currentCampaign, error: currentError } = await supabase
-        .from('site_campaigns')
-        .select('id,is_active')
-        .eq('id', id)
-        .maybeSingle();
-      if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
-      if (!currentCampaign) return NextResponse.json({ error: 'Landing não encontrada.' }, { status: 404 });
-      if (currentCampaign.is_active && event.status !== 'active') {
-        return NextResponse.json({ error: 'Ative o evento antes de vinculá-lo a uma landing publicada.' }, { status: 409 });
-      }
+    const currentResult = id
+      ? await supabase.from('site_campaigns').select('id,is_active,slug,published_at').eq('id', id).maybeSingle()
+      : { data: null, error: null };
+    if (currentResult.error) return NextResponse.json({ error: currentResult.error.message }, { status: 500 });
+    const currentCampaign = currentResult.data;
+    if (id && !currentCampaign) return NextResponse.json({ error: 'Landing não encontrada.' }, { status: 404 });
+    if (currentCampaign?.is_active && event.status !== 'active') {
+      return NextResponse.json({ error: 'Ative o evento antes de vinculá-lo a uma landing publicada.' }, { status: 409 });
     }
+
+    const publishedLayoutResult = id
+      ? await supabase.from('site_campaign_layouts').select('published_at').eq('campaign_id', id).maybeSingle()
+      : { data: null, error: null };
+    if (publishedLayoutResult.error) return NextResponse.json({ error: publishedLayoutResult.error.message }, { status: 500 });
+
+    const requestedSlug = slugify(cleanText(body.slug, 180) || event.slug || event.event_name);
+    const slugProtected = Boolean(currentCampaign?.published_at || publishedLayoutResult.data?.published_at);
+    const stableSlug = slugProtected && currentCampaign?.slug ? currentCampaign.slug : requestedSlug;
 
     let duplicateQuery = supabase.from('site_campaigns').select('id,name').eq('event_id', eventId);
     if (id) duplicateQuery = duplicateQuery.neq('id', id);
@@ -73,12 +79,21 @@ export async function POST(request: Request) {
     const administrativePayload = {
       event_id: eventId,
       name: cleanText(body.name, 180) || event.event_name,
-      slug: slugify(cleanText(body.slug, 180) || event.slug || event.event_name),
+      slug: stableSlug,
       interest_rate: safeRate(body.interest_rate),
       whatsapp_number: cleanText(body.whatsapp_number, 40) || null,
       auto_sync_inventory: body.auto_sync_inventory !== false,
       updated_at: now
     };
+
+    if (process.env.VERCEL_ENV === 'preview') {
+      return NextResponse.json({
+        error: 'O Preview está em modo somente leitura para preservar as landings reais.',
+        preview_read_only: true,
+        slug_protected: slugProtected,
+        stable_slug: stableSlug
+      }, { status: 409 });
+    }
 
     const result = id
       ? await supabase
@@ -132,6 +147,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
+      slug_protected: slugProtected,
+      slug_warning: slugProtected && requestedSlug !== stableSlug
+        ? 'O endereço publicado foi preservado para não interromper anúncios, Pixel e links antigos.'
+        : null,
       campaign: {
         ...result.data,
         editor_draft: layout?.editor_draft || null,

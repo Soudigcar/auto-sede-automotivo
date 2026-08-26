@@ -8,7 +8,7 @@ declare global {
     fbq?: any;
     _fbq?: any;
     autoControleMetaPixel?: {
-      track: (eventName: string, params?: Record<string, any>) => void;
+      track: (eventName: string, params?: Record<string, any>, options?: { eventId?: string }) => void;
       pixelId?: string;
       pixelIds?: string[];
       active?: boolean;
@@ -26,6 +26,24 @@ const eventKeyByName: Record<string, string> = {
 };
 
 const standardEvents = new Set(['PageView', 'ViewContent', 'Lead', 'Contact']);
+
+export type MetaPixelContext = {
+  campaignId?: string;
+  campaignName?: string;
+  campaignSlug?: string;
+  eventId?: string;
+  eventName?: string;
+};
+
+function trackingContext(context: MetaPixelContext) {
+  return {
+    campaign_id: context.campaignId || undefined,
+    campaign_name: context.campaignName || undefined,
+    campaign_slug: context.campaignSlug || undefined,
+    event_id: context.eventId || undefined,
+    event_name: context.eventName || undefined
+  };
+}
 
 function installFacebookPixel(pixelIds: string[]) {
   if (typeof window === 'undefined') return;
@@ -67,8 +85,9 @@ function installFacebookPixel(pixelIds: string[]) {
   });
 }
 
-export function MetaPixelTracker() {
+export function MetaPixelTracker({ context = {} }: { context?: MetaPixelContext }) {
   useEffect(() => {
+    const stableContext = trackingContext(context);
     let mounted = true;
     let loading = false;
 
@@ -99,24 +118,31 @@ export function MetaPixelTracker() {
           active: true,
           pixelId: pixelIds[0],
           pixelIds,
-          track(eventName: string, params: Record<string, any> = {}) {
+          track(eventName: string, params: Record<string, any> = {}, options: { eventId?: string } = {}) {
             const eventKey = eventKeyByName[eventName] || eventName;
 
             if (enabledEvents[eventKey] === false) return;
             if (!window.fbq) return;
 
+            const eventParams = { ...stableContext, ...params };
+            const eventOptions = options.eventId ? { eventID: options.eventId } : undefined;
+
             if (standardEvents.has(eventName)) {
-              window.fbq('track', eventName, params);
+              window.fbq('track', eventName, eventParams, eventOptions);
               return;
             }
 
-            window.fbq('trackCustom', eventName, params);
+            window.fbq('trackCustom', eventName, eventParams, eventOptions);
           }
         };
 
         window.autoControleMetaPixel.track('PageView', {
           source: 'auto_controle_landing',
           pixel_count: pixelIds.length
+        });
+        window.autoControleMetaPixel.track('ViewContent', {
+          content_type: 'event_landing',
+          content_name: context.campaignName || context.eventName || 'Landing de evento'
         });
       } catch {
         window.autoControleMetaPixel = {
@@ -145,7 +171,7 @@ export function MetaPixelTracker() {
       mounted = false;
       window.removeEventListener(PRIVACY_CONSENT_EVENT, onConsentChange);
     };
-  }, []);
+  }, [context.campaignId, context.campaignName, context.campaignSlug, context.eventId, context.eventName]);
 
   return null;
 }

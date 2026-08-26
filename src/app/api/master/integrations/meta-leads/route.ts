@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getMetaServerConfig, publicMetaSettings, stripStoredMetaSecrets } from '@/lib/server/metaServerConfig';
+import { effectiveMetaGraphVersion, FALLBACK_META_GRAPH_VERSION } from '@/lib/server/metaGraphVersion';
 
 export const runtime = 'nodejs';
 
@@ -9,7 +10,7 @@ const defaultSettings = {
   page_id: '',
   form_id: '',
   form_mappings: [],
-  graph_version: 'v20.0',
+  graph_version: FALLBACK_META_GRAPH_VERSION,
   routing_mode: 'base_only'
 };
 
@@ -60,6 +61,7 @@ function normalizeIntegration(integration: any) {
     settings: {
       ...defaultSettings,
       ...publicMetaSettings(settings),
+      graph_version: effectiveMetaGraphVersion(settings.graph_version),
       form_mappings: Array.isArray(integration?.settings?.form_mappings)
         ? integration.settings.form_mappings
         : []
@@ -117,6 +119,13 @@ export async function POST(request: Request) {
     const masterProfile = await getMasterProfile(supabase, token);
     if (!masterProfile) return NextResponse.json({ error: 'Apenas usuário Master pode salvar esta integração.' }, { status: 403 });
 
+    if (process.env.VERCEL_ENV === 'preview') {
+      return NextResponse.json({
+        error: 'O Preview está em modo somente leitura. A configuração real da Meta não foi alterada.',
+        preview_read_only: true
+      }, { status: 409 });
+    }
+
     const body = await request.json();
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return NextResponse.json({ error: 'Payload de configuração inválido.' }, { status: 400 });
@@ -136,9 +145,11 @@ export async function POST(request: Request) {
     const settings = {
       app_id: cleanText(body.app_id),
       page_id: cleanText(body.page_id),
-      form_id: cleanText(body.form_id),
+      // form_mappings is the only routing source of truth. The legacy single
+      // Form ID must stay empty so it cannot disagree with event mappings.
+      form_id: '',
       form_mappings: Array.isArray(currentSettings.form_mappings) ? currentSettings.form_mappings : [],
-      graph_version: cleanText(body.graph_version) || defaultSettings.graph_version,
+      graph_version: effectiveMetaGraphVersion(body.graph_version),
       routing_mode: 'base_only'
     };
 
