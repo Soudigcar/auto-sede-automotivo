@@ -4,8 +4,9 @@ import { resolveAutocarHandoffV2 } from '@/lib/server/autocar/handoffSemanticsV2
 import { createAutocarHistoricalReadClientV2, loadAutocarReplayMessagesV2 } from '@/lib/server/autocar/replayMessageHistoryV2';
 import { buildAutocarVehiclePresentationV2 } from '@/lib/server/autocar/vehiclePresentationV2';
 import { buildAutocarSingleVehicleMediaV2 } from '@/lib/server/autocar/singleVehicleMediaV2';
+import { hydrateAutocarPresentedVehiclesV2 } from '@/lib/server/autocar/presentedVehicleHydrationV2';
 
-export const AUTOCAR_INTELLIGENCE_REPLAY_VERSION = 'autocar-intelligence-replay-v2-presented-vehicles-preview';
+export const AUTOCAR_INTELLIGENCE_REPLAY_VERSION = 'autocar-intelligence-replay-v2-presented-vehicle-hydration-preview';
 
 function normalizeReplayText(value: unknown) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -31,6 +32,7 @@ export function evaluateAutocarReplayV2(input: {
   shadow: any;
   vehiclePresentation?: any;
   singleVehicleMedia?: any;
+  presentedVehicleHydration?: any;
 }) {
   const rawActions = Array.isArray(input.shadow?.proposed_actions) ? input.shadow.proposed_actions : [];
   const rawTransferActions = rawActions.filter((action: any) => String(action?.capability || '') === 'transfer_lead');
@@ -40,11 +42,14 @@ export function evaluateAutocarReplayV2(input: {
   const unsupportedVerification = unsupportedVerificationPromise(input.shadow?.response) || unsupportedVerificationPromise(input.shadow?.next_best_action);
   const presentation = input.vehiclePresentation || null;
   const singleMedia = input.singleVehicleMedia || null;
+  const hydration = input.presentedVehicleHydration || null;
   const prematurePhotoClaim = prematurePhotoSentClaim(input.shadow?.response) || prematurePhotoSentClaim(input.shadow?.next_best_action);
+  const presentedVehicleRevalidationFailed = Boolean(hydration && Number(hydration.requested_count || 0) !== Number(hydration.hydrated_count || 0));
   const vehiclePresentationRegression = Boolean(
     presentation?.regression_flags?.too_many_vehicle_options
     || presentation?.regression_flags?.missing_primary_photo
     || presentation?.regression_flags?.invalid_grounded_card
+    || presentedVehicleRevalidationFailed
   );
   const singleVehicleMediaRegression = Boolean(
     singleMedia?.regression_flags?.invalid_vehicle_reference_count
@@ -63,6 +68,7 @@ export function evaluateAutocarReplayV2(input: {
       too_many_vehicle_options: Boolean(presentation?.regression_flags?.too_many_vehicle_options),
       missing_primary_photo: Boolean(presentation?.regression_flags?.missing_primary_photo),
       invalid_grounded_card: Boolean(presentation?.regression_flags?.invalid_grounded_card),
+      presented_vehicle_revalidation_failed: presentedVehicleRevalidationFailed,
       invalid_single_vehicle_reference_count: Boolean(singleMedia?.regression_flags?.invalid_vehicle_reference_count),
       missing_single_vehicle_grounded_photos: Boolean(singleMedia?.regression_flags?.missing_grounded_photos),
       premature_photo_sent_claim: Boolean(singleMedia?.mode === 'single_vehicle_media' && prematurePhotoClaim)
@@ -123,7 +129,14 @@ export async function replayAutocarConversationV2(input: {
     conversationId: input.conversationId
   });
   const referencedVehicles = Array.isArray(shadow.referenced_vehicles) ? shadow.referenced_vehicles : [];
-  const presentedVehicles = Array.isArray(shadow.presented_vehicles) ? shadow.presented_vehicles : [];
+  const presentedVehicleIds = (Array.isArray(shadow.presented_vehicles) ? shadow.presented_vehicles : [])
+    .map((vehicle: any) => String(vehicle?.id || '').trim()).filter(Boolean).slice(0, 3);
+  const presentedVehicleHydration = await hydrateAutocarPresentedVehiclesV2({
+    productionSupabase: input.productionSupabase,
+    storeId: input.storeId,
+    vehicleIds: presentedVehicleIds
+  });
+  const presentedVehicles = presentedVehicleHydration.vehicles;
   const vehiclePresentation = buildAutocarVehiclePresentationV2({
     referencedVehicles: presentedVehicles,
     aiResponse: shadow.response
@@ -137,7 +150,8 @@ export async function replayAutocarConversationV2(input: {
     customerRequestedHuman: humanRequest.customer_requested_human,
     shadow,
     vehiclePresentation,
-    singleVehicleMedia
+    singleVehicleMedia,
+    presentedVehicleHydration
   });
 
   return {
@@ -161,6 +175,7 @@ export async function replayAutocarConversationV2(input: {
       proposed_actions: shadow.proposed_actions,
       referenced_vehicles: referencedVehicles,
       presented_vehicles: presentedVehicles,
+      presented_vehicle_hydration: presentedVehicleHydration,
       vehicle_presentation: vehiclePresentation,
       single_vehicle_media: singleVehicleMedia,
       intelligence: shadow.intelligence,
