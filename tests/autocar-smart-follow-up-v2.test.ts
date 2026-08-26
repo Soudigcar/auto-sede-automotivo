@@ -6,6 +6,7 @@ import { clampStoreFollowUpSettings, defaultFollowUpConfigV2, evaluateFollowUpRe
 const sidebar = readFileSync('src/components/MasterSidebar.tsx', 'utf8');
 const page = readFileSync('src/app/master/autocar/follow-up-v2/page.tsx', 'utf8');
 const followUpUi = readFileSync('src/components/MasterAutocarFollowUpV2.tsx', 'utf8');
+const storeGovernanceUi = readFileSync('src/components/MasterAutocarFollowUpStoreGovernanceV2.tsx', 'utf8');
 const migration = readFileSync('supabase/migrations/20260826102000_autocar_smart_follow_up_v2_config.sql', 'utf8');
 
 test('Smart Follow-up V2 nasce fail-closed e sem AUTOPILOT', () => {
@@ -88,6 +89,16 @@ test('resposta fora da janela não é atribuída à jornada', () => {
   assert.equal(result.replied, true);
   assert.equal(result.withinWindow, false);
   assert.equal(result.recovered, false);
+});
+
+test('governança por loja mostra pedido, teto Master e configuração efetiva sem persistência', () => {
+  assert.match(page, /MasterAutocarFollowUpStoreGovernanceV2/);
+  assert.match(storeGovernanceUi, /Configuração por Loja/);
+  assert.match(storeGovernanceUi, /Configuração efetiva/);
+  assert.match(storeGovernanceUi, /Limitado pelo Master/);
+  assert.match(storeGovernanceUi, /Nada desta seção é salvo nesta etapa/);
+  assert.match(storeGovernanceUi, /clampStoreFollowUpSettings/);
+  assert.doesNotMatch(storeGovernanceUi, /POST|PATCH|PUT|DELETE|messages\/send|sendWhatsApp|Evolution/);
 });
 
 test('migration de performance é somente analítica e não cria execução externa', () => {
