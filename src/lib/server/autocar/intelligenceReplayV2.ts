@@ -2,8 +2,9 @@ import { generateAutocarShadowReply } from '@/lib/server/autocar/shadowReply';
 import { classifyAutocarHumanRequestV2 } from '@/lib/server/autocar/humanRequestClassifierV2';
 import { resolveAutocarHandoffV2 } from '@/lib/server/autocar/handoffSemanticsV2';
 import { createAutocarHistoricalReadClientV2, loadAutocarReplayMessagesV2 } from '@/lib/server/autocar/replayMessageHistoryV2';
+import { buildAutocarVehiclePresentationV2 } from '@/lib/server/autocar/vehiclePresentationV2';
 
-export const AUTOCAR_INTELLIGENCE_REPLAY_VERSION = 'autocar-intelligence-replay-v2-scheduling-objective-preview';
+export const AUTOCAR_INTELLIGENCE_REPLAY_VERSION = 'autocar-intelligence-replay-v2-vehicle-options-preview';
 
 function normalizeReplayText(value: unknown) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -22,6 +23,7 @@ function unsupportedVerificationPromise(value: unknown) {
 export function evaluateAutocarReplayV2(input: {
   customerRequestedHuman: boolean;
   shadow: any;
+  vehiclePresentation?: any;
 }) {
   const rawActions = Array.isArray(input.shadow?.proposed_actions) ? input.shadow.proposed_actions : [];
   const rawTransferActions = rawActions.filter((action: any) => String(action?.capability || '') === 'transfer_lead');
@@ -29,15 +31,24 @@ export function evaluateAutocarReplayV2(input: {
   const transferLanguageWithoutRequest = !input.customerRequestedHuman && explicitTransferLanguage(input.shadow?.response);
   const transferActionWithoutRequest = !input.customerRequestedHuman && rawTransferActions.length > 0;
   const unsupportedVerification = unsupportedVerificationPromise(input.shadow?.response) || unsupportedVerificationPromise(input.shadow?.next_best_action);
+  const presentation = input.vehiclePresentation || null;
+  const vehiclePresentationRegression = Boolean(
+    presentation?.regression_flags?.too_many_vehicle_options
+    || presentation?.regression_flags?.missing_primary_photo
+    || presentation?.regression_flags?.invalid_grounded_card
+  );
   return {
     version: AUTOCAR_INTELLIGENCE_REPLAY_VERSION,
-    pass: !(transferLanguageWithoutRequest || transferActionWithoutRequest || unsupportedVerification),
+    pass: !(transferLanguageWithoutRequest || transferActionWithoutRequest || unsupportedVerification || vehiclePresentationRegression),
     customer_requested_human: input.customerRequestedHuman,
     handoff,
     regression_flags: {
       transfer_action_without_customer_request: transferActionWithoutRequest,
       transfer_language_without_customer_request: transferLanguageWithoutRequest,
-      unsupported_verification_promise: unsupportedVerification
+      unsupported_verification_promise: unsupportedVerification,
+      too_many_vehicle_options: Boolean(presentation?.regression_flags?.too_many_vehicle_options),
+      missing_primary_photo: Boolean(presentation?.regression_flags?.missing_primary_photo),
+      invalid_grounded_card: Boolean(presentation?.regression_flags?.invalid_grounded_card)
     },
     raw_transfer_actions: rawTransferActions,
     effective_actions: input.customerRequestedHuman ? rawActions : rawActions.filter((action: any) => String(action?.capability || '') !== 'transfer_lead'),
@@ -94,7 +105,15 @@ export async function replayAutocarConversationV2(input: {
     storeId: input.storeId,
     conversationId: input.conversationId
   });
-  const evaluation = evaluateAutocarReplayV2({ customerRequestedHuman: humanRequest.customer_requested_human, shadow });
+  const vehiclePresentation = buildAutocarVehiclePresentationV2({
+    referencedVehicles: Array.isArray(shadow.referenced_vehicles) ? shadow.referenced_vehicles : [],
+    aiResponse: shadow.response
+  });
+  const evaluation = evaluateAutocarReplayV2({
+    customerRequestedHuman: humanRequest.customer_requested_human,
+    shadow,
+    vehiclePresentation
+  });
 
   return {
     version: AUTOCAR_INTELLIGENCE_REPLAY_VERSION,
@@ -115,6 +134,8 @@ export async function replayAutocarConversationV2(input: {
       summary: shadow.summary,
       next_best_action: shadow.next_best_action,
       proposed_actions: shadow.proposed_actions,
+      referenced_vehicles: shadow.referenced_vehicles,
+      vehicle_presentation: vehiclePresentation,
       intelligence: shadow.intelligence,
       model: shadow.model,
       model_routing: shadow.model_routing,
