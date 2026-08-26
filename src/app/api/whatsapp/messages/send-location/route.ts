@@ -20,6 +20,12 @@ function coordinate(value: unknown, min: number, max: number) {
   return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : null;
 }
 
+function usableCoordinatePair(latitude: number | null, longitude: number | null) {
+  if (latitude === null || longitude === null) return null;
+  if (Math.abs(latitude) <= 0.000001 && Math.abs(longitude) <= 0.000001) return null;
+  return { latitude, longitude };
+}
+
 function normalizePhone(value: unknown) {
   return String(value || '').split('@')[0].split(':')[0].replace(/\D/g, '');
 }
@@ -53,13 +59,14 @@ function storeAddress(store: any) {
 function publicStoreLocation(store: any) {
   const latitude = coordinate(store?.latitude, -90, 90);
   const longitude = coordinate(store?.longitude, -180, 180);
-  if (latitude === null || longitude === null) return null;
+  const coordinates = usableCoordinatePair(latitude, longitude);
+  if (!coordinates) return null;
   return {
     source: 'store' as const,
     name: cleanText(store?.location_label || store?.store_name || 'Localização da loja', 120),
     address: storeAddress(store),
-    latitude,
-    longitude
+    latitude: coordinates.latitude,
+    longitude: coordinates.longitude
   };
 }
 
@@ -156,7 +163,8 @@ export async function POST(request: Request) {
     const trustedStoreLocation = publicStoreLocation(context.store);
     const latitude = source === 'store' ? trustedStoreLocation?.latitude ?? null : coordinate(body.latitude, -90, 90);
     const longitude = source === 'store' ? trustedStoreLocation?.longitude ?? null : coordinate(body.longitude, -180, 180);
-    if (latitude === null || longitude === null) {
+    const coordinates = usableCoordinatePair(latitude, longitude);
+    if (!coordinates) {
       const error = source === 'store' ? 'A loja ainda não possui latitude e longitude configuradas.' : 'A localização atual retornou coordenadas inválidas.';
       return NextResponse.json({ error }, { status: 400 });
     }
@@ -184,11 +192,11 @@ export async function POST(request: Request) {
       }
     }
 
-    const result = await sendEvolutionLocation(integration.instance_name, recipient, { name, address, latitude, longitude });
+    const result = await sendEvolutionLocation(integration.instance_name, recipient, { name, address, ...coordinates });
     const waMessageId = evolutionMessageId(result);
     const sentAt = new Date().toISOString();
     const previewBody = `📍 ${name}${address ? ` — ${address}` : ''}`;
-    const location = { source, name, address, latitude, longitude };
+    const location = { source, name, address, ...coordinates };
 
     let savedMessage: any = null;
     const { data: inserted, error: saveError } = await supabase.from('whatsapp_messages').insert({
