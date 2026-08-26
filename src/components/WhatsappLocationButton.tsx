@@ -27,12 +27,14 @@ export function WhatsappLocationButton({
   conversationId,
   onRefresh,
   onStatus,
-  disabled = false
+  disabled = false,
+  touchTarget = false
 }: {
   conversationId: string;
   onRefresh: () => Promise<void> | void;
   onStatus: (message: string) => void;
   disabled?: boolean;
+  touchTarget?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -141,7 +143,7 @@ export function WhatsappLocationButton({
         type="button"
         onClick={() => void openPicker()}
         disabled={disabled || !conversationId}
-        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
+        className={`inline-flex shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50 ${touchTarget ? 'h-11 w-11' : 'h-9 w-9'}`}
         aria-label="Enviar localização"
         title="Enviar localização"
       >
