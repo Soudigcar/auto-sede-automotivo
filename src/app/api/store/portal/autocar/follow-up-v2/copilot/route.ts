@@ -256,7 +256,7 @@ export async function POST(request: Request) {
     if (saveError) throw saveError;
 
     const scenario = configBundle.effective.scenarios.find((row) => row.key === evaluated.candidate!.scenario_key);
-    await autocar.from('ai_follow_up_performance_events').insert({
+    const performance = await autocar.from('ai_follow_up_performance_events').insert({
       store_id: context.store.id,
       scenario_key: evaluated.candidate.scenario_key,
       production_conversation_id: evaluated.candidate.conversation_id,
@@ -267,6 +267,11 @@ export async function POST(request: Request) {
       attributed_to_follow_up: false,
       metadata: { suggestion_id: saved.id, copilot_only: true, external_send: false }
     });
+    if (performance.error) {
+      const rollback = await autocar.from('ai_follow_up_copilot_suggestions').delete().eq('id', saved.id).eq('status', 'pending');
+      if (rollback.error) throw new Error(`Auditoria do rascunho falhou e o rollback também falhou: ${rollback.error.message}`);
+      throw performance.error;
+    }
 
     return NextResponse.json({ success: true, reused: false, external_send_available: false, suggestion: saved });
   } catch (error: any) {
