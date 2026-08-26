@@ -277,6 +277,15 @@ export function normalizeAutocarOperationalProfilePayload(
     throw new Error('Data de atualização inválida.');
   }
 
+  const latitude = optionalCoordinate(payload.latitude, 'Latitude', -90, 90);
+  const longitude = optionalCoordinate(payload.longitude, 'Longitude', -180, 180);
+  if ((latitude === null) !== (longitude === null)) {
+    throw new Error('Latitude e longitude devem ser informadas juntas.');
+  }
+  if (latitude !== null && longitude !== null && Math.abs(latitude) <= 0.000001 && Math.abs(longitude) <= 0.000001) {
+    throw new Error('Latitude e longitude 0,0 não representam uma localização válida da loja.');
+  }
+
   return {
     timezone: normalizeTimezone(payload.timezone),
     address_text: optionalText(payload.address_text, 500, 'Endereço'),
@@ -284,8 +293,8 @@ export function normalizeAutocarOperationalProfilePayload(
     state: optionalText(payload.state, 40, 'Estado'),
     postal_code: optionalText(payload.postal_code, 20, 'CEP'),
     location_label: optionalText(payload.location_label, 160, 'Identificação da localização'),
-    latitude: optionalCoordinate(payload.latitude, 'Latitude', -90, 90),
-    longitude: optionalCoordinate(payload.longitude, 'Longitude', -180, 180),
+    latitude,
+    longitude,
     maps_url: optionalHttpsUrl(payload.maps_url, 'Link do Google Maps'),
     waze_url: optionalHttpsUrl(payload.waze_url, 'Link do Waze'),
     weekly_hours: normalizeWeeklyHours(payload.weekly_hours),
