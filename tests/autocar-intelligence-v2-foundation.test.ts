@@ -119,6 +119,7 @@ describe('AUTOCAR Intelligence V2 foundation', () => {
     const result = planAutocarFollowUpV2({
       memory,
       effectiveConfig: activeConfig(),
+      scenarioKey: 'vehicle_interest',
       lastCustomerMessageAt: '2026-08-25T10:00:00.000Z',
       lastAutocarMessageAt: '2026-08-25T10:05:00.000Z',
       leadStatus: 'in_service',
