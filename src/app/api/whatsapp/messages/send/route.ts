@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { EvolutionApiError, sendEvolutionText } from '@/lib/server/evolution';
-import { asStorePortalRole, canAccessStoreConversation } from '@/lib/server/storePortal';
+import { asStorePortalRole, canAccessStoreConversation, canUseStoreWhatsapp } from '@/lib/server/storePortal';
 import { markAutocarHumanActive } from '@/lib/server/autocar/safeRuntime';
 import { readManagedEvolutionState } from '@/lib/server/managedWhatsappEvolution';
 import { resolveEvolutionAvailability } from '@/lib/server/storeWhatsappChannel';
@@ -93,6 +93,9 @@ export async function POST(request: Request) {
 
     if (!conversation || !canAccessConversation(profile, conversation, lead)) {
       return NextResponse.json({ error: 'Conversa não encontrada ou sem permissão.' }, { status: 404 });
+    }
+    if (!(await canUseStoreWhatsapp(supabase, profile, conversation.store_id))) {
+      return NextResponse.json({ error: 'Portal da loja indisponível ou desativado.' }, { status: 404 });
     }
 
     failureStage = 'conversation_context';

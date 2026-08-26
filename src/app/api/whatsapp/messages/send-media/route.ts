@@ -1,8 +1,11 @@
 import { after, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendEvolutionMedia } from '@/lib/server/evolutionMedia';
-import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import { asStorePortalRole, canAccessStoreLead, canUseStoreWhatsapp } from '@/lib/server/storePortal';
 import { markAutocarHumanActive } from '@/lib/server/autocar/safeRuntime';
+import { readManagedEvolutionState } from '@/lib/server/managedWhatsappEvolution';
+import { resolveEvolutionAvailability } from '@/lib/server/storeWhatsappChannel';
+import { isConnectedWhatsappNumber, normalizeWhatsappRecipient } from '@/lib/server/whatsappRecipient';
 
 export const runtime = 'nodejs';
 
@@ -39,10 +42,6 @@ function canAccessConversation(profile: any, conversation: any, lead: any) {
   return canAccessStoreLead(profile, role, lead);
 }
 
-function normalizePhone(value: unknown) {
-  return String(value || '').split('@')[0].split(':')[0].replace(/\D/g, '');
-}
-
 function safeMediaUrls(value: unknown) {
   if (!Array.isArray(value)) return [];
   return Array.from(new Set(value.map((item) => cleanText(item)).filter((url) => /^https:\/\//i.test(url)))).slice(0, 10);
@@ -74,11 +73,14 @@ export async function POST(request: Request) {
     }
 
     if (!conversation || !canAccessConversation(profile, conversation, lead)) return NextResponse.json({ error: 'Conversa não encontrada ou sem permissão.' }, { status: 404 });
+    if (!(await canUseStoreWhatsapp(supabase, profile, conversation.store_id))) {
+      return NextResponse.json({ error: 'Portal da loja indisponível ou desativado.' }, { status: 404 });
+    }
 
     const [numberResponse, contactResponse, integrationResponse] = await Promise.all([
       supabase.from('whatsapp_numbers').select('*').eq('id', conversation.whatsapp_number_id).maybeSingle(),
       supabase.from('whatsapp_contacts').select('*').eq('id', conversation.contact_id).maybeSingle(),
-      supabase.from('store_whatsapp_integrations').select('instance_name,status,scope').eq('crm_number_id', conversation.whatsapp_number_id).maybeSingle()
+      supabase.from('store_whatsapp_integrations').select('instance_name,status,scope,phone_number').eq('crm_number_id', conversation.whatsapp_number_id).maybeSingle()
     ]);
     const relationError = numberResponse.error || contactResponse.error || integrationResponse.error;
     if (relationError) throw relationError;
@@ -90,9 +92,41 @@ export async function POST(request: Request) {
 
     const configuredProvider = String(number?.settings?.provider || '').trim().toLowerCase();
     const provider = integration || configuredProvider === 'evolution' || String(number.phone_number_id || '').startsWith('evolution:') ? 'evolution' : 'meta_cloud';
-    const recipient = normalizePhone(contact?.phone || contact?.wa_id);
+    const recipient = normalizeWhatsappRecipient(contact?.phone || contact?.wa_id);
     if (!recipient) return NextResponse.json({ error: 'Contato sem telefone válido para envio.' }, { status: 400 });
-    if (provider === 'evolution' && (!integration || integration.status !== 'connected' || !integration.instance_name)) return NextResponse.json({ error: 'WhatsApp da loja está desconectado. Reconecte em Integrações.' }, { status: 409 });
+    if (provider === 'evolution') {
+      if (!integration?.instance_name) return NextResponse.json({ error: 'WhatsApp da loja está desconectado. Reconecte em Integrações.' }, { status: 409 });
+      const liveState = await readManagedEvolutionState(integration);
+      const availability = resolveEvolutionAvailability(integration, liveState);
+      if (!availability.connected) {
+        return NextResponse.json({
+          error: 'WhatsApp da loja não está conectado neste momento. Aguarde a reconexão ou avise o Gestor.',
+          channel_status: availability.status
+        }, { status: 409 });
+      }
+      if (isConnectedWhatsappNumber(recipient, liveState?.phone_number)) {
+        return NextResponse.json({
+          error: 'Este contato é o próprio número conectado da loja. Escolha uma conversa de cliente para enviar.',
+          code: 'SELF_RECIPIENT'
+        }, { status: 422 });
+      }
+    }
+
+    if (conversation.store_id) {
+      const takeover = await markAutocarHumanActive({
+        productionSupabase: supabase,
+        storeId: conversation.store_id,
+        conversationId: conversation.id,
+        whatsappNumberId: conversation.whatsapp_number_id,
+        leadId: conversation.lead_id || null,
+        messageId: null,
+        profileId: profile.id || null,
+        source: 'inbox'
+      });
+      if (takeover?.human_state !== 'human_active') {
+        return NextResponse.json({ error: 'Não foi possível confirmar o atendimento humano antes do envio.' }, { status: 409 });
+      }
+    }
 
     const sentAt = new Date().toISOString();
     const saved: any[] = [];

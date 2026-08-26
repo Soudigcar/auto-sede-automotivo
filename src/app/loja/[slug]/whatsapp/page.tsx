@@ -366,7 +366,12 @@ export default function StoreWhatsappPage() {
       const response = await fetch('/api/store-whatsapp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: 'mark-read', slug, conversation_id: selectedId })
+        body: JSON.stringify({
+          action: 'mark-read',
+          slug,
+          conversation_id: selectedId,
+          related_conversation_ids: selectedConversation?.related_conversation_ids || [selectedId]
+        })
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível marcar como lida.'));

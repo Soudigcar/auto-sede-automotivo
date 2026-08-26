@@ -11,4 +11,6 @@ test('the first-party WhatsApp recorder is allowed by the global permissions pol
   assert.ok(policy, 'global Permissions-Policy header is missing');
   assert.match(policy, /(?:^|,\s*)microphone=\(self\)(?:,|$)/);
   assert.doesNotMatch(policy, /(?:^|,\s*)microphone=\(\)(?:,|$)/);
+  assert.match(policy, /(?:^|,\s*)geolocation=\(self\)(?:,|$)/);
+  assert.doesNotMatch(policy, /(?:^|,\s*)geolocation=\(\)(?:,|$)/);
 });

@@ -4,7 +4,7 @@ import { EvolutionApiError, evolutionRequest } from '@/lib/server/evolution';
 import { sendEvolutionAudio } from '@/lib/server/evolutionAudio';
 import { markAutocarHumanActive } from '@/lib/server/autocar/safeRuntime';
 import { readManagedEvolutionState } from '@/lib/server/managedWhatsappEvolution';
-import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import { asStorePortalRole, canAccessStoreLead, canUseStoreWhatsapp } from '@/lib/server/storePortal';
 import { resolveEvolutionAvailability } from '@/lib/server/storeWhatsappChannel';
 import { isConnectedWhatsappNumber, normalizeWhatsappRecipient } from '@/lib/server/whatsappRecipient';
 
@@ -130,6 +130,9 @@ export async function POST(request: Request) {
     }
 
     if (!conversation || !canAccessConversation(profile, conversation, lead)) return NextResponse.json({ error: 'Conversa não encontrada ou sem permissão.' }, { status: 404 });
+    if (!(await canUseStoreWhatsapp(supabase, profile, conversation.store_id))) {
+      return NextResponse.json({ error: 'Portal da loja indisponível ou desativado.' }, { status: 404 });
+    }
 
     failureStage = 'conversation_context';
     const [contactResponse, integrationResponse] = await Promise.all([

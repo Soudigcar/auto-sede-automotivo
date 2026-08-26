@@ -6,6 +6,7 @@ import { includeRequestedConversation } from '../src/lib/server/storeWhatsappInb
 const route = readFileSync('src/app/api/store-whatsapp/route.ts', 'utf8');
 const page = readFileSync('src/app/loja/[slug]/whatsapp/page.tsx', 'utf8');
 const mobileBridge = readFileSync('src/components/WhatsappMobileInboxBridge.tsx', 'utf8');
+const masterPage = readFileSync('src/app/master/whatsapp/inbox/page.tsx', 'utf8');
 
 test('conversation detail is resolved directly inside the authenticated store', () => {
   assert.match(route, /requestedConversationResponse[\s\S]*?\.eq\('id', conversationId\)[\s\S]*?\.eq\('store_id', store\.id\)[\s\S]*?\.maybeSingle\(\)/);
@@ -70,6 +71,15 @@ test('desktop inbox never renders structured API errors as object coercions', ()
   assert.match(page, /setStatusMessage\(apiErrorMessage\(error, 'Erro ao enviar mensagem\.'\)\)/);
   assert.doesNotMatch(page, /new Error\(result\.error \|\|/);
   assert.doesNotMatch(page, /setStatusMessage\(error\?\.message \|\|/);
+});
+
+test('Master desktop inbox uses the same structured API error formatter', () => {
+  assert.match(masterPage, /import \{ apiErrorMessage \}/);
+  assert.match(masterPage, /new Error\(apiErrorMessage\(result, 'Não foi possível carregar Inbox WhatsApp\.'\)\)/);
+  assert.match(masterPage, /setStatusMessage\(apiErrorMessage\(result, 'Não foi possível marcar como lida\.'\)\)/);
+  assert.match(masterPage, /new Error\(apiErrorMessage\(result, 'Não foi possível enviar mensagem\.'\)\)/);
+  assert.doesNotMatch(masterPage, /new Error\(result\.error \|\|/);
+  assert.doesNotMatch(masterPage, /setStatusMessage\(result\.error \|\|/);
 });
 
 test('denied detail requests emit diagnostic reasons without message content', () => {

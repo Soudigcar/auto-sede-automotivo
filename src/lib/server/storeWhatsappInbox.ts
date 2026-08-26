@@ -107,3 +107,12 @@ export function collapseWhatsappConversations<T extends CollapsibleConversation>
     })
     .sort((left, right) => recencyScore(right) - recencyScore(left));
 }
+
+export function relatedWhatsappConversationIds<T extends CollapsibleConversation>(
+  conversations: T[],
+  selectedConversationId: string
+) {
+  const selectedGroup = collapseWhatsappConversations(conversations)
+    .find((conversation) => conversation.related_conversation_ids.includes(selectedConversationId));
+  return selectedGroup?.related_conversation_ids || [selectedConversationId];
+}

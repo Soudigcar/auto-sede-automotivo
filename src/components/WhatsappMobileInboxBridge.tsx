@@ -363,7 +363,10 @@ export function WhatsappMobileInboxBridge() {
       const accessToken = await token();
       if (!accessToken) return;
       const endpoint = mode === 'store' ? '/api/store-whatsapp' : '/api/master/whatsapp/inbox';
-      const payload = mode === 'store' ? { action: 'mark-read', slug, conversation_id: selectedId } : { action: 'mark-read', conversation_id: selectedId };
+      const relatedConversationIds = selectedConversation?.related_conversation_ids || [selectedId];
+      const payload = mode === 'store'
+        ? { action: 'mark-read', slug, conversation_id: selectedId, related_conversation_ids: relatedConversationIds }
+        : { action: 'mark-read', conversation_id: selectedId, related_conversation_ids: relatedConversationIds };
       const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify(payload) });
       const result = await response.json();
       if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível marcar como lida.'));

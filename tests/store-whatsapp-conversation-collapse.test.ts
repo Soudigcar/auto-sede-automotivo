@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { collapseWhatsappConversations } from '../src/lib/server/storeWhatsappInbox.ts';
+import { collapseWhatsappConversations, relatedWhatsappConversationIds } from '../src/lib/server/storeWhatsappInbox.ts';
 
 test('collapses duplicate conversations from the same channel and normalized phone', () => {
   const collapsed = collapseWhatsappConversations([
@@ -41,4 +41,18 @@ test('does not collapse the same customer across different store WhatsApp channe
   ]);
 
   assert.equal(collapsed.length, 2);
+});
+
+test('mark-read resolves only the duplicate group that contains the selected conversation', () => {
+  const conversations = [
+    { id: 'selected', whatsapp_number_id: 'number-a', contact: { phone: '556181853597' } },
+    { id: 'duplicate', whatsapp_number_id: 'number-a', contact: { phone: '(61) 8185-3597' } },
+    { id: 'other-customer', whatsapp_number_id: 'number-a', contact: { phone: '556199999999' } },
+    { id: 'other-channel', whatsapp_number_id: 'number-b', contact: { phone: '556181853597' } }
+  ];
+
+  assert.deepEqual(
+    relatedWhatsappConversationIds(conversations, 'selected'),
+    ['selected', 'duplicate']
+  );
 });

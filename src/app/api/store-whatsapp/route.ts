@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { asStorePortalRole, canAccessStoreConversation } from '@/lib/server/storePortal';
+import { asStorePortalRole, authorizeStoreWhatsappPortal, canAccessStoreConversation } from '@/lib/server/storePortal';
 import { getEvolutionProfilePictureUrl } from '@/lib/server/evolution';
 import { evolutionDisplayBody } from '@/lib/server/evolutionMessage';
 import { readManagedEvolutionState } from '@/lib/server/managedWhatsappEvolution';
 import { publicWhatsappNumber } from '@/lib/server/storeWhatsappChannel';
-import { collapseWhatsappConversations, includeRequestedConversation } from '@/lib/server/storeWhatsappInbox';
+import { collapseWhatsappConversations, includeRequestedConversation, relatedWhatsappConversationIds } from '@/lib/server/storeWhatsappInbox';
 import { whatsappCustomerDisplayName } from '@/lib/server/whatsappCustomerIdentity';
 
 export const runtime = 'nodejs';
@@ -63,61 +62,9 @@ function hasFreshProfilePicture(url: string, updatedAt: string) {
   return Number.isFinite(timestamp) && Date.now() - timestamp < PROFILE_PICTURE_CACHE_MS;
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-
-  if (!supabaseUrl || !serviceKey) {
-    throw new Error('Supabase Service Role não configurada no servidor.');
-  }
-
-  return createClient(supabaseUrl, serviceKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false
-    }
-  });
-}
-
-async function getProfile(supabase: any, token: string) {
-  const { data: authData, error: authError } = await supabase.auth.getUser(token);
-
-  if (authError || !authData.user) return null;
-
-  let profile: any = null;
-
-  const { data: byAuth } = await supabase
-    .from('users')
-    .select('*')
-    .eq('auth_user_id', authData.user.id)
-    .maybeSingle();
-
-  profile = byAuth;
-
-  if (!profile && authData.user.email) {
-    const { data: byEmail } = await supabase
-      .from('users')
-      .select('*')
-      .ilike('email', authData.user.email)
-      .maybeSingle();
-
-    profile = byEmail;
-  }
-
-  if (!profile || profile.status !== 'active' || !asStorePortalRole(profile.role)) return null;
-
-  return profile;
-}
-
-function canAccessStore(profile: any, store: any) {
-  if (!profile || !store) return false;
-  if (profile.role === 'master') return true;
-  return Boolean(profile.store_id && profile.store_id === store.id);
-}
-
 function canAccessConversation(profile: any, store: any, conversation: any, lead: any) {
   const role = asStorePortalRole(profile?.role);
-  if (!role || !canAccessStore(profile, store)) return false;
+  if (!role || conversation?.store_id !== store?.id) return false;
   return canAccessStoreConversation(profile, role, conversation, lead);
 }
 
@@ -129,45 +76,19 @@ function buildMap(rows: any[]) {
   return Object.fromEntries((rows || []).map((row) => [row.id, row]));
 }
 
-async function getStore(supabase: any, slug: string) {
-  const { data, error } = await supabase
-    .from('stores')
-    .select('id, store_name, slug, status, event_id')
-    .eq('slug', slug)
-    .maybeSingle();
-
-  if (error) throw error;
-  return data;
-}
-
 export async function GET(request: Request) {
   try {
-    const supabase = getAdminClient();
     const url = new URL(request.url);
     const slug = cleanText(url.searchParams.get('slug'));
     const conversationId = cleanText(url.searchParams.get('conversation_id'));
-    const authorization = request.headers.get('authorization') || '';
-    const token = authorization.replace(/^Bearer\s+/i, '').trim();
-
-    if (!token) {
-      return NextResponse.json({ error: 'Sessão não encontrada.' }, { status: 401 });
-    }
 
     if (!slug) {
       return NextResponse.json({ error: 'Informe a loja.' }, { status: 400 });
     }
 
-    const profile = await getProfile(supabase, token);
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Usuário sem permissão para acessar WhatsApp.' }, { status: 403 });
-    }
-
-    const store = await getStore(supabase, slug);
-
-    if (!store || !canAccessStore(profile, store)) {
-      return NextResponse.json({ error: 'Loja não encontrada ou sem permissão.' }, { status: 404 });
-    }
+    const context = await authorizeStoreWhatsappPortal(request, slug);
+    if ('error' in context) return context.error;
+    const { supabase, profile, store } = context;
 
     const [recentConversationsResponse, requestedConversationResponse] = await Promise.all([
       supabase
@@ -323,15 +244,15 @@ export async function GET(request: Request) {
         .select('*')
         .in('conversation_id', selectedConversation.related_conversation_ids)
         .eq('store_id', store.id)
-        .order('sent_at', { ascending: true })
-        .order('created_at', { ascending: true })
+        .order('sent_at', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(250);
 
       if (messagesError) {
         return NextResponse.json({ error: messagesError.message }, { status: 400 });
       }
 
-      messages = (messageRows || []).map((message: any) => ({
+      messages = [...(messageRows || [])].reverse().map((message: any) => ({
         ...message,
         body: evolutionDisplayBody(message.body, message.raw_payload)
       }));
@@ -354,34 +275,24 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const supabase = getAdminClient();
-    const authorization = request.headers.get('authorization') || '';
-    const token = authorization.replace(/^Bearer\s+/i, '').trim();
-
-    if (!token) {
-      return NextResponse.json({ error: 'Sessão não encontrada.' }, { status: 401 });
-    }
-
-    const profile = await getProfile(supabase, token);
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Usuário sem permissão para alterar conversa.' }, { status: 403 });
-    }
-
     const body = await request.json();
     const action = cleanText(body.action);
     const slug = cleanText(body.slug);
     const conversationId = cleanText(body.conversation_id);
+    const requestedRelatedConversationIds = unique([
+      conversationId,
+      ...(Array.isArray(body.related_conversation_ids)
+        ? body.related_conversation_ids.map((value: unknown) => cleanText(value))
+        : [])
+    ]).slice(0, 300);
 
     if (!slug || !conversationId) {
       return NextResponse.json({ error: 'Informe loja e conversa.' }, { status: 400 });
     }
 
-    const store = await getStore(supabase, slug);
-
-    if (!store || !canAccessStore(profile, store)) {
-      return NextResponse.json({ error: 'Loja não encontrada ou sem permissão.' }, { status: 404 });
-    }
+    const context = await authorizeStoreWhatsappPortal(request, slug);
+    if ('error' in context) return context.error;
+    const { supabase, profile, store } = context;
 
     const { data: conversation, error: conversationError } = await supabase
       .from('whatsapp_conversations')
@@ -501,10 +412,52 @@ export async function POST(request: Request) {
     }
 
     if (action === 'mark-read') {
+      const { data: relatedRows, error: relatedRowsError } = await supabase
+        .from('whatsapp_conversations')
+        .select('id, store_id, lead_id, base_lead_id, contact_id, whatsapp_number_id, last_message_at, updated_at, unread_count, status')
+        .in('id', requestedRelatedConversationIds)
+        .eq('store_id', store.id);
+
+      if (relatedRowsError) {
+        return NextResponse.json({ error: relatedRowsError.message }, { status: 400 });
+      }
+
+      const relatedContactIds = unique((relatedRows || []).map((item: any) => item.contact_id));
+      const relatedLeadIds = unique((relatedRows || []).map((item: any) => item.lead_id));
+      const relatedBaseLeadIds = unique((relatedRows || []).map((item: any) => item.base_lead_id));
+      const [relatedContactsResponse, relatedLeadsResponse, relatedBaseLeadsResponse] = await Promise.all([
+        relatedContactIds.length
+          ? supabase.from('whatsapp_contacts').select('id, phone, profile_name').in('id', relatedContactIds)
+          : Promise.resolve({ data: [], error: null }),
+        relatedLeadIds.length
+          ? supabase.from('leads').select('id, assigned_store_id, assigned_user_id, customer_phone, customer_name').in('id', relatedLeadIds)
+          : Promise.resolve({ data: [], error: null }),
+        relatedBaseLeadIds.length
+          ? supabase.from('leads_base').select('id, phone, name').in('id', relatedBaseLeadIds)
+          : Promise.resolve({ data: [], error: null })
+      ]);
+      const relatedLoadError = relatedContactsResponse.error || relatedLeadsResponse.error || relatedBaseLeadsResponse.error;
+      if (relatedLoadError) {
+        return NextResponse.json({ error: relatedLoadError.message }, { status: 400 });
+      }
+
+      const relatedContactsById = buildMap(relatedContactsResponse.data || []);
+      const relatedLeadsById = buildMap(relatedLeadsResponse.data || []);
+      const relatedBaseLeadsById = buildMap(relatedBaseLeadsResponse.data || []);
+      const authorizedRelatedRows = (relatedRows || [])
+        .filter((item: any) => canAccessConversation(profile, store, item, relatedLeadsById[item.lead_id]))
+        .map((item: any) => ({
+          ...item,
+          contact: relatedContactsById[item.contact_id] || null,
+          lead: relatedLeadsById[item.lead_id] || null,
+          base_lead: relatedBaseLeadsById[item.base_lead_id] || null
+        }));
+      const idsToMarkRead = relatedWhatsappConversationIds(authorizedRelatedRows, conversationId);
+
       const { error } = await supabase
         .from('whatsapp_conversations')
         .update({ unread_count: 0, updated_at: new Date().toISOString() })
-        .eq('id', conversationId)
+        .in('id', idsToMarkRead)
         .eq('store_id', store.id);
 
       if (error) {

@@ -2,11 +2,19 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getEvolutionProfilePictureUrl } from '@/lib/server/evolution';
 import { evolutionDisplayBody } from '@/lib/server/evolutionMessage';
+import { collapseWhatsappConversations, relatedWhatsappConversationIds } from '@/lib/server/storeWhatsappInbox';
 
 export const runtime = 'nodejs';
 
 function cleanText(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function noStoreJson(payload: unknown, status = 200) {
+  return NextResponse.json(payload, {
+    status,
+    headers: { 'Cache-Control': 'private, no-store, max-age=0' }
+  });
 }
 
 function getAdminClient() {
@@ -289,38 +297,40 @@ export async function GET(request: Request) {
         store: assignedStoreId ? storesById[assignedStoreId] || null : null
       };
     });
+    const collapsedConversations = collapseWhatsappConversations(enrichedConversations);
+    const selectedConversation = conversationId
+      ? collapsedConversations.find((conversation) => conversation.related_conversation_ids.includes(conversationId)) || null
+      : null;
 
     let messages: any[] = [];
 
     if (conversationId) {
-      const allowed = enrichedConversations.some((conversation: any) => conversation.id === conversationId);
-
-      if (!allowed) {
+      if (!selectedConversation) {
         return NextResponse.json({ error: 'Conversa não encontrada no Inbox central do Master.' }, { status: 404 });
       }
 
       const { data: messageRows, error: messagesError } = await supabase
         .from('whatsapp_messages')
         .select('*')
-        .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true })
+        .in('conversation_id', selectedConversation.related_conversation_ids)
+        .order('created_at', { ascending: false })
         .limit(300);
 
       if (messagesError) {
         return NextResponse.json({ error: messagesError.message }, { status: 400 });
       }
 
-      messages = (messageRows || []).map((message: any) => ({
+      messages = [...(messageRows || [])].reverse().map((message: any) => ({
         ...message,
         body: evolutionDisplayBody(message.body, message.raw_payload)
       }));
     }
 
-    return NextResponse.json({
+    return noStoreJson({
       success: true,
-      conversations: enrichedConversations,
+      conversations: collapsedConversations,
       messages,
-      selected_conversation_id: conversationId || null,
+      selected_conversation_id: selectedConversation?.id || null,
       numbers: publicCentralNumbers,
       scope: 'central_master'
     });
@@ -351,6 +361,12 @@ export async function POST(request: Request) {
     const body = await request.json();
     const action = cleanText(body.action);
     const conversationId = cleanText(body.conversation_id);
+    const requestedRelatedConversationIds = unique([
+      conversationId,
+      ...(Array.isArray(body.related_conversation_ids)
+        ? body.related_conversation_ids.map((value: unknown) => cleanText(value))
+        : [])
+    ]).slice(0, 300);
 
     if (!conversationId) {
       return NextResponse.json({ error: 'Informe a conversa.' }, { status: 400 });
@@ -358,7 +374,7 @@ export async function POST(request: Request) {
 
     const { data: conversation, error: conversationError } = await supabase
       .from('whatsapp_conversations')
-      .select('id, whatsapp_number_id, whatsapp_numbers(id, store_id)')
+      .select('id, whatsapp_number_id, contact_id, lead_id, base_lead_id, whatsapp_numbers(id, store_id)')
       .eq('id', conversationId)
       .maybeSingle();
 
@@ -378,10 +394,51 @@ export async function POST(request: Request) {
     }
 
     if (action === 'mark-read') {
+      const { data: relatedRows, error: relatedRowsError } = await supabase
+        .from('whatsapp_conversations')
+        .select('id, whatsapp_number_id, contact_id, lead_id, base_lead_id, last_message_at, updated_at, unread_count, status')
+        .in('id', requestedRelatedConversationIds)
+        .eq('whatsapp_number_id', conversation.whatsapp_number_id);
+
+      if (relatedRowsError) {
+        return NextResponse.json({ error: relatedRowsError.message }, { status: 400 });
+      }
+
+      const relatedContactIds = unique((relatedRows || []).map((item: any) => item.contact_id));
+      const relatedLeadIds = unique((relatedRows || []).map((item: any) => item.lead_id));
+      const relatedBaseLeadIds = unique((relatedRows || []).map((item: any) => item.base_lead_id));
+      const [relatedContactsResponse, relatedLeadsResponse, relatedBaseLeadsResponse] = await Promise.all([
+        relatedContactIds.length
+          ? supabase.from('whatsapp_contacts').select('id, phone, profile_name').in('id', relatedContactIds)
+          : Promise.resolve({ data: [], error: null }),
+        relatedLeadIds.length
+          ? supabase.from('leads').select('id, customer_phone, customer_name').in('id', relatedLeadIds)
+          : Promise.resolve({ data: [], error: null }),
+        relatedBaseLeadIds.length
+          ? supabase.from('leads_base').select('id, phone, name').in('id', relatedBaseLeadIds)
+          : Promise.resolve({ data: [], error: null })
+      ]);
+      const relatedLoadError = relatedContactsResponse.error || relatedLeadsResponse.error || relatedBaseLeadsResponse.error;
+      if (relatedLoadError) {
+        return NextResponse.json({ error: relatedLoadError.message }, { status: 400 });
+      }
+
+      const relatedContactsById = buildMap(relatedContactsResponse.data || []);
+      const relatedLeadsById = buildMap(relatedLeadsResponse.data || []);
+      const relatedBaseLeadsById = buildMap(relatedBaseLeadsResponse.data || []);
+      const enrichedRelatedRows = (relatedRows || []).map((item: any) => ({
+        ...item,
+        contact: relatedContactsById[item.contact_id] || null,
+        lead: relatedLeadsById[item.lead_id] || null,
+        base_lead: relatedBaseLeadsById[item.base_lead_id] || null
+      }));
+      const idsToMarkRead = relatedWhatsappConversationIds(enrichedRelatedRows, conversationId);
+
       const { error } = await supabase
         .from('whatsapp_conversations')
         .update({ unread_count: 0, updated_at: new Date().toISOString() })
-        .eq('id', conversationId);
+        .in('id', idsToMarkRead)
+        .eq('whatsapp_number_id', conversation.whatsapp_number_id);
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 400 });

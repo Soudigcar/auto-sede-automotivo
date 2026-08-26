@@ -3,8 +3,9 @@ import { createClient } from '@supabase/supabase-js';
 import { sendEvolutionLocation } from '@/lib/server/evolution';
 import { markAutocarHumanActive } from '@/lib/server/autocar/safeRuntime';
 import { readManagedEvolutionState } from '@/lib/server/managedWhatsappEvolution';
-import { asStorePortalRole, canAccessStoreConversation } from '@/lib/server/storePortal';
+import { asStorePortalRole, canAccessStoreConversation, canUseStoreWhatsapp } from '@/lib/server/storePortal';
 import { resolveEvolutionAvailability } from '@/lib/server/storeWhatsappChannel';
+import { isConnectedWhatsappNumber, normalizeWhatsappRecipient } from '@/lib/server/whatsappRecipient';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,10 +25,6 @@ function usableCoordinatePair(latitude: number | null, longitude: number | null)
   if (latitude === null || longitude === null) return null;
   if (Math.abs(latitude) <= 0.000001 && Math.abs(longitude) <= 0.000001) return null;
   return { latitude, longitude };
-}
-
-function normalizePhone(value: unknown) {
-  return String(value || '').split('@')[0].split(':')[0].replace(/\D/g, '');
 }
 
 function getAdminClient() {
@@ -99,6 +96,9 @@ async function resolveContext(supabase: any, token: string, conversationId: stri
   if (!canAccessConversation(profile, conversation, lead)) {
     return { response: NextResponse.json({ error: 'Conversa não encontrada ou sem permissão.' }, { status: 404 }) };
   }
+  if (!(await canUseStoreWhatsapp(supabase, profile, conversation.store_id))) {
+    return { response: NextResponse.json({ error: 'Portal da loja indisponível ou desativado.' }, { status: 404 }) };
+  }
 
   const locationStoreId = conversation.store_id || lead?.assigned_store_id || baseLead?.assigned_store_id || null;
   const [contactResponse, integrationResponse, storeResponse] = await Promise.all([
@@ -157,8 +157,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `WhatsApp ${owner} não está conectado neste momento.`, channel_status: availability.status }, { status: 409 });
     }
 
-    const recipient = normalizePhone(contact.phone || contact.wa_id);
+    const recipient = normalizeWhatsappRecipient(contact.phone || contact.wa_id);
     if (!recipient) return NextResponse.json({ error: 'Contato sem telefone válido para envio.' }, { status: 400 });
+    if (isConnectedWhatsappNumber(recipient, liveState?.phone_number)) {
+      return NextResponse.json({
+        error: 'Este contato é o próprio número conectado da loja. Escolha uma conversa de cliente para enviar.',
+        code: 'SELF_RECIPIENT'
+      }, { status: 422 });
+    }
 
     const trustedStoreLocation = publicStoreLocation(context.store);
     const latitude = source === 'store' ? trustedStoreLocation?.latitude ?? null : coordinate(body.latitude, -90, 90);

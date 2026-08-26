@@ -45,7 +45,8 @@ export function WhatsappMediaMessage({ message, outbound = false, compact = fals
       const token = data.session?.access_token || '';
       if (!token) throw new Error('Sessão expirada. Atualize a página e entre novamente.');
 
-      const response = await fetch(`/api/whatsapp/messages/media?message_id=${encodeURIComponent(message.id)}`, {
+      const downloadQuery = type === 'document' ? '&download=1' : '';
+      const response = await fetch(`/api/whatsapp/messages/media?message_id=${encodeURIComponent(message.id)}${downloadQuery}`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: 'no-store'
       });
@@ -129,9 +130,9 @@ export function WhatsappMediaMessage({ message, outbound = false, compact = fals
       ) : null}
 
       {type === 'document' ? (
-        <a href={mediaUrl} target="_blank" rel="noreferrer" className={`flex items-center rounded-xl border transition ${compact ? 'min-w-[210px] max-w-[340px] gap-2 p-2' : 'min-w-[250px] max-w-[460px] gap-3 p-3'} ${outbound ? 'border-white/20 bg-white/10 text-white hover:bg-white/15' : 'border-zinc-200 bg-zinc-50 text-zinc-800 hover:border-red-200'}`}>
+        <a href={mediaUrl} download={body || 'documento-whatsapp'} className={`flex items-center rounded-xl border transition ${compact ? 'min-w-[210px] max-w-[340px] gap-2 p-2' : 'min-w-[250px] max-w-[460px] gap-3 p-3'} ${outbound ? 'border-white/20 bg-white/10 text-white hover:bg-white/15' : 'border-zinc-200 bg-zinc-50 text-zinc-800 hover:border-red-200'}`}>
           <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${outbound ? 'bg-white/15' : 'bg-white text-red-600'}`}><FileText size={20} /></span>
-          <span className="min-w-0 flex-1"><strong className="block truncate text-xs">{body || 'Documento do WhatsApp'}</strong><span className={`mt-1 block text-[9px] font-black uppercase ${outbound ? 'text-white/60' : 'text-zinc-400'}`}>Abrir documento</span></span>
+          <span className="min-w-0 flex-1"><strong className="block truncate text-xs">{body || 'Documento do WhatsApp'}</strong><span className={`mt-1 block text-[9px] font-black uppercase ${outbound ? 'text-white/60' : 'text-zinc-400'}`}>Baixar documento</span></span>
           <Download size={16} className="shrink-0" />
         </a>
       ) : null}
