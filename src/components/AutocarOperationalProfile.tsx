@@ -229,6 +229,7 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
                 <input className="premium-input" placeholder="Fuso horário IANA" value={profile.timezone || ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, timezone: event.target.value })} />
                 <input className="premium-input" placeholder="Latitude" value={profile.latitude ?? ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, latitude: event.target.value })} />
                 <input className="premium-input" placeholder="Longitude" value={profile.longitude ?? ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, longitude: event.target.value })} />
+                <p className="md:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold leading-relaxed text-amber-800">Para enviar o pin nativo no WhatsApp, informe latitude e longitude reais. O link do Maps sozinho não substitui as coordenadas, e o ponto 0,0 é bloqueado por segurança.</p>
                 <input type="url" className="premium-input md:col-span-2" placeholder="Link Google Maps (HTTPS)" value={profile.maps_url || ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, maps_url: event.target.value })} />
                 <input type="url" className="premium-input md:col-span-2" placeholder="Link Waze (HTTPS)" value={profile.waze_url || ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, waze_url: event.target.value })} />
               </div>
