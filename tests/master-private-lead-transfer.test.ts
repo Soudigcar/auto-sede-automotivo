@@ -115,7 +115,7 @@ test('receiving-store primary surfaces consume operational leads and not Master 
 });
 
 test('Preview console explains privacy boundary before transfer', () => {
-  assert.match(ui, /Transferência privada de leads/);
+  assert.match(ui, /Distribuição multiloja de leads/);
   assert.match(ui, /Origem, evento, campanha, loja anterior e histórico ficam preservados na Base Master/);
   assert.match(ui, /Transferência Master/);
   assert.match(ui, /evento operacional vazio/);

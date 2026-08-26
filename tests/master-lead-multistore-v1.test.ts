@@ -56,10 +56,11 @@ test('legacy distribution and transfer wrappers route through public fail-closed
 });
 
 test('legacy direct store reassignment route is fail-closed', () => {
+  const executableRoute = legacyAssignApi.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   assert.match(legacyAssignApi, /LEGACY_STORE_REASSIGN_DISABLED/);
   assert.match(legacyAssignApi, /Distribuição Multiloja/);
-  assert.doesNotMatch(legacyAssignApi, /\.from\('leads'\)[\s\S]*\.update\(/);
-  assert.doesNotMatch(legacyAssignApi, /routed_lead_id/);
+  assert.doesNotMatch(executableRoute, /\.from\('leads'\)[\s\S]*\.update\(/);
+  assert.doesNotMatch(executableRoute, /routed_lead_id/);
 });
 
 test('multistore control plane is service-role only', () => {
