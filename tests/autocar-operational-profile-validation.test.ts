@@ -143,3 +143,17 @@ test('rejeita coordenadas fora da faixa e textos acima do limite', () => {
     fixedNow
   ), /Endereço excede o limite/);
 });
+
+test('rejeita coordenadas incompletas e o ponto nulo 0,0', () => {
+  assert.throws(() => normalizeAutocarOperationalProfilePayload(
+    { ...validPayload(), latitude: 0, longitude: 0 },
+    actorProfileId,
+    fixedNow
+  ), /0,0 não representam uma localização válida/);
+
+  assert.throws(() => normalizeAutocarOperationalProfilePayload(
+    { ...validPayload(), longitude: '' },
+    actorProfileId,
+    fixedNow
+  ), /devem ser informadas juntas/);
+});
