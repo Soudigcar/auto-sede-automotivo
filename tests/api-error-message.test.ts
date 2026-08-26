@@ -20,5 +20,6 @@ test('extracts readable messages from nested API error payloads', () => {
 test('never exposes an object coercion as the user-facing error', () => {
   assert.equal(apiErrorMessage({ error: { code: 'provider_error' } }, 'Falha no envio.'), 'Falha no envio.');
   assert.equal(apiErrorMessage('[object Object]', 'Falha no envio.'), 'Falha no envio.');
+  assert.equal(apiErrorMessage('O WhatsApp recusou o envio. [object Object]', 'Falha no envio.'), 'O WhatsApp recusou o envio.');
   assert.equal(apiErrorMessage(new Error('Sessão expirada.'), 'Falha no envio.'), 'Sessão expirada.');
 });

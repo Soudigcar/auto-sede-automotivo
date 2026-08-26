@@ -67,6 +67,58 @@ function sanitizeProviderMessage(value: unknown) {
     .slice(0, 500);
 }
 
+function providerMessages(value: unknown, depth = 0, seen = new Set<object>()): string[] {
+  if (depth > 5 || value === null || value === undefined) return [];
+  if (typeof value === 'string') {
+    const message = sanitizeProviderMessage(value);
+    return message && message !== '[object Object]' ? [message] : [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => providerMessages(item, depth + 1, seen));
+  }
+  if (typeof value !== 'object') return [];
+  if (seen.has(value)) return [];
+  seen.add(value);
+
+  const record = value as Record<string, unknown>;
+  if (record.exists === false) {
+    return ['O número informado não foi encontrado no WhatsApp.'];
+  }
+
+  const messages: string[] = [];
+  for (const key of ['response', 'message', 'detail', 'description', 'reason', 'constraints', 'errors', 'error']) {
+    if (!(key in record)) continue;
+    if (key === 'constraints' && record[key] && typeof record[key] === 'object' && !Array.isArray(record[key])) {
+      for (const constraint of Object.values(record[key] as Record<string, unknown>)) {
+        messages.push(...providerMessages(constraint, depth + 1, seen));
+      }
+      continue;
+    }
+    messages.push(...providerMessages(record[key], depth + 1, seen));
+  }
+  return messages;
+}
+
+function providerReason(value: unknown, depth = 0, seen = new Set<object>()): string {
+  if (depth > 5 || !value || typeof value !== 'object') return '';
+  if (seen.has(value)) return '';
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const reason = providerReason(item, depth + 1, seen);
+      if (reason) return reason;
+    }
+    return '';
+  }
+  const record = value as Record<string, unknown>;
+  if (record.exists === false) return 'recipient_not_found';
+  for (const item of Object.values(record)) {
+    const reason = providerReason(item, depth + 1, seen);
+    if (reason) return reason;
+  }
+  return '';
+}
+
 function evolutionOperation(path: string) {
   return path
     .split('?')[0]
@@ -76,16 +128,10 @@ function evolutionOperation(path: string) {
     .join('/');
 }
 
-function safeErrorMessage(result: any, status: number) {
-  const candidate =
-    result?.response?.message ||
-    result?.message ||
-    result?.error ||
-    `Evolution API respondeu com HTTP ${status}.`;
-
-  if (Array.isArray(candidate)) return sanitizeProviderMessage(candidate.map(String).join(', '));
-  if (typeof candidate === 'object') return `Evolution API respondeu com HTTP ${status}.`;
-  return sanitizeProviderMessage(candidate) || `Evolution API respondeu com HTTP ${status}.`;
+export function evolutionErrorMessage(result: unknown, status: number) {
+  const messages = [...new Set(providerMessages(result))]
+    .filter((message) => !/^Bad Request$/i.test(message));
+  return messages.join(' ').slice(0, 500) || `Evolution API respondeu com HTTP ${status}.`;
 }
 
 function evolutionTransportError(error: unknown, path: string) {
@@ -115,8 +161,12 @@ async function parseEvolutionResponse(response: Response, path: string) {
 
   if (!response.ok) {
     const operation = evolutionOperation(path);
-    const message = safeErrorMessage(result, response.status);
-    console.error('[Evolution API] request rejected', { operation, status: response.status, message });
+    const message = evolutionErrorMessage(result, response.status);
+    console.error('[Evolution API] request rejected', {
+      operation,
+      status: response.status,
+      reason: providerReason(result) || 'provider_rejected'
+    });
     throw new EvolutionApiError(message, response.status, operation);
   }
 

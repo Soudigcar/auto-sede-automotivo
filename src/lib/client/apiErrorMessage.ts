@@ -1,7 +1,11 @@
 function cleanMessage(value: unknown) {
   if (typeof value !== 'string') return '';
-  const message = value.trim();
-  if (!message || message === '[object Object]') return '';
+  const message = value
+    .replace(/\[object Object\]/gi, '')
+    .replace(/\s+([.,:;])/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  if (!message) return '';
   return message;
 }
 
