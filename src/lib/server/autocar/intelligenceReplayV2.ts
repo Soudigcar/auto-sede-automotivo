@@ -3,8 +3,9 @@ import { classifyAutocarHumanRequestV2 } from '@/lib/server/autocar/humanRequest
 import { resolveAutocarHandoffV2 } from '@/lib/server/autocar/handoffSemanticsV2';
 import { createAutocarHistoricalReadClientV2, loadAutocarReplayMessagesV2 } from '@/lib/server/autocar/replayMessageHistoryV2';
 import { buildAutocarVehiclePresentationV2 } from '@/lib/server/autocar/vehiclePresentationV2';
+import { buildAutocarSingleVehicleMediaV2 } from '@/lib/server/autocar/singleVehicleMediaV2';
 
-export const AUTOCAR_INTELLIGENCE_REPLAY_VERSION = 'autocar-intelligence-replay-v2-vehicle-options-preview';
+export const AUTOCAR_INTELLIGENCE_REPLAY_VERSION = 'autocar-intelligence-replay-v2-single-vehicle-media-preview';
 
 function normalizeReplayText(value: unknown) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -20,10 +21,16 @@ function unsupportedVerificationPromise(value: unknown) {
   return /\b(vou|vamos|posso|podemos|preciso)\s+(verificar|consultar|confirmar|checar)\b|\bquer\s+que\s+eu\s+(verifique|consulte|confirme|cheque)\b|\bdeixa\s+eu\s+(verificar|consultar|confirmar|checar)\b/i.test(text);
 }
 
+function prematurePhotoSentClaim(value: unknown) {
+  const text = normalizeReplayText(value);
+  return /\b(ja|acabei de)\s+(te\s+)?(enviei|mandei|encaminhei)\s+(as\s+|algumas\s+|essas\s+)?fotos\b|\bfotos\s+(ja\s+)?(enviadas|mandadas|encaminhadas)\b/i.test(text);
+}
+
 export function evaluateAutocarReplayV2(input: {
   customerRequestedHuman: boolean;
   shadow: any;
   vehiclePresentation?: any;
+  singleVehicleMedia?: any;
 }) {
   const rawActions = Array.isArray(input.shadow?.proposed_actions) ? input.shadow.proposed_actions : [];
   const rawTransferActions = rawActions.filter((action: any) => String(action?.capability || '') === 'transfer_lead');
@@ -32,14 +39,21 @@ export function evaluateAutocarReplayV2(input: {
   const transferActionWithoutRequest = !input.customerRequestedHuman && rawTransferActions.length > 0;
   const unsupportedVerification = unsupportedVerificationPromise(input.shadow?.response) || unsupportedVerificationPromise(input.shadow?.next_best_action);
   const presentation = input.vehiclePresentation || null;
+  const singleMedia = input.singleVehicleMedia || null;
+  const prematurePhotoClaim = prematurePhotoSentClaim(input.shadow?.response) || prematurePhotoSentClaim(input.shadow?.next_best_action);
   const vehiclePresentationRegression = Boolean(
     presentation?.regression_flags?.too_many_vehicle_options
     || presentation?.regression_flags?.missing_primary_photo
     || presentation?.regression_flags?.invalid_grounded_card
   );
+  const singleVehicleMediaRegression = Boolean(
+    singleMedia?.regression_flags?.invalid_vehicle_reference_count
+    || singleMedia?.regression_flags?.missing_grounded_photos
+    || (singleMedia?.mode === 'single_vehicle_media' && prematurePhotoClaim)
+  );
   return {
     version: AUTOCAR_INTELLIGENCE_REPLAY_VERSION,
-    pass: !(transferLanguageWithoutRequest || transferActionWithoutRequest || unsupportedVerification || vehiclePresentationRegression),
+    pass: !(transferLanguageWithoutRequest || transferActionWithoutRequest || unsupportedVerification || vehiclePresentationRegression || singleVehicleMediaRegression),
     customer_requested_human: input.customerRequestedHuman,
     handoff,
     regression_flags: {
@@ -48,7 +62,10 @@ export function evaluateAutocarReplayV2(input: {
       unsupported_verification_promise: unsupportedVerification,
       too_many_vehicle_options: Boolean(presentation?.regression_flags?.too_many_vehicle_options),
       missing_primary_photo: Boolean(presentation?.regression_flags?.missing_primary_photo),
-      invalid_grounded_card: Boolean(presentation?.regression_flags?.invalid_grounded_card)
+      invalid_grounded_card: Boolean(presentation?.regression_flags?.invalid_grounded_card),
+      invalid_single_vehicle_reference_count: Boolean(singleMedia?.regression_flags?.invalid_vehicle_reference_count),
+      missing_single_vehicle_grounded_photos: Boolean(singleMedia?.regression_flags?.missing_grounded_photos),
+      premature_photo_sent_claim: Boolean(singleMedia?.mode === 'single_vehicle_media' && prematurePhotoClaim)
     },
     raw_transfer_actions: rawTransferActions,
     effective_actions: input.customerRequestedHuman ? rawActions : rawActions.filter((action: any) => String(action?.capability || '') !== 'transfer_lead'),
@@ -105,14 +122,21 @@ export async function replayAutocarConversationV2(input: {
     storeId: input.storeId,
     conversationId: input.conversationId
   });
+  const referencedVehicles = Array.isArray(shadow.referenced_vehicles) ? shadow.referenced_vehicles : [];
   const vehiclePresentation = buildAutocarVehiclePresentationV2({
-    referencedVehicles: Array.isArray(shadow.referenced_vehicles) ? shadow.referenced_vehicles : [],
+    referencedVehicles,
+    aiResponse: shadow.response
+  });
+  const singleVehicleMedia = buildAutocarSingleVehicleMediaV2({
+    referencedVehicles,
+    proposedActions: shadow.proposed_actions,
     aiResponse: shadow.response
   });
   const evaluation = evaluateAutocarReplayV2({
     customerRequestedHuman: humanRequest.customer_requested_human,
     shadow,
-    vehiclePresentation
+    vehiclePresentation,
+    singleVehicleMedia
   });
 
   return {
@@ -134,8 +158,9 @@ export async function replayAutocarConversationV2(input: {
       summary: shadow.summary,
       next_best_action: shadow.next_best_action,
       proposed_actions: shadow.proposed_actions,
-      referenced_vehicles: shadow.referenced_vehicles,
+      referenced_vehicles: referencedVehicles,
       vehicle_presentation: vehiclePresentation,
+      single_vehicle_media: singleVehicleMedia,
       intelligence: shadow.intelligence,
       model: shadow.model,
       model_routing: shadow.model_routing,
