@@ -1,7 +1,14 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { evolutionRequest } from '@/lib/server/evolution';
+import { ResponseBodyTooLargeError } from '@/lib/server/boundedResponse';
 import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import {
+  decodedBase64ByteLength,
+  MAX_EVOLUTION_MEDIA_RESPONSE_BYTES,
+  MAX_INLINE_MEDIA_BYTES,
+  mediaFileLengthBytes
+} from '@/lib/server/whatsappMediaSafety';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -71,6 +78,22 @@ function resolveBase64(result: any) {
   return markerIndex >= 0 ? candidate.slice(markerIndex + marker.length) : candidate;
 }
 
+function residentMemoryMb() {
+  return Math.round(process.memoryUsage().rss / 1024 / 1024);
+}
+
+function mediaTooLargeResponse(declaredBytes?: number | null) {
+  return NextResponse.json({
+    error: 'Este arquivo é grande demais para abrir dentro do sistema. Abra a conversa no WhatsApp para acessar a mídia.',
+    code: 'WHATSAPP_MEDIA_TOO_LARGE',
+    max_bytes: MAX_INLINE_MEDIA_BYTES,
+    file_bytes: declaredBytes ?? null
+  }, {
+    status: 413,
+    headers: { 'Cache-Control': 'private, no-store' }
+  });
+}
+
 export async function GET(request: Request) {
   try {
     const supabase = getAdminClient();
@@ -110,17 +133,42 @@ export async function GET(request: Request) {
     if (!message.raw_payload) return NextResponse.json({ error: 'Payload original da mídia não está disponível.' }, { status: 404 });
 
     const evolutionMessage = evolutionMessagePayload(message.raw_payload);
+    const source = mediaPayload(evolutionMessage, messageType) || {};
+    const declaredBytes = mediaFileLengthBytes(source?.fileLength ?? source?.fileSize ?? source?.file_size);
+    if (declaredBytes !== null && declaredBytes > MAX_INLINE_MEDIA_BYTES) {
+      console.warn('[WhatsApp Media] Oversized media blocked before Evolution download.', {
+        mediaType: messageType,
+        declaredBytes,
+        maxBytes: MAX_INLINE_MEDIA_BYTES,
+        rssMb: residentMemoryMb()
+      });
+      return mediaTooLargeResponse(declaredBytes);
+    }
+
     const result = await evolutionRequest(`/chat/getBase64FromMediaMessage/${encodeURIComponent(integration.instance_name)}`, {
       method: 'POST',
-      body: { message: evolutionMessage, convertToMp4: messageType === 'video' }
+      body: { message: evolutionMessage, convertToMp4: messageType === 'video' },
+      maxResponseBytes: MAX_EVOLUTION_MEDIA_RESPONSE_BYTES
     });
     const base64 = resolveBase64(result);
     if (!base64) return NextResponse.json({ error: 'A Evolution não retornou o conteúdo desta mídia.' }, { status: 502 });
 
-    const source = mediaPayload(evolutionMessage, messageType) || {};
+    const decodedBytes = decodedBase64ByteLength(base64);
+    if (decodedBytes === null) return NextResponse.json({ error: 'A Evolution retornou uma mídia inválida.' }, { status: 502 });
+    if (decodedBytes > MAX_INLINE_MEDIA_BYTES) {
+      console.warn('[WhatsApp Media] Oversized decoded media blocked.', {
+        mediaType: messageType,
+        decodedBytes,
+        maxBytes: MAX_INLINE_MEDIA_BYTES,
+        rssMb: residentMemoryMb()
+      });
+      return mediaTooLargeResponse(decodedBytes);
+    }
+
     const mime = String(result?.mimetype || result?.data?.mimetype || source?.mimetype || fallbackMime(messageType));
     const filename = sanitizeFilename(source?.fileName || source?.title || (messageType === 'document' ? message.body : `${messageType}-${message.id}`));
     const buffer = Buffer.from(base64, 'base64');
+    if (buffer.byteLength > MAX_INLINE_MEDIA_BYTES) return mediaTooLargeResponse(buffer.byteLength);
 
     return new NextResponse(buffer, {
       status: 200,
@@ -132,6 +180,13 @@ export async function GET(request: Request) {
       }
     });
   } catch (error: any) {
+    if (error instanceof ResponseBodyTooLargeError) {
+      console.warn('[WhatsApp Media] Oversized Evolution response stopped while streaming.', {
+        maxResponseBytes: error.limitBytes,
+        rssMb: residentMemoryMb()
+      });
+      return mediaTooLargeResponse();
+    }
     return NextResponse.json({ error: error?.message || 'Erro ao recuperar mídia do WhatsApp.' }, { status: 500 });
   }
 }

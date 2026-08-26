@@ -51,8 +51,12 @@ function percentile(sorted: number[], value: number) {
 
 export function isAutocarOutbound(message: MetricRow) {
   const payload = message?.raw_payload && typeof message.raw_payload === 'object' ? message.raw_payload : {};
-  if (payload.metric_sender_type === 'autocar') return true;
-  return AUTOCAR_MARKERS.some((marker) => payload[marker] === true || payload[marker] != null);
+  const senderType = message?.metric_sender_type ?? payload.metric_sender_type;
+  if (senderType === 'autocar') return true;
+  return AUTOCAR_MARKERS.some((marker) => {
+    const value = message?.[marker] ?? payload[marker];
+    return value !== null && value !== undefined;
+  });
 }
 
 export function calculateResponseTimes(
@@ -95,7 +99,7 @@ export function calculateResponseTimes(
       first_human_response_at: outbound ? new Date(outbound.at).toISOString() : null,
       response_minutes: outbound ? Math.max(0, (outbound.at - inbound.at) / 60_000) : null,
       responder_user_id: outbound
-        ? String(outbound.message?.raw_payload?.metric_sender_user_id || '').trim() || null
+        ? String(outbound.message?.metric_sender_user_id || outbound.message?.raw_payload?.metric_sender_user_id || '').trim() || null
         : null
     });
   }

@@ -1,4 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { readResponseTextWithLimit } from '@/lib/server/boundedResponse';
 
 const EVOLUTION_TIMEOUT_MS = 20_000;
 const WEBHOOK_SIGNATURE_HEADER = 'x-auto-controle-evolution-signature';
@@ -8,6 +9,7 @@ const PRODUCTION_EVOLUTION_WEBHOOK_URL = 'https://sistemaautomotivo.autosede.com
 type EvolutionRequestOptions = {
   method?: 'GET' | 'POST' | 'DELETE';
   body?: unknown;
+  maxResponseBytes?: number;
 };
 
 export type EvolutionWebhookConfig = {
@@ -59,8 +61,10 @@ function safeErrorMessage(result: any, status: number) {
   return String(candidate).slice(0, 500);
 }
 
-async function parseEvolutionResponse(response: Response) {
-  const raw = await response.text();
+async function parseEvolutionResponse(response: Response, maxResponseBytes?: number) {
+  const raw = maxResponseBytes
+    ? await readResponseTextWithLimit(response, maxResponseBytes)
+    : await response.text();
   let result: any = {};
 
   if (raw) {
@@ -90,7 +94,7 @@ export async function evolutionRequest(path: string, options: EvolutionRequestOp
     signal: AbortSignal.timeout(EVOLUTION_TIMEOUT_MS)
   });
 
-  return parseEvolutionResponse(response);
+  return parseEvolutionResponse(response, options.maxResponseBytes);
 }
 
 export async function evolutionMultipartRequest(path: string, body: FormData) {

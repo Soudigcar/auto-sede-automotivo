@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, FileText, Image as ImageIcon, Loader2, RefreshCw, Video, Volume2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { WhatsappLocationMessage } from '@/components/WhatsappLocationMessage';
@@ -33,9 +33,14 @@ export function WhatsappMediaMessage({ message, outbound = false, compact = fals
   const [mediaUrl, setMediaUrl] = useState('');
   const [loading, setLoading] = useState(supported);
   const [error, setError] = useState('');
+  const mediaContainerRef = useRef<HTMLDivElement>(null);
+  const requestedMediaIdRef = useRef('');
 
-  async function loadMedia() {
+  async function loadMedia(force = false) {
     if (!supported || !message?.id) return;
+    const messageId = String(message.id);
+    if (!force && requestedMediaIdRef.current === messageId) return;
+    requestedMediaIdRef.current = messageId;
     setLoading(true);
     setError('');
 
@@ -68,9 +73,25 @@ export function WhatsappMediaMessage({ message, outbound = false, compact = fals
   }
 
   useEffect(() => {
-    if (!supported) return;
-    void loadMedia();
+    const messageId = String(message?.id || '');
+    if (!supported || !messageId) return;
+    requestedMediaIdRef.current = '';
+    const element = mediaContainerRef.current;
+    let observer: IntersectionObserver | null = null;
+
+    if (!element || typeof IntersectionObserver === 'undefined') {
+      void loadMedia();
+    } else {
+      observer = new IntersectionObserver((entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer?.disconnect();
+        void loadMedia();
+      }, { rootMargin: '240px' });
+      observer.observe(element);
+    }
+
     return () => {
+      observer?.disconnect();
       setMediaUrl((current) => {
         if (current) URL.revokeObjectURL(current);
         return '';
@@ -90,7 +111,7 @@ export function WhatsappMediaMessage({ message, outbound = false, compact = fals
 
   if (loading) {
     return (
-      <div className={`flex items-center rounded-xl border ${compact ? 'min-w-[180px] gap-2 p-2' : 'min-w-[210px] gap-3 p-3'} ${outbound ? 'border-white/20 bg-white/10 text-white' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}>
+      <div ref={mediaContainerRef} className={`flex items-center rounded-xl border ${compact ? 'min-w-[180px] gap-2 p-2' : 'min-w-[210px] gap-3 p-3'} ${outbound ? 'border-white/20 bg-white/10 text-white' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}>
         <Loader2 size={18} className="animate-spin" />
         <div><p className="text-xs font-black">Carregando {label.toLowerCase()}...</p><p className={`mt-0.5 text-[10px] font-bold ${outbound ? 'text-white/65' : 'text-zinc-400'}`}>Conteúdo protegido do WhatsApp</p></div>
       </div>
@@ -99,10 +120,10 @@ export function WhatsappMediaMessage({ message, outbound = false, compact = fals
 
   if (error || !mediaUrl) {
     return (
-      <div className={`rounded-xl border ${compact ? 'min-w-[190px] p-2' : 'min-w-[220px] p-3'} ${outbound ? 'border-white/20 bg-white/10 text-white' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}>
+      <div ref={mediaContainerRef} className={`rounded-xl border ${compact ? 'min-w-[190px] p-2' : 'min-w-[220px] p-3'} ${outbound ? 'border-white/20 bg-white/10 text-white' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}>
         <div className="flex items-center gap-2"><MediaIcon type={type} /><p className="text-xs font-black">{label} indisponível</p></div>
         <p className={`mt-2 max-w-sm text-[10px] font-bold leading-relaxed ${outbound ? 'text-white/70' : 'text-zinc-500'}`}>{error || 'Não foi possível recuperar esta mídia.'}</p>
-        <button type="button" onClick={() => void loadMedia()} className={`mt-3 inline-flex items-center gap-2 rounded-lg px-3 py-2 text-[10px] font-black ${outbound ? 'bg-white/15 text-white hover:bg-white/20' : 'border border-zinc-200 bg-white text-zinc-700 hover:border-red-200 hover:text-red-600'}`}>
+        <button type="button" onClick={() => void loadMedia(true)} className={`mt-3 inline-flex items-center gap-2 rounded-lg px-3 py-2 text-[10px] font-black ${outbound ? 'bg-white/15 text-white hover:bg-white/20' : 'border border-zinc-200 bg-white text-zinc-700 hover:border-red-200 hover:text-red-600'}`}>
           <RefreshCw size={12} /> Tentar novamente
         </button>
       </div>
@@ -110,7 +131,7 @@ export function WhatsappMediaMessage({ message, outbound = false, compact = fals
   }
 
   return (
-    <div className={compact ? "space-y-1.5" : "space-y-2"}>
+    <div ref={mediaContainerRef} className={compact ? "space-y-1.5" : "space-y-2"}>
       {type === 'image' ? (
         <a href={mediaUrl} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl">
           <img src={mediaUrl} alt={body && !isPlaceholder ? body : 'Imagem recebida no WhatsApp'} className={compact ? "max-h-[280px] w-auto max-w-[320px] rounded-lg object-contain" : "max-h-[420px] w-auto max-w-full rounded-xl object-contain"} />

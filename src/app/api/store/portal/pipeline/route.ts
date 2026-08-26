@@ -25,6 +25,10 @@ function profilePictureUrl(contact: any) {
     contact?.profile_picture ||
     contact?.avatar_url ||
     contact?.photo_url ||
+    contact?.metadata_profile_picture_url ||
+    contact?.metadata_profile_picture_url_camel ||
+    contact?.metadata_avatar_url ||
+    contact?.metadata_photo_url ||
     metadata.profile_picture_url ||
     metadata.profilePictureUrl ||
     metadata.avatar_url ||
@@ -85,7 +89,17 @@ export async function GET(request: Request) {
       if (conversationIds.length) {
         const messagesResult = await context.supabase
           .from('whatsapp_messages')
-          .select('conversation_id,lead_id,direction,raw_payload,sent_at,created_at')
+          .select([
+            'conversation_id', 'lead_id', 'direction', 'sent_at', 'created_at',
+            'metric_sender_type:raw_payload->>metric_sender_type',
+            'metric_sender_user_id:raw_payload->>metric_sender_user_id',
+            'autocar_live_pilot:raw_payload->>autocar_live_pilot',
+            'autocar_live_photo_pilot:raw_payload->>autocar_live_photo_pilot',
+            'autocar_audio_reply:raw_payload->>autocar_audio_reply',
+            'autocar_live_location_pilot:raw_payload->>autocar_live_location_pilot',
+            'autocar_live_visit_pilot:raw_payload->>autocar_live_visit_pilot',
+            'autocar_human_handoff:raw_payload->>autocar_human_handoff'
+          ].join(','))
           .in('conversation_id', conversationIds)
           .order('sent_at', { ascending: true });
         if (messagesResult.error) throw messagesResult.error;
@@ -96,7 +110,13 @@ export async function GET(request: Request) {
       if (contactIds.length) {
         const contactsResult = await context.supabase
           .from('whatsapp_contacts')
-          .select('id,metadata')
+          .select([
+            'id',
+            'metadata_profile_picture_url:metadata->>profile_picture_url',
+            'metadata_profile_picture_url_camel:metadata->>profilePictureUrl',
+            'metadata_avatar_url:metadata->>avatar_url',
+            'metadata_photo_url:metadata->>photo_url'
+          ].join(','))
           .eq('store_id', context.store.id)
           .in('id', contactIds);
         if (contactsResult.error) throw contactsResult.error;

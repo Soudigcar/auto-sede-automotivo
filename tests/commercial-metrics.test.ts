@@ -53,4 +53,20 @@ test('conversão usa leads distintos da coorte e ignora venda cancelada ou dupli
 test('marcadores conhecidos identificam saída automática', () => {
   assert.equal(isAutocarOutbound({ raw_payload: { autocar_live_photo_pilot: true } }), true);
   assert.equal(isAutocarOutbound({ raw_payload: { metric_sender_type: 'human' } }), false);
+  assert.equal(isAutocarOutbound({ autocar_live_photo_pilot: 'true' }), true);
+  assert.equal(isAutocarOutbound({ metric_sender_type: 'human' }), false);
+});
+
+test('tempo de resposta aceita os campos JSON projetados sem carregar raw_payload', () => {
+  const result = calculateResponseTimes(
+    [{ id: 'conversation-1', lead_id: 'lead-1' }],
+    [
+      { conversation_id: 'conversation-1', direction: 'inbound', sent_at: '2026-08-23T12:00:00Z' },
+      { conversation_id: 'conversation-1', direction: 'outbound', sent_at: '2026-08-23T12:00:10Z', autocar_live_pilot: 'true' },
+      { conversation_id: 'conversation-1', direction: 'outbound', sent_at: '2026-08-23T12:03:00Z', metric_sender_type: 'human', metric_sender_user_id: 'user-2' }
+    ]
+  );
+
+  assert.equal(result.measurements[0].response_minutes, 3);
+  assert.equal(result.measurements[0].responder_user_id, 'user-2');
 });

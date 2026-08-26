@@ -113,9 +113,14 @@ export function WhatsappMobileMediaMessage({ message, outbound = false }: Props)
   const [mediaUrl, setMediaUrl] = useState('');
   const [loading, setLoading] = useState(supported);
   const [error, setError] = useState('');
+  const mediaContainerRef = useRef<HTMLDivElement>(null);
+  const requestedMediaIdRef = useRef('');
 
-  async function loadMedia() {
+  async function loadMedia(force = false) {
     if (!supported || !message?.id) return;
+    const messageId = String(message.id);
+    if (!force && requestedMediaIdRef.current === messageId) return;
+    requestedMediaIdRef.current = messageId;
     setLoading(true);
     setError('');
     try {
@@ -144,9 +149,25 @@ export function WhatsappMobileMediaMessage({ message, outbound = false }: Props)
   }
 
   useEffect(() => {
-    if (!supported) return;
-    void loadMedia();
+    const messageId = String(message?.id || '');
+    if (!supported || !messageId) return;
+    requestedMediaIdRef.current = '';
+    const element = mediaContainerRef.current;
+    let observer: IntersectionObserver | null = null;
+
+    if (!element || typeof IntersectionObserver === 'undefined') {
+      void loadMedia();
+    } else {
+      observer = new IntersectionObserver((entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer?.disconnect();
+        void loadMedia();
+      }, { rootMargin: '240px' });
+      observer.observe(element);
+    }
+
     return () => {
+      observer?.disconnect();
       setMediaUrl((current) => {
         if (current) URL.revokeObjectURL(current);
         return '';
@@ -158,19 +179,20 @@ export function WhatsappMobileMediaMessage({ message, outbound = false }: Props)
 
   if (!supported) return <p className="whitespace-pre-wrap break-words text-[15px] font-medium leading-[1.35]">{body || '[Mensagem sem texto]'}</p>;
 
-  if (loading) return <div className={`flex min-w-[190px] items-center gap-2 rounded-xl px-2 py-2 text-xs font-bold ${outbound ? 'bg-white/10 text-white' : 'bg-zinc-50 text-zinc-600'}`}><Loader2 size={16} className="animate-spin" /> Carregando {labelForType(type)}...</div>;
+  if (loading) return <div ref={mediaContainerRef} className={`flex min-w-[190px] items-center gap-2 rounded-xl px-2 py-2 text-xs font-bold ${outbound ? 'bg-white/10 text-white' : 'bg-zinc-50 text-zinc-600'}`}><Loader2 size={16} className="animate-spin" /> Carregando {labelForType(type)}...</div>;
 
   if (error || !mediaUrl) return (
-    <div className={`min-w-[190px] rounded-xl p-2 ${outbound ? 'bg-white/10 text-white' : 'bg-zinc-50 text-zinc-700'}`}>
+    <div ref={mediaContainerRef} className={`min-w-[190px] rounded-xl p-2 ${outbound ? 'bg-white/10 text-white' : 'bg-zinc-50 text-zinc-700'}`}>
       <div className="flex items-center gap-2 text-xs font-black"><FileText size={16} /> Mídia indisponível</div>
-      <button type="button" onClick={() => void loadMedia()} className={`mt-2 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-black ${outbound ? 'bg-white/15 text-white' : 'bg-white text-red-600 shadow-sm'}`}><RefreshCw size={12} /> Tentar novamente</button>
+      <p className={`mt-1.5 max-w-[260px] text-[10px] font-bold leading-relaxed ${outbound ? 'text-white/70' : 'text-zinc-500'}`}>{error || `Não foi possível carregar ${labelForType(type)}.`}</p>
+      <button type="button" onClick={() => void loadMedia(true)} className={`mt-2 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-black ${outbound ? 'bg-white/15 text-white' : 'bg-white text-red-600 shadow-sm'}`}><RefreshCw size={12} /> Tentar novamente</button>
     </div>
   );
 
   const placeholder = /^\[(Imagem|Vídeo|Áudio|Documento)\]$/i.test(body);
 
   return (
-    <div className="max-w-full space-y-1.5">
+    <div ref={mediaContainerRef} className="max-w-full space-y-1.5">
       {type === 'image' ? <a href={mediaUrl} target="_blank" rel="noreferrer" className="block max-w-full overflow-hidden rounded-xl"><img src={mediaUrl} alt={body && !placeholder ? body : 'Imagem do WhatsApp'} className="max-h-[52dvh] w-auto max-w-full rounded-xl object-contain" /></a> : null}
       {type === 'video' ? <div className="max-w-full overflow-hidden rounded-xl bg-black"><video src={mediaUrl} controls preload="metadata" playsInline className="max-h-[52dvh] w-full max-w-full rounded-xl bg-black" /></div> : null}
       {type === 'audio' ? <MobileAudioPlayer src={mediaUrl} outbound={outbound} /> : null}
