@@ -20,10 +20,13 @@ function vehicle(id: string, photo = `https://example.com/${id}.jpg`) {
 }
 
 describe('AUTOCAR Intelligence V2 vehicle options presentation', () => {
-  it('constituição limita opções e mantém IA na condução comercial', () => {
+  it('constituição limita opções apresentadas e separa veículo de contexto', () => {
     const constitution = autocarCommercialConstitutionV2().toLowerCase();
     assert.equal(constitution.includes('no máximo 3 veículos'), true);
     assert.equal(constitution.includes('referenced_vehicle_ids'), true);
+    assert.equal(constitution.includes('presented_vehicle_ids'), true);
+    assert.equal(constitution.includes('mencionados apenas como contexto'), true);
+    assert.equal(constitution.includes('não consome uma vaga'), true);
     assert.equal(constitution.includes('backend apresentará uma foto principal'), true);
     assert.equal(constitution.includes('cta leve de visita'), true);
   });
@@ -42,7 +45,31 @@ describe('AUTOCAR Intelligence V2 vehicle options presentation', () => {
     assert.match(presentation.closing_message, /organizar uma visita/i);
   });
 
-  it('falha fechado se IA selecionar mais de 3 veículos', () => {
+  it('não conta veículo citado apenas como contexto no limite de 3 novas opções', () => {
+    const referencedVehicles = [vehicle('logan'), vehicle('idea'), vehicle('hb20'), vehicle('weekend')];
+    const presentedVehicles = referencedVehicles.filter((item) => item.id !== 'logan');
+    const presentation = buildAutocarVehiclePresentationV2({
+      referencedVehicles: presentedVehicles,
+      aiResponse: 'Além do Logan, estas três opções estão mais próximas da sua faixa. Qual delas te interessou mais?'
+    });
+    const evaluation = evaluateAutocarReplayV2({
+      customerRequestedHuman: false,
+      shadow: {
+        response: 'Além do Logan, temos Idea, HB20 e Weekend. Qual deles te interessou mais?',
+        next_best_action: 'Aguardar a escolha do cliente.',
+        proposed_actions: []
+      },
+      vehiclePresentation: presentation
+    });
+    assert.equal(referencedVehicles.length, 4);
+    assert.equal(presentedVehicles.length, 3);
+    assert.equal(presentation.option_count, 3);
+    assert.equal(presentation.ready, true);
+    assert.equal(presentation.regression_flags.too_many_vehicle_options, false);
+    assert.equal(evaluation.pass, true);
+  });
+
+  it('falha fechado se IA apresentar mais de 3 veículos', () => {
     const presentation = buildAutocarVehiclePresentationV2({
       referencedVehicles: [vehicle('1'), vehicle('2'), vehicle('3'), vehicle('4')],
       aiResponse: 'Veja as opções.'

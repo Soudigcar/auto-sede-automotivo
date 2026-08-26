@@ -5,7 +5,7 @@ import { createAutocarHistoricalReadClientV2, loadAutocarReplayMessagesV2 } from
 import { buildAutocarVehiclePresentationV2 } from '@/lib/server/autocar/vehiclePresentationV2';
 import { buildAutocarSingleVehicleMediaV2 } from '@/lib/server/autocar/singleVehicleMediaV2';
 
-export const AUTOCAR_INTELLIGENCE_REPLAY_VERSION = 'autocar-intelligence-replay-v2-single-vehicle-media-preview';
+export const AUTOCAR_INTELLIGENCE_REPLAY_VERSION = 'autocar-intelligence-replay-v2-presented-vehicles-preview';
 
 function normalizeReplayText(value: unknown) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -123,8 +123,9 @@ export async function replayAutocarConversationV2(input: {
     conversationId: input.conversationId
   });
   const referencedVehicles = Array.isArray(shadow.referenced_vehicles) ? shadow.referenced_vehicles : [];
+  const presentedVehicles = Array.isArray(shadow.presented_vehicles) ? shadow.presented_vehicles : [];
   const vehiclePresentation = buildAutocarVehiclePresentationV2({
-    referencedVehicles,
+    referencedVehicles: presentedVehicles,
     aiResponse: shadow.response
   });
   const singleVehicleMedia = buildAutocarSingleVehicleMediaV2({
@@ -159,6 +160,7 @@ export async function replayAutocarConversationV2(input: {
       next_best_action: shadow.next_best_action,
       proposed_actions: shadow.proposed_actions,
       referenced_vehicles: referencedVehicles,
+      presented_vehicles: presentedVehicles,
       vehicle_presentation: vehiclePresentation,
       single_vehicle_media: singleVehicleMedia,
       intelligence: shadow.intelligence,

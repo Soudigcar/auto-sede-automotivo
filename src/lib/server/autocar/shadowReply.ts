@@ -30,6 +30,7 @@ const responseSchema = {
   properties: {
     response: { type: 'string' }, summary: { type: 'string' }, next_best_action: { type: 'string' },
     referenced_vehicle_ids: { type: 'array', items: { type: 'string' } },
+    presented_vehicle_ids: { type: 'array', items: { type: 'string' } },
     proposed_actions: {
       type: 'array', items: {
         type: 'object', additionalProperties: false,
@@ -38,7 +39,7 @@ const responseSchema = {
       }
     }
   },
-  required: ['response', 'summary', 'next_best_action', 'referenced_vehicle_ids', 'proposed_actions']
+  required: ['response', 'summary', 'next_best_action', 'referenced_vehicle_ids', 'presented_vehicle_ids', 'proposed_actions']
 };
 
 const operationalPlanSchema = {
@@ -256,7 +257,9 @@ export async function generateAutocarShadowReply(input: {
     'store_inventory é a fonte oficial de disponibilidade de veículos. Só afirme disponibilidade, preço, ano, quilometragem ou características quando existirem nos dados fornecidos.',
     'Nunca invente desconto, aprovação de financiamento, avaliação definitiva de troca, venda concluída ou condição comercial ausente.',
     'A resposta deve ser curta, natural, comercial e em português do Brasil.',
-    'referenced_vehicle_ids deve conter apenas IDs exatos existentes em store_inventory que foram efetivamente citados na resposta.',
+    'referenced_vehicle_ids deve conter apenas IDs exatos existentes em store_inventory de todos os veículos efetivamente citados na resposta, inclusive veículos mencionados apenas como contexto.',
+    'presented_vehicle_ids deve conter somente os IDs exatos dos veículos que estão sendo oferecidos ou apresentados como opções novas nesta resposta, em ordem de apresentação e no máximo 3. Veículo citado apenas como contexto, por exemplo em “além do Logan”, entra em referenced_vehicle_ids mas não em presented_vehicle_ids.',
+    'Todo ID em presented_vehicle_ids também deve aparecer em referenced_vehicle_ids. Se não houver novas opções sendo apresentadas, use presented_vehicle_ids vazio.',
     'proposed_actions deve listar todas as capacidades operacionais que a resposta ou o próximo passo implicariam. O backend decidirá a permissão.'
   ].join(' ');
 
@@ -294,6 +297,10 @@ export async function generateAutocarShadowReply(input: {
     customerRequestedHuman: humanRequest.customer_requested_human,
     proposedActions: actions
   });
+  const referencedVehicles = realReferencedVehicles(intelligence, parsed.referenced_vehicle_ids);
+  const referencedIds = new Set(referencedVehicles.map((vehicle: any) => String(vehicle?.id || '')));
+  const presentedVehicles = realReferencedVehicles(intelligence, parsed.presented_vehicle_ids)
+    .filter((vehicle: any) => referencedIds.has(String(vehicle?.id || '')));
 
   return {
     response: String(parsed.response || '').trim(),
@@ -303,7 +310,8 @@ export async function generateAutocarShadowReply(input: {
     proposed_actions: actions,
     human_request: humanRequest,
     handoff_semantics: handoffSemantics,
-    referenced_vehicles: realReferencedVehicles(intelligence, parsed.referenced_vehicle_ids),
+    referenced_vehicles: referencedVehicles,
+    presented_vehicles: presentedVehicles,
     operational_preview: operationalPreview,
     intelligence: {
       training_matches: intelligence.training.length,
