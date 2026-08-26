@@ -229,6 +229,7 @@ export async function GET(request: Request) {
       capabilities: {
         can_delete: context.role === 'master' || context.role === 'store',
         can_transfer: true,
+        can_bulk_transfer: context.role === 'master' || context.role === 'store',
         can_confirm_sale: context.role !== 'prospector'
       },
       metrics,
