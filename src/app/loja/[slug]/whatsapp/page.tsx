@@ -294,13 +294,15 @@ export default function StoreWhatsappPage() {
       if (!firstResult || requestId !== inboxRequestRef.current) return;
       setStore(firstResult.store);
       setConversations(firstResult.conversations || []);
-      const nextSelectedId = requestedConversationId || firstResult.conversations?.[0]?.id || '';
+      const resolvedSelectedId = String(firstResult.selected_conversation_id || '');
+      const nextSelectedId = resolvedSelectedId || requestedConversationId || firstResult.conversations?.[0]?.id || '';
       setSelectedId(nextSelectedId);
       if (nextSelectedId && !firstResult.selected_conversation_id) {
         const secondResult = await fetchInbox(nextSelectedId);
         if (secondResult && requestId === inboxRequestRef.current) {
           setConversations(secondResult.conversations || []);
           setMessages(secondResult.messages || []);
+          setSelectedId(String(secondResult.selected_conversation_id || nextSelectedId));
         }
       } else if (requestId === inboxRequestRef.current) {
         setMessages(firstResult.messages || []);

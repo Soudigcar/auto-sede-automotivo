@@ -231,13 +231,15 @@ export function WhatsappMobileInboxBridge() {
       if (requestId !== inboxRequestRef.current) return;
       if (mode === 'store') setStore(first.store || null);
       setConversations(first.conversations || []);
-      const nextId = requestedId || first.conversations?.[0]?.id || '';
+      const resolvedSelectedId = String(first.selected_conversation_id || '');
+      const nextId = resolvedSelectedId || requestedId || first.conversations?.[0]?.id || '';
       setSelectedId(nextId);
       if (nextId && !first.selected_conversation_id) {
         const second = await fetchInbox(nextId);
         if (requestId !== inboxRequestRef.current) return;
         setConversations(second.conversations || first.conversations || []);
         setMessages(second.messages || []);
+        setSelectedId(String(second.selected_conversation_id || nextId));
       } else {
         setMessages(first.messages || []);
       }

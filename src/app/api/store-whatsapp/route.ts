@@ -5,7 +5,7 @@ import { getEvolutionProfilePictureUrl } from '@/lib/server/evolution';
 import { evolutionDisplayBody } from '@/lib/server/evolutionMessage';
 import { readManagedEvolutionState } from '@/lib/server/managedWhatsappEvolution';
 import { publicWhatsappNumber } from '@/lib/server/storeWhatsappChannel';
-import { includeRequestedConversation } from '@/lib/server/storeWhatsappInbox';
+import { collapseWhatsappConversations, includeRequestedConversation } from '@/lib/server/storeWhatsappInbox';
 import { whatsappCustomerDisplayName } from '@/lib/server/whatsappCustomerIdentity';
 
 export const runtime = 'nodejs';
@@ -293,13 +293,15 @@ export async function GET(request: Request) {
         base_lead: baseLead ? { ...baseLead, name: displayName } : null
       };
     });
+    const collapsedConversations = collapseWhatsappConversations(enrichedConversations);
+    const selectedConversation = conversationId
+      ? collapsedConversations.find((conversation) => conversation.related_conversation_ids.includes(conversationId)) || null
+      : null;
 
     let messages: any[] = [];
 
     if (conversationId) {
-      const allowed = enrichedConversations.some((conversation: any) => conversation.id === conversationId);
-
-      if (!allowed) {
+      if (!selectedConversation) {
         const requestedLead = requestedConversation?.lead_id
           ? accessLeadsById[requestedConversation.lead_id]
           : null;
@@ -319,7 +321,7 @@ export async function GET(request: Request) {
       const { data: messageRows, error: messagesError } = await supabase
         .from('whatsapp_messages')
         .select('*')
-        .eq('conversation_id', conversationId)
+        .in('conversation_id', selectedConversation.related_conversation_ids)
         .eq('store_id', store.id)
         .order('sent_at', { ascending: true })
         .order('created_at', { ascending: true })
@@ -338,9 +340,9 @@ export async function GET(request: Request) {
     return noStoreJson({
       success: true,
       store,
-      conversations: enrichedConversations,
+      conversations: collapsedConversations,
       messages,
-      selected_conversation_id: conversationId || null
+      selected_conversation_id: selectedConversation?.id || null
     });
   } catch (error: any) {
     return NextResponse.json(

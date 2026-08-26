@@ -28,7 +28,8 @@ test('a requested conversation older than the recent-page limit remains addressa
 });
 
 test('message history repeats the store boundary and authenticated GET responses are not cached', () => {
-  assert.match(route, /\.eq\('conversation_id', conversationId\)[\s\S]*?\.eq\('store_id', store\.id\)/);
+  assert.match(route, /\.in\('conversation_id', selectedConversation\.related_conversation_ids\)[\s\S]*?\.eq\('store_id', store\.id\)/);
+  assert.match(route, /selected_conversation_id: selectedConversation\?\.id \|\| null/);
   assert.match(route, /'Cache-Control': 'private, no-store, max-age=0'/);
   assert.match(page, /cache: 'no-store'/);
 });
