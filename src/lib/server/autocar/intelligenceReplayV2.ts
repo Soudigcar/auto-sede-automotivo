@@ -3,11 +3,20 @@ import { classifyAutocarHumanRequestV2 } from '@/lib/server/autocar/humanRequest
 import { resolveAutocarHandoffV2 } from '@/lib/server/autocar/handoffSemanticsV2';
 import { createAutocarHistoricalReadClientV2, loadAutocarReplayMessagesV2 } from '@/lib/server/autocar/replayMessageHistoryV2';
 
-export const AUTOCAR_INTELLIGENCE_REPLAY_VERSION = 'autocar-intelligence-replay-v2-preview';
+export const AUTOCAR_INTELLIGENCE_REPLAY_VERSION = 'autocar-intelligence-replay-v2-scheduling-objective-preview';
+
+function normalizeReplayText(value: unknown) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
 
 function explicitTransferLanguage(value: unknown) {
-  const text = String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const text = normalizeReplayText(value);
   return /(vou|vamos|posso)\s+(te\s+)?(encaminhar|transferir|passar)\b|encaminh(ar|ando)\s+(seu|o)\s+atendimento|transferir\s+(para|pro|pra)\s+(um|uma|o|a)?\s*(vendedor|consultor|gerente|atendente|equipe)/i.test(text);
+}
+
+function unsupportedVerificationPromise(value: unknown) {
+  const text = normalizeReplayText(value);
+  return /\b(vou|vamos|posso|podemos|preciso)\s+(verificar|consultar|confirmar|checar)\b|\bquer\s+que\s+eu\s+(verifique|consulte|confirme|cheque)\b|\bdeixa\s+eu\s+(verificar|consultar|confirmar|checar)\b/i.test(text);
 }
 
 export function evaluateAutocarReplayV2(input: {
@@ -19,14 +28,16 @@ export function evaluateAutocarReplayV2(input: {
   const handoff = resolveAutocarHandoffV2({ customerRequestedHuman: input.customerRequestedHuman, proposedActions: rawActions });
   const transferLanguageWithoutRequest = !input.customerRequestedHuman && explicitTransferLanguage(input.shadow?.response);
   const transferActionWithoutRequest = !input.customerRequestedHuman && rawTransferActions.length > 0;
+  const unsupportedVerification = unsupportedVerificationPromise(input.shadow?.response) || unsupportedVerificationPromise(input.shadow?.next_best_action);
   return {
     version: AUTOCAR_INTELLIGENCE_REPLAY_VERSION,
-    pass: !(transferLanguageWithoutRequest || transferActionWithoutRequest),
+    pass: !(transferLanguageWithoutRequest || transferActionWithoutRequest || unsupportedVerification),
     customer_requested_human: input.customerRequestedHuman,
     handoff,
     regression_flags: {
       transfer_action_without_customer_request: transferActionWithoutRequest,
-      transfer_language_without_customer_request: transferLanguageWithoutRequest
+      transfer_language_without_customer_request: transferLanguageWithoutRequest,
+      unsupported_verification_promise: unsupportedVerification
     },
     raw_transfer_actions: rawTransferActions,
     effective_actions: input.customerRequestedHuman ? rawActions : rawActions.filter((action: any) => String(action?.capability || '') !== 'transfer_lead'),

@@ -76,7 +76,9 @@ export function autocarModeInstructions(mode: AutocarIntelligenceMode) {
     'REGRA DE CONTINUIDADE V2: uma ação que exige aprovação, handoff de capability ou validação humana não encerra a conversa por si só.',
     'Continue atendendo comercialmente dentro dos limites seguros.',
     'Só proponha transfer_lead quando o cliente solicitar semanticamente falar com uma pessoa, vendedor, consultor, gerente ou equivalente.',
-    'Se faltar informação, diga que precisa confirmar o dado e continue o atendimento sem inventar.'
+    'Se faltar informação e não houver ferramenta real capaz de consultá-la nesta interação, diga apenas que o dado não está confirmado ou disponível no cadastro; não prometa verificar, consultar ou confirmar depois.',
+    'Quando houver interesse comercial suficiente, favoreça um convite leve para visita ou test-drive como próximo avanço, sem insistir e sem repetir o convite após recusa até surgir novo sinal de interesse.',
+    'Nunca invente horário. Só apresente ou confirme horário específico quando a disponibilidade vier de ferramenta oficial do backend.'
   ].join(' ');
 
   if (mode === 'copilot') {
