@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Activity, ArrowRightLeft, BarChart3, Bot, BrainCircuit, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, FlaskConical, Gauge, Globe2, Inbox, Landmark, LogOut, Megaphone, Plug, Route, ShoppingBag, Store, UserCog } from 'lucide-react';
+import { Activity, ArrowRightLeft, BarChart3, Bot, BrainCircuit, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, FlaskConical, Gauge, Globe2, Inbox, Landmark, LogOut, Megaphone, Plug, Route, ShoppingBag, Store, UserCog, Workflow } from 'lucide-react';
 import { MasterOlxImportBridge } from '@/components/marketplace/MasterOlxImportBridge';
 import { MasterLeadStoreCoverage } from '@/components/MasterLeadStoreCoverage';
 
@@ -24,6 +24,7 @@ export const masterMenu = [
   { label: 'Integrações', href: '/master/integrations', icon: Plug },
   { label: 'Inbox WhatsApp', href: '/master/whatsapp/inbox', icon: Inbox },
   { label: 'I.A AUTOCAR', href: '/master/autocar', icon: Bot },
+  { label: 'Follow-up AUTOCAR', href: '/master/autocar/follow-up-v2', icon: Workflow, child: true },
   { label: 'Treinar e Testar', href: '/master/autocar/training', icon: FlaskConical },
   { label: 'Simulador AUTOCAR', href: '/master/autocar/simulator', icon: Gauge },
   { label: 'Cérebro Automotivo', href: '/master/automotive-brain', icon: BrainCircuit },
