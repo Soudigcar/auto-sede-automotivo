@@ -1,10 +1,11 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Clock3, Play, ShieldCheck, SlidersHorizontal, Sparkles, Store, Workflow } from 'lucide-react';
-import { defaultFollowUpConfigV2, validateFollowUpConfigV2, type FollowUpConfigV2, type FollowUpMode } from '@/lib/server/autocar/smartFollowUpV2';
+import { BarChart3, Clock3, Play, ShieldCheck, SlidersHorizontal, Sparkles, Store, Workflow } from 'lucide-react';
+import { defaultFollowUpConfigV2, validateFollowUpConfigV2, type FollowUpConfigV2, type FollowUpMode, type FollowUpScenarioKey } from '@/lib/server/autocar/smartFollowUpV2';
 
 type StoreRow = { id: string; store_name: string };
+type DelayUnit = 'minutes' | 'hours' | 'days';
 
 type Simulation = {
   scenario: string;
@@ -12,6 +13,18 @@ type Simulation = {
   mode: string;
   decision: 'would_prepare' | 'blocked';
   reason: string;
+};
+
+const unitMinutes: Record<DelayUnit, number> = { minutes: 1, hours: 60, days: 1440 };
+const emptyPerformance = {
+  eligible: 0,
+  prepared: 0,
+  sent: 0,
+  replied: 0,
+  recovered: 0,
+  appointments: 0,
+  showedUp: 0,
+  sales: 0
 };
 
 function addMinutes(base: Date, minutes: number) {
@@ -22,10 +35,30 @@ function timeLabel(value: Date) {
   return value.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 }
 
+function timingParts(delayMinutes: number): { amount: number; unit: DelayUnit } {
+  const absolute = Math.max(1, Math.abs(delayMinutes));
+  if (absolute % 1440 === 0) return { amount: absolute / 1440, unit: 'days' };
+  if (absolute % 60 === 0) return { amount: absolute / 60, unit: 'hours' };
+  return { amount: absolute, unit: 'minutes' };
+}
+
+function timingLabel(delayMinutes: number, key: FollowUpScenarioKey) {
+  const { amount, unit } = timingParts(delayMinutes);
+  const unitLabel = unit === 'days' ? (amount === 1 ? 'dia' : 'dias') : unit === 'hours' ? (amount === 1 ? 'hora' : 'horas') : (amount === 1 ? 'minuto' : 'minutos');
+  const relation = key === 'visit_confirmation' ? 'antes' : 'depois';
+  return `${amount} ${unitLabel} ${relation}`;
+}
+
+function Metric({ label, value, suffix = '' }: { label: string; value: number | string; suffix?: string }) {
+  return <div className="rounded-xl border border-zinc-200 bg-white p-3"><p className="text-[9px] font-black uppercase tracking-wider text-zinc-400">{label}</p><p className="mt-1 text-xl font-black text-zinc-950">{value}{suffix}</p></div>;
+}
+
 export function MasterAutocarFollowUpV2({ stores = [] }: { stores?: StoreRow[] }) {
   const [config, setConfig] = useState<FollowUpConfigV2>(() => structuredClone(defaultFollowUpConfigV2));
   const [storeId, setStoreId] = useState(stores[0]?.id || '');
   const [simulation, setSimulation] = useState<Simulation | null>(null);
+  const [performanceKey, setPerformanceKey] = useState<FollowUpScenarioKey | null>(null);
+  const [performancePeriod, setPerformancePeriod] = useState('30');
   const validation = useMemo(() => validateFollowUpConfigV2(config), [config]);
   const selectedStore = stores.find((row) => row.id === storeId);
 
@@ -37,6 +70,33 @@ export function MasterAutocarFollowUpV2({ stores = [] }: { stores?: StoreRow[] }
     setConfig((current) => ({
       ...current,
       scenarios: current.scenarios.map((scenario) => scenario.key === key ? { ...scenario, enabled } : scenario)
+    }));
+  }
+
+  function setStepEnabled(scenarioKey: FollowUpScenarioKey, stepId: string, enabled: boolean) {
+    setConfig((current) => ({
+      ...current,
+      scenarios: current.scenarios.map((scenario) => scenario.key === scenarioKey ? {
+        ...scenario,
+        steps: scenario.steps.map((step) => step.id === stepId ? { ...step, enabled } : step)
+      } : scenario)
+    }));
+  }
+
+  function setStepTiming(scenarioKey: FollowUpScenarioKey, stepId: string, amount: number, unit: DelayUnit) {
+    const safeAmount = Math.max(1, Number.isFinite(amount) ? amount : 1);
+    const sign = scenarioKey === 'visit_confirmation' ? -1 : 1;
+    const delayMinutes = sign * safeAmount * unitMinutes[unit];
+    setConfig((current) => ({
+      ...current,
+      scenarios: current.scenarios.map((scenario) => scenario.key === scenarioKey ? {
+        ...scenario,
+        steps: scenario.steps.map((step) => step.id === stepId ? {
+          ...step,
+          delayMinutes,
+          label: timingLabel(delayMinutes, scenarioKey)
+        } : step)
+      } : scenario)
     }));
   }
 
@@ -60,7 +120,13 @@ export function MasterAutocarFollowUpV2({ stores = [] }: { stores?: StoreRow[] }
       return;
     }
     const first = scenario.steps.find((step) => step.enabled);
-    const due = scenario.key === 'callback_requested' ? 'horário explícito pedido pelo cliente' : first ? timeLabel(addMinutes(new Date(), Math.max(first.delayMinutes, 1))) : 'evento contextual';
+    const due = scenario.key === 'callback_requested'
+      ? 'data/hora explícita pedida pelo cliente'
+      : first
+        ? scenario.key === 'visit_confirmation'
+          ? timingLabel(first.delayMinutes, scenario.key)
+          : timeLabel(addMinutes(new Date(), Math.max(first.delayMinutes, 1)))
+        : 'evento contextual';
     setSimulation({
       scenario: scenario.title,
       due,
@@ -85,7 +151,7 @@ export function MasterAutocarFollowUpV2({ stores = [] }: { stores?: StoreRow[] }
       </div>
     </div>
 
-    <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+    <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
       <div className="premium-card p-5">
         <div className="flex items-center gap-2"><SlidersHorizontal size={18} className="text-red-600"/><h3 className="text-lg font-black">Teto global Master</h3></div>
         <p className="mt-1 text-xs font-bold leading-5 text-zinc-500">A loja poderá ser mais restritiva, nunca mais permissiva que estes limites.</p>
@@ -103,7 +169,32 @@ export function MasterAutocarFollowUpV2({ stores = [] }: { stores?: StoreRow[] }
 
       <div className="premium-card p-5">
         <div className="flex items-center gap-2"><Workflow size={18} className="text-red-600"/><h3 className="text-lg font-black">Jornadas</h3></div>
-        <div className="mt-4 space-y-2">{config.scenarios.map((scenario) => <div key={scenario.key} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><div className="flex items-center gap-2"><strong className="text-sm font-black">{scenario.title}</strong><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${scenario.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-200 text-zinc-600'}`}>{scenario.enabled ? 'ativa no rascunho' : 'desativada'}</span></div><p className="mt-1 text-[11px] font-bold leading-5 text-zinc-500">{scenario.description}</p>{scenario.steps.length ? <div className="mt-2 flex flex-wrap gap-1.5">{scenario.steps.filter((step) => step.enabled).map((step) => <span key={step.id} className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-[9px] font-black text-zinc-600"><Clock3 size={10} className="mr-1 inline"/>{step.label}</span>)}</div> : null}</div><div className="flex gap-2"><button type="button" onClick={() => setScenarioEnabled(scenario.key, !scenario.enabled)} className="premium-button-secondary">{scenario.enabled ? 'Desativar' : 'Ativar'}</button><button type="button" onClick={() => simulate(scenario.key)} className="premium-button-secondary"><Play size={14}/>Simular</button></div></div></div>)}</div>
+        <p className="mt-1 text-xs font-bold text-zinc-500">Cada etapa pode ter seu próprio intervalo. Os valores abaixo continuam apenas no rascunho desta tela.</p>
+        <div className="mt-4 space-y-3">{config.scenarios.map((scenario) => {
+          const performanceOpen = performanceKey === scenario.key;
+          return <div key={scenario.key} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm font-black">{scenario.title}</strong><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${scenario.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-200 text-zinc-600'}`}>{scenario.enabled ? 'ativa no rascunho' : 'desativada'}</span></div><p className="mt-1 text-[11px] font-bold leading-5 text-zinc-500">{scenario.description}</p></div>
+              <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setScenarioEnabled(scenario.key, !scenario.enabled)} className="premium-button-secondary">{scenario.enabled ? 'Desativar' : 'Ativar'}</button><button type="button" onClick={() => simulate(scenario.key)} className="premium-button-secondary"><Play size={14}/>Simular</button><button type="button" onClick={() => setPerformanceKey(performanceOpen ? null : scenario.key)} className="premium-button-secondary"><BarChart3 size={14}/>Performance</button></div>
+            </div>
+
+            {scenario.key === 'callback_requested' ? <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-[11px] font-bold leading-5 text-sky-800"><Clock3 size={13} className="mr-2 inline"/>Nesta jornada não existe atraso fixo: a AUTOCAR deve respeitar a data e hora explicitamente pedidas pelo cliente.</div> : <div className="mt-3 space-y-2">{scenario.steps.map((step, index) => {
+              const timing = timingParts(step.delayMinutes);
+              return <div key={step.id} className="grid gap-2 rounded-xl border border-zinc-200 bg-white p-3 sm:grid-cols-[auto_1fr_110px_130px] sm:items-end">
+                <label className="flex items-center gap-2 text-[10px] font-black text-zinc-600"><input type="checkbox" checked={step.enabled} onChange={(event) => setStepEnabled(scenario.key, step.id, event.target.checked)}/>Etapa {index + 1}</label>
+                <label className="text-[9px] font-black uppercase text-zinc-400">Tempo<input type="number" min={1} value={timing.amount} onChange={(event) => setStepTiming(scenario.key, step.id, Number(event.target.value), timing.unit)} className="premium-input mt-1 text-xs"/></label>
+                <label className="text-[9px] font-black uppercase text-zinc-400">Unidade<select value={timing.unit} onChange={(event) => setStepTiming(scenario.key, step.id, timing.amount, event.target.value as DelayUnit)} className="premium-input mt-1 text-xs"><option value="minutes">minutos</option><option value="hours">horas</option><option value="days">dias</option></select></label>
+                <div className="rounded-lg bg-zinc-50 px-3 py-2 text-[10px] font-black text-zinc-600"><Clock3 size={11} className="mr-1 inline"/>{step.enabled ? timingLabel(step.delayMinutes, scenario.key) : 'etapa desativada'}</div>
+              </div>;
+            })}</div>}
+
+            {performanceOpen ? <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-950 p-4 text-white">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><div className="flex items-center gap-2"><BarChart3 size={17} className="text-red-400"/><strong className="text-sm">Dashboard · {scenario.title}</strong></div><p className="mt-1 text-[10px] font-bold leading-4 text-zinc-400">Performance real será calculada por jornada e loja. Enquanto não existe sender, os indicadores permanecem zerados e não simulam resultado.</p></div><label className="text-[9px] font-black uppercase text-zinc-400">Período<select value={performancePeriod} onChange={(event) => setPerformancePeriod(event.target.value)} className="ml-2 rounded-lg border border-white/10 bg-white/10 px-2 py-1 text-[10px] text-white"><option value="7">7 dias</option><option value="30">30 dias</option><option value="90">90 dias</option></select></label></div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><Metric label="Leads elegíveis" value={emptyPerformance.eligible}/><Metric label="Follow-ups preparados" value={emptyPerformance.prepared}/><Metric label="Enviados" value={emptyPerformance.sent}/><Metric label="Respostas" value={emptyPerformance.replied}/><Metric label="Conversas recuperadas" value={emptyPerformance.recovered}/><Metric label="Taxa de recuperação" value={0} suffix="%"/><Metric label="Agendamentos" value={emptyPerformance.appointments}/><Metric label="Comparecimentos" value={emptyPerformance.showedUp}/><Metric label="Vendas atribuídas" value={emptyPerformance.sales}/></div>
+              <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 text-[10px] font-bold leading-5 text-zinc-300"><strong className="text-white">Definição proposta:</strong> “conversa recuperada” = cliente responde após o follow-up dentro da janela de atribuição e a conversa volta a uma etapa comercial ativa. Depois medimos também agendamento, comparecimento e venda originados dessa recuperação.</div>
+            </div> : null}
+          </div>;
+        })}</div>
       </div>
     </div>
 
