@@ -88,6 +88,7 @@ type PipelinePayload = {
   scope_label: string;
   capabilities: { can_delete: boolean; can_transfer: boolean; can_bulk_transfer: boolean; can_confirm_sale: boolean };
   metrics: { total: number; scheduled: number; cancelled: number; sold: number; lost: number };
+  team: Array<{ id: string; full_name: string; role: string; role_label: string }>;
   leads: PipelineLead[];
   pagination: { offset: number; limit: number; total: number; has_more: boolean };
 };
@@ -817,6 +818,7 @@ export default function StoreSlugPipelinePage() {
           ) : (
             <PipelineLeadList
               leads={scopedLeads}
+              team={payload.team}
               stages={stageOptions}
               assignments={customAssignments}
               busy={busy}
@@ -936,8 +938,9 @@ export default function StoreSlugPipelinePage() {
   );
 }
 
-function PipelineLeadList({ leads, stages, assignments, busy, canBulkTransfer, selectedLeadIds, onSelectionChange, onBulkTransfer, onOpen, onReveal, onWhatsapp, onSchedule, onStageChange, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
+function PipelineLeadList({ leads, team, stages, assignments, busy, canBulkTransfer, selectedLeadIds, onSelectionChange, onBulkTransfer, onOpen, onReveal, onWhatsapp, onSchedule, onStageChange, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
   leads: PipelineLead[];
+  team: PipelinePayload['team'];
   stages: PipelineStageOption[];
   assignments: Record<string, PipelineCustomAssignment>;
   busy: boolean;
@@ -968,6 +971,7 @@ function PipelineLeadList({ leads, stages, assignments, busy, canBulkTransfer, s
     return stage?.visible ? [{ lead, stageId: stage.id }] : [];
   });
   const selectedSet = new Set(selectedLeadIds);
+  const teamById = new Map(team.map((member) => [member.id, member]));
   const selectableLeadIds = visibleLeads.map(({ lead }) => lead.id).slice(0, maxBulkTransferLeads);
   const allSelectableSelected = selectableLeadIds.length > 0 && selectableLeadIds.every((leadId) => selectedSet.has(leadId));
 
@@ -1011,17 +1015,21 @@ function PipelineLeadList({ leads, stages, assignments, busy, canBulkTransfer, s
         </div>
       ) : null}
       <div className="overflow-x-auto">
-        <div className={canBulkTransfer ? 'min-w-[1168px]' : 'min-w-[1120px]'}>
-          <div className={`grid ${canBulkTransfer ? 'grid-cols-[32px_minmax(230px,1.35fr)_130px_minmax(180px,1fr)_190px_145px_170px]' : 'grid-cols-[minmax(230px,1.35fr)_130px_minmax(180px,1fr)_190px_145px_170px]'} gap-3 border-b border-zinc-200 bg-zinc-950 px-4 py-3 text-[9px] font-black uppercase tracking-[0.12em] text-zinc-300`}>
+        <div className={canBulkTransfer ? 'min-w-[1332px]' : 'min-w-[1284px]'}>
+          <div className={`grid ${canBulkTransfer ? 'grid-cols-[32px_minmax(230px,1.35fr)_minmax(150px,0.8fr)_130px_minmax(180px,1fr)_190px_145px_170px]' : 'grid-cols-[minmax(230px,1.35fr)_minmax(150px,0.8fr)_130px_minmax(180px,1fr)_190px_145px_170px]'} gap-3 border-b border-zinc-200 bg-zinc-950 px-4 py-3 text-[9px] font-black uppercase tracking-[0.12em] text-zinc-300`}>
             {canBulkTransfer ? <span className="text-center">Sel.</span> : null}
-            <span>Lead</span><span>Origem</span><span>Interesse</span><span>Etapa</span><span>Agendamento</span><span className="text-center">Ações</span>
+            <span>Lead</span><span>Responsável</span><span>Origem</span><span>Interesse</span><span>Etapa</span><span>Agendamento</span><span className="text-center">Ações</span>
           </div>
           <div className="max-h-[calc(100dvh-176px)] min-h-[420px] overflow-y-auto overscroll-contain">
             {visibleLeads.map(({ lead, stageId }) => {
+              const responsibleId = leadResponsibleId(lead);
+              const responsibleMember = responsibleId ? teamById.get(responsibleId) || null : null;
               return (
                 <LeadListRow
                   key={lead.id}
                   lead={lead}
+                  responsibleName={responsibleMember?.full_name || (responsibleId ? 'Responsável não localizado' : 'Fila geral da loja')}
+                  responsibleRole={responsibleMember?.role_label || (responsibleId ? 'Cadastro indisponível' : 'Sem atribuição individual')}
                   stages={visibleStages}
                   stageId={stageId}
                   busy={busy}
@@ -1050,8 +1058,10 @@ function PipelineLeadList({ leads, stages, assignments, busy, canBulkTransfer, s
   );
 }
 
-function LeadListRow({ lead, stages, stageId, busy, canSelect, selected, onSelectedChange, onOpen, onReveal, onWhatsapp, onSchedule, onStageChange, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
+function LeadListRow({ lead, responsibleName, responsibleRole, stages, stageId, busy, canSelect, selected, onSelectedChange, onOpen, onReveal, onWhatsapp, onSchedule, onStageChange, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
   lead: PipelineLead;
+  responsibleName: string;
+  responsibleRole: string;
   stages: PipelineStageOption[];
   stageId: string;
   busy: boolean;
@@ -1079,7 +1089,7 @@ function LeadListRow({ lead, stages, stageId, busy, canSelect, selected, onSelec
 
   return (
     <article data-pipeline-list-row="true" data-selected={selected ? 'true' : 'false'} className={`border-b border-zinc-100 px-4 py-2.5 last:border-b-0 ${selected ? 'bg-red-50/70' : 'hover:bg-zinc-50/80'}`}>
-      <div className={`grid ${canSelect ? 'grid-cols-[32px_minmax(230px,1.35fr)_130px_minmax(180px,1fr)_190px_145px_170px]' : 'grid-cols-[minmax(230px,1.35fr)_130px_minmax(180px,1fr)_190px_145px_170px]'} items-center gap-3`}>
+      <div className={`grid ${canSelect ? 'grid-cols-[32px_minmax(230px,1.35fr)_minmax(150px,0.8fr)_130px_minmax(180px,1fr)_190px_145px_170px]' : 'grid-cols-[minmax(230px,1.35fr)_minmax(150px,0.8fr)_130px_minmax(180px,1fr)_190px_145px_170px]'} items-center gap-3`}>
         {canSelect ? <input type="checkbox" className="h-4 w-4 justify-self-center accent-red-600" checked={selected} onChange={onSelectedChange} disabled={busy} aria-label={`Selecionar ${name} para transferência`} /> : null}
         <div className="flex min-w-0 items-center gap-2.5">
           <button type="button" onClick={onOpen} className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-zinc-100 text-[10px] font-black text-zinc-600" aria-label={`Abrir ${name}`}>
@@ -1088,6 +1098,13 @@ function LeadListRow({ lead, stages, stageId, busy, canSelect, selected, onSelec
           <div className="min-w-0">
             <button type="button" onClick={onOpen} className="block max-w-full truncate text-left text-[11px] font-black text-zinc-950 hover:text-red-600">{name}</button>
             <button type="button" onClick={onReveal} className="mt-0.5 block max-w-full truncate text-left text-[9px] font-bold text-zinc-500 hover:text-red-600" title="Visualizar telefone completo">{phone}</button>
+          </div>
+        </div>
+        <div className="flex min-w-0 items-center gap-2" title={`${responsibleName} · ${responsibleRole}`}>
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-500"><UserRoundCog size={13} /></span>
+          <div className="min-w-0">
+            <p className="truncate text-[10px] font-black text-zinc-800">{responsibleName}</p>
+            <p className="mt-0.5 truncate text-[8px] font-bold text-zinc-400">{responsibleRole}</p>
           </div>
         </div>
         <span className="truncate text-[9px] font-black uppercase text-zinc-500" title={readableOrigin(lead.origin)}>{readableOrigin(lead.origin)}</span>
