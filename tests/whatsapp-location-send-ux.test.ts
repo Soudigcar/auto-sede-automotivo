@@ -29,6 +29,7 @@ test('AUTOCAR sends the official store position as a native location instead of 
   assert.doesNotMatch(autocarLiveLocation, /sendEvolutionText/);
   assert.match(autocarLiveLocation, /validCoordinate\(location\?\.latitude, -90, 90\)/);
   assert.match(autocarLiveLocation, /validCoordinate\(location\?\.longitude, -180, 180\)/);
+  assert.match(autocarLiveLocation, /nullIsland/);
   assert.match(autocarLiveLocation, /message_type: 'location'/);
   assert.match(autocarLiveLocation, /location: trustedLocation/);
   assert.match(autocarLiveLocation, /sent_location: trustedLocation/);
@@ -41,6 +42,7 @@ test('store location is trusted server-side while current coordinates are valida
   assert.match(route, /source === 'store' \? trustedStoreLocation\?\.longitude/);
   assert.match(route, /coordinate\(body\.latitude, -90, 90\)/);
   assert.match(route, /coordinate\(body\.longitude, -180, 180\)/);
+  assert.match(route, /usableCoordinatePair/);
   assert.match(route, /address_text, city, state, postal_code, location_label, latitude, longitude/);
 });
 
