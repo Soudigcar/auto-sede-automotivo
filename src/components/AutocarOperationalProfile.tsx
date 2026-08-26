@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, Loader2, MapPin, Plus, Save, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { CalendarClock, LocateFixed, Loader2, MapPin, Plus, Save, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
 const days = [
@@ -59,13 +59,27 @@ function sourceLabel(value: string) {
   return value === 'crm-production' ? 'CRM Production' : 'AUTOCAR DEV';
 }
 
+function hasUsableCoordinates(profile: Profile) {
+  if (profile.latitude == null || profile.longitude == null ||
+      String(profile.latitude).trim() === '' || String(profile.longitude).trim() === '') return false;
+  const latitude = Number(profile.latitude);
+  const longitude = Number(profile.longitude);
+  return Number.isFinite(latitude) && Number.isFinite(longitude) &&
+    latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180 &&
+    !(latitude === 0 && longitude === 0);
+}
+
 export function AutocarOperationalProfile({ slug, canManage }: { slug: string; canManage: boolean }) {
   const supabase = useMemo(() => createClient(), []);
   const [profile, setProfile] = useState<Profile>(emptyProfile());
   const [profileSource, setProfileSource] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [resolvingMaps, setResolvingMaps] = useState(false);
+  const [mapsMessage, setMapsMessage] = useState('');
+  const [mapsError, setMapsError] = useState(false);
   const [message, setMessage] = useState('');
+  const mapsUrlRef = useRef('');
 
   async function token() {
     const { data } = await supabase.auth.getSession();
@@ -85,7 +99,7 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
         throw new Error(result.error || 'Não foi possível carregar o Perfil Operacional.');
       }
       const source = result.profile || result.defaults || {};
-      setProfile({
+      const nextProfile = {
         ...emptyProfile(),
         ...source,
         weekly_hours: {
@@ -93,9 +107,16 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
           ...(source.weekly_hours || {})
         },
         special_hours: source.special_hours || []
-      });
+      } as Profile;
+      setProfile(nextProfile);
+      mapsUrlRef.current = nextProfile.maps_url || '';
       setProfileSource(String(result.profile_source || ''));
       setMessage('');
+      setMapsMessage('');
+      setMapsError(false);
+      if (canManage && nextProfile.maps_url && !hasUsableCoordinates(nextProfile)) {
+        void resolveMapsLocation(nextProfile.maps_url, true);
+      }
     } catch (error: any) {
       setMessage(error?.message || 'Erro ao carregar Perfil Operacional.');
     } finally {
@@ -104,6 +125,43 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
   }
 
   useEffect(() => { void load(); }, [slug]);
+
+  async function resolveMapsLocation(mapsUrl: string, automatic = false) {
+    const normalizedUrl = mapsUrl.trim();
+    if (!normalizedUrl || resolvingMaps) return;
+    setResolvingMaps(true);
+    setMapsError(false);
+    setMapsMessage(automatic ? 'Identificando o ponto deste link...' : 'Buscando coordenadas no Google Maps...');
+    try {
+      const accessToken = await token();
+      const response = await fetch('/api/store/portal/autocar/resolve-maps-location', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ slug, maps_url: normalizedUrl })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Não foi possível identificar a localização.');
+
+      if (mapsUrlRef.current.trim() !== normalizedUrl) return;
+      setProfile((current) => {
+        if (current.maps_url.trim() !== normalizedUrl) return current;
+        return {
+          ...current,
+          latitude: result.latitude,
+          longitude: result.longitude
+        };
+      });
+      setMapsMessage('Localização identificada. As coordenadas serão salvas com o perfil.');
+    } catch (error: any) {
+      setMapsError(true);
+      setMapsMessage(error?.message || 'Não foi possível identificar a localização neste link.');
+    } finally {
+      setResolvingMaps(false);
+    }
+  }
 
   function setDay(key: string, open: string, close: string, closed = false) {
     setProfile((current) => ({
@@ -209,7 +267,7 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
           <h2 className="mt-2 text-2xl font-black text-zinc-950">Horários e localização</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">A AUTOCAR usa estes dados para responder horário, validar visitas e fornecer localização. Campo vazio significa informação não configurada — a IA não deve inventar.</p>
         </div>
-        <button type="button" onClick={() => void save()} disabled={!canManage || saving || loading} className="premium-button-primary shrink-0 disabled:opacity-50">
+        <button type="button" onClick={() => void save()} disabled={!canManage || saving || loading || resolvingMaps} className="premium-button-primary shrink-0 disabled:opacity-50">
           {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Salvar perfil
         </button>
       </div>
@@ -227,10 +285,38 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
                 <input className="premium-input" placeholder="UF" value={profile.state || ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, state: event.target.value })} />
                 <input className="premium-input" placeholder="CEP" value={profile.postal_code || ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, postal_code: event.target.value })} />
                 <input className="premium-input" placeholder="Fuso horário IANA" value={profile.timezone || ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, timezone: event.target.value })} />
-                <input className="premium-input" placeholder="Latitude" value={profile.latitude ?? ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, latitude: event.target.value })} />
-                <input className="premium-input" placeholder="Longitude" value={profile.longitude ?? ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, longitude: event.target.value })} />
-                <p className="md:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold leading-relaxed text-amber-800">Para enviar o pin nativo no WhatsApp, informe latitude e longitude reais. O link do Maps sozinho não substitui as coordenadas, e o ponto 0,0 é bloqueado por segurança.</p>
-                <input type="url" className="premium-input md:col-span-2" placeholder="Link Google Maps (HTTPS)" value={profile.maps_url || ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, maps_url: event.target.value })} />
+                <div className="flex gap-2 md:col-span-2">
+                  <input
+                    type="url"
+                    className="premium-input min-w-0 flex-1"
+                    placeholder="Cole o link compartilhado pelo Google Maps"
+                    value={profile.maps_url || ''}
+                    disabled={!canManage}
+                    onChange={(event) => {
+                      const mapsUrl = event.target.value;
+                      mapsUrlRef.current = mapsUrl;
+                      setProfile((current) => ({ ...current, maps_url: mapsUrl, latitude: '', longitude: '' }));
+                      setMapsMessage(mapsUrl ? 'Ao sair do campo, o sistema identificará a localização.' : '');
+                      setMapsError(false);
+                    }}
+                    onBlur={(event) => void resolveMapsLocation(event.currentTarget.value)}
+                  />
+                  <button
+                    type="button"
+                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    title="Identificar localização"
+                    aria-label="Identificar localização pelo link do Google Maps"
+                    disabled={!canManage || resolvingMaps || !profile.maps_url.trim()}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => void resolveMapsLocation(profile.maps_url)}
+                  >
+                    {resolvingMaps ? <Loader2 size={17} className="animate-spin" /> : <LocateFixed size={17} />}
+                  </button>
+                </div>
+                {mapsMessage ? <p aria-live="polite" className={`md:col-span-2 rounded-xl border px-3 py-2 text-[10px] font-bold leading-relaxed ${mapsError ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>{mapsMessage}</p> : null}
+                <input className="premium-input bg-zinc-50" aria-label="Latitude automática" placeholder="Latitude automática" value={profile.latitude ?? ''} readOnly />
+                <input className="premium-input bg-zinc-50" aria-label="Longitude automática" placeholder="Longitude automática" value={profile.longitude ?? ''} readOnly />
+                <p className="md:col-span-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[10px] font-bold leading-relaxed text-zinc-600">Cole o link do local exato e o sistema preencherá as coordenadas automaticamente. Um link sem pin identificável não será salvo como localização oficial.</p>
                 <input type="url" className="premium-input md:col-span-2" placeholder="Link Waze (HTTPS)" value={profile.waze_url || ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, waze_url: event.target.value })} />
               </div>
             </div>

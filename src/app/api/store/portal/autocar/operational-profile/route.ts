@@ -6,6 +6,8 @@ import {
   saveAutocarOperationalProfile
 } from '@/lib/server/autocar/operationalProfile';
 import { getAutocarRuntimePublicStatus } from '@/lib/server/autocar/runtimeEnvironment';
+import { resolveGoogleMapsCoordinates } from '@/lib/server/googleMapsLocation';
+import { publicError } from '@/lib/server/requestSecurity';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -82,10 +84,19 @@ export async function POST(request: Request) {
       );
     }
 
+    const payload = body?.profile && typeof body.profile === 'object' ? { ...body.profile } : {};
+    const mapsUrl = cleanText(payload.maps_url, 2_048);
+    if (mapsUrl) {
+      const coordinates = await resolveGoogleMapsCoordinates(mapsUrl);
+      payload.maps_url = mapsUrl;
+      payload.latitude = coordinates.latitude;
+      payload.longitude = coordinates.longitude;
+    }
+
     const profile = await saveAutocarOperationalProfile({
       store: context.store,
       profileId: context.profile.id,
-      payload: body?.profile && typeof body.profile === 'object' ? body.profile : {}
+      payload
     });
     const runtimeStatus = await getAutocarRuntimePublicStatus();
 
@@ -96,10 +107,11 @@ export async function POST(request: Request) {
       runtime: runtimeStatus,
       profile
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const response = publicError(error, 'Não foi possível salvar o Perfil Operacional.');
     return NextResponse.json(
-      { error: error?.message || 'Não foi possível salvar o Perfil Operacional.' },
-      { status: 500 }
+      { error: response.message },
+      { status: response.status }
     );
   }
 }
