@@ -24,6 +24,7 @@ import {
 import { MasterSidebar } from '@/components/MasterSidebar';
 import MasterWhatsappCommerceActions from '@/components/MasterWhatsappCommerceActions';
 import { WhatsappMediaMessage } from '@/components/WhatsappMediaMessage';
+import { apiErrorMessage } from '@/lib/client/apiErrorMessage';
 import { createClient } from '@/lib/supabase';
 
 type QueueFilter = 'all' | 'unread' | 'priority' | 'leads' | 'urgent';
@@ -201,7 +202,7 @@ export default function MasterWhatsappInboxPage() {
     if (conversationId) params.set('conversation_id', conversationId);
     const response = await fetch(`/api/master/whatsapp/inbox?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Não foi possível carregar Inbox WhatsApp.');
+    if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível carregar Inbox WhatsApp.'));
     return result;
   }
 
@@ -211,7 +212,8 @@ export default function MasterWhatsappInboxPage() {
       const firstResult = await fetchInbox(preferredConversationId || selectedId);
       if (!firstResult) return;
       setConversations(firstResult.conversations || []);
-      const nextSelectedId = preferredConversationId || selectedId || firstResult.conversations?.[0]?.id || '';
+      const resolvedSelectedId = String(firstResult.selected_conversation_id || '');
+      const nextSelectedId = resolvedSelectedId || preferredConversationId || selectedId || firstResult.conversations?.[0]?.id || '';
       setSelectedId(nextSelectedId);
       if (nextSelectedId && !firstResult.selected_conversation_id) {
         const secondResult = await fetchInbox(nextSelectedId);
@@ -231,9 +233,10 @@ export default function MasterWhatsappInboxPage() {
   async function markRead(conversationId = selectedId) {
     const token = await getAuthToken();
     if (!token || !conversationId) return;
-    const response = await fetch('/api/master/whatsapp/inbox', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ action: 'mark-read', conversation_id: conversationId }) });
+    const relatedConversationIds = conversations.find((conversation) => conversation.id === conversationId)?.related_conversation_ids || [conversationId];
+    const response = await fetch('/api/master/whatsapp/inbox', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ action: 'mark-read', conversation_id: conversationId, related_conversation_ids: relatedConversationIds }) });
     const result = await response.json();
-    if (!response.ok) { setStatusMessage(result.error || 'Não foi possível marcar como lida.'); return; }
+    if (!response.ok) { setStatusMessage(apiErrorMessage(result, 'Não foi possível marcar como lida.')); return; }
     await loadData(conversationId);
   }
 
@@ -254,7 +257,7 @@ export default function MasterWhatsappInboxPage() {
       if (!token) return;
       const response = await fetch('/api/store/portal/pipeline/actions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ command: 'change_stage', slug: storeSlug, lead_id: leadId, target_status: targetStatus }) });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Não foi possível alterar a etapa da Pipeline.');
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível alterar a etapa da Pipeline.'));
       setStatusMessage(result.message || `Lead movido para ${targetStage.label}.`);
       await loadData(selectedId);
     } catch (error: any) { setStatusMessage(error?.message || 'Erro ao alterar a etapa da Pipeline.'); }
@@ -272,7 +275,7 @@ export default function MasterWhatsappInboxPage() {
       if (!token) return;
       const response = await fetch('/api/whatsapp/messages/send', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ conversation_id: selectedId, body }) });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Não foi possível enviar mensagem.');
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível enviar mensagem.'));
       setMessageText('');
       setStatusMessage('Mensagem enviada.');
       await loadData(selectedId);

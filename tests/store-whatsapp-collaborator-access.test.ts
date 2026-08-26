@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  canUseStoreWhatsapp,
   canAccessStoreConversation,
+  isOperationalStorePortal,
   type StorePortalRole
 } from '../src/lib/server/storePortal.ts';
 import {
   publicWhatsappNumber,
   resolveEvolutionAvailability
 } from '../src/lib/server/storeWhatsappChannel.ts';
+import { canSubscribeStoreWideWhatsappRealtime } from '../src/lib/storeWhatsappRealtimeAccess.ts';
 
 const storeId = '239755c3-a2d4-4cdd-9502-f1595031c924';
 const assignedUserId = 'collaborator-a';
@@ -36,8 +39,26 @@ for (const role of ['pre_sales', 'seller', 'prospector'] satisfies StorePortalRo
       ),
       false
     );
+    assert.equal(
+      canAccessStoreConversation(
+        profile,
+        role,
+        conversation,
+        { ...assignedLead, assigned_user_id: null }
+      ),
+      false
+    );
   });
 }
+
+test('somente Master e gestor assinam eventos Realtime amplos da loja', () => {
+  assert.equal(canSubscribeStoreWideWhatsappRealtime('master'), true);
+  assert.equal(canSubscribeStoreWideWhatsappRealtime('store'), true);
+  assert.equal(canSubscribeStoreWideWhatsappRealtime('pre_sales'), false);
+  assert.equal(canSubscribeStoreWideWhatsappRealtime('seller'), false);
+  assert.equal(canSubscribeStoreWideWhatsappRealtime('prospector'), false);
+  assert.equal(canSubscribeStoreWideWhatsappRealtime(undefined), false);
+});
 
 test('Gestor acessa as conversas da própria loja e não cruza tenant', () => {
   assert.equal(
@@ -48,6 +69,32 @@ test('Gestor acessa as conversas da própria loja e não cruza tenant', () => {
     canAccessStoreConversation({ id: 'manager', store_id: 'other-store' }, 'store', conversation, null),
     false
   );
+});
+
+function storeLookup(store: any, error: any = null) {
+  const query: any = {
+    select() { return query; },
+    eq() { return query; },
+    async maybeSingle() { return { data: store, error }; }
+  };
+  return { from() { return query; } };
+}
+
+test('WhatsApp da loja exige portal ativo e publicado para papéis não-Master', async () => {
+  const manager = { id: 'manager', role: 'store', store_id: storeId };
+  assert.equal(isOperationalStorePortal({ status: 'active', portal_enabled: true }), true);
+  assert.equal(isOperationalStorePortal({ status: 'inactive', portal_enabled: true }), false);
+  assert.equal(isOperationalStorePortal({ status: 'active', portal_enabled: false }), false);
+  assert.equal(await canUseStoreWhatsapp(storeLookup({ id: storeId, status: 'active', portal_enabled: true }), manager, storeId), true);
+  assert.equal(await canUseStoreWhatsapp(storeLookup({ id: storeId, status: 'inactive', portal_enabled: true }), manager, storeId), false);
+  assert.equal(await canUseStoreWhatsapp(storeLookup({ id: storeId, status: 'active', portal_enabled: false }), manager, storeId), false);
+  assert.equal(await canUseStoreWhatsapp(storeLookup(null), manager, storeId), false);
+  assert.equal(await canUseStoreWhatsapp(storeLookup({ id: storeId, status: 'active', portal_enabled: true }), manager, 'other-store'), false);
+});
+
+test('Master central não é convertido indevidamente em usuário de uma loja', async () => {
+  const forbiddenLookup = { from() { throw new Error('Master central não deve consultar lifecycle de loja.'); } };
+  assert.equal(await canUseStoreWhatsapp(forbiddenLookup, { id: 'master', role: 'master', store_id: null }, null), true);
 });
 
 test('estado live conectado prevalece sobre status Evolution antigo connecting', () => {

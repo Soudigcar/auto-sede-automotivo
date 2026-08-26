@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { evolutionRequest } from '@/lib/server/evolution';
-import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import { asStorePortalRole, canAccessStoreLead, canUseStoreWhatsapp } from '@/lib/server/storePortal';
+import { whatsappMediaResponsePolicy, type WhatsappMediaType } from '@/lib/server/whatsappMediaSafety';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -99,9 +100,13 @@ export async function GET(request: Request) {
       lead = data;
     }
     if (!canAccessMessage(profile, message, lead)) return NextResponse.json({ error: 'Mensagem não encontrada ou sem permissão.' }, { status: 404 });
+    if (!(await canUseStoreWhatsapp(supabase, profile, message.store_id))) {
+      return NextResponse.json({ error: 'Portal da loja indisponível ou desativado.' }, { status: 404 });
+    }
 
     const messageType = String(message.message_type || '').toLowerCase();
     if (!SUPPORTED_MEDIA_TYPES.has(messageType)) return NextResponse.json({ error: 'Esta mensagem não possui mídia compatível.' }, { status: 415 });
+    const safeMessageType = messageType as WhatsappMediaType;
 
     const { data: integration, error: integrationError } = await supabase.from('store_whatsapp_integrations').select('instance_name, status, provider').eq('crm_number_id', message.whatsapp_number_id).maybeSingle();
     if (integrationError) return NextResponse.json({ error: integrationError.message }, { status: 400 });
@@ -118,17 +123,22 @@ export async function GET(request: Request) {
     if (!base64) return NextResponse.json({ error: 'A Evolution não retornou o conteúdo desta mídia.' }, { status: 502 });
 
     const source = mediaPayload(evolutionMessage, messageType) || {};
-    const mime = String(result?.mimetype || result?.data?.mimetype || source?.mimetype || fallbackMime(messageType));
+    const providerMime = result?.mimetype || result?.data?.mimetype || source?.mimetype || fallbackMime(messageType);
+    const responsePolicy = whatsappMediaResponsePolicy(safeMessageType, providerMime, download);
+    if (!responsePolicy) {
+      return NextResponse.json({ error: 'O formato desta mídia foi bloqueado por segurança.' }, { status: 415 });
+    }
     const filename = sanitizeFilename(source?.fileName || source?.title || (messageType === 'document' ? message.body : `${messageType}-${message.id}`));
     const buffer = Buffer.from(base64, 'base64');
 
     return new NextResponse(buffer, {
       status: 200,
       headers: {
-        'Content-Type': mime,
+        'Content-Type': responsePolicy.contentType,
         'Content-Length': String(buffer.byteLength),
-        'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${filename}"`,
-        'Cache-Control': 'private, max-age=300'
+        'Content-Disposition': `${responsePolicy.disposition}; filename="${filename}"`,
+        'Cache-Control': 'private, max-age=300',
+        'X-Content-Type-Options': 'nosniff'
       }
     });
   } catch (error: any) {

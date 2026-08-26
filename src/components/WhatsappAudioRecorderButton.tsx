@@ -3,6 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Mic, Pause, Play, RotateCcw, Send, Square, Trash2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import { apiErrorMessage } from '@/lib/client/apiErrorMessage';
+import {
+  microphoneAccessErrorMessage,
+  type MicrophonePermissionState
+} from '@/lib/client/microphoneAccessError';
 
 const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
 const MAX_RECORDING_SECONDS = 5 * 60;
@@ -26,6 +31,16 @@ function extensionFor(mimeType: string) {
   if (mimeType.includes('ogg')) return 'ogg';
   if (mimeType.includes('mpeg')) return 'mp3';
   return 'webm';
+}
+
+async function microphonePermissionState(): Promise<MicrophonePermissionState> {
+  if (!navigator.permissions?.query) return 'unsupported';
+  try {
+    const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+    return result.state;
+  } catch {
+    return 'unknown';
+  }
 }
 
 export function WhatsappAudioRecorderButton({
@@ -165,8 +180,12 @@ export function WhatsappAudioRecorderButton({
       stopTracks();
       clearTimer();
       setState('idle');
-      const denied = error?.name === 'NotAllowedError' || error?.name === 'SecurityError';
-      onStatus(denied ? 'Permissão do microfone negada. Libere o microfone nas configurações do navegador.' : 'Não foi possível acessar o microfone. Verifique se ele está disponível.');
+      const permissionState = await microphonePermissionState();
+      console.warn('[WhatsApp audio recorder] microphone unavailable', {
+        error_type: error instanceof Error ? error.name : 'unknown',
+        permission_state: permissionState
+      });
+      onStatus(microphoneAccessErrorMessage(error, permissionState));
     }
   }
 
@@ -214,13 +233,13 @@ export function WhatsappAudioRecorderButton({
         body: form
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Não foi possível enviar o áudio.');
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível enviar o áudio.'));
       reset();
       onStatus('Áudio enviado com sucesso.');
       await onRefresh();
     } catch (error: any) {
       setState('preview');
-      onStatus(error?.message || 'Erro ao enviar áudio pelo WhatsApp.');
+      onStatus(apiErrorMessage(error, 'Erro ao enviar áudio pelo WhatsApp.'));
     }
   }
 

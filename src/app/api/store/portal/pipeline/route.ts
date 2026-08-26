@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { calculateResponseTimes, responseByLeadId } from '@/lib/commercialMetrics';
 import { cleanText } from '@/lib/server/storeTeam';
 import { applyStoreLeadScope, authorizeStorePortal, storeVisibleLeadOrigin } from '@/lib/server/storePortal';
+import { whatsappCustomerDisplayName } from '@/lib/server/whatsappCustomerIdentity';
 
 export const runtime = 'nodejs';
 
@@ -63,6 +64,7 @@ export async function GET(request: Request) {
     let conversationRows: any[] = [];
     let messageRows: any[] = [];
     let contactRows: any[] = [];
+    let whatsappBusinessNames: unknown[] = [context.store.store_name];
     let whatsappEnrichment: 'ready' | 'degraded' = 'ready';
     let whatsappWarning: string | null = null;
 
@@ -96,12 +98,22 @@ export async function GET(request: Request) {
       if (contactIds.length) {
         const contactsResult = await context.supabase
           .from('whatsapp_contacts')
-          .select('id,metadata')
+          .select('id,profile_name,phone,metadata')
           .eq('store_id', context.store.id)
           .in('id', contactIds);
         if (contactsResult.error) throw contactsResult.error;
         contactRows = contactsResult.data || [];
       }
+
+      const integrationResult = await context.supabase
+        .from('store_whatsapp_integrations')
+        .select('profile_name')
+        .eq('store_id', context.store.id)
+        .eq('scope', 'store')
+        .limit(1)
+        .maybeSingle();
+      if (integrationResult.error) throw integrationResult.error;
+      whatsappBusinessNames = [context.store.store_name, integrationResult.data?.profile_name];
     } catch (whatsappError: any) {
       whatsappEnrichment = 'degraded';
       whatsappWarning = 'Os leads foram carregados, mas o enriquecimento do WhatsApp está temporariamente indisponível.';
@@ -133,6 +145,13 @@ export async function GET(request: Request) {
 
       return {
         ...lead,
+        customer_name: conversation
+          ? whatsappCustomerDisplayName(
+              [contact?.profile_name, lead.customer_name],
+              lead.customer_phone || contact?.phone,
+              whatsappBusinessNames
+            )
+          : lead.customer_name,
         origin: storeVisibleLeadOrigin(lead.origin),
         customer_phone: null,
         customer_phone_masked: maskPhone(lead.customer_phone),

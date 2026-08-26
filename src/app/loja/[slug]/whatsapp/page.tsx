@@ -34,6 +34,7 @@ import { createClient } from '@/lib/supabase';
 import WhatsappCommerceActions from '@/components/WhatsappCommerceActions';
 import { WhatsappAttachmentButton } from '@/components/WhatsappAttachmentButton';
 import { WhatsappMediaMessage } from '@/components/WhatsappMediaMessage';
+import { apiErrorMessage } from '@/lib/client/apiErrorMessage';
 
 const pipelineStages = [
   { key: 'new_lead', label: 'Novo Lead Recebido', secureFlow: false },
@@ -156,6 +157,16 @@ function channelStatus(conversation: any) {
   return conversation?.number?.is_active ? 'WhatsApp ativo' : 'WhatsApp desconectado';
 }
 
+class InboxRequestError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'InboxRequestError';
+    this.status = status;
+  }
+}
+
 export default function StoreWhatsappPage() {
   const supabase = createClient();
   const params = useParams();
@@ -183,6 +194,7 @@ export default function StoreWhatsappPage() {
   const [autocarAction, setAutocarAction] = useState(false);
   const [autocarError, setAutocarError] = useState('');
   const autocarRequestRef = useRef('');
+  const inboxRequestRef = useRef(0);
 
   async function getAuthToken() {
     const { data } = await supabase.auth.getSession();
@@ -215,7 +227,7 @@ export default function StoreWhatsappPage() {
         cache: 'no-store'
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Não foi possível consultar a AUTOCAR desta conversa.');
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível consultar a AUTOCAR desta conversa.'));
       if (autocarRequestRef.current !== conversationId) return;
       setAutocarRuntime(result.runtime || null);
       setAutocarCanTakeOver(result.can_take_over === true);
@@ -223,7 +235,7 @@ export default function StoreWhatsappPage() {
       if (autocarRequestRef.current !== conversationId) return;
       setAutocarRuntime(null);
       setAutocarCanTakeOver(false);
-      setAutocarError(error?.message || 'Não foi possível consultar a AUTOCAR desta conversa.');
+      setAutocarError(apiErrorMessage(error, 'Não foi possível consultar a AUTOCAR desta conversa.'));
     } finally {
       if (autocarRequestRef.current === conversationId) setAutocarLoading(false);
     }
@@ -243,14 +255,14 @@ export default function StoreWhatsappPage() {
         body: JSON.stringify({ slug, conversation_id: conversationId, action: 'human-active' })
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Não foi possível assumir esta conversa.');
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível assumir esta conversa.'));
       if (autocarRequestRef.current !== conversationId) return;
       setAutocarRuntime(result.runtime || null);
       setAutocarError('');
       setStatusMessage('Atendimento humano assumido. A AUTOCAR foi pausada somente nesta conversa.');
     } catch (error: any) {
       if (autocarRequestRef.current !== conversationId) return;
-      setStatusMessage(error?.message || 'Não foi possível assumir esta conversa.');
+      setStatusMessage(apiErrorMessage(error, 'Não foi possível assumir esta conversa.'));
     } finally {
       setAutocarAction(false);
     }
@@ -261,36 +273,82 @@ export default function StoreWhatsappPage() {
     if (!token) return null;
     const params = new URLSearchParams({ slug });
     if (conversationId) params.set('conversation_id', conversationId);
-    const response = await fetch(`/api/store-whatsapp?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Não foi possível carregar WhatsApp.');
+    const response = await fetch(`/api/store-whatsapp?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store'
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new InboxRequestError(apiErrorMessage(result, 'Não foi possível carregar WhatsApp.'), response.status);
+    }
     return result;
   }
 
   async function loadData(preferredConversationId?: string) {
+    const requestId = ++inboxRequestRef.current;
+    const requestedConversationId = preferredConversationId || selectedId;
     setLoading(true);
+    setStatusMessage('');
     try {
-      const firstResult = await fetchInbox(preferredConversationId || selectedId);
-      if (!firstResult) return;
+      const firstResult = await fetchInbox(requestedConversationId);
+      if (!firstResult || requestId !== inboxRequestRef.current) return;
       setStore(firstResult.store);
       setConversations(firstResult.conversations || []);
-      const nextSelectedId = preferredConversationId || selectedId || firstResult.conversations?.[0]?.id || '';
+      const resolvedSelectedId = String(firstResult.selected_conversation_id || '');
+      const nextSelectedId = resolvedSelectedId || requestedConversationId || firstResult.conversations?.[0]?.id || '';
       setSelectedId(nextSelectedId);
       if (nextSelectedId && !firstResult.selected_conversation_id) {
         const secondResult = await fetchInbox(nextSelectedId);
-        if (secondResult) {
+        if (secondResult && requestId === inboxRequestRef.current) {
           setConversations(secondResult.conversations || []);
           setMessages(secondResult.messages || []);
+          setSelectedId(String(secondResult.selected_conversation_id || nextSelectedId));
         }
-      } else {
+      } else if (requestId === inboxRequestRef.current) {
         setMessages(firstResult.messages || []);
       }
+      if (requestId !== inboxRequestRef.current) return;
       setStatusMessage(firstResult.conversations?.length ? '' : 'Nenhuma conversa recebida ainda.');
       void loadAutocarRuntime(nextSelectedId);
     } catch (error: any) {
-      setStatusMessage(error?.message || 'Erro ao carregar conversas.');
+      if (requestId !== inboxRequestRef.current) return;
+
+      if (error instanceof InboxRequestError && error.status === 404 && requestedConversationId) {
+        try {
+          const fallbackList = await fetchInbox();
+          if (!fallbackList || requestId !== inboxRequestRef.current) return;
+          const fallbackId = String(fallbackList.conversations?.[0]?.id || '');
+          const fallbackResult = fallbackId ? await fetchInbox(fallbackId) : fallbackList;
+          if (!fallbackResult || requestId !== inboxRequestRef.current) return;
+
+          setStore(fallbackResult.store || fallbackList.store);
+          setConversations(fallbackResult.conversations || fallbackList.conversations || []);
+          setSelectedId(fallbackId);
+          setMessages(fallbackResult.messages || []);
+          setStatusMessage(
+            fallbackId
+              ? 'A conversa anterior não está mais disponível para este acesso. Exibindo a conversa mais recente da sua carteira.'
+              : 'Nenhuma conversa disponível para este acesso.'
+          );
+          void loadAutocarRuntime(fallbackId);
+          return;
+        } catch (fallbackError: any) {
+          if (requestId !== inboxRequestRef.current) return;
+          setConversations([]);
+          setSelectedId('');
+          setMessages([]);
+          setStatusMessage(apiErrorMessage(fallbackError, apiErrorMessage(error, 'Erro ao carregar conversas.')));
+          return;
+        }
+      }
+
+      setConversations([]);
+      setSelectedId('');
+      setMessages([]);
+      setStatusMessage(apiErrorMessage(error, 'Erro ao carregar conversas.'));
+    } finally {
+      if (requestId === inboxRequestRef.current) setLoading(false);
     }
-    setLoading(false);
   }
 
   async function selectConversation(conversationId: string) {
@@ -308,14 +366,19 @@ export default function StoreWhatsappPage() {
       const response = await fetch('/api/store-whatsapp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: 'mark-read', slug, conversation_id: selectedId })
+        body: JSON.stringify({
+          action: 'mark-read',
+          slug,
+          conversation_id: selectedId,
+          related_conversation_ids: selectedConversation?.related_conversation_ids || [selectedId]
+        })
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Não foi possível marcar como lida.');
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível marcar como lida.'));
       setStatusMessage('Conversa marcada como lida.');
       await loadData(selectedId);
     } catch (error: any) {
-      setStatusMessage(error?.message || 'Erro ao marcar conversa como lida.');
+      setStatusMessage(apiErrorMessage(error, 'Erro ao marcar conversa como lida.'));
     }
   }
 
@@ -344,12 +407,12 @@ export default function StoreWhatsappPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ command: 'change_stage', slug, lead_id: leadId, target_status: targetStatus })
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Não foi possível alterar a etapa da Pipeline.');
-      setStatusMessage(result.message || `Lead movido para ${targetStage.label}.`);
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível alterar a etapa da Pipeline.'));
+      setStatusMessage(apiErrorMessage(result?.message, `Lead movido para ${targetStage.label}.`));
       await loadData(selectedId);
     } catch (error: any) {
-      setStatusMessage(error?.message || 'Erro ao alterar a etapa da Pipeline.');
+      setStatusMessage(apiErrorMessage(error, 'Erro ao alterar a etapa da Pipeline.'));
     } finally {
       setStageUpdating(false);
     }
@@ -369,13 +432,13 @@ export default function StoreWhatsappPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ conversation_id: selectedId, body })
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Não foi possível enviar mensagem.');
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível enviar mensagem.'));
       setMessageText('');
       setStatusMessage('Mensagem enviada.');
       await loadData(selectedId);
     } catch (error: any) {
-      setStatusMessage(error?.message || 'Erro ao enviar mensagem.');
+      setStatusMessage(apiErrorMessage(error, 'Erro ao enviar mensagem.'));
     }
     setSending(false);
   }
@@ -385,6 +448,9 @@ export default function StoreWhatsappPage() {
     const requestedConversationId = String(searchParams.get('conversation_id') || '').trim();
 
     void loadData(requestedConversationId || undefined);
+    return () => {
+      inboxRequestRef.current += 1;
+    };
   }, [slug]);
 
   const selectedConversation = useMemo(() => conversations.find((conversation) => conversation.id === selectedId) || null, [conversations, selectedId]);

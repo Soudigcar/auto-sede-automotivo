@@ -19,6 +19,18 @@ export type EvolutionWebhookConfig = {
   events: string[];
 };
 
+export class EvolutionApiError extends Error {
+  readonly status: number;
+  readonly operation: string;
+
+  constructor(message: string, status: number, operation: string) {
+    super(message);
+    this.name = 'EvolutionApiError';
+    this.status = status;
+    this.operation = operation;
+  }
+}
+
 function requiredEnvironment(name: string) {
   const value = String(process.env[name] || '').trim();
   if (!value) throw new Error(`Variável privada ${name} não configurada no servidor.`);
@@ -47,19 +59,95 @@ export function evolutionWebhookUrl() {
   return requiredEnvironment('EVOLUTION_WEBHOOK_URL').replace(/\/$/, '');
 }
 
-function safeErrorMessage(result: any, status: number) {
-  const candidate =
-    result?.response?.message ||
-    result?.message ||
-    result?.error ||
-    `Evolution API respondeu com HTTP ${status}.`;
-
-  if (Array.isArray(candidate)) return candidate.map(String).join(', ').slice(0, 500);
-  if (typeof candidate === 'object') return `Evolution API respondeu com HTTP ${status}.`;
-  return String(candidate).slice(0, 500);
+function sanitizeProviderMessage(value: unknown) {
+  return String(value || '')
+    .replace(/https?:\/\/\S+/gi, '[url]')
+    .replace(/\b\d{8,}\b/g, '[número]')
+    .trim()
+    .slice(0, 500);
 }
 
-async function parseEvolutionResponse(response: Response) {
+function providerMessages(value: unknown, depth = 0, seen = new Set<object>()): string[] {
+  if (depth > 5 || value === null || value === undefined) return [];
+  if (typeof value === 'string') {
+    const message = sanitizeProviderMessage(value);
+    return message && message !== '[object Object]' ? [message] : [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => providerMessages(item, depth + 1, seen));
+  }
+  if (typeof value !== 'object') return [];
+  if (seen.has(value)) return [];
+  seen.add(value);
+
+  const record = value as Record<string, unknown>;
+  if (record.exists === false) {
+    return ['O número informado não foi encontrado no WhatsApp.'];
+  }
+
+  const messages: string[] = [];
+  for (const key of ['response', 'message', 'detail', 'description', 'reason', 'constraints', 'errors', 'error']) {
+    if (!(key in record)) continue;
+    if (key === 'constraints' && record[key] && typeof record[key] === 'object' && !Array.isArray(record[key])) {
+      for (const constraint of Object.values(record[key] as Record<string, unknown>)) {
+        messages.push(...providerMessages(constraint, depth + 1, seen));
+      }
+      continue;
+    }
+    messages.push(...providerMessages(record[key], depth + 1, seen));
+  }
+  return messages;
+}
+
+function providerReason(value: unknown, depth = 0, seen = new Set<object>()): string {
+  if (depth > 5 || !value || typeof value !== 'object') return '';
+  if (seen.has(value)) return '';
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const reason = providerReason(item, depth + 1, seen);
+      if (reason) return reason;
+    }
+    return '';
+  }
+  const record = value as Record<string, unknown>;
+  if (record.exists === false) return 'recipient_not_found';
+  for (const item of Object.values(record)) {
+    const reason = providerReason(item, depth + 1, seen);
+    if (reason) return reason;
+  }
+  return '';
+}
+
+function evolutionOperation(path: string) {
+  return path
+    .split('?')[0]
+    .split('/')
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('/');
+}
+
+export function evolutionErrorMessage(result: unknown, status: number) {
+  const messages = [...new Set(providerMessages(result))]
+    .filter((message) => !/^Bad Request$/i.test(message));
+  return messages.join(' ').slice(0, 500) || `Evolution API respondeu com HTTP ${status}.`;
+}
+
+function evolutionTransportError(error: unknown, path: string) {
+  const operation = evolutionOperation(path);
+  const name = error instanceof Error ? error.name : '';
+  const timeout = name === 'TimeoutError' || name === 'AbortError';
+  const status = timeout ? 504 : 503;
+  const message = timeout
+    ? 'A Evolution API não respondeu dentro do tempo limite.'
+    : 'Não foi possível conectar à Evolution API.';
+
+  console.error('[Evolution API] transport failure', { operation, status, error_type: name || 'unknown' });
+  return new EvolutionApiError(message, status, operation);
+}
+
+async function parseEvolutionResponse(response: Response, path: string) {
   const raw = await response.text();
   let result: any = {};
 
@@ -72,39 +160,56 @@ async function parseEvolutionResponse(response: Response) {
   }
 
   if (!response.ok) {
-    throw new Error(safeErrorMessage(result, response.status));
+    const operation = evolutionOperation(path);
+    const message = evolutionErrorMessage(result, response.status);
+    console.error('[Evolution API] request rejected', {
+      operation,
+      status: response.status,
+      reason: providerReason(result) || 'provider_rejected'
+    });
+    throw new EvolutionApiError(message, response.status, operation);
   }
 
   return result;
 }
 
 export async function evolutionRequest(path: string, options: EvolutionRequestOptions = {}) {
-  const response = await fetch(`${evolutionBaseUrl()}${path}`, {
-    method: options.method || 'GET',
-    headers: {
-      apikey: evolutionApiKey(),
-      'Content-Type': 'application/json'
-    },
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(EVOLUTION_TIMEOUT_MS)
-  });
+  try {
+    const response = await fetch(`${evolutionBaseUrl()}${path}`, {
+      method: options.method || 'GET',
+      headers: {
+        apikey: evolutionApiKey(),
+        'Content-Type': 'application/json'
+      },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(EVOLUTION_TIMEOUT_MS)
+    });
 
-  return parseEvolutionResponse(response);
+    return parseEvolutionResponse(response, path);
+  } catch (error) {
+    if (error instanceof EvolutionApiError) throw error;
+    throw evolutionTransportError(error, path);
+  }
 }
 
 export async function evolutionMultipartRequest(path: string, body: FormData) {
-  const response = await fetch(`${evolutionBaseUrl()}${path}`, {
-    method: 'POST',
-    headers: {
-      apikey: evolutionApiKey()
-    },
-    body,
-    cache: 'no-store',
-    signal: AbortSignal.timeout(EVOLUTION_TIMEOUT_MS)
-  });
+  try {
+    const response = await fetch(`${evolutionBaseUrl()}${path}`, {
+      method: 'POST',
+      headers: {
+        apikey: evolutionApiKey()
+      },
+      body,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(EVOLUTION_TIMEOUT_MS)
+    });
 
-  return parseEvolutionResponse(response);
+    return parseEvolutionResponse(response, path);
+  } catch (error) {
+    if (error instanceof EvolutionApiError) throw error;
+    throw evolutionTransportError(error, path);
+  }
 }
 
 export function evolutionInstanceName(scopeKey: string) {

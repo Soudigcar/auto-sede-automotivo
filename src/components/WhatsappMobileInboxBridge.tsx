@@ -10,6 +10,7 @@ import WhatsappCommerceActions from '@/components/WhatsappCommerceActions';
 import MasterWhatsappCommerceActions from '@/components/MasterWhatsappCommerceActions';
 import { WhatsappAudioRecorderButton } from '@/components/WhatsappAudioRecorderButton';
 import { WhatsappLocationButton } from '@/components/WhatsappLocationButton';
+import { apiErrorMessage } from '@/lib/client/apiErrorMessage';
 
 const STORE_PATH = /^\/loja\/([^/]+)\/whatsapp\/?$/;
 const MASTER_PATH = '/master/whatsapp/inbox';
@@ -100,6 +101,16 @@ function channelLabel(conversation: any) {
   return conversation?.number?.label || 'WhatsApp';
 }
 
+class MobileInboxRequestError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'MobileInboxRequestError';
+    this.status = status;
+  }
+}
+
 export function WhatsappMobileInboxBridge() {
   const pathname = usePathname() || '';
   const storeMatch = pathname.match(STORE_PATH);
@@ -120,6 +131,7 @@ export function WhatsappMobileInboxBridge() {
   const [stageUpdating, setStageUpdating] = useState(false);
   const [autocarRuntime, setAutocarRuntime] = useState<any>(null);
   const [autocarCanTakeOver, setAutocarCanTakeOver] = useState(false);
+  const [autocarError, setAutocarError] = useState('');
   const [autocarLoading, setAutocarLoading] = useState(false);
   const [autocarAction, setAutocarAction] = useState(false);
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
@@ -127,6 +139,8 @@ export function WhatsappMobileInboxBridge() {
   const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState('');
   const [attachmentSending, setAttachmentSending] = useState(false);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const autocarRequestRef = useRef('');
+  const inboxRequestRef = useRef(0);
 
   useEffect(() => {
     if (!attachmentFile || !attachmentFile.type.toLowerCase().startsWith('image/')) {
@@ -158,27 +172,33 @@ export function WhatsappMobileInboxBridge() {
   }
 
   async function loadAutocar(conversationId: string) {
+    autocarRequestRef.current = conversationId;
     if (mode !== 'store' || !conversationId) {
       setAutocarRuntime(null);
       setAutocarCanTakeOver(false);
+      setAutocarError('');
       return;
     }
     setAutocarLoading(true);
+    setAutocarError('');
     try {
       const accessToken = await token();
       if (!accessToken) return;
       const query = new URLSearchParams({ slug, conversation_id: conversationId });
       const response = await fetch(`/api/store/portal/autocar/runtime?${query.toString()}`, { headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store' });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'AUTOCAR indisponível.');
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'AUTOCAR indisponível.'));
+      if (autocarRequestRef.current !== conversationId) return;
       setAutocarRuntime(result.runtime || null);
       setAutocarCanTakeOver(result.can_take_over === true);
+      setAutocarError('');
     } catch (error: any) {
-      setStatusMessage(error?.message || 'Não foi possível consultar a AUTOCAR.');
+      if (autocarRequestRef.current !== conversationId) return;
+      setAutocarError(apiErrorMessage(error, 'Não foi possível consultar a AUTOCAR.'));
       setAutocarRuntime(null);
       setAutocarCanTakeOver(false);
     } finally {
-      setAutocarLoading(false);
+      if (autocarRequestRef.current === conversationId) setAutocarLoading(false);
     }
   }
 
@@ -189,40 +209,81 @@ export function WhatsappMobileInboxBridge() {
       const query = new URLSearchParams({ slug });
       if (conversationId) query.set('conversation_id', conversationId);
       const response = await fetch(`/api/store-whatsapp?${query.toString()}`, { headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store' });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Não foi possível carregar WhatsApp.');
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new MobileInboxRequestError(apiErrorMessage(result, 'Não foi possível carregar WhatsApp.'), response.status);
       return result;
     }
     const query = new URLSearchParams();
     if (conversationId) query.set('conversation_id', conversationId);
     const response = await fetch(`/api/master/whatsapp/inbox?${query.toString()}`, { headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store' });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Não foi possível carregar Inbox WhatsApp.');
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new MobileInboxRequestError(apiErrorMessage(result, 'Não foi possível carregar Inbox WhatsApp.'), response.status);
     return result;
   }
 
   async function loadData(preferredId?: string, quiet = false) {
     if (!mode || !mobile) return;
+    const requestId = ++inboxRequestRef.current;
+    const requestedId = preferredId || selectedId;
     if (!quiet) setLoading(true);
     try {
-      const first = await fetchInbox(preferredId || selectedId);
+      const first = await fetchInbox(requestedId);
+      if (requestId !== inboxRequestRef.current) return;
       if (mode === 'store') setStore(first.store || null);
       setConversations(first.conversations || []);
-      const nextId = preferredId || selectedId || first.conversations?.[0]?.id || '';
+      const resolvedSelectedId = String(first.selected_conversation_id || '');
+      const nextId = resolvedSelectedId || requestedId || first.conversations?.[0]?.id || '';
       setSelectedId(nextId);
       if (nextId && !first.selected_conversation_id) {
         const second = await fetchInbox(nextId);
+        if (requestId !== inboxRequestRef.current) return;
         setConversations(second.conversations || first.conversations || []);
         setMessages(second.messages || []);
+        setSelectedId(String(second.selected_conversation_id || nextId));
       } else {
         setMessages(first.messages || []);
       }
+      if (requestId !== inboxRequestRef.current) return;
       if (!quiet) setStatusMessage(first.conversations?.length ? '' : 'Nenhuma conversa recebida ainda.');
       if (mode === 'store') void loadAutocar(nextId);
     } catch (error: any) {
-      if (!quiet) setStatusMessage(error?.message || 'Erro ao carregar conversas.');
+      if (requestId !== inboxRequestRef.current) return;
+
+      if (mode === 'store' && error instanceof MobileInboxRequestError && error.status === 404 && requestedId) {
+        try {
+          const fallbackList = await fetchInbox();
+          if (requestId !== inboxRequestRef.current) return;
+          const fallbackId = String(fallbackList.conversations?.[0]?.id || '');
+          const fallbackResult = fallbackId ? await fetchInbox(fallbackId) : fallbackList;
+          if (requestId !== inboxRequestRef.current) return;
+
+          setStore(fallbackResult.store || fallbackList.store || null);
+          setConversations(fallbackResult.conversations || fallbackList.conversations || []);
+          setSelectedId(fallbackId);
+          setMessages(fallbackResult.messages || []);
+          setStatusMessage(
+            fallbackId
+              ? 'A conversa anterior não está mais disponível para este acesso. Exibindo a conversa mais recente da sua carteira.'
+              : 'Nenhuma conversa disponível para este acesso.'
+          );
+          void loadAutocar(fallbackId);
+          return;
+        } catch (fallbackError: any) {
+          if (requestId !== inboxRequestRef.current) return;
+          setConversations([]);
+          setSelectedId('');
+          setMessages([]);
+          setStatusMessage(apiErrorMessage(fallbackError, error.message || 'Erro ao carregar conversas.'));
+          return;
+        }
+      }
+
+      setConversations([]);
+      setSelectedId('');
+      setMessages([]);
+      setStatusMessage(apiErrorMessage(error, 'Erro ao carregar conversas.'));
     } finally {
-      if (!quiet) setLoading(false);
+      if (!quiet && requestId === inboxRequestRef.current) setLoading(false);
     }
   }
 
@@ -230,6 +291,10 @@ export function WhatsappMobileInboxBridge() {
     if (!mode || !mobile) return;
     const requested = String(new URLSearchParams(window.location.search).get('conversation_id') || '').trim();
     void loadData(requested || undefined);
+    return () => {
+      inboxRequestRef.current += 1;
+      autocarRequestRef.current = '';
+    };
   }, [mode, mobile, slug]);
 
   useEffect(() => {
@@ -265,6 +330,8 @@ export function WhatsappMobileInboxBridge() {
 
   async function selectConversation(id: string) {
     setSelectedId(id);
+    setMessages([]);
+    setStatusMessage('');
     await loadData(id);
   }
 
@@ -278,13 +345,13 @@ export function WhatsappMobileInboxBridge() {
       const accessToken = await token();
       if (!accessToken) throw new Error('Sessão expirada.');
       const response = await fetch('/api/whatsapp/messages/send', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ conversation_id: selectedId, body }) });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Não foi possível enviar mensagem.');
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível enviar mensagem.'));
       setMessageText('');
       setStatusMessage('Mensagem enviada.');
       await loadData(selectedId, true);
     } catch (error: any) {
-      setStatusMessage(error?.message || 'Erro ao enviar mensagem.');
+      setStatusMessage(apiErrorMessage(error, 'Erro ao enviar mensagem.'));
     } finally {
       setSending(false);
     }
@@ -296,14 +363,17 @@ export function WhatsappMobileInboxBridge() {
       const accessToken = await token();
       if (!accessToken) return;
       const endpoint = mode === 'store' ? '/api/store-whatsapp' : '/api/master/whatsapp/inbox';
-      const payload = mode === 'store' ? { action: 'mark-read', slug, conversation_id: selectedId } : { action: 'mark-read', conversation_id: selectedId };
+      const relatedConversationIds = selectedConversation?.related_conversation_ids || [selectedId];
+      const payload = mode === 'store'
+        ? { action: 'mark-read', slug, conversation_id: selectedId, related_conversation_ids: relatedConversationIds }
+        : { action: 'mark-read', conversation_id: selectedId, related_conversation_ids: relatedConversationIds };
       const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify(payload) });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Não foi possível marcar como lida.');
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível marcar como lida.'));
       setStatusMessage('Conversa marcada como lida.');
       await loadData(selectedId, true);
     } catch (error: any) {
-      setStatusMessage(error?.message || 'Erro ao marcar conversa como lida.');
+      setStatusMessage(apiErrorMessage(error, 'Erro ao marcar conversa como lida.'));
     }
   }
 
@@ -322,11 +392,11 @@ export function WhatsappMobileInboxBridge() {
       const accessToken = await token();
       const response = await fetch('/api/store/portal/pipeline/actions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ command: 'change_stage', slug: targetSlug, lead_id: leadId, target_status: target }) });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Não foi possível alterar a etapa.');
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível alterar a etapa.'));
       setStatusMessage(result.message || `Lead movido para ${targetStage.label}.`);
       await loadData(selectedId, true);
     } catch (error: any) {
-      setStatusMessage(error?.message || 'Erro ao alterar etapa.');
+      setStatusMessage(apiErrorMessage(error, 'Erro ao alterar etapa.'));
     } finally {
       setStageUpdating(false);
     }
@@ -339,11 +409,11 @@ export function WhatsappMobileInboxBridge() {
       const accessToken = await token();
       const response = await fetch('/api/store/portal/autocar/runtime', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ slug, conversation_id: selectedId, action: 'human-active' }) });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Não foi possível assumir esta conversa.');
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível assumir esta conversa.'));
       setAutocarRuntime(result.runtime || null);
       setStatusMessage('Atendimento humano assumido.');
     } catch (error: any) {
-      setStatusMessage(error?.message || 'Não foi possível assumir esta conversa.');
+      setStatusMessage(apiErrorMessage(error, 'Não foi possível assumir esta conversa.'));
     } finally {
       setAutocarAction(false);
     }
@@ -379,12 +449,12 @@ export function WhatsappMobileInboxBridge() {
       if (attachmentCaption.trim()) form.set('caption', attachmentCaption.trim());
       const response = await fetch('/api/whatsapp/messages/send-attachment', { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` }, body: form });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Não foi possível enviar o anexo.');
+      if (!response.ok) throw new Error(apiErrorMessage(result, 'Não foi possível enviar o anexo.'));
       setStatusMessage('Anexo enviado com sucesso.');
       resetAttachment();
       await loadData(selectedId, true);
     } catch (error: any) {
-      setStatusMessage(error?.message || 'Erro ao enviar anexo.');
+      setStatusMessage(apiErrorMessage(error, 'Erro ao enviar anexo.'));
     } finally {
       setAttachmentSending(false);
     }
@@ -426,7 +496,7 @@ export function WhatsappMobileInboxBridge() {
 
       {mode === 'store' ? (
         <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-          <div className="flex items-center justify-between gap-2"><div className="min-w-0"><p className="text-[9px] font-black uppercase text-zinc-400">AUTOCAR</p><p className="mt-1 truncate text-xs font-black text-zinc-800">{autocarLoading ? 'Consultando...' : autocarHumanActive ? 'Atendimento humano' : autocarRuntime?.human_state === 'autocar_active' ? 'AUTOCAR atendendo' : 'AUTOCAR aguardando'}</p></div>{!autocarHumanActive && autocarCanTakeOver ? <button type="button" onClick={() => void assumeHuman()} disabled={autocarAction || autocarLoading} className="flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl bg-amber-100 px-3 text-[10px] font-black text-amber-800">{autocarAction ? <RefreshCw size={13} className="animate-spin" /> : <UserCircle2 size={13} />} Assumir</button> : <Bot size={18} className="text-zinc-400" />}</div>
+          <div className="flex items-center justify-between gap-2"><div className="min-w-0"><p className="text-[9px] font-black uppercase text-zinc-400">AUTOCAR</p><p className="mt-1 truncate text-xs font-black text-zinc-800" title={autocarError || undefined}>{autocarLoading ? 'Consultando...' : autocarError ? 'AUTOCAR indisponível' : autocarHumanActive ? 'Atendimento humano' : autocarRuntime?.human_state === 'autocar_active' ? 'AUTOCAR atendendo' : 'AUTOCAR aguardando'}</p></div>{!autocarHumanActive && autocarCanTakeOver ? <button type="button" onClick={() => void assumeHuman()} disabled={autocarAction || autocarLoading} className="flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl bg-amber-100 px-3 text-[10px] font-black text-amber-800">{autocarAction ? <RefreshCw size={13} className="animate-spin" /> : <UserCircle2 size={13} />} Assumir</button> : <Bot size={18} className="text-zinc-400" />}</div>
         </div>
       ) : null}
 

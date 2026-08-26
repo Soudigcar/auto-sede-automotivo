@@ -11,6 +11,7 @@ import {
   restoreEvolutionWebhook
 } from '@/lib/server/evolution';
 import { cleanText } from '@/lib/server/storeTeam';
+import { normalizeWhatsappRecipient } from '@/lib/server/whatsappRecipient';
 
 export type EvolutionIntegrationScope = 'master' | 'store';
 export type EvolutionIntegrationStatus =
@@ -45,14 +46,35 @@ function extractQrCode(result: any) {
   return cleanText(candidate, 2_000_000);
 }
 
-function instanceDetails(result: any) {
-  const item = Array.isArray(result) ? result[0] : result?.instance || result || {};
-  const owner = cleanText(item.ownerJid || item.number, 120);
+export function evolutionInstanceDetails(result: any) {
+  const container = Array.isArray(result)
+    ? result[0]
+    : Array.isArray(result?.instances)
+      ? result.instances[0]
+      : Array.isArray(result?.data)
+        ? result.data[0]
+        : result?.data || result || {};
+  const item = container?.instance || container?.data?.instance || container?.data || container || {};
+  const owner = cleanText(
+    item.ownerJid ||
+    item.owner ||
+    item.number ||
+    container?.ownerJid ||
+    container?.owner ||
+    container?.number,
+    120
+  );
 
   return {
-    phoneNumber: owner.replace(/@.*$/, '').replace(/\D/g, '') || null,
-    profileName: cleanText(item.profileName, 160) || null,
-    profilePictureUrl: cleanText(item.profilePicUrl || item.profilePictureUrl, 1_000) || null
+    phoneNumber: normalizeWhatsappRecipient(owner) || null,
+    profileName: cleanText(item.profileName || container?.profileName, 160) || null,
+    profilePictureUrl: cleanText(
+      item.profilePicUrl ||
+      item.profilePictureUrl ||
+      container?.profilePicUrl ||
+      container?.profilePictureUrl,
+      1_000
+    ) || null
   };
 }
 
@@ -112,7 +134,7 @@ export async function readManagedEvolutionState(row: any) {
     const stateResult = await getEvolutionConnectionState(row.instance_name);
     const status = evolutionConnectionStatus(stateResult?.instance?.state);
     const details = status === 'connected'
-      ? instanceDetails(await getEvolutionInstance(row.instance_name))
+      ? evolutionInstanceDetails(await getEvolutionInstance(row.instance_name))
       : { phoneNumber: null, profileName: null, profilePictureUrl: null };
 
     return {
@@ -209,7 +231,7 @@ async function updateManagedEvolutionDetails(
   status: EvolutionIntegrationStatus
 ) {
   const details = status === 'connected'
-    ? instanceDetails(await getEvolutionInstance(row.instance_name))
+    ? evolutionInstanceDetails(await getEvolutionInstance(row.instance_name))
     : { phoneNumber: null, profileName: null, profilePictureUrl: null };
   const now = new Date().toISOString();
   const payload: Record<string, unknown> = {
@@ -318,7 +340,7 @@ export async function adoptMasterPilotEvolutionIntegration(
     throw new Error('A instância auto_controle_piloto não está conectada na Evolution API.');
   }
 
-  const details = instanceDetails(await getEvolutionInstance(MASTER_PILOT_INSTANCE_NAME));
+  const details = evolutionInstanceDetails(await getEvolutionInstance(MASTER_PILOT_INSTANCE_NAME));
   const now = new Date().toISOString();
   const previousIntegration = {
     instance_name: row.instance_name,

@@ -62,9 +62,22 @@ export function canAccessStoreLead(profile:any,role:StorePortalRole,lead:any){ i
 
 export function canAccessStoreConversation(profile:any,role:StorePortalRole,conversation:any,lead:any){ if(!profile||!conversation)return false; if(role==='master')return true; if(!profile.store_id||profile.store_id!==conversation.store_id)return false; if(role==='store')return true; if(!lead||conversation.lead_id!==lead.id)return false; return canAccessStoreLead(profile,role,lead); }
 
+export function isOperationalStorePortal(store:any){ return Boolean(store&&store.status==='active'&&store.portal_enabled===true); }
+
+export async function canUseStoreWhatsapp(supabase:any,profile:any,storeId:unknown){
+  const role=asStorePortalRole(profile?.role);
+  if(!role)return false;
+  if(role==='master')return true;
+  const scopedStoreId=cleanText(storeId,80);
+  if(!scopedStoreId||profile?.store_id!==scopedStoreId)return false;
+  const {data:store,error}=await supabase.from('stores').select('id, status, portal_enabled').eq('id',scopedStoreId).maybeSingle();
+  if(error)throw error;
+  return isOperationalStorePortal(store);
+}
+
 export function applyStoreLeadScope(query:any,profile:any,role:StorePortalRole){ if(role==='master'||role==='store')return query; const userId=cleanText(profile?.id,80); if(!userId)return query.eq('id','__unauthorized__'); return query.eq('assigned_user_id',userId); }
 
-export async function authorizeStorePortal(request:Request,expectedSlug:string){
+async function authorizeStorePortalAccess(request:Request,expectedSlug:string,allowMasterWhenStoreUnavailable:boolean){
   const supabase:any=createAdminClient();
   const token=readBearerToken(request);
   if(!token) return {error:NextResponse.json({error:'Sessão não encontrada.'},{status:401})} as const;
@@ -76,9 +89,12 @@ export async function authorizeStorePortal(request:Request,expectedSlug:string){
   if(!slug) return {error:NextResponse.json({error:'Informe a loja do portal.'},{status:400})} as const;
   const {data:store,error:storeError}=await supabase.from('stores').select('id, store_name, slug, event_id, status, portal_enabled, responsible_name, responsible_email, responsible_phone, website_url').eq('slug',slug).maybeSingle();
   if(storeError) throw storeError;
-  if(!store||store.status!=='active'||!store.portal_enabled) return {error:NextResponse.json({error:'Portal da loja indisponível ou desativado.'},{status:404})} as const;
+  if(!isOperationalStorePortal(store)&&!(allowMasterWhenStoreUnavailable&&role==='master')) return {error:NextResponse.json({error:'Portal da loja indisponível ou desativado.'},{status:404})} as const;
   if(role!=='master'&&profile.store_id!==store.id) return {error:NextResponse.json({error:'Este usuário não pertence a esta loja.'},{status:403})} as const;
   const permissions=storePortalPermissions(role);
   const menu=storePortalMenu(role,store.slug);
   return {supabase,profile:{...profile,role},role,store,permissions,menu,scopeLabel:storePortalScopeLabel(role)} as const;
 }
+
+export function authorizeStorePortal(request:Request,expectedSlug:string){ return authorizeStorePortalAccess(request,expectedSlug,false); }
+export function authorizeStoreWhatsappPortal(request:Request,expectedSlug:string){ return authorizeStorePortalAccess(request,expectedSlug,true); }

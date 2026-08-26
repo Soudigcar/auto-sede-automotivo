@@ -19,6 +19,9 @@ test('Evolution media uses the documented JSON base64 contract', () => {
   assert.match(route, /evolutionRequest\(`\/message\/sendMedia\//);
   assert.doesNotMatch(route, /evolutionMultipartRequest/);
   assert.match(route, /sendEvolutionAudio/);
+  assert.match(route, /readManagedEvolutionState/);
+  assert.match(route, /resolveEvolutionAvailability/);
+  assert.match(route, /markAutocarHumanActive/);
 });
 
 test('desktop attachment confirmation renders image content instead of only its filename', () => {
@@ -33,7 +36,7 @@ test('mobile attachment flow previews and requires explicit send', () => {
   assert.match(mobile, /Confirmar envio/);
   assert.match(mobile, /URL\.createObjectURL\(attachmentFile\)/);
   assert.match(mobile, /void sendAttachment\(\)/);
-  assert.match(mobile, /result\.error \|\| 'Não foi possível enviar o anexo\.'/);
+  assert.match(mobile, /apiErrorMessage\(result, 'Não foi possível enviar o anexo\.'\)/);
 });
 
 test('audio recorder provides a safe WhatsApp-like review flow on desktop and mobile', () => {

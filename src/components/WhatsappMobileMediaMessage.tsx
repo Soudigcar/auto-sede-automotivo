@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, FileText, Loader2, Pause, Play, RefreshCw, Video } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { WhatsappLocationMessage } from '@/components/WhatsappLocationMessage';
+import { apiErrorMessage } from '@/lib/client/apiErrorMessage';
 
 type Props = {
   message: any;
@@ -122,13 +123,14 @@ export function WhatsappMobileMediaMessage({ message, outbound = false }: Props)
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token || '';
       if (!token) throw new Error('Sessão expirada.');
-      const response = await fetch(`/api/whatsapp/messages/media?message_id=${encodeURIComponent(message.id)}`, {
+      const downloadQuery = type === 'document' ? '&download=1' : '';
+      const response = await fetch(`/api/whatsapp/messages/media?message_id=${encodeURIComponent(message.id)}${downloadQuery}`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: 'no-store'
       });
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
-        throw new Error(result?.error || `Não foi possível carregar ${labelForType(type)}.`);
+        throw new Error(apiErrorMessage(result, `Não foi possível carregar ${labelForType(type)}.`));
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -137,7 +139,7 @@ export function WhatsappMobileMediaMessage({ message, outbound = false }: Props)
         return url;
       });
     } catch (loadError: any) {
-      setError(loadError?.message || `Não foi possível carregar ${labelForType(type)}.`);
+      setError(apiErrorMessage(loadError, `Não foi possível carregar ${labelForType(type)}.`));
     } finally {
       setLoading(false);
     }
@@ -174,7 +176,7 @@ export function WhatsappMobileMediaMessage({ message, outbound = false }: Props)
       {type === 'image' ? <a href={mediaUrl} target="_blank" rel="noreferrer" className="block max-w-full overflow-hidden rounded-xl"><img src={mediaUrl} alt={body && !placeholder ? body : 'Imagem do WhatsApp'} className="max-h-[52dvh] w-auto max-w-full rounded-xl object-contain" /></a> : null}
       {type === 'video' ? <div className="max-w-full overflow-hidden rounded-xl bg-black"><video src={mediaUrl} controls preload="metadata" playsInline className="max-h-[52dvh] w-full max-w-full rounded-xl bg-black" /></div> : null}
       {type === 'audio' ? <MobileAudioPlayer src={mediaUrl} outbound={outbound} /> : null}
-      {type === 'document' ? <a href={mediaUrl} target="_blank" rel="noreferrer" className={`flex min-w-0 max-w-[76vw] items-center gap-2 rounded-xl border p-2.5 ${outbound ? 'border-white/20 bg-white/10 text-white' : 'border-zinc-200 bg-zinc-50 text-zinc-800'}`}><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${outbound ? 'bg-white/15' : 'bg-white text-red-600'}`}><FileText size={18} /></span><span className="min-w-0 flex-1"><strong className="block truncate text-xs">{body || 'Documento'}</strong><span className={`mt-0.5 block text-[9px] font-bold ${outbound ? 'text-white/65' : 'text-zinc-400'}`}>Abrir documento</span></span><Download size={15} className="shrink-0" /></a> : null}
+      {type === 'document' ? <a href={mediaUrl} download={body || 'documento-whatsapp'} className={`flex min-w-0 max-w-[76vw] items-center gap-2 rounded-xl border p-2.5 ${outbound ? 'border-white/20 bg-white/10 text-white' : 'border-zinc-200 bg-zinc-50 text-zinc-800'}`}><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${outbound ? 'bg-white/15' : 'bg-white text-red-600'}`}><FileText size={18} /></span><span className="min-w-0 flex-1"><strong className="block truncate text-xs">{body || 'Documento'}</strong><span className={`mt-0.5 block text-[9px] font-bold ${outbound ? 'text-white/65' : 'text-zinc-400'}`}>Baixar documento</span></span><Download size={15} className="shrink-0" /></a> : null}
       {body && !placeholder && type !== 'document' && type !== 'audio' ? <p className="whitespace-pre-wrap break-words text-[15px] font-medium leading-[1.35]">{body}</p> : null}
     </div>
   );
