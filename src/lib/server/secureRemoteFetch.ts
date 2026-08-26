@@ -7,13 +7,15 @@ import { RequestSecurityError } from './requestSecurity';
 const DEFAULT_TIMEOUT_MS = 12_000;
 const DEFAULT_REDIRECTS = 3;
 
-type SecureFetchOptions = {
+export type SecureFetchOptions = {
   accept: string;
   allowedContentTypes: string[];
   maxBytes: number;
   timeoutMs?: number;
   maxRedirects?: number;
   userAgent?: string;
+  allowedHostnames?: string[];
+  requireHttps?: boolean;
 };
 
 function blockedIpv4(address: string) {
@@ -59,6 +61,21 @@ function parseRemoteUrl(value: string) {
   return url;
 }
 
+export function isAllowedRemoteHostname(hostname: string, allowedHostnames: string[]) {
+  const normalized = hostname.trim().toLowerCase();
+  return allowedHostnames.some((allowed) => normalized === allowed.trim().toLowerCase());
+}
+
+function assertOutboundScope(value: string, options: SecureFetchOptions) {
+  const url = parseRemoteUrl(value);
+  if (options.requireHttps && url.protocol !== 'https:') {
+    throw new RequestSecurityError('Somente links HTTPS são permitidos para este destino.', 400);
+  }
+  if (options.allowedHostnames?.length && !isAllowedRemoteHostname(url.hostname, options.allowedHostnames)) {
+    throw new RequestSecurityError('Destino remoto não permitido para esta operação.', 400);
+  }
+}
+
 async function resolvePublicRemoteUrl(value: string) {
   const url = parseRemoteUrl(value);
   const directIpFamily = isIP(url.hostname);
@@ -76,6 +93,7 @@ export async function assertPublicRemoteUrl(value: string) {
 }
 
 async function requestPinnedUrl(value: string, options: SecureFetchOptions) {
+  assertOutboundScope(value, options);
   const { url, address, family } = await resolvePublicRemoteUrl(value);
   const requestFactory = url.protocol === 'https:' ? httpsRequest : httpRequest;
 

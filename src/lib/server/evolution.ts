@@ -269,6 +269,25 @@ export function sendEvolutionText(instanceName: string, number: string, text: st
   });
 }
 
+export function sendEvolutionLocation(instanceName: string, number: string, location: {
+  name: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+}) {
+  return evolutionRequest(`/message/sendLocation/${encodeURIComponent(instanceName)}`, {
+    method: 'POST',
+    body: {
+      number,
+      name: location.name,
+      address: location.address,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      delay: 500
+    }
+  });
+}
+
 export async function getEvolutionProfilePictureUrl(instanceName: string, number: string) {
   const normalizedNumber = String(number || '')
     .split('@')[0]

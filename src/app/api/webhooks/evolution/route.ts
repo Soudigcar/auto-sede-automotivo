@@ -235,7 +235,7 @@ async function findOrCreateLead(supabase: any, integration: any, contactName: st
     const { data: lead, error: leadError } = await supabase
       .from('leads')
       .insert({
-        event_id: store.event_id || null,
+        event_id: null,
         customer_name: contactName || phone,
         customer_phone: leadPhone,
         customer_bank: '',

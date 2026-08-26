@@ -3,11 +3,13 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { usePathname } from 'next/navigation';
-import { ArrowDownUp, Bot, CheckCircle2, ExternalLink, Paperclip, RefreshCw, UserCircle2 } from 'lucide-react';
+import { ArrowDownUp, Bot, CheckCircle2, ExternalLink, FileText, Loader2, Paperclip, RefreshCw, Send, UserCircle2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { WhatsappMobileInboxV2 } from '@/components/WhatsappMobileInboxV2';
 import WhatsappCommerceActions from '@/components/WhatsappCommerceActions';
 import MasterWhatsappCommerceActions from '@/components/MasterWhatsappCommerceActions';
+import { WhatsappAudioRecorderButton } from '@/components/WhatsappAudioRecorderButton';
+import { WhatsappLocationButton } from '@/components/WhatsappLocationButton';
 
 const STORE_PATH = /^\/loja\/([^/]+)\/whatsapp\/?$/;
 const MASTER_PATH = '/master/whatsapp/inbox';
@@ -120,7 +122,27 @@ export function WhatsappMobileInboxBridge() {
   const [autocarCanTakeOver, setAutocarCanTakeOver] = useState(false);
   const [autocarLoading, setAutocarLoading] = useState(false);
   const [autocarAction, setAutocarAction] = useState(false);
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [attachmentCaption, setAttachmentCaption] = useState('');
+  const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState('');
+  const [attachmentSending, setAttachmentSending] = useState(false);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!attachmentFile || !attachmentFile.type.toLowerCase().startsWith('image/')) {
+      setAttachmentPreviewUrl('');
+      return;
+    }
+    const url = URL.createObjectURL(attachmentFile);
+    setAttachmentPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [attachmentFile]);
+
+  useEffect(() => {
+    setAttachmentFile(null);
+    setAttachmentCaption('');
+    if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+  }, [selectedId]);
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 1279px)');
@@ -327,27 +349,44 @@ export function WhatsappMobileInboxBridge() {
     }
   }
 
-  async function attachFile(file: File | null) {
+  function resetAttachment() {
+    setAttachmentFile(null);
+    setAttachmentCaption('');
+    if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+  }
+
+  function chooseAttachment(file: File | null) {
     if (!file || !selectedId) return;
     if (file.size > 4 * 1024 * 1024) {
       setStatusMessage('O anexo excede o limite de 4 MB desta etapa.');
+      if (attachmentInputRef.current) attachmentInputRef.current.value = '';
       return;
     }
+    setAttachmentFile(file);
+    setAttachmentCaption('');
+    setStatusMessage('');
+  }
+
+  async function sendAttachment() {
+    if (!attachmentFile || !selectedId || attachmentSending) return;
+    setAttachmentSending(true);
     setStatusMessage('Enviando anexo...');
     try {
       const accessToken = await token();
       const form = new FormData();
       form.set('conversation_id', selectedId);
-      form.set('file', file);
+      form.set('file', attachmentFile);
+      if (attachmentCaption.trim()) form.set('caption', attachmentCaption.trim());
       const response = await fetch('/api/whatsapp/messages/send-attachment', { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` }, body: form });
-      const result = await response.json();
+      const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'Não foi possível enviar o anexo.');
       setStatusMessage('Anexo enviado com sucesso.');
+      resetAttachment();
       await loadData(selectedId, true);
     } catch (error: any) {
       setStatusMessage(error?.message || 'Erro ao enviar anexo.');
     } finally {
-      if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+      setAttachmentSending(false);
     }
   }
 
@@ -373,10 +412,12 @@ export function WhatsappMobileInboxBridge() {
 
   const actionContent = selectedConversation ? (
     <div className="space-y-3">
-      <input ref={attachmentInputRef} type="file" className="hidden" onChange={(event) => void attachFile(event.target.files?.[0] || null)} />
-      <div className="grid grid-cols-2 gap-2">
-        <button type="button" onClick={() => attachmentInputRef.current?.click()} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white text-xs font-black text-zinc-700"><Paperclip size={15} /> Anexar</button>
-        <button type="button" onClick={() => void markRead()} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white text-xs font-black text-zinc-700"><CheckCircle2 size={15} /> Marcar lida</button>
+      <input ref={attachmentInputRef} type="file" className="hidden" onChange={(event) => chooseAttachment(event.target.files?.[0] || null)} disabled={attachmentSending} />
+      <div className="whatsapp-mobile-quick-actions flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Ações rápidas da conversa">
+        <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={attachmentSending} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 disabled:opacity-50" aria-label="Anexar arquivo" title="Anexar arquivo"><Paperclip size={16} /></button>
+        <WhatsappLocationButton touchTarget conversationId={selectedId} onRefresh={() => loadData(selectedId, true)} onStatus={setStatusMessage} disabled={!connected(selectedConversation) || sending || attachmentSending} />
+        <button type="button" onClick={() => void markRead()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700" aria-label="Marcar conversa como lida" title="Marcar conversa como lida"><CheckCircle2 size={16} /></button>
+        {mode === 'store' ? <WhatsappCommerceActions compact slug={slug} conversationId={selectedId} leadId={selectedLeadId} onRefresh={() => loadData(selectedId, true)} onStatus={setStatusMessage} /> : <MasterWhatsappCommerceActions compact conversationId={selectedId} leadId={selectedLeadId} baseLeadId={selectedBaseLeadId} onRefresh={() => loadData(selectedId, true)} onStatus={setStatusMessage} />}
       </div>
 
       {selectedLeadId && targetStoreSlug ? (
@@ -389,12 +430,29 @@ export function WhatsappMobileInboxBridge() {
         </div>
       ) : null}
 
-      {mode === 'store' ? <WhatsappCommerceActions slug={slug} conversationId={selectedId} leadId={selectedLeadId} onRefresh={() => loadData(selectedId, true)} onStatus={setStatusMessage} /> : <MasterWhatsappCommerceActions conversationId={selectedId} leadId={selectedLeadId} baseLeadId={selectedBaseLeadId} onRefresh={() => loadData(selectedId, true)} onStatus={setStatusMessage} />}
-
       <div className="grid grid-cols-2 gap-2">
         {targetStoreSlug ? <Link href={`/loja/${targetStoreSlug}/pipeline`} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-red-600 px-3 text-center text-xs font-black text-white">Pipeline <ExternalLink size={14} /></Link> : null}
         {targetStoreSlug ? <Link href={`/loja/${targetStoreSlug}/calendario`} className="flex min-h-11 items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 text-center text-xs font-black text-zinc-700">Calendário</Link> : null}
       </div>
+
+      {attachmentFile ? (
+        <div className="fixed inset-0 z-[690] flex items-end bg-black/45 p-3 backdrop-blur-[2px]" onMouseDown={(event) => { if (event.currentTarget === event.target && !attachmentSending) resetAttachment(); }}>
+          <div className="max-h-[90vh] w-full overflow-y-auto rounded-[24px] bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+              <div><p className="text-[9px] font-black uppercase tracking-[0.15em] text-red-600">WhatsApp</p><h3 className="mt-1 text-base font-black text-zinc-950">Confirmar envio</h3></div>
+              <button type="button" onClick={resetAttachment} disabled={attachmentSending} aria-label="Cancelar anexo" className="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200 text-zinc-500"><X size={17} /></button>
+            </div>
+            <div className="p-4">
+              <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50">
+                {attachmentPreviewUrl ? <img src={attachmentPreviewUrl} alt="Prévia da imagem selecionada" className="max-h-[52vh] w-full bg-zinc-100 object-contain" /> : <div className="flex min-h-32 items-center justify-center text-red-600"><FileText size={34} /></div>}
+                <div className="p-3"><p className="truncate text-sm font-black text-zinc-900">{attachmentPreviewUrl ? 'Imagem pronta para enviar' : attachmentFile.name}</p><p className="mt-1 text-[10px] font-black uppercase text-zinc-400">{attachmentFile.type || 'arquivo'} · {Math.max(1, Math.ceil(attachmentFile.size / 1024))} KB</p></div>
+              </div>
+              {!attachmentFile.type.toLowerCase().startsWith('audio/') ? <label className="mt-3 block text-xs font-black text-zinc-600">Legenda opcional<textarea value={attachmentCaption} onChange={(event) => setAttachmentCaption(event.target.value)} maxLength={2000} placeholder="Digite uma legenda..." disabled={attachmentSending} className="mt-2 min-h-20 w-full resize-none rounded-xl border border-zinc-200 p-3 text-sm outline-none focus:border-red-300" /></label> : null}
+              <button type="button" onClick={() => void sendAttachment()} disabled={attachmentSending} aria-busy={attachmentSending} className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-4 text-xs font-black uppercase text-white disabled:opacity-50">{attachmentSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}{attachmentSending ? 'Enviando para o WhatsApp...' : attachmentPreviewUrl ? 'Enviar imagem' : 'Enviar anexo'}</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   ) : null;
 
@@ -430,6 +488,7 @@ export function WhatsappMobileInboxBridge() {
       channelLabel={channelLabel(selectedConversation)}
       detailsContent={detailsContent}
       actionContent={actionContent}
+      audioRecorder={<WhatsappAudioRecorderButton conversationId={selectedId} onRefresh={() => loadData(selectedId, true)} onStatus={setStatusMessage} disabled={!connected(selectedConversation) || sending || attachmentSending} compact touchTarget />}
     />
   );
 }

@@ -1,10 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { ArrowLeft, Copy, Save, ShieldCheck } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { createClient } from '@/lib/supabase';
+
+const META_LEADS_CALLBACK_URL = 'https://sistemaautomotivo.autosede.com.br/api/webhooks/meta-leads';
 
 const defaultForm = {
   is_active: false,
@@ -13,7 +15,7 @@ const defaultForm = {
   form_id: '',
   has_page_access_token: false,
   has_verify_token: false,
-  graph_version: 'v20.0'
+  graph_version: 'v25.0'
 };
 
 export default function MetaLeadsIntegrationPage() {
@@ -22,11 +24,8 @@ export default function MetaLeadsIntegrationPage() {
   const [form, setForm] = useState(defaultForm);
   const [message, setMessage] = useState('Carregando integração...');
   const [saving, setSaving] = useState(false);
-  const [origin, setOrigin] = useState('');
 
-  const callbackUrl = useMemo(() => {
-    return `${origin || 'https://sistemaautomotivo.autosede.com.br'}/api/webhooks/meta-leads`;
-  }, [origin]);
+  const callbackUrl = META_LEADS_CALLBACK_URL;
 
   async function getAuthToken() {
     const { data } = await supabase.auth.getSession();
@@ -101,7 +100,6 @@ export default function MetaLeadsIntegrationPage() {
           is_active: form.is_active,
           app_id: form.app_id,
           page_id: form.page_id,
-          form_id: form.form_id,
           graph_version: form.graph_version
         })
       });
@@ -129,7 +127,6 @@ export default function MetaLeadsIntegrationPage() {
   }
 
   useEffect(() => {
-    if (typeof window !== 'undefined') setOrigin(window.location.origin);
     loadIntegration();
   }, []);
 
@@ -198,16 +195,9 @@ export default function MetaLeadsIntegrationPage() {
                   />
                 </label>
 
-                <label className="grid gap-2">
-                  <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Form ID opcional</span>
-                  <input
-                    className="premium-input"
-                    value={form.form_id}
-                    onChange={(event) => setForm({ ...form, form_id: event.target.value.replace(/\D/g, '') })}
-                    placeholder="Preencha apenas se quiser aceitar só um formulário"
-                    inputMode="numeric"
-                  />
-                </label>
+                <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-xs font-bold leading-5 text-blue-700">
+                  Cada Form ID deve ser vinculado em “Gerenciar formulários por evento”. O campo único antigo foi removido para não atribuir leads ao evento errado.
+                </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <SecretStatus label="Page Access Token" configured={form.has_page_access_token} variable="META_PAGE_ACCESS_TOKEN" />
@@ -220,7 +210,7 @@ export default function MetaLeadsIntegrationPage() {
                     className="premium-input"
                     value={form.graph_version}
                     onChange={(event) => setForm({ ...form, graph_version: event.target.value.trim() })}
-                    placeholder="v20.0"
+                    placeholder="v25.0"
                   />
                 </label>
 

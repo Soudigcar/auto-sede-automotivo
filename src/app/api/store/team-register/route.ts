@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { enforceRateLimit } from '@/lib/server/rateLimit';
 import { publicError, readJsonBody } from '@/lib/server/requestSecurity';
+import { accountPasswordError } from '@/lib/storeTeamRegistration';
 
 export const runtime = 'nodejs';
 
@@ -63,10 +64,10 @@ export async function POST(request: Request) {
     const email = String(body.email || '').trim().toLowerCase();
     const phone = String(body.phone || '').trim();
     const password = String(body.password || '');
+    const passwordError = accountPasswordError(password);
 
-    if (!token || fullName.length < 3 || !email.includes('@') || password.length < 12 ||
-        !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
-      return NextResponse.json({ error: 'Preencha nome, e-mail e uma senha forte com ao menos 12 caracteres.' }, { status: 400 });
+    if (!token || fullName.length < 3 || !email.includes('@') || passwordError) {
+      return NextResponse.json({ error: passwordError || 'Preencha nome e e-mail corretamente.' }, { status: 400 });
     }
 
     const supabase: any = adminClient();

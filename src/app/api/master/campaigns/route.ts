@@ -114,6 +114,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Ative o evento antes de publicar a landing page.' }, { status: 409 });
     }
 
+    const requestedSlug = slugify(cleanText(body.slug, 180) || event.slug || event.event_name);
+    const currentResult = id
+      ? await supabase.from('site_campaigns').select('id,slug,published_at').eq('id', id).maybeSingle()
+      : { data: null, error: null };
+    if (currentResult.error) return NextResponse.json({ error: currentResult.error.message }, { status: 500 });
+    if (id && !currentResult.data) return NextResponse.json({ error: 'Landing não encontrada.' }, { status: 404 });
+
+    const layoutResult = id
+      ? await supabase.from('site_campaign_layouts').select('published_at').eq('campaign_id', id).maybeSingle()
+      : { data: null, error: null };
+    if (layoutResult.error) return NextResponse.json({ error: layoutResult.error.message }, { status: 500 });
+
+    const slugProtected = Boolean(currentResult.data?.published_at || layoutResult.data?.published_at);
+    const stableSlug = slugProtected && currentResult.data?.slug ? currentResult.data.slug : requestedSlug;
+
     let duplicateQuery = supabase.from('site_campaigns').select('id,name').eq('event_id', eventId);
     if (id) duplicateQuery = duplicateQuery.neq('id', id);
     const { data: duplicate } = await duplicateQuery.maybeSingle();
@@ -122,7 +137,7 @@ export async function POST(request: Request) {
     const payload = {
       event_id: eventId,
       name: cleanText(body.name, 180) || event.event_name,
-      slug: slugify(cleanText(body.slug, 180) || event.slug || event.event_name),
+      slug: stableSlug,
       title: cleanText(body.title, 240) || `Encontre seu próximo carro no ${event.event_name}`,
       description: cleanText(body.description, 1200) || 'Escolha um veículo das lojas participantes e faça uma simulação inicial de financiamento.',
       interest_rate: Math.max(Number(body.interest_rate || 1.89), 0),
@@ -143,6 +158,15 @@ export async function POST(request: Request) {
       updated_at: new Date().toISOString()
     };
 
+    if (process.env.VERCEL_ENV === 'preview') {
+      return NextResponse.json({
+        error: 'O Preview está em modo somente leitura para preservar as landings reais.',
+        preview_read_only: true,
+        slug_protected: slugProtected,
+        stable_slug: stableSlug
+      }, { status: 409 });
+    }
+
     const result = id
       ? await supabase.from('site_campaigns').update(payload).eq('id', id).select('*').single()
       : await supabase.from('site_campaigns').insert(payload).select('*').single();
@@ -156,7 +180,14 @@ export async function POST(request: Request) {
       await supabase.rpc('sync_event_inventory', { p_event_id: eventId });
     }
 
-    return NextResponse.json({ success: true, campaign: result.data });
+    return NextResponse.json({
+      success: true,
+      campaign: result.data,
+      slug_protected: slugProtected,
+      slug_warning: slugProtected && requestedSlug !== stableSlug
+        ? 'O endereço publicado foi preservado para não interromper anúncios, Pixel e links antigos.'
+        : null
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Erro ao salvar landing.' }, { status: 500 });
   }

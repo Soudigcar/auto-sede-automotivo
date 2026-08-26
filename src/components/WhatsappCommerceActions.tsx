@@ -208,12 +208,13 @@ function scrollConversationToLatest(root: HTMLElement) {
   };
 }
 
-export default function WhatsappCommerceActions({ slug, conversationId, leadId, onRefresh, onStatus }: {
+export default function WhatsappCommerceActions({ slug, conversationId, leadId, onRefresh, onStatus, compact = false }: {
   slug: string;
   conversationId: string;
   leadId: string;
   onRefresh: () => Promise<void> | void;
   onStatus: (message: string) => void;
+  compact?: boolean;
 }) {
   const supabase = createClient();
   const actionBarRef = useRef<HTMLDivElement>(null);
@@ -380,12 +381,10 @@ export default function WhatsappCommerceActions({ slug, conversationId, leadId, 
   }, [conversationId]);
 
   useEffect(() => {
+    if (compact) return;
     const actionBar = actionBarRef.current;
     const root = actionBar?.closest('main.premium-page') as HTMLElement | null;
     if (!actionBar || !root) return;
-
-    const warning = actionBar.previousElementSibling as HTMLElement | null;
-    if (warning?.textContent?.includes('Janela de 24h')) warning.style.display = 'none';
 
     fitComposer(root, actionBar);
     const stopQueueObserver = compactConversationQueue(root);
@@ -395,22 +394,21 @@ export default function WhatsappCommerceActions({ slug, conversationId, leadId, 
       stopQueueObserver?.();
       stopHistoryObserver?.();
     };
-  }, [conversationId]);
+  }, [compact, conversationId]);
 
   return (
     <>
-      <div ref={actionBarRef} className="flex min-w-0 items-center gap-1.5 overflow-x-auto py-0.5">
-        <button type="button" onClick={() => void loadVehicles('stock')} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-2.5 text-[9px] font-black uppercase text-blue-700 transition hover:bg-blue-100"><Car size={13} /> Estoque</button>
-        <button type="button" onClick={() => void loadVehicles('photos')} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-2.5 text-[9px] font-black uppercase text-violet-700 transition hover:bg-violet-100"><Camera size={13} /> Fotos do veículo</button>
-        <button type="button" onClick={openSchedule} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-2.5 text-[9px] font-black uppercase text-amber-700 transition hover:bg-amber-100"><CalendarDays size={13} /> Agendar</button>
-        <button type="button" onClick={() => void openTransfer()} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 text-[9px] font-black uppercase text-emerald-700 transition hover:bg-emerald-100"><ArrowRightLeft size={13} /> Transferir lead</button>
+      <div ref={actionBarRef} className={compact ? 'flex shrink-0 items-center gap-2' : 'flex min-w-0 items-center gap-1.5 overflow-x-auto py-0.5'}>
+        <button type="button" onClick={() => void loadVehicles('stock')} className={`inline-flex shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-700 transition hover:bg-blue-100 ${compact ? 'h-11 w-11' : 'h-9 w-9'}`} aria-label="Abrir veículos da loja" title="Veículos: definir interesse ou enviar fotos"><Car size={16} /></button>
+        <button type="button" onClick={openSchedule} className={`inline-flex shrink-0 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-700 transition hover:bg-amber-100 ${compact ? 'h-11 w-11' : 'h-9 w-9'}`} aria-label="Agendar atividade" title="Agendar atividade"><CalendarDays size={16} /></button>
+        <button type="button" onClick={() => void openTransfer()} className={`inline-flex shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100 ${compact ? 'h-11 w-11' : 'h-9 w-9'}`} aria-label="Transferir lead" title="Transferir lead"><ArrowRightLeft size={16} /></button>
       </div>
 
       {mode ? (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[2px]" onMouseDown={(event) => { if (event.currentTarget === event.target && !saving) setMode(null); }}>
+        <div className={`fixed inset-0 flex justify-center bg-black/35 backdrop-blur-[2px] ${compact ? 'z-[680] items-end p-3' : 'z-[500] items-center p-4'}`} onMouseDown={(event) => { if (event.currentTarget === event.target && !saving) setMode(null); }}>
           <div className="max-h-[85vh] w-full max-w-2xl overflow-hidden rounded-[24px] border border-zinc-200 bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
-              <div><p className="text-[10px] font-black uppercase tracking-[0.15em] text-red-600">Ação comercial</p><h3 className="mt-1 text-lg font-black text-zinc-950">{mode === 'stock' ? 'Selecionar veículo do estoque' : mode === 'photos' ? 'Enviar fotos do veículo' : mode === 'transfer' ? 'Transferir lead' : 'Agendar atividade'}</h3></div>
+              <div><p className="text-[10px] font-black uppercase tracking-[0.15em] text-red-600">Ação comercial</p><h3 className="mt-1 text-lg font-black text-zinc-950">{mode === 'stock' ? 'Veículos da loja' : mode === 'photos' ? 'Enviar fotos do veículo' : mode === 'transfer' ? 'Transferir lead' : 'Agendar atividade'}</h3></div>
               <button type="button" disabled={saving} onClick={() => setMode(null)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200 text-zinc-500 hover:bg-zinc-50"><X size={17} /></button>
             </div>
 
@@ -438,7 +436,7 @@ export default function WhatsappCommerceActions({ slug, conversationId, leadId, 
               <div className="max-h-[70vh] overflow-auto p-5">
                 <button type="button" onClick={() => setSelectedVehicle(null)} className="mb-4 inline-flex items-center gap-1 text-xs font-black text-zinc-500 hover:text-red-600"><ChevronLeft size={15} /> Voltar ao estoque</button>
                 <div className="flex gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="h-24 w-32 shrink-0 overflow-hidden rounded-xl bg-zinc-200">{selectedVehicle.image_url ? <img src={selectedVehicle.image_url} alt="" className="h-full w-full object-cover" /> : null}</div><div className="min-w-0"><h4 className="text-base font-black text-zinc-950">{vehicleLabel(selectedVehicle)}</h4><p className="mt-1 text-sm font-black text-red-600">{priceLabel(selectedVehicle.price)}</p><p className="mt-2 text-xs font-bold text-zinc-500">{selectedVehicle.mileage ? `${Number(selectedVehicle.mileage).toLocaleString('pt-BR')} km` : 'Quilometragem não informada'}</p></div></div>
-                {mode === 'stock' ? <div className="mt-5 rounded-2xl border border-zinc-200 p-4"><p className="text-sm font-black text-zinc-900">Veículo de interesse do lead?</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" disabled={saving} onClick={() => void setVehicleInterest(false)} className="h-11 rounded-xl border border-zinc-200 text-xs font-black uppercase text-zinc-600">Não</button><button type="button" disabled={saving} onClick={() => void setVehicleInterest(true)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-red-600 text-xs font-black uppercase text-white">{saving ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Sim</button></div></div> : <div className="mt-5"><div className="grid grid-cols-4 gap-2">{Array.from(new Set([selectedVehicle.image_url, ...(selectedVehicle.image_urls || [])].filter(Boolean))).slice(0, 8).map((url) => <div key={url} className="aspect-square overflow-hidden rounded-xl bg-zinc-100"><img src={url as string} alt="" className="h-full w-full object-cover" /></div>)}</div><button type="button" disabled={saving} onClick={() => void sendVehiclePhotos()} className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-red-600 text-xs font-black uppercase text-white disabled:opacity-50">{saving ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />} Enviar fotos</button></div>}
+                {mode === 'stock' ? <div className="mt-5 grid gap-2 sm:grid-cols-2"><button type="button" disabled={saving} onClick={() => void setVehicleInterest(true)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-black uppercase text-blue-700 disabled:opacity-50">{saving ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Definir como interesse</button><button type="button" disabled={saving} onClick={() => void sendVehiclePhotos()} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-red-600 px-3 text-xs font-black uppercase text-white disabled:opacity-50">{saving ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />} Enviar fotos</button></div> : <div className="mt-5"><div className="grid grid-cols-4 gap-2">{Array.from(new Set([selectedVehicle.image_url, ...(selectedVehicle.image_urls || [])].filter(Boolean))).slice(0, 8).map((url) => <div key={url} className="aspect-square overflow-hidden rounded-xl bg-zinc-100"><img src={url as string} alt="" className="h-full w-full object-cover" /></div>)}</div><button type="button" disabled={saving} onClick={() => void sendVehiclePhotos()} className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-red-600 text-xs font-black uppercase text-white disabled:opacity-50">{saving ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />} Enviar fotos</button></div>}
               </div>
             ) : (
               <div className="max-h-[70vh] overflow-auto p-5">

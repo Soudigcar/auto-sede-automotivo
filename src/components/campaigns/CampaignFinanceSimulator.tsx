@@ -27,7 +27,18 @@ export function CampaignFinanceSimulatorModal({ campaign, eventInfo, vehicles, o
   const [sending, setSending] = useState(false); const [submitted, setSubmitted] = useState(false); const [message, setMessage] = useState('');
   const [form, setForm] = useState({ name: '', phone: '', cpf: '', birth_date: '', email: '', vehicle_id: initialVehicleId, down_payment: '', installments: '60', consent: false });
 
-  useEffect(() => { if (!open) return; setSubmitted(false); setMessage(''); setForm((current) => ({ ...current, vehicle_id: initialVehicleId || current.vehicle_id || '', down_payment: initialVehicleId && initialVehicleId !== current.vehicle_id ? '' : current.down_payment })); }, [open, initialVehicleId]);
+  useEffect(() => {
+    if (!open) return;
+    setSubmitted(false);
+    setMessage('');
+    setForm((current) => ({ ...current, vehicle_id: initialVehicleId || current.vehicle_id || '', down_payment: initialVehicleId && initialVehicleId !== current.vehicle_id ? '' : current.down_payment }));
+    if (mode === 'live') {
+      window.autoControleMetaPixel?.track('SimulatorOpened', {
+        content_type: 'finance_simulator',
+        vehicle_id: initialVehicleId || undefined
+      });
+    }
+  }, [open, initialVehicleId, mode]);
 
   const selectedVehicle = useMemo(() => vehicles.find((item) => item.id === form.vehicle_id) || null, [vehicles, form.vehicle_id]);
   const hasDownPayment = form.down_payment.trim() !== '' && Number.isFinite(Number(form.down_payment));
@@ -40,10 +51,28 @@ export function CampaignFinanceSimulatorModal({ campaign, eventInfo, vehicles, o
     if (mode === 'preview') { setSubmitted(true); setMessage(''); return; }
     if (!campaign) return;
     setSending(true); setMessage('');
+    const trackingEventId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `lead-${campaign.id}-${Date.now()}`;
+    window.autoControleMetaPixel?.track('SimulationStarted', {
+      content_type: 'vehicle',
+      content_ids: [selectedVehicle.id],
+      value: simulation.vehiclePrice,
+      currency: 'BRL'
+    });
     try {
       const vehicleName = `${selectedVehicle.brand || ''} ${selectedVehicle.model || ''} ${selectedVehicle.version || ''} ${selectedVehicle.year || ''}`.replace(/\s+/g, ' ').trim();
-      const response = await fetch('/api/site-leads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: form.name, phone: form.phone, cpf: form.cpf, birth_date: form.birth_date, email: form.email, source: 'Landing Page Simulador', campaign_id: campaign.id, campaign_name: campaign.name, vehicle_id: selectedVehicle.id, vehicle_name: vehicleName, down_payment: simulation.downPayment, installments: simulation.installments, consent: form.consent, notes: 'Lead captado pela landing vinculada ao evento.', metadata: { slug, event_id: eventInfo?.id || null } }) });
-      const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error || 'Não foi possível enviar sua simulação.'); setSubmitted(true);
+      const response = await fetch('/api/site-leads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: form.name, phone: form.phone, cpf: form.cpf, birth_date: form.birth_date, email: form.email, source: 'Landing Page Simulador', campaign_id: campaign.id, campaign_name: campaign.name, vehicle_id: selectedVehicle.id, vehicle_name: vehicleName, down_payment: simulation.downPayment, installments: simulation.installments, consent: form.consent, notes: 'Lead captado pela landing vinculada ao evento.', metadata: { slug, event_id: eventInfo?.id || null, tracking_event_id: trackingEventId } }) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Não foi possível enviar sua simulação.');
+      window.autoControleMetaPixel?.track('Lead', {
+        content_type: 'vehicle',
+        content_ids: [selectedVehicle.id],
+        content_name: vehicleName,
+        value: simulation.vehiclePrice,
+        currency: 'BRL'
+      }, { eventId: trackingEventId });
+      setSubmitted(true);
     } catch (error: any) { setMessage(error?.message || 'Não foi possível enviar sua simulação.'); } finally { setSending(false); }
   }
 
@@ -54,7 +83,7 @@ export function CampaignFinanceSimulatorModal({ campaign, eventInfo, vehicles, o
     <div className="flex max-h-[92vh] w-full max-w-[1240px] flex-col overflow-hidden rounded-[24px] bg-white shadow-2xl">
       <div className="flex shrink-0 items-start justify-between px-5 py-4 sm:px-6"><div><p className="text-[11px] font-black uppercase tracking-[0.22em]" style={{ color: primary }}>Simulador do evento</p><h2 className="mt-0.5 text-2xl font-black tracking-[-0.03em]">Faça sua simulação</h2></div><button type="button" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100" aria-label="Fechar simulador"><X size={19} /></button></div>
       {mode === 'preview' ? <div className="mx-5 mb-3 rounded-lg border border-indigo-200 bg-indigo-50 p-2 text-[11px] font-bold text-indigo-700 sm:mx-6">Modo Preview: nenhum lead será enviado.</div> : null}
-      {submitted ? <div className="overflow-y-auto px-5 pb-6 sm:px-6"><div className="mx-auto max-w-3xl rounded-2xl bg-gradient-to-br from-emerald-600 to-emerald-700 px-6 py-7 text-center text-white shadow-xl"><CheckCircle2 size={54} className="mx-auto" /><h3 className="mt-3 text-2xl font-black sm:text-3xl">Parabéns! Simulação recebida.</h3><p className="mx-auto mt-4 max-w-2xl text-sm font-semibold leading-6 text-emerald-50">Seu CPF apresenta uma estimativa inicial de 80% de chance de aprovação. A simulação está sujeita à análise e aprovação de crédito pela instituição financeira, e um dos nossos representantes credenciados pelo banco entrará em contato.</p><div className="mx-auto mt-4 max-w-2xl rounded-xl bg-white/12 p-4 text-sm leading-6 text-emerald-50"><strong className="block text-white">Atenção</strong>Não solicitamos códigos, senhas nem pagamentos antecipados. Seus dados são tratados de acordo com a Lei Geral de Proteção de Dados (LGPD).</div><p className="mx-auto mt-4 max-w-2xl text-sm font-semibold text-emerald-50">Para antecipar o seu atendimento, clique no botão abaixo.</p>{mode === 'live' && digits(campaign?.whatsapp_number || '') ? <a href={`https://wa.me/${digits(campaign.whatsapp_number)}?text=${whatsappMessage}`} target="_blank" rel="noreferrer" className="mt-5 inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-6 text-sm font-black text-emerald-700 shadow-lg"><MessageCircle size={19} /> ANTECIPAR ATENDIMENTO</a> : null}{mode === 'preview' ? <div className="mt-5 inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-6 text-sm font-black text-emerald-700 shadow-lg"><MessageCircle size={19} /> ANTECIPAR ATENDIMENTO</div> : null}</div></div> :
+      {submitted ? <div className="overflow-y-auto px-5 pb-6 sm:px-6"><div className="mx-auto max-w-3xl rounded-2xl bg-gradient-to-br from-emerald-600 to-emerald-700 px-6 py-7 text-center text-white shadow-xl"><CheckCircle2 size={54} className="mx-auto" /><h3 className="mt-3 text-2xl font-black sm:text-3xl">Parabéns! Simulação recebida.</h3><p className="mx-auto mt-4 max-w-2xl text-sm font-semibold leading-6 text-emerald-50">Seu CPF apresenta uma estimativa inicial de 80% de chance de aprovação. A simulação está sujeita à análise e aprovação de crédito pela instituição financeira, e um dos nossos representantes credenciados pelo banco entrará em contato.</p><div className="mx-auto mt-4 max-w-2xl rounded-xl bg-white/12 p-4 text-sm leading-6 text-emerald-50"><strong className="block text-white">Atenção</strong>Não solicitamos códigos, senhas nem pagamentos antecipados. Seus dados são tratados de acordo com a Lei Geral de Proteção de Dados (LGPD).</div><p className="mx-auto mt-4 max-w-2xl text-sm font-semibold text-emerald-50">Para antecipar o seu atendimento, clique no botão abaixo.</p>{mode === 'live' && digits(campaign?.whatsapp_number || '') ? <a href={`https://wa.me/${digits(campaign.whatsapp_number)}?text=${whatsappMessage}`} target="_blank" rel="noreferrer" onClick={() => window.autoControleMetaPixel?.track('Contact', { contact_channel: 'whatsapp', content_type: 'vehicle', content_ids: selectedVehicle?.id ? [selectedVehicle.id] : [] })} className="mt-5 inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-6 text-sm font-black text-emerald-700 shadow-lg"><MessageCircle size={19} /> ANTECIPAR ATENDIMENTO</a> : null}{mode === 'preview' ? <div className="mt-5 inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-6 text-sm font-black text-emerald-700 shadow-lg"><MessageCircle size={19} /> ANTECIPAR ATENDIMENTO</div> : null}</div></div> :
       <form onSubmit={submit} className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-5 pb-5 sm:px-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-3">
           <div className="rounded-xl border border-slate-200 bg-white px-4 py-2.5"><div className="grid grid-cols-3 items-center gap-2 text-[11px] font-bold text-slate-500"><div className="flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full border border-slate-300">1</span><span>Seus dados</span></div><div className="flex items-center gap-2"><span className="h-px flex-1 bg-red-500" /><span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-red-500 text-red-500">2</span><span>Condições</span></div><div className="flex items-center justify-end gap-2"><span className="h-px flex-1 bg-slate-200" /><span className="flex h-6 w-6 items-center justify-center rounded-full border border-slate-300">3</span><span>Revisão</span></div></div></div>

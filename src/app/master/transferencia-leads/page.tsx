@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRightLeft, CheckCircle2, Loader2, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Building2, CheckCircle2, Loader2, ShieldCheck } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { createClient } from '@/lib/supabase';
 
@@ -19,17 +19,15 @@ type LeadRow = {
 };
 
 type DryRun = {
-  selection_before_removal: number;
   selected: number;
   found: number;
   eligible: number;
+  already_present: number;
   blocked: number;
   missing: number;
-  auto_removed_same_store: number;
-  removed_by_store_filter: number;
   store_id: string;
   store_name: string;
-  privacy_mode: string;
+  multistore: boolean;
 };
 
 const EXECUTION_BATCH_SIZE = 100;
@@ -42,7 +40,7 @@ function chunks<T>(items: T[], size: number) {
   return output;
 }
 
-export default function MasterPrivateLeadTransferPage() {
+export default function MasterLeadMultistorePage() {
   const supabase = useMemo(() => createClient(), []);
   const [leads, setLeads] = useState<LeadRow[]>([]);
   const [stores, setStores] = useState<StoreRow[]>([]);
@@ -107,28 +105,21 @@ export default function MasterPrivateLeadTransferPage() {
 
   const filtered = useMemo(() => {
     const term = query.toLowerCase().trim();
-    return leads.filter((lead) => {
-      if (destinationStoreId && lead.assigned_store_id === destinationStoreId) return false;
-      if (!term) return true;
-      return [lead.name, lead.phone, lead.source, lead.status, lead.assigned_store_name]
-        .some((value) => String(value || '').toLowerCase().includes(term));
-    });
-  }, [destinationStoreId, leads, query]);
+    if (!term) return leads;
+    return leads.filter((lead) => [lead.name, lead.phone, lead.source, lead.status, lead.assigned_store_name]
+      .some((value) => String(value || '').toLowerCase().includes(term)));
+  }, [leads, query]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const sameStoreSelectedIds = useMemo(() => {
-    if (!destinationStoreId) return new Set<string>();
-    return new Set(
-      leads
-        .filter((lead) => lead.assigned_store_id === destinationStoreId)
-        .map((lead) => lead.id)
-    );
-  }, [destinationStoreId, leads]);
+  const sameStoreSelectedIds = useMemo(() => new Set(
+    leads
+      .filter((lead) => selectedSet.has(lead.id) && lead.assigned_store_id === destinationStoreId)
+      .map((lead) => lead.id)
+  ), [destinationStoreId, leads, selectedSet]);
   const effectiveIds = useMemo(
     () => selectedIds.filter((id) => !sameStoreSelectedIds.has(id)),
-    [selectedIds, sameStoreSelectedIds]
+    [sameStoreSelectedIds, selectedIds]
   );
-  const autoExcludedSameStoreCount = selectedIds.length - effectiveIds.length;
 
   function resetValidation() {
     setDryRun(null);
@@ -148,28 +139,58 @@ export default function MasterPrivateLeadTransferPage() {
       return Array.from(next);
     });
     resetValidation();
-    setMessage(`${filtered.length} lead(s) visíveis adicionados à seleção. A seleção anterior foi preservada e nenhum dado foi alterado.`);
+    setMessage(`${filtered.length} lead(s) visíveis adicionados à seleção. A seleção anterior foi preservada.`);
   }
 
   async function validate() {
     if (!destinationStoreId || !effectiveIds.length) return;
     setBusy(true);
     resetValidation();
-    setMessage('Pré-validando transferência privada sem gravar dados...');
+    setMessage('Pré-validando distribuição multiloja sem gravar dados...');
     try {
       const authToken = await token();
       if (!authToken) throw new Error('Sessão expirada. Faça login novamente.');
-      const response = await fetch('/api/master/base-lead-private-transfer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ selection: { lead_ids: effectiveIds }, store_id: destinationStoreId, dry_run: true })
+
+      let totalFound = 0;
+      let totalEligible = 0;
+      let totalAlreadyPresent = 0;
+      let totalBlocked = 0;
+      let totalMissing = 0;
+      const allEligible: string[] = [];
+      const allBlocked: Array<{ lead_id: string; name: string; reason: string }> = [];
+      let lastSummary: DryRun | null = null;
+
+      for (const leadBatch of chunks(effectiveIds, EXECUTION_BATCH_SIZE)) {
+        const response = await fetch('/api/master/base-lead-multistore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({ lead_ids: leadBatch, store_id: destinationStoreId, mode: 'configured_rotation', dry_run: true })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Não foi possível pré-validar.');
+        lastSummary = result.summary;
+        totalFound += Number(result.summary?.found || 0);
+        totalEligible += Number(result.summary?.eligible || 0);
+        totalAlreadyPresent += Number(result.summary?.already_present || 0);
+        totalBlocked += Number(result.summary?.blocked || 0);
+        totalMissing += Number(result.summary?.missing || 0);
+        allEligible.push(...(result.eligible_lead_ids || []));
+        allBlocked.push(...(result.blocked || []));
+      }
+
+      if (!lastSummary) throw new Error('Nenhum lote pôde ser validado.');
+      setDryRun({
+        ...lastSummary,
+        selected: effectiveIds.length,
+        found: totalFound,
+        eligible: totalEligible,
+        already_present: totalAlreadyPresent,
+        blocked: totalBlocked,
+        missing: totalMissing
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Não foi possível pré-validar.');
-      setDryRun(result.summary);
-      setEligibleLeadIds(result.eligible_lead_ids || []);
-      setBlocked(result.blocked || []);
-      setMessage('Pré-validação concluída. Preview permanece sem gravar dados.');
+      setEligibleLeadIds(Array.from(new Set(allEligible)));
+      setBlocked(allBlocked);
+      setMessage('Pré-validação concluída. Leads que já existem nessa loja foram reconhecidos por idempotência e não serão duplicados.');
     } catch (error: any) {
       setMessage(error?.message || 'Falha na pré-validação.');
     } finally {
@@ -177,31 +198,38 @@ export default function MasterPrivateLeadTransferPage() {
     }
   }
 
-  async function transfer() {
+  async function distribute() {
     if (!dryRun?.eligible || !eligibleLeadIds.length) return;
-    if (!window.confirm(`Transferir ${eligibleLeadIds.length} lead(s) para ${dryRun.store_name}? A loja verá a origem como “Transferência Master”; a origem histórica continuará visível apenas no Master.`)) return;
+    if (!window.confirm(`Distribuir ${eligibleLeadIds.length} lead(s) para ${dryRun.store_name}? A operação atual de outras lojas será preservada e uma instância independente será criada na loja destino.`)) return;
     setBusy(true);
-    setMessage('Tentando executar transferência...');
-    let transferred = 0;
+    setMessage('Distribuindo leads em instâncias independentes...');
+    let distributed = 0;
+    let idempotent = 0;
     try {
       const authToken = await token();
       if (!authToken) throw new Error('Sessão expirada. Faça login novamente.');
       for (const leadBatch of chunks(eligibleLeadIds, EXECUTION_BATCH_SIZE)) {
-        const response = await fetch('/api/master/base-lead-private-transfer', {
+        const response = await fetch('/api/master/base-lead-multistore', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-          body: JSON.stringify({ selection: { lead_ids: leadBatch }, store_id: destinationStoreId, dry_run: false, confirmation: 'TRANSFERIR' })
+          body: JSON.stringify({
+            lead_ids: leadBatch,
+            store_id: destinationStoreId,
+            mode: 'configured_rotation',
+            dry_run: false,
+            confirmation: 'DISTRIBUIR'
+          })
         });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || 'Transferência recusada.');
-        transferred += Number(result.summary?.transferred || 0);
+        if (!response.ok) throw new Error(result.error || 'Distribuição recusada.');
+        distributed += Number(result.summary?.distributed || 0);
+        idempotent += Number(result.summary?.idempotent || 0);
       }
-      setMessage(`${transferred} lead(s) transferido(s).`);
-      await load();
+      setMessage(`${distributed} nova(s) instância(s) criada(s).${idempotent ? ` ${idempotent} já existia(m) na loja e não foi(ram) duplicada(s).` : ''}`);
       setSelectedIds([]);
       resetValidation();
     } catch (error: any) {
-      setMessage(`${transferred ? `${transferred} lead(s) concluído(s). ` : ''}${error?.message || 'Erro ao transferir.'}`);
+      setMessage(`${distributed ? `${distributed} concluído(s). ` : ''}${error?.message || 'Erro ao distribuir.'}`);
     } finally {
       setBusy(false);
     }
@@ -217,39 +245,40 @@ export default function MasterPrivateLeadTransferPage() {
           <div className="mx-auto max-w-7xl space-y-5">
             <Link href="/master/base" prefetch={false} className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-wide text-zinc-500 hover:text-red-600"><ArrowLeft size={15} /> Voltar para Base de Leads</Link>
             <header className="rounded-3xl bg-slate-950 p-6 text-white shadow-xl">
-              <div className="flex items-center gap-2 text-red-400"><ArrowRightLeft size={18} /><span className="text-[10px] font-black uppercase tracking-[.18em]">Ação da Base Master</span></div>
-              <h1 className="mt-2 text-2xl font-black">Transferência privada de leads</h1>
-              <p className="mt-2 max-w-3xl text-sm text-slate-300">Esta é uma ação da Base de Leads. O Master troca a loja responsável sem apagar a proveniência histórica; a loja receptora recebe apenas o contexto operacional “Transferência Master”.</p>
+              <div className="flex items-center gap-2 text-red-400"><Building2 size={18} /><span className="text-[10px] font-black uppercase tracking-[.18em]">Base Master · Multiloja</span></div>
+              <h1 className="mt-2 text-2xl font-black">Distribuição multiloja de leads</h1>
+              <p className="mt-2 max-w-3xl text-sm text-slate-300">O mesmo lead pode operar em mais de uma loja. Cada loja recebe um lead operacional próprio, com pipeline, responsável, WhatsApp, agenda e resultado independentes. Distribuir para uma nova loja não retira o lead das lojas anteriores.</p>
             </header>
 
             <section className="grid gap-4 lg:grid-cols-[1fr_340px]">
               <div className="rounded-3xl border border-zinc-200 bg-white p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div><h2 className="font-black">1. Selecione os leads</h2><p className="mt-1 text-xs text-zinc-500">Venda concluída permanece protegida. Perdidos podem ser reabertos pelo Master.</p></div>
+                  <div><h2 className="font-black">1. Selecione os leads</h2><p className="mt-1 text-xs text-zinc-500">Venda concluída permanece protegida. A seleção não depende da loja histórica exibida na Base.</p></div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-xl bg-red-50 px-3 py-2 text-[10px] font-black uppercase text-red-700">{effectiveIds.length} selecionado(s)</span>
                     <button type="button" onClick={chooseAll} disabled={loading} className="rounded-xl bg-slate-950 px-4 py-2 text-[10px] font-black uppercase text-white disabled:opacity-40">Selecionar todos visíveis</button>
                   </div>
                 </div>
-                <input value={query} onChange={(event) => { setQuery(event.target.value); resetValidation(); }} placeholder="Buscar nome, telefone, origem, status ou loja atual..." className="mt-4 h-11 w-full rounded-xl border border-zinc-200 px-3 text-sm" />
+                <input value={query} onChange={(event) => { setQuery(event.target.value); resetValidation(); }} placeholder="Buscar nome, telefone, origem, status ou loja histórica..." className="mt-4 h-11 w-full rounded-xl border border-zinc-200 px-3 text-sm" />
                 <div className="mt-3 max-h-[420px] overflow-y-auto rounded-2xl border border-zinc-100">
                   {loading && !leads.length ? <div className="flex min-h-48 items-center justify-center gap-2 text-sm font-bold text-zinc-500"><Loader2 size={18} className="animate-spin" /> Carregando leads...</div> : null}
                   {filtered.map((lead) => {
                     const checked = selectedSet.has(lead.id);
-                    return <label key={lead.id} className="grid cursor-pointer grid-cols-[22px_1fr] gap-2 border-b border-zinc-100 px-3 py-2.5 last:border-0 hover:bg-zinc-50"><input type="checkbox" className="mt-0.5" checked={checked} onChange={() => toggleLead(lead.id)} /><span className="min-w-0"><strong className="block truncate text-xs">{lead.name || 'Lead sem nome'}</strong><small className="block truncate text-[10px] text-zinc-500">{lead.phone || 'Sem telefone'} · {lead.source || 'Sem origem'} · {lead.status || 'Sem status'} · Atual: {lead.assigned_store_name || 'Sem loja'}</small></span></label>;
+                    return <label key={lead.id} className="grid cursor-pointer grid-cols-[22px_1fr] gap-2 border-b border-zinc-100 px-3 py-2.5 last:border-0 hover:bg-zinc-50"><input type="checkbox" className="mt-0.5" checked={checked} onChange={() => toggleLead(lead.id)} /><span className="min-w-0"><strong className="block truncate text-xs">{lead.name || 'Lead sem nome'}</strong><small className="block truncate text-[10px] text-zinc-500">{lead.phone || 'Sem telefone'} · {lead.source || 'Sem origem'} · {lead.status || 'Sem status'} · Histórico: {lead.assigned_store_name || 'Sem loja'}</small></span></label>;
                   })}
                 </div>
               </div>
 
               <aside className="space-y-4">
-                <section className="rounded-3xl border border-zinc-200 bg-white p-5"><h2 className="font-black">2. Loja responsável</h2><select value={destinationStoreId} onChange={(event) => { setDestinationStoreId(event.target.value); resetValidation(); }} className="mt-3 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-bold"><option value="">Selecione a loja</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.store_name}</option>)}</select>{destination ? <p className="mt-2 text-xs text-zinc-500">{autoExcludedSameStoreCount ? `${autoExcludedSameStoreCount} lead(s) selecionado(s) já pertencem a ${destination.store_name} e ficaram automaticamente fora desta transferência.` : `Leads que já pertencem a ${destination.store_name} ficam automaticamente fora.`}</p> : null}</section>
-                <section className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-blue-950"><div className="flex gap-3"><ShieldCheck size={20} className="shrink-0" /><div><strong className="text-sm">Privacidade entre lojas</strong><p className="mt-1 text-xs leading-relaxed">Origem, evento, campanha, loja anterior e histórico ficam preservados na Base Master. A loja receptora recebe origem operacional “Transferência Master” e evento operacional vazio.</p></div></div></section>
+                <section className="rounded-3xl border border-zinc-200 bg-white p-5"><h2 className="font-black">2. Loja destino</h2><select value={destinationStoreId} onChange={(event) => { setDestinationStoreId(event.target.value); resetValidation(); }} className="mt-3 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-bold"><option value="">Selecione a loja</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.store_name}</option>)}</select>{destination ? <p className="mt-2 text-xs text-zinc-500">Se o lead já possuir uma instância em {destination.store_name}, ele será reconhecido e não será duplicado.</p> : null}</section>
+                <section className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-blue-950"><div className="flex gap-3"><ShieldCheck size={20} className="shrink-0" /><div><strong className="text-sm">Isolamento entre lojas · Transferência Master</strong><p className="mt-1 text-xs leading-relaxed">Origem, evento, campanha, loja anterior e histórico ficam preservados na Base Master. A loja destino recebe somente sua instância operacional, com evento operacional vazio e sem usar o histórico de outra loja no roteamento.</p></div></div></section>
+                {sameStoreSelectedIds.size ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-900">{sameStoreSelectedIds.size} lead(s) já pertencem à loja destino e foram retirados somente desta pré-validação. Sua seleção geral foi preservada.</p> : null}
                 <button type="button" onClick={() => void validate()} disabled={loading || !destinationStoreId || !effectiveIds.length || busy} className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-xs font-black uppercase text-white disabled:opacity-40">{busy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Pré-validar {effectiveIds.length || ''}</button>
               </aside>
             </section>
 
             {message ? <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-950">{message}</div> : null}
-            {dryRun ? <section className="rounded-3xl border border-zinc-200 bg-white p-5"><div className="grid gap-2 sm:grid-cols-6">{[['Selecionados', dryRun.selected], ['Encontrados', dryRun.found], ['Elegíveis', dryRun.eligible], ['Protegidos', dryRun.blocked], ['Mesma loja', dryRun.auto_removed_same_store], ['Ausentes', dryRun.missing]].map(([label, value]) => <div key={String(label)} className="rounded-xl bg-zinc-50 p-3"><p className="text-[9px] font-black uppercase text-zinc-400">{label}</p><strong className="mt-1 block text-xl">{value}</strong></div>)}</div>{blocked.length ? <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">Protegidos: {blocked.slice(0, 5).map((item) => `${item.name || item.lead_id}: ${item.reason}`).join(' | ')}</div> : null}{dryRun.eligible ? <div className="mt-4 flex justify-end"><button type="button" onClick={() => void transfer()} disabled={busy} className="rounded-xl bg-red-600 px-5 py-3 text-xs font-black uppercase text-white disabled:opacity-40">Transferir {dryRun.eligible} lead(s)</button></div> : null}</section> : null}
+            {dryRun ? <section className="rounded-3xl border border-zinc-200 bg-white p-5"><div className="grid gap-2 sm:grid-cols-6">{[['Selecionados', dryRun.selected], ['Encontrados', dryRun.found], ['Novas instâncias', dryRun.eligible], ['Já na loja', dryRun.already_present], ['Protegidos', dryRun.blocked], ['Ausentes', dryRun.missing]].map(([label, value]) => <div key={String(label)} className="rounded-xl bg-zinc-50 p-3"><p className="text-[9px] font-black uppercase text-zinc-400">{label}</p><strong className="mt-1 block text-xl">{value}</strong></div>)}</div>{blocked.length ? <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">Protegidos: {blocked.slice(0, 5).map((item) => `${item.name || item.lead_id}: ${item.reason}`).join(' | ')}</div> : null}{dryRun.eligible ? <div className="mt-4 flex justify-end"><button type="button" onClick={() => void distribute()} disabled={busy} className="rounded-xl bg-red-600 px-5 py-3 text-xs font-black uppercase text-white disabled:opacity-40">Distribuir {dryRun.eligible} lead(s)</button></div> : null}</section> : null}
           </div>
         </div>
       </section>

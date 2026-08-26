@@ -124,6 +124,13 @@ export async function POST(request: Request) {
     const master = await getMasterProfile(supabase, token);
     if (!master) return NextResponse.json({ error: 'Apenas usuário Master pode salvar esta configuração.' }, { status: 403 });
 
+    if (process.env.VERCEL_ENV === 'preview') {
+      return NextResponse.json({
+        error: 'O Preview está em modo somente leitura. Os vínculos reais não foram alterados.',
+        preview_read_only: true
+      }, { status: 409 });
+    }
+
     const body = await request.json();
     const mappings = normalizeMappings(body?.mappings);
     const duplicated = mappings.find((item, index) => mappings.findIndex((other) => other.form_id === item.form_id) !== index);
@@ -159,7 +166,11 @@ export async function POST(request: Request) {
     const integration = await getIntegration(supabase);
     if (!integration) return NextResponse.json({ error: 'Configure primeiro a integração Facebook Lead Forms.' }, { status: 400 });
 
-    const settings = { ...stripStoredMetaSecrets(integration.settings), form_mappings: mappings };
+    const settings = {
+      ...stripStoredMetaSecrets(integration.settings),
+      form_id: '',
+      form_mappings: mappings
+    };
     const { data, error } = await supabase
       .from('marketing_integrations')
       .update({ settings, updated_by: master.id, updated_at: new Date().toISOString() })

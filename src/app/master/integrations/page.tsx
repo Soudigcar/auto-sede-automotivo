@@ -36,6 +36,8 @@ const eventOptions = [
 
 const defaultEvents: Record<string, boolean> = Object.fromEntries(eventOptions.map((event) => [event.key, true]));
 
+const META_LEADS_CALLBACK_URL = 'https://sistemaautomotivo.autosede.com.br/api/webhooks/meta-leads';
+
 const defaultMetaLeads = {
   is_active: false,
   app_id: '',
@@ -43,7 +45,7 @@ const defaultMetaLeads = {
   form_id: '',
   has_page_access_token: false,
   has_verify_token: false,
-  graph_version: 'v20.0'
+  graph_version: 'v25.0'
 };
 
 type LandingOption = {
@@ -74,23 +76,20 @@ export default function MasterIntegrationsPage() {
   const [subscribingMetaLeads, setSubscribingMetaLeads] = useState(false);
   const [metaLeadsDiagnostic, setMetaLeadsDiagnostic] = useState<any>(null);
   const [message, setMessage] = useState('');
-  const [origin, setOrigin] = useState('');
   const [landings, setLandings] = useState<LandingOption[]>([]);
 
   const [pixelForm, setPixelForm] = useState({
     name: 'Pixel do Facebook / Meta',
     pixel_id: '',
     additional_pixel_ids: '',
-    campaign_id: '',
+    test_campaign_id: '',
     is_active: false,
     events: defaultEvents
   });
 
   const [metaLeadsForm, setMetaLeadsForm] = useState(defaultMetaLeads);
 
-  const callbackUrl = useMemo(() => {
-    return `${origin || 'https://sistemaautomotivo.autosede.com.br'}/api/webhooks/meta-leads`;
-  }, [origin]);
+  const callbackUrl = META_LEADS_CALLBACK_URL;
 
   const allPixelIds = useMemo(() => {
     return Array.from(
@@ -102,8 +101,8 @@ export default function MasterIntegrationsPage() {
   }, [pixelForm.pixel_id, pixelForm.additional_pixel_ids]);
 
   const selectedLanding = useMemo(
-    () => landings.find((landing) => landing.id === pixelForm.campaign_id) || null,
-    [landings, pixelForm.campaign_id]
+    () => landings.find((landing) => landing.id === pixelForm.test_campaign_id) || null,
+    [landings, pixelForm.test_campaign_id]
   );
 
   const selectedLandingHref = selectedLanding?.slug ? `/campanha/${selectedLanding.slug}` : '';
@@ -140,7 +139,7 @@ export default function MasterIntegrationsPage() {
       name: integration.name || 'Pixel do Facebook / Meta',
       pixel_id: integration.pixel_id || '',
       additional_pixel_ids: additionalIds.join('\n'),
-      campaign_id: integration?.settings?.campaign_id || '',
+      test_campaign_id: integration?.settings?.test_campaign_id || integration?.settings?.campaign_id || '',
       is_active: Boolean(integration.is_active),
       events: {
         ...defaultEvents,
@@ -226,7 +225,7 @@ export default function MasterIntegrationsPage() {
         return;
       }
 
-      setMessage('Pixels e landing vinculada salvos com sucesso.');
+      setMessage('Pixel global e landing de teste salvos com sucesso.');
       await loadPixel();
     } catch {
       setMessage('Erro ao salvar Pixels.');
@@ -258,7 +257,6 @@ export default function MasterIntegrationsPage() {
           is_active: metaLeadsForm.is_active,
           app_id: metaLeadsForm.app_id,
           page_id: metaLeadsForm.page_id,
-          form_id: metaLeadsForm.form_id,
           graph_version: metaLeadsForm.graph_version
         })
       });
@@ -356,7 +354,6 @@ export default function MasterIntegrationsPage() {
   }
 
   useEffect(() => {
-    if (typeof window !== 'undefined') setOrigin(window.location.origin);
     loadAll();
   }, []);
 
@@ -410,9 +407,10 @@ export default function MasterIntegrationsPage() {
                   <FormInput label="Page ID" value={metaLeadsForm.page_id} onChange={(value) => setMetaLeadsForm({ ...metaLeadsForm, page_id: value.replace(/\D/g, '') })} placeholder="ID da página" />
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <FormInput label="Form ID opcional" value={metaLeadsForm.form_id} onChange={(value) => setMetaLeadsForm({ ...metaLeadsForm, form_id: value.replace(/\D/g, '') })} placeholder="ID do formulário" />
-                  <FormInput label="Graph API Version" value={metaLeadsForm.graph_version} onChange={(value) => setMetaLeadsForm({ ...metaLeadsForm, graph_version: value.trim() })} placeholder="v20.0" />
+                <FormInput label="Graph API Version" value={metaLeadsForm.graph_version} onChange={(value) => setMetaLeadsForm({ ...metaLeadsForm, graph_version: value.trim() })} placeholder="v25.0" />
+
+                <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-xs font-bold leading-5 text-blue-700">
+                  Os formulários aceitos são definidos exclusivamente em “Gerenciar formulários por evento”. Isso evita que um Form ID antigo substitua o evento correto.
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
@@ -464,22 +462,22 @@ export default function MasterIntegrationsPage() {
 
           <form onSubmit={savePixel} className="mt-7 grid gap-5 xl:grid-cols-[1fr_420px]">
             <section className="premium-card p-6">
-              <PanelHeader eyebrow="Meta Pixel" title="Pixel do Facebook / Meta" description="Cadastre um Pixel principal e quantos Pixels adicionais precisar. Todos receberão os mesmos eventos da landing e do simulador." active={pixelForm.is_active} />
+              <PanelHeader eyebrow="Meta Pixel" title="Pixel global do Facebook / Meta" description="Mantenha um Pixel permanente. Ele será usado em todas as landing pages de eventos e cada conversão levará a identificação da campanha e do evento." active={pixelForm.is_active} />
 
               <div className="mt-6 grid gap-4">
                 <FormInput label="Nome da integração" value={pixelForm.name} onChange={(value) => setPixelForm({ ...pixelForm, name: value })} placeholder="Pixel do Facebook / Meta" />
                 <FormInput label="ID do Pixel principal" value={pixelForm.pixel_id} onChange={(value) => setPixelForm({ ...pixelForm, pixel_id: value.replace(/\D/g, '') })} placeholder="Ex: 889787523792519" />
 
                 <label className="grid gap-2">
-                  <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Landing page vinculada</span>
-                  <select className="premium-input" value={pixelForm.campaign_id} onChange={(event) => setPixelForm({ ...pixelForm, campaign_id: event.target.value })}>
+                  <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Landing para teste (não vincula o Pixel)</span>
+                  <select className="premium-input" value={pixelForm.test_campaign_id} onChange={(event) => setPixelForm({ ...pixelForm, test_campaign_id: event.target.value })}>
                     <option value="">Selecione uma landing ativa e publicada</option>
                     {landings.map((landing) => (
                       <option key={landing.id} value={landing.id}>{landing.name}</option>
                     ))}
                   </select>
                   <span className="text-xs font-bold text-zinc-400">
-                    O botão de teste abrirá exatamente a landing selecionada aqui.
+                    O Pixel funciona globalmente em todas as landings. Esta seleção serve somente para abrir uma página durante o teste.
                   </span>
                 </label>
 
@@ -500,7 +498,7 @@ export default function MasterIntegrationsPage() {
                   </div>
                 ) : null}
 
-                <ToggleCard title="Ativar Pixels na landing" description="Quando ativo, todos os IDs cadastrados serão carregados no site público e no simulador." checked={pixelForm.is_active} onChange={(checked) => setPixelForm({ ...pixelForm, is_active: checked })} />
+                <ToggleCard title="Ativar Pixel global" description="Quando ativo, os IDs cadastrados serão carregados em todas as landings públicas e seus simuladores." checked={pixelForm.is_active} onChange={(checked) => setPixelForm({ ...pixelForm, is_active: checked })} />
               </div>
             </section>
 

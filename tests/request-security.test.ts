@@ -8,7 +8,7 @@ import {
   safeEqual,
   verifySha256Hmac
 } from '../src/lib/server/requestSecurity.ts';
-import { isBlockedNetworkAddress } from '../src/lib/server/secureRemoteFetch.ts';
+import { isAllowedRemoteHostname, isBlockedNetworkAddress } from '../src/lib/server/secureRemoteFetch.ts';
 
 test('safeEqual exige valor não vazio e compara em tempo constante', () => {
   assert.equal(safeEqual('', ''), false);
@@ -49,4 +49,12 @@ test('SSRF bloqueia endereços privados, loopback e reservados', () => {
   }
   assert.equal(isBlockedNetworkAddress('8.8.8.8'), false);
   assert.equal(isBlockedNetworkAddress('2606:4700:4700::1111'), false);
+});
+
+test('allowlist remota exige hostname exato', () => {
+  const allowed = ['maps.app.goo.gl', 'www.google.com'];
+  assert.equal(isAllowedRemoteHostname('maps.app.goo.gl', allowed), true);
+  assert.equal(isAllowedRemoteHostname('MAPS.APP.GOO.GL', allowed), true);
+  assert.equal(isAllowedRemoteHostname('maps.app.goo.gl.evil.example', allowed), false);
+  assert.equal(isAllowedRemoteHostname('evilgoogle.com', allowed), false);
 });

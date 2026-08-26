@@ -45,7 +45,13 @@ export function PublishedCampaignVisualLanding({ campaign, eventInfo, vehicles, 
   }
 
   return <main id="landing-inicio" className="min-h-screen bg-slate-50 text-slate-950">
-    <MetaPixelTracker />
+    <MetaPixelTracker context={{
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      campaignSlug: slug,
+      eventId: eventInfo?.id,
+      eventName: eventInfo?.event_name
+    }} />
     <CampaignLandingNavigation settings={draft.navigation} active={activeView} onNavigate={setActiveView} />
 
     {activeView === 'home' ? <>

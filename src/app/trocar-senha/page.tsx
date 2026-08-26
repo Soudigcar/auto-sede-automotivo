@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle2, KeyRound, Loader2, ShieldCheck } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import { ACCOUNT_PASSWORD_HINT, ACCOUNT_PASSWORD_MIN_LENGTH, accountPasswordError } from '@/lib/storeTeamRegistration';
 
 function safeNextPath(value: string | null) {
   if (!value || !value.startsWith('/') || value.startsWith('//')) return '/routes';
@@ -45,8 +46,9 @@ function ChangePasswordContent() {
     event.preventDefault();
     if (saving) return;
 
-    if (password.length < 8) {
-      setMessage('A senha deve ter pelo menos 8 caracteres.');
+    const passwordError = accountPasswordError(password);
+    if (passwordError) {
+      setMessage(passwordError);
       return;
     }
 
@@ -106,11 +108,11 @@ function ChangePasswordContent() {
         <div className="grid w-full overflow-hidden rounded-[34px] border border-white/10 bg-white shadow-2xl shadow-black/40 lg:grid-cols-[0.9fr_1.1fr]">
           <div className="bg-[#0B1220] p-8 md:p-10">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-600 text-white"><KeyRound size={27} /></div>
-            <p className="mt-7 text-xs font-black uppercase tracking-[0.3em] text-red-500">Primeiro acesso</p>
+            <p className="mt-7 text-xs font-black uppercase tracking-[0.3em] text-red-500">Segurança da conta</p>
             <h1 className="mt-3 text-4xl font-black tracking-tight">Crie sua nova senha</h1>
-            <p className="mt-4 text-sm leading-relaxed text-zinc-400">A senha recebida do Gestor é temporária. Defina uma senha pessoal antes de acessar os leads da loja.</p>
+            <p className="mt-4 text-sm leading-relaxed text-zinc-400">Sua senha é pessoal e somente você deve defini-la e conhecê-la. Não compartilhe com o Gestor ou com outros membros da equipe.</p>
             <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
-              <div className="flex items-start gap-3"><ShieldCheck size={20} className="mt-0.5 text-emerald-400" /><div><p className="font-black">Requisitos mínimos</p><p className="mt-1 text-sm text-zinc-400">Pelo menos 8 caracteres, contendo uma letra e um número.</p></div></div>
+              <div className="flex items-start gap-3"><ShieldCheck size={20} className="mt-0.5 text-emerald-400" /><div><p className="font-black">Requisitos mínimos</p><p className="mt-1 text-sm text-zinc-400">{ACCOUNT_PASSWORD_HINT}</p></div></div>
             </div>
           </div>
 
@@ -124,10 +126,10 @@ function ChangePasswordContent() {
                 <p className="mt-2 text-sm text-zinc-500">Não compartilhe essa senha com outras pessoas da equipe.</p>
 
                 <label className="mt-7 block text-sm font-bold text-zinc-700">Digite a nova senha</label>
-                <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-2 w-full rounded-xl border border-zinc-800 bg-[#111827] px-4 py-3 font-semibold text-white outline-none focus:border-red-500" placeholder="Mínimo 8 caracteres" required minLength={8} autoComplete="new-password" disabled={saving || success} />
+                <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-2 w-full rounded-xl border border-zinc-800 bg-[#111827] px-4 py-3 font-semibold text-white outline-none focus:border-red-500" placeholder="Mínimo 12 caracteres" required minLength={ACCOUNT_PASSWORD_MIN_LENGTH} autoComplete="new-password" disabled={saving || success} />
 
                 <label className="mt-4 block text-sm font-bold text-zinc-700">Confirme a nova senha</label>
-                <input type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className="mt-2 w-full rounded-xl border border-zinc-800 bg-[#111827] px-4 py-3 font-semibold text-white outline-none focus:border-red-500" placeholder="Repita a nova senha" required minLength={8} autoComplete="new-password" disabled={saving || success} />
+                <input type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className="mt-2 w-full rounded-xl border border-zinc-800 bg-[#111827] px-4 py-3 font-semibold text-white outline-none focus:border-red-500" placeholder="Repita a nova senha" required minLength={ACCOUNT_PASSWORD_MIN_LENGTH} autoComplete="new-password" disabled={saving || success} />
 
                 <button type="submit" disabled={saving || success} className="btn-primary mt-6 w-full justify-center disabled:cursor-wait disabled:opacity-60">
                   {saving ? <Loader2 size={18} className="animate-spin" /> : success ? <CheckCircle2 size={18} /> : <KeyRound size={18} />}

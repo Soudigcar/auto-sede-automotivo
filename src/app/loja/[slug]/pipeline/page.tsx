@@ -86,7 +86,7 @@ type PipelinePayload = {
   store: { id: string; store_name: string; slug: string };
   profile: { id: string; full_name: string; role: string };
   scope_label: string;
-  capabilities: { can_delete: boolean; can_transfer: boolean; can_confirm_sale: boolean };
+  capabilities: { can_delete: boolean; can_transfer: boolean; can_bulk_transfer: boolean; can_confirm_sale: boolean };
   metrics: { total: number; scheduled: number; cancelled: number; sold: number; lost: number };
   leads: PipelineLead[];
   pagination: { offset: number; limit: number; total: number; has_more: boolean };
@@ -126,6 +126,8 @@ const defaultStageOptions: PipelineStageOption[] = [
   { id: 'sale_confirmed', systemKey: 'sale_confirmed', name: 'Venda Confirmada', color: '#22c55e', visible: true, system: true, order: 6 },
   { id: 'lost', systemKey: 'lost', name: 'Perdido', color: '#ef4444', visible: true, system: true, order: 7 }
 ];
+
+const maxBulkTransferLeads = 200;
 
 function viewModeStorageKey(slug: string, profileId: string) {
   return `auto-controle-pipeline-view:${slug}:${profileId}`;
@@ -235,6 +237,10 @@ export default function StoreSlugPipelinePage() {
   const [transferLead, setTransferLead] = useState<PipelineLead | null>(null);
   const [transferPayload, setTransferPayload] = useState<TransferPayload | null>(null);
   const [targetUserId, setTargetUserId] = useState('');
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const [bulkTransferOpen, setBulkTransferOpen] = useState(false);
+  const [bulkTransferPayload, setBulkTransferPayload] = useState<TransferPayload | null>(null);
+  const [bulkTargetUserId, setBulkTargetUserId] = useState('__unselected__');
 
   async function token() {
     const { data } = await supabase.auth.getSession();
@@ -421,6 +427,18 @@ export default function StoreSlugPipelinePage() {
     ? leads
     : leads.filter((lead) => leadResponsibleId(lead) === selectedResponsible), [leads, selectedResponsible]);
 
+  useEffect(() => {
+    const allowedIds = new Set(scopedLeads.map((lead) => lead.id));
+    setSelectedLeadIds((current) => {
+      const next = current.filter((leadId) => allowedIds.has(leadId));
+      return next.length === current.length ? current : next;
+    });
+  }, [scopedLeads]);
+
+  useEffect(() => {
+    if (viewMode !== 'list') setSelectedLeadIds([]);
+  }, [viewMode]);
+
   const grouped = useMemo(() => columns.map((column) => ({
     ...column,
     leads: scopedLeads.filter((lead) => lead.status === column.key)
@@ -602,9 +620,53 @@ export default function StoreSlugPipelinePage() {
       });
       setTransferLead(null);
       await loadData(true);
-      setMessage(result.message || 'Lead transferido.');
+      setMessage(result.audit_warning ? `${result.message || 'Lead transferido.'} Atenção: parte do histórico de auditoria não pôde ser registrada.` : (result.message || 'Lead transferido.'));
     } catch (error: any) {
       setMessage(error?.message || 'Não foi possível transferir o lead.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openBulkTransfer(leadIds: string[]) {
+    const uniqueLeadIds = Array.from(new Set(leadIds)).slice(0, maxBulkTransferLeads);
+    if (!uniqueLeadIds.length) return;
+
+    setSelectedLeadIds(uniqueLeadIds);
+    setBulkTransferOpen(true);
+    setBulkTransferPayload(null);
+    setBulkTargetUserId('__unselected__');
+    setMessage('Carregando responsáveis...');
+    try {
+      const result = await request(`/api/store/lead-transfer?lead_id=${encodeURIComponent(uniqueLeadIds[0])}`) as TransferPayload;
+      setBulkTransferPayload(result);
+      setMessage('');
+    } catch (error: any) {
+      setBulkTransferOpen(false);
+      setMessage(error?.message || 'Não foi possível carregar os responsáveis.');
+    }
+  }
+
+  async function saveBulkTransfer() {
+    if (!selectedLeadIds.length || bulkTargetUserId === '__unselected__') return;
+    setBusy(true);
+    setMessage(`Transferindo ${selectedLeadIds.length} leads...`);
+    try {
+      const result = await request('/api/store/lead-transfer', {
+        method: 'POST',
+        body: JSON.stringify({
+          lead_ids: selectedLeadIds,
+          target_user_id: bulkTargetUserId || null
+        })
+      });
+      setBulkTransferOpen(false);
+      setSelectedLeadIds([]);
+      await loadData(true);
+      const skippedMessage = result.skipped_count ? ` ${result.skipped_count} já estavam com esse responsável e foram mantidos.` : '';
+      const auditMessage = result.audit_warning ? ' Atenção: parte do histórico de auditoria não pôde ser registrada.' : '';
+      setMessage(`${result.message || 'Leads transferidos.'}${skippedMessage}${auditMessage}`);
+    } catch (error: any) {
+      setMessage(error?.message || 'Não foi possível transferir os leads selecionados.');
     } finally {
       setBusy(false);
     }
@@ -758,6 +820,10 @@ export default function StoreSlugPipelinePage() {
               stages={stageOptions}
               assignments={customAssignments}
               busy={busy}
+              canBulkTransfer={payload.capabilities.can_bulk_transfer}
+              selectedLeadIds={selectedLeadIds}
+              onSelectionChange={setSelectedLeadIds}
+              onBulkTransfer={(leadIds) => void openBulkTransfer(leadIds)}
               onOpen={(lead) => void openEditor(lead)}
               onReveal={(lead) => void revealPhone(lead)}
               onWhatsapp={(lead) => void openWhatsapp(lead)}
@@ -844,15 +910,41 @@ export default function StoreSlugPipelinePage() {
       {taskLead ? <Modal title="Agendar tarefa" onClose={() => setTaskLead(null)}><div className="grid gap-4"><label className="text-sm font-bold text-zinc-700">Tipo de tarefa<select className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3" value={taskType} onChange={(event) => setTaskType(event.target.value)}><option value="call_back">Ligar novamente</option><option value="send_simulation">Enviar simulação</option><option value="request_documents">Solicitar documentos</option><option value="confirm_visit">Confirmar visita</option><option value="whatsapp_followup">Retornar pelo WhatsApp</option><option value="other">Outra tarefa</option></select></label><div className="grid gap-3 sm:grid-cols-2"><Field label="Data" type="date" value={taskDate} onChange={setTaskDate} placeholder="" /><Field label="Hora" type="time" value={taskTime} onChange={setTaskTime} placeholder="" /></div><Area label="Descrição" value={taskDescription} onChange={setTaskDescription} placeholder="O que precisa ser feito" /><ModalActions onCancel={() => setTaskLead(null)} onConfirm={() => void saveTask()} confirmLabel="Agendar tarefa" busy={busy} /></div></Modal> : null}
 
       {transferLead ? <Modal title="Transferir Lead" onClose={() => setTransferLead(null)}><div className="grid gap-4">{transferPayload ? <label className="text-sm font-bold text-zinc-700">Novo responsável<select className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3" value={targetUserId} onChange={(event) => setTargetUserId(event.target.value)}><option value="">Carteira geral da loja</option>{transferPayload.team.map((member) => <option key={member.id} value={member.id}>{member.full_name} · {member.role_label}</option>)}</select></label> : <div className="flex items-center gap-2 text-sm font-bold text-zinc-600"><Loader2 className="animate-spin" size={16} /> Carregando equipe...</div>}<ModalActions onCancel={() => setTransferLead(null)} onConfirm={() => void saveTransfer()} confirmLabel="Transferir lead" busy={busy || !transferPayload} /></div></Modal> : null}
+
+      {bulkTransferOpen ? (
+        <Modal title={`Transferir ${selectedLeadIds.length} leads`} onClose={() => setBulkTransferOpen(false)}>
+          <div className="grid gap-4">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+              <p className="text-sm font-black text-amber-900">Confirme o novo responsável do lote</p>
+              <p className="mt-1 text-xs font-bold text-amber-700">A etapa comercial não será alterada. A transferência ficará registrada individualmente no histórico de cada lead.</p>
+            </div>
+            {bulkTransferPayload ? (
+              <label className="text-sm font-bold text-zinc-700">
+                Novo responsável
+                <select className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3" value={bulkTargetUserId} onChange={(event) => setBulkTargetUserId(event.target.value)}>
+                  <option value="__unselected__" disabled>Selecione um responsável</option>
+                  <option value="">Carteira geral da loja</option>
+                  {bulkTransferPayload.team.map((member) => <option key={member.id} value={member.id}>{member.full_name} · {member.role_label}</option>)}
+                </select>
+              </label>
+            ) : <div className="flex items-center gap-2 text-sm font-bold text-zinc-600"><Loader2 className="animate-spin" size={16} /> Carregando equipe...</div>}
+            <ModalActions onCancel={() => setBulkTransferOpen(false)} onConfirm={() => void saveBulkTransfer()} confirmLabel={`Transferir ${selectedLeadIds.length} leads`} busy={busy || !bulkTransferPayload || bulkTargetUserId === '__unselected__'} />
+          </div>
+        </Modal>
+      ) : null}
     </main>
   );
 }
 
-function PipelineLeadList({ leads, stages, assignments, busy, onOpen, onReveal, onWhatsapp, onSchedule, onStageChange, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
+function PipelineLeadList({ leads, stages, assignments, busy, canBulkTransfer, selectedLeadIds, onSelectionChange, onBulkTransfer, onOpen, onReveal, onWhatsapp, onSchedule, onStageChange, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
   leads: PipelineLead[];
   stages: PipelineStageOption[];
   assignments: Record<string, PipelineCustomAssignment>;
   busy: boolean;
+  canBulkTransfer: boolean;
+  selectedLeadIds: string[];
+  onSelectionChange: (leadIds: string[]) => void;
+  onBulkTransfer: (leadIds: string[]) => void;
   onOpen: (lead: PipelineLead) => void;
   onReveal: (lead: PipelineLead) => void;
   onWhatsapp: (lead: PipelineLead) => void;
@@ -875,12 +967,53 @@ function PipelineLeadList({ leads, stages, assignments, busy, onOpen, onReveal, 
     const stage = orderedStages.find((item) => item.id === assignedStage || item.systemKey === assignedStage);
     return stage?.visible ? [{ lead, stageId: stage.id }] : [];
   });
+  const selectedSet = new Set(selectedLeadIds);
+  const selectableLeadIds = visibleLeads.map(({ lead }) => lead.id).slice(0, maxBulkTransferLeads);
+  const allSelectableSelected = selectableLeadIds.length > 0 && selectableLeadIds.every((leadId) => selectedSet.has(leadId));
+
+  function toggleAllVisible() {
+    if (allSelectableSelected) {
+      const visibleSet = new Set(selectableLeadIds);
+      onSelectionChange(selectedLeadIds.filter((leadId) => !visibleSet.has(leadId)));
+      return;
+    }
+
+    onSelectionChange(Array.from(new Set([...selectedLeadIds, ...selectableLeadIds])).slice(0, maxBulkTransferLeads));
+  }
+
+  function toggleLead(leadId: string) {
+    if (selectedSet.has(leadId)) {
+      onSelectionChange(selectedLeadIds.filter((selectedId) => selectedId !== leadId));
+      return;
+    }
+    if (selectedLeadIds.length >= maxBulkTransferLeads) return;
+    onSelectionChange([...selectedLeadIds, leadId]);
+  }
 
   return (
     <section data-pipeline-list-view="true" className="mt-5 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
+      {canBulkTransfer ? (
+        <div data-pipeline-bulk-transfer-bar="true" className="flex flex-col gap-3 border-b border-zinc-200 bg-zinc-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-black text-zinc-700">
+              <input type="checkbox" className="h-4 w-4 accent-red-600" checked={allSelectableSelected} onChange={toggleAllVisible} disabled={!selectableLeadIds.length || busy} />
+              Selecionar todos os exibidos
+            </label>
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-zinc-600 shadow-sm">{selectedLeadIds.length} selecionados</span>
+            {visibleLeads.length > maxBulkTransferLeads ? <span className="text-[10px] font-bold text-amber-700">Máximo de {maxBulkTransferLeads} por operação</span> : null}
+          </div>
+          <div className="flex items-center gap-2">
+            {selectedLeadIds.length ? <button type="button" className="rounded-xl px-3 py-2 text-xs font-black text-zinc-500 hover:bg-white" onClick={() => onSelectionChange([])} disabled={busy}>Limpar</button> : null}
+            <button type="button" className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40" onClick={() => onBulkTransfer(selectedLeadIds)} disabled={!selectedLeadIds.length || busy}>
+              <ArrowRightLeft size={14} /> Transferir selecionados
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="overflow-x-auto">
-        <div className="min-w-[1120px]">
-          <div className="grid grid-cols-[minmax(230px,1.35fr)_130px_minmax(180px,1fr)_190px_145px_170px] gap-3 border-b border-zinc-200 bg-zinc-950 px-4 py-3 text-[9px] font-black uppercase tracking-[0.12em] text-zinc-300">
+        <div className={canBulkTransfer ? 'min-w-[1168px]' : 'min-w-[1120px]'}>
+          <div className={`grid ${canBulkTransfer ? 'grid-cols-[32px_minmax(230px,1.35fr)_130px_minmax(180px,1fr)_190px_145px_170px]' : 'grid-cols-[minmax(230px,1.35fr)_130px_minmax(180px,1fr)_190px_145px_170px]'} gap-3 border-b border-zinc-200 bg-zinc-950 px-4 py-3 text-[9px] font-black uppercase tracking-[0.12em] text-zinc-300`}>
+            {canBulkTransfer ? <span className="text-center">Sel.</span> : null}
             <span>Lead</span><span>Origem</span><span>Interesse</span><span>Etapa</span><span>Agendamento</span><span className="text-center">Ações</span>
           </div>
           <div className="max-h-[calc(100dvh-176px)] min-h-[420px] overflow-y-auto overscroll-contain">
@@ -892,6 +1025,9 @@ function PipelineLeadList({ leads, stages, assignments, busy, onOpen, onReveal, 
                   stages={visibleStages}
                   stageId={stageId}
                   busy={busy}
+                  canSelect={canBulkTransfer}
+                  selected={selectedSet.has(lead.id)}
+                  onSelectedChange={() => toggleLead(lead.id)}
                   onOpen={() => onOpen(lead)}
                   onReveal={() => onReveal(lead)}
                   onWhatsapp={() => onWhatsapp(lead)}
@@ -914,11 +1050,14 @@ function PipelineLeadList({ leads, stages, assignments, busy, onOpen, onReveal, 
   );
 }
 
-function LeadListRow({ lead, stages, stageId, busy, onOpen, onReveal, onWhatsapp, onSchedule, onStageChange, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
+function LeadListRow({ lead, stages, stageId, busy, canSelect, selected, onSelectedChange, onOpen, onReveal, onWhatsapp, onSchedule, onStageChange, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
   lead: PipelineLead;
   stages: PipelineStageOption[];
   stageId: string;
   busy: boolean;
+  canSelect: boolean;
+  selected: boolean;
+  onSelectedChange: () => void;
   onOpen: () => void;
   onReveal: () => void;
   onWhatsapp: () => void;
@@ -939,8 +1078,9 @@ function LeadListRow({ lead, stages, stageId, busy, onOpen, onReveal, onWhatsapp
   const scheduled = lead.scheduled_at ? compactSchedule(lead.scheduled_at) : '—';
 
   return (
-    <article data-pipeline-list-row="true" className="border-b border-zinc-100 px-4 py-2.5 last:border-b-0 hover:bg-zinc-50/80">
-      <div className="grid grid-cols-[minmax(230px,1.35fr)_130px_minmax(180px,1fr)_190px_145px_170px] items-center gap-3">
+    <article data-pipeline-list-row="true" data-selected={selected ? 'true' : 'false'} className={`border-b border-zinc-100 px-4 py-2.5 last:border-b-0 ${selected ? 'bg-red-50/70' : 'hover:bg-zinc-50/80'}`}>
+      <div className={`grid ${canSelect ? 'grid-cols-[32px_minmax(230px,1.35fr)_130px_minmax(180px,1fr)_190px_145px_170px]' : 'grid-cols-[minmax(230px,1.35fr)_130px_minmax(180px,1fr)_190px_145px_170px]'} items-center gap-3`}>
+        {canSelect ? <input type="checkbox" className="h-4 w-4 justify-self-center accent-red-600" checked={selected} onChange={onSelectedChange} disabled={busy} aria-label={`Selecionar ${name} para transferência`} /> : null}
         <div className="flex min-w-0 items-center gap-2.5">
           <button type="button" onClick={onOpen} className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-zinc-100 text-[10px] font-black text-zinc-600" aria-label={`Abrir ${name}`}>
             {lead.profile_picture_url ? <Image loader={passthroughImageLoader} unoptimized src={lead.profile_picture_url} alt={`Foto de ${name}`} fill sizes="36px" className="object-cover" /> : leadInitials(name)}

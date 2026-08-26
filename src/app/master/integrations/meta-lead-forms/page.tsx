@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Plus, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
 import { createClient } from '@/lib/supabase';
 
@@ -21,6 +21,13 @@ type FormMapping = {
   is_active: boolean;
 };
 
+type MetaForm = {
+  id: string;
+  name: string;
+  status: string;
+  created_time?: string | null;
+};
+
 const emptyMapping: FormMapping = {
   name: '',
   form_id: '',
@@ -36,6 +43,8 @@ export default function MetaLeadFormsByEventPage() {
   const [message, setMessage] = useState('');
   const [events, setEvents] = useState<EventOption[]>([]);
   const [mappings, setMappings] = useState<FormMapping[]>([]);
+  const [discovering, setDiscovering] = useState(false);
+  const [metaForms, setMetaForms] = useState<MetaForm[]>([]);
 
   async function getToken() {
     const { data } = await supabase.auth.getSession();
@@ -108,6 +117,58 @@ export default function MetaLeadFormsByEventPage() {
     setSaving(false);
   }
 
+  async function discover() {
+    setDiscovering(true);
+    setMessage('Consultando os formulários diretamente na Meta...');
+
+    try {
+      const token = await getToken();
+      if (!token) {
+        setMessage('Sessão expirada. Faça login novamente.');
+        setDiscovering(false);
+        return;
+      }
+
+      const response = await fetch('/api/master/integrations/meta-leads/forms/discover', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        setMessage(result.error || 'Não foi possível importar os formulários da Meta.');
+      } else {
+        const forms: MetaForm[] = result.forms || [];
+        setMetaForms(forms);
+        setMappings((current) => {
+          const formById = new Map(forms.map((form) => [form.id, form]));
+          const reviewedCurrent = current.map((item) => {
+            const metaForm = formById.get(item.form_id);
+            return metaForm && metaForm.status !== 'ACTIVE'
+              ? { ...item, is_active: false }
+              : item;
+          });
+          const existingIds = new Set(current.map((item) => item.form_id));
+          const imported = forms
+            .filter((form) => form.id && !existingIds.has(form.id))
+            .map((form) => ({
+              name: form.name,
+              form_id: form.id,
+              event_id: '',
+              event_name: '',
+              is_active: false
+            }));
+          return [...reviewedCurrent, ...imported];
+        });
+        setMessage(forms.length
+          ? `${forms.length} formulário(s) encontrado(s). Novos formulários foram adicionados inativos para você conferir.`
+          : 'A Meta não retornou formulários para esta página.');
+      }
+    } catch {
+      setMessage('Erro ao consultar os formulários da Meta.');
+    }
+
+    setDiscovering(false);
+  }
+
   function update(index: number, patch: Partial<FormMapping>) {
     setMappings((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
   }
@@ -159,9 +220,14 @@ export default function MetaLeadFormsByEventPage() {
                 </p>
               </div>
 
-              <button className="premium-button-secondary" type="button" onClick={add} disabled={loading || saving}>
-                <Plus size={18} /> Adicionar formulário
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button className="premium-button-secondary" type="button" onClick={discover} disabled={loading || saving || discovering}>
+                  <RefreshCw className={discovering ? 'animate-spin' : ''} size={18} /> {discovering ? 'Consultando Meta...' : 'Importar da Meta'}
+                </button>
+                <button className="premium-button-secondary" type="button" onClick={add} disabled={loading || saving || discovering}>
+                  <Plus size={18} /> Adicionar manualmente
+                </button>
+              </div>
             </div>
 
             <div className="mt-6 grid gap-4">
@@ -174,6 +240,14 @@ export default function MetaLeadFormsByEventPage() {
 
               {mappings.map((mapping, index) => (
                 <div key={`${mapping.form_id}-${index}`} className="rounded-[24px] border border-zinc-100 bg-zinc-50 p-4">
+                  {metaForms.find((form) => form.id === mapping.form_id) ? (
+                    <div className="mb-4 flex flex-wrap items-center gap-2 text-xs font-black uppercase tracking-wide">
+                      <span className="text-zinc-500">Situação na Meta:</span>
+                      <span className={`rounded-full px-3 py-1 ${metaForms.find((form) => form.id === mapping.form_id)?.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {metaForms.find((form) => form.id === mapping.form_id)?.status}
+                      </span>
+                    </div>
+                  ) : null}
                   <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1.4fr_auto] lg:items-end">
                     <label className="grid gap-2">
                       <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Nome do formulário</span>
@@ -208,7 +282,13 @@ export default function MetaLeadFormsByEventPage() {
                       <p className="text-sm font-black text-zinc-950">Formulário ativo</p>
                       <p className="mt-1 text-xs font-bold text-zinc-500">Somente formulários ativos serão aceitos pelo webhook.</p>
                     </div>
-                    <input className="h-5 w-5" type="checkbox" checked={mapping.is_active} onChange={(event) => update(index, { is_active: event.target.checked })} />
+                    <input
+                      className="h-5 w-5"
+                      type="checkbox"
+                      checked={mapping.is_active}
+                      disabled={Boolean(metaForms.find((form) => form.id === mapping.form_id && form.status !== 'ACTIVE'))}
+                      onChange={(event) => update(index, { is_active: event.target.checked })}
+                    />
                   </label>
                 </div>
               ))}

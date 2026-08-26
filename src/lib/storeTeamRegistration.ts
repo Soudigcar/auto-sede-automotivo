@@ -1,11 +1,11 @@
-export const TEAM_REGISTRATION_PASSWORD_MIN_LENGTH = 12;
+export const ACCOUNT_PASSWORD_MIN_LENGTH = 12;
 
-export const TEAM_REGISTRATION_PASSWORD_HINT =
+export const ACCOUNT_PASSWORD_HINT =
   'Mínimo 12 caracteres, com maiúscula, minúscula, número e símbolo.';
 
-export function teamRegistrationPasswordError(password: string) {
+export function accountPasswordError(password: string) {
   if (
-    password.length < TEAM_REGISTRATION_PASSWORD_MIN_LENGTH ||
+    password.length < ACCOUNT_PASSWORD_MIN_LENGTH ||
     !/[a-z]/.test(password) ||
     !/[A-Z]/.test(password) ||
     !/\d/.test(password) ||
@@ -16,6 +16,10 @@ export function teamRegistrationPasswordError(password: string) {
 
   return null;
 }
+
+export const TEAM_REGISTRATION_PASSWORD_MIN_LENGTH = ACCOUNT_PASSWORD_MIN_LENGTH;
+export const TEAM_REGISTRATION_PASSWORD_HINT = ACCOUNT_PASSWORD_HINT;
+export const teamRegistrationPasswordError = accountPasswordError;
 
 export function asTeamRegistrationUrl(value: unknown) {
   if (typeof value !== 'string') return null;

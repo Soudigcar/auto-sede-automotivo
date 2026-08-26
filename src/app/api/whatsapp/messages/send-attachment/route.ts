@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { evolutionMultipartRequest } from '@/lib/server/evolution';
+import { evolutionRequest } from '@/lib/server/evolution';
+import { sendEvolutionAudio } from '@/lib/server/evolutionAudio';
 import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
@@ -134,16 +135,26 @@ export async function POST(request: Request) {
 
     const mediaType = mediaTypeFor(fileValue);
     const mime = cleanText(fileValue.type, 160) || fallbackMime(mediaType);
-    const evolutionForm = new FormData();
-    evolutionForm.set('number', recipient);
-    evolutionForm.set('mediatype', mediaType);
-    evolutionForm.set('mimetype', mime);
-    evolutionForm.set('delay', '500');
-    if (caption && mediaType !== 'audio') evolutionForm.set('caption', caption);
-    if (mediaType === 'document') evolutionForm.set('fileName', filename);
-    evolutionForm.set('file', fileValue, filename);
-
-    const result = await evolutionMultipartRequest(`/message/sendMedia/${encodeURIComponent(integration.instance_name)}`, evolutionForm);
+    const bytes = new Uint8Array(await fileValue.arrayBuffer());
+    let result: any;
+    if (mediaType === 'audio') {
+      result = await sendEvolutionAudio({ instanceName: integration.instance_name, number: recipient, bytes, mimetype: mime, fileName: filename });
+    } else {
+      const media = Buffer.from(bytes).toString('base64');
+      const evolutionPayload: Record<string, unknown> = {
+        number: recipient,
+        mediatype: mediaType,
+        mimetype: mime,
+        media,
+        fileName: filename,
+        delay: 500
+      };
+      if (caption) evolutionPayload.caption = caption;
+      result = await evolutionRequest(`/message/sendMedia/${encodeURIComponent(integration.instance_name)}`, {
+        method: 'POST',
+        body: evolutionPayload
+      });
+    }
     const waMessageId = evolutionMessageId(result);
     const sentAt = new Date().toISOString();
     const body = previewLabel(mediaType, filename, caption);

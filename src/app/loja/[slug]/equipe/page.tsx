@@ -10,6 +10,7 @@ import {
   Clipboard,
   Copy,
   ExternalLink,
+  KeyRound,
   Link2,
   Loader2,
   LogOut,
@@ -243,21 +244,52 @@ export default function StoreTeamPage() {
     setBusyKey(`member:${draft.id}`);
     setMessage(`Salvando ${draft.full_name}...`);
     try {
-      await postAction({
+      const data = await postAction({
         action: 'update_member',
         member_id: draft.id,
+        full_name: draft.full_name,
+        phone: draft.phone,
+        role: draft.role,
         status: draft.status,
         receives_leads: draft.receives_leads,
         routing_order: draft.routing_order,
         max_open_leads: draft.max_open_leads
       });
+
+      if (data.preview_mode) {
+        setMembers((current) => current.map((member) => member.id === draft.id ? { ...member, ...draft } : member));
+        setMessage(`SIMULAÇÃO DO PREVIEW — ${roleLabels[draft.role] || draft.role} selecionado. Nenhum dado real foi alterado.`);
+        return;
+      }
+
       await loadTeam();
-      setMessage('Colaborador atualizado com sucesso.');
+      setMessage(data.message || 'Perfil do colaborador atualizado com sucesso.');
     } catch (error: any) {
       setMessage(error?.message || 'Erro ao atualizar colaborador.');
     } finally {
       setBusyKey('');
     }
+  }
+
+  async function sendPasswordRecovery(member: TeamMember) {
+    setBusyKey(`recovery:${member.id}`);
+    setMessage(`Preparando recuperação de acesso para ${member.full_name}...`);
+    try {
+      const data = await postAction({ action: 'send_password_recovery', member_id: member.id });
+      setMessage(data.message || 'Solicitação de recuperação enviada.');
+    } catch (error: any) {
+      setMessage(error?.message || 'Erro ao solicitar recuperação de senha.');
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  async function copyRecoveryPage(member: TeamMember) {
+    const recoveryUrl = `${window.location.origin}/recuperar-senha`;
+    await navigator.clipboard.writeText(recoveryUrl);
+    setCopiedKey(`recovery:${member.id}`);
+    setMessage('Página genérica de recuperação copiada. Ela não contém token nem credencial.');
+    window.setTimeout(() => setCopiedKey(''), 1800);
   }
 
   if (message && !store && !loading) {
@@ -361,7 +393,7 @@ export default function StoreTeamPage() {
           <section className="mt-8">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700"><UsersRound size={22} /></div>
-              <div><h2 className="text-2xl font-black text-zinc-950">Colaboradores cadastrados</h2><p className="premium-muted text-sm">Marque o rodízio para ativar automaticamente o colaborador.</p></div>
+              <div><h2 className="text-2xl font-black text-zinc-950">Colaboradores cadastrados</h2><p className="premium-muted text-sm">Edite o perfil, cargo e regras de distribuição sem alterar o e-mail ou a loja do colaborador.</p></div>
             </div>
 
             {loading ? (
@@ -376,10 +408,14 @@ export default function StoreTeamPage() {
               <div className="mt-5 grid gap-4 xl:grid-cols-2">
                 {members.map((member) => (
                   <MemberCard
-                    key={`${member.id}:${member.status}:${member.receives_leads}:${member.routing_order}:${member.max_open_leads ?? 'none'}`}
+                    key={`${member.id}:${member.full_name}:${member.phone || ''}:${member.role}:${member.status}:${member.receives_leads}:${member.routing_order}:${member.max_open_leads ?? 'none'}`}
                     member={member}
                     saving={busyKey === `member:${member.id}`}
+                    recovering={busyKey === `recovery:${member.id}`}
+                    copiedRecovery={copiedKey === `recovery:${member.id}`}
                     onSave={saveMember}
+                    onSendRecovery={sendPasswordRecovery}
+                    onCopyRecovery={copyRecoveryPage}
                   />
                 ))}
               </div>
@@ -391,7 +427,15 @@ export default function StoreTeamPage() {
   );
 }
 
-function MemberCard({ member, saving, onSave }: { member: TeamMember; saving: boolean; onSave: (draft: TeamMember) => Promise<void> }) {
+function MemberCard({ member, saving, recovering, copiedRecovery, onSave, onSendRecovery, onCopyRecovery }: {
+  member: TeamMember;
+  saving: boolean;
+  recovering: boolean;
+  copiedRecovery: boolean;
+  onSave: (draft: TeamMember) => Promise<void>;
+  onSendRecovery: (member: TeamMember) => Promise<void>;
+  onCopyRecovery: (member: TeamMember) => Promise<void>;
+}) {
   const [draft, setDraft] = useState<TeamMember>(member);
 
   function changeStatus(status: string) {
@@ -410,6 +454,8 @@ function MemberCard({ member, saving, onSave }: { member: TeamMember; saving: bo
     }));
   }
 
+  const profileValid = draft.full_name.trim().length >= 3 && ['pre_sales', 'seller', 'prospector'].includes(draft.role);
+
   return (
     <article className="premium-card p-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -423,6 +469,37 @@ function MemberCard({ member, saving, onSave }: { member: TeamMember; saving: bo
           <p className="mt-1 text-xs text-zinc-400">{draft.phone || 'Telefone não informado'}</p>
         </div>
         {draft.status === 'active' ? <ShieldCheck className="text-emerald-500" size={22} /> : <UserRoundCog className="text-zinc-300" size={22} />}
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+        <div className="flex items-center gap-2">
+          <UserRoundCog size={17} className="text-red-600" />
+          <p className="text-sm font-black text-zinc-800">Editar perfil</p>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="text-xs font-black uppercase tracking-wide text-zinc-500">
+            Nome
+            <input type="text" maxLength={180} value={draft.full_name} onChange={(event) => setDraft((current) => ({ ...current, full_name: event.target.value }))} className="premium-input mt-2 text-sm normal-case" />
+          </label>
+          <label className="text-xs font-black uppercase tracking-wide text-zinc-500">
+            Telefone
+            <input type="tel" maxLength={40} value={draft.phone || ''} onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))} className="premium-input mt-2 text-sm normal-case" placeholder="Telefone do colaborador" />
+          </label>
+          <label className="text-xs font-black uppercase tracking-wide text-zinc-500">
+            Cargo
+            <select value={draft.role} onChange={(event) => setDraft((current) => ({ ...current, role: event.target.value }))} className="premium-input mt-2 text-sm normal-case">
+              <option value="pre_sales">Pré-vendas</option>
+              <option value="seller">Vendedor</option>
+              <option value="prospector">Prospectador</option>
+            </select>
+          </label>
+          <label className="text-xs font-black uppercase tracking-wide text-zinc-500">
+            E-mail
+            <input type="email" value={draft.email} readOnly disabled className="premium-input mt-2 cursor-not-allowed text-sm normal-case opacity-60" />
+            <span className="mt-1 block text-[10px] font-semibold normal-case tracking-normal text-zinc-400">O e-mail identifica a conta e não pode ser alterado nesta edição.</span>
+          </label>
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-zinc-500">Ao mudar o cargo, as permissões passam a seguir o novo perfil. Ao entrar ou sair de Prospectador, o histórico de prospecção é preservado.</p>
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
@@ -450,9 +527,20 @@ function MemberCard({ member, saving, onSave }: { member: TeamMember; saving: bo
         <input type="checkbox" checked={Boolean(draft.receives_leads)} onChange={(event) => changeRouting(event.target.checked)} className="h-5 w-5 accent-red-600" />
       </label>
 
-      <button type="button" onClick={() => onSave(draft)} disabled={saving} className="premium-button-primary mt-4 w-full justify-center disabled:opacity-50">
-        {saving ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />} Salvar colaborador
+      <button type="button" onClick={() => onSave(draft)} disabled={saving || !profileValid} className="premium-button-primary mt-4 w-full justify-center disabled:opacity-50">
+        {saving ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />} Salvar alterações
       </button>
+
+      <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-red-600 shadow-sm"><KeyRound size={17} /></div>
+          <div><p className="text-sm font-black text-zinc-800">Acesso e Segurança</p><p className="mt-1 text-xs leading-relaxed text-zinc-500">O colaborador recebe a recuperação no próprio e-mail. A loja nunca vê senha ou token.</p></div>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <button type="button" onClick={() => onSendRecovery(member)} disabled={recovering} className="premium-button-secondary justify-center text-sm disabled:opacity-50">{recovering ? <Loader2 size={16} className="animate-spin" /> : <KeyRound size={16} />} {recovering ? 'Enviando...' : 'Enviar redefinição'}</button>
+          <button type="button" onClick={() => onCopyRecovery(member)} className="premium-button-secondary justify-center text-sm">{copiedRecovery ? <Check size={16} /> : <Copy size={16} />} {copiedRecovery ? 'Copiado' : 'Copiar recuperação'}</button>
+        </div>
+      </div>
     </article>
   );
 }

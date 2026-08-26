@@ -1,10 +1,12 @@
 'use client';
 
-import { useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useParams } from 'next/navigation';
 import { FileText, Image as ImageIcon, Loader2, Paperclip, Send, Sparkles, Video, Volume2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import AutocarCopilotInline from '@/components/AutocarCopilotInline';
+import { WhatsappAudioRecorderButton } from '@/components/WhatsappAudioRecorderButton';
+import { WhatsappLocationButton } from '@/components/WhatsappLocationButton';
 
 const MAX_MEDIA_BYTES = 4 * 1024 * 1024;
 
@@ -59,6 +61,17 @@ export function WhatsappAttachmentButton({
   const [open, setOpen] = useState(false);
   const [autocarOpen, setAutocarOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState('');
+
+  useEffect(() => {
+    if (!file || mediaKind(file) !== 'image') {
+      setPreviewUrl('');
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
 
   function reset() {
     setFile(null);
@@ -100,7 +113,7 @@ export function WhatsappAttachmentButton({
         headers: { Authorization: `Bearer ${token}` },
         body: form
       });
-      const result = await response.json();
+      const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'Não foi possível enviar o anexo.');
 
       onStatus('Anexo enviado com sucesso.');
@@ -130,20 +143,24 @@ export function WhatsappAttachmentButton({
         type="button"
         onClick={() => setAutocarOpen(true)}
         disabled={!conversationId}
-        className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 text-[10px] font-black uppercase text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+        aria-label="Abrir AUTOCAR"
         title="Analisar conversa ativa com a I.A AUTOCAR"
       >
-        <Sparkles size={14} /> AUTOCAR
+        <Sparkles size={16} />
       </button>
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={sending || !conversationId}
-        className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 text-[10px] font-black uppercase text-zinc-700 transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+        aria-label="Anexar foto, vídeo, áudio ou documento"
         title="Anexar foto, vídeo, áudio ou documento"
       >
-        <Paperclip size={14} /> Anexar
+        <Paperclip size={17} />
       </button>
+      <WhatsappAudioRecorderButton conversationId={conversationId} onRefresh={onRefresh} onStatus={onStatus} disabled={sending} compact />
+      <WhatsappLocationButton conversationId={conversationId} onRefresh={onRefresh} onStatus={onStatus} disabled={sending} />
 
       {autocarOpen ? (
         <div className="fixed inset-0 z-[555] flex items-end justify-center bg-black/25 p-3 backdrop-blur-[1px] lg:items-center" onMouseDown={(event) => { if (event.currentTarget === event.target) setAutocarOpen(false); }}>
@@ -166,12 +183,15 @@ export function WhatsappAttachmentButton({
               <button type="button" onClick={reset} disabled={sending} className="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200 text-zinc-500"><X size={17} /></button>
             </div>
             <div className="p-5">
-              <div className="flex items-start gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-red-600"><MediaIcon file={file} /></span>
-                <div className="min-w-0"><p className="truncate text-sm font-black text-zinc-900">{file.name}</p><p className="mt-1 text-[10px] font-black uppercase text-zinc-400">{mediaKind(file)} · {formatBytes(file.size)}</p><p className="mt-1 text-[10px] font-bold text-zinc-400">Limite atual: 4 MB por arquivo.</p></div>
+              <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50">
+                {previewUrl ? <img src={previewUrl} alt="Prévia da imagem selecionada" className="max-h-[52vh] w-full bg-zinc-100 object-contain" /> : null}
+                <div className="flex items-start gap-3 p-4">
+                  {!previewUrl ? <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-red-600"><MediaIcon file={file} /></span> : null}
+                  <div className="min-w-0"><p className="truncate text-sm font-black text-zinc-900">{previewUrl ? 'Imagem pronta para enviar' : file.name}</p><p className="mt-1 text-[10px] font-black uppercase text-zinc-400">{mediaKind(file)} · {formatBytes(file.size)}</p><p className="mt-1 text-[10px] font-bold text-zinc-400">Confira a prévia antes de enviar · limite de 4 MB.</p></div>
+                </div>
               </div>
               {mediaKind(file) !== 'audio' ? <label className="mt-4 block text-xs font-black text-zinc-600">Legenda opcional<textarea value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={2000} placeholder="Digite uma legenda..." className="mt-2 min-h-20 w-full resize-none rounded-xl border border-zinc-200 p-3 text-sm outline-none focus:border-red-300" disabled={sending} /></label> : null}
-              <button type="button" onClick={() => void sendAttachment()} disabled={sending} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-xs font-black uppercase text-white transition hover:bg-red-700 disabled:opacity-50">{sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {sending ? 'Enviando...' : 'Enviar anexo'}</button>
+              <button type="button" onClick={() => void sendAttachment()} disabled={sending} aria-busy={sending} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-xs font-black uppercase text-white transition hover:bg-red-700 disabled:opacity-50">{sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {sending ? 'Enviando para o WhatsApp...' : previewUrl ? 'Enviar imagem' : 'Enviar anexo'}</button>
             </div>
           </div>
         </div>

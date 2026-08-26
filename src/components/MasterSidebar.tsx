@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Activity, ArrowRightLeft, BarChart3, Bot, BrainCircuit, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, FlaskConical, Gauge, Globe2, Inbox, Landmark, LogOut, Megaphone, Plug, Route, ShoppingBag, Store, UserCog } from 'lucide-react';
 import { MasterOlxImportBridge } from '@/components/marketplace/MasterOlxImportBridge';
+import { MasterLeadStoreCoverage } from '@/components/MasterLeadStoreCoverage';
 
 export const masterMenu = [
   { label: 'Dashboard', href: '/master/dashboard/live', icon: BarChart3 },
@@ -19,7 +20,7 @@ export const masterMenu = [
   { label: 'Marketplace', href: '/master/marketplace', icon: ShoppingBag },
   { label: 'Campanhas e Landings', href: '/master/campaigns', icon: Megaphone },
   { label: 'Base', href: '/master/base', icon: Database },
-  { label: 'Transferir Leads', href: '/master/transferencia-leads', icon: ArrowRightLeft, child: true },
+  { label: 'Distribuir Leads', href: '/master/transferencia-leads', icon: ArrowRightLeft, child: true },
   { label: 'Integrações', href: '/master/integrations', icon: Plug },
   { label: 'Inbox WhatsApp', href: '/master/whatsapp/inbox', icon: Inbox },
   { label: 'I.A AUTOCAR', href: '/master/autocar', icon: Bot },
@@ -56,6 +57,7 @@ export function MasterSidebar({ active }: { active: string }) {
       <div className={`mt-10 rounded-2xl border border-white/10 bg-white/[0.03] p-4 ${collapsed ? 'text-center' : ''}`}>
         {!collapsed ? <><p className="text-xs text-zinc-500">Gestão Master</p><p className="mt-1 font-bold">Painel Administrativo</p></> : null}
         <span className="mt-2 inline-flex rounded-lg bg-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-300">Master</span>
+        {!collapsed && pathname === '/master/base' ? <MasterLeadStoreCoverage /> : null}
       </div>
       <nav className="mt-8 space-y-3 text-sm">
         {masterMenu.map((item) => {
