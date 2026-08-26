@@ -10,6 +10,7 @@ import {
   publicWhatsappNumber,
   resolveEvolutionAvailability
 } from '../src/lib/server/storeWhatsappChannel.ts';
+import { canSubscribeStoreWideWhatsappRealtime } from '../src/lib/storeWhatsappRealtimeAccess.ts';
 
 const storeId = '239755c3-a2d4-4cdd-9502-f1595031c924';
 const assignedUserId = 'collaborator-a';
@@ -38,8 +39,26 @@ for (const role of ['pre_sales', 'seller', 'prospector'] satisfies StorePortalRo
       ),
       false
     );
+    assert.equal(
+      canAccessStoreConversation(
+        profile,
+        role,
+        conversation,
+        { ...assignedLead, assigned_user_id: null }
+      ),
+      false
+    );
   });
 }
+
+test('somente Master e gestor assinam eventos Realtime amplos da loja', () => {
+  assert.equal(canSubscribeStoreWideWhatsappRealtime('master'), true);
+  assert.equal(canSubscribeStoreWideWhatsappRealtime('store'), true);
+  assert.equal(canSubscribeStoreWideWhatsappRealtime('pre_sales'), false);
+  assert.equal(canSubscribeStoreWideWhatsappRealtime('seller'), false);
+  assert.equal(canSubscribeStoreWideWhatsappRealtime('prospector'), false);
+  assert.equal(canSubscribeStoreWideWhatsappRealtime(undefined), false);
+});
 
 test('Gestor acessa as conversas da própria loja e não cruza tenant', () => {
   assert.equal(

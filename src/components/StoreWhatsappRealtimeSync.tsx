@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
+import { useStorePortal } from '@/components/StorePortalShell';
+import { canSubscribeStoreWideWhatsappRealtime } from '@/lib/storeWhatsappRealtimeAccess';
 
 const WHATSAPP_STORE_PATH = /^\/loja\/([^/]+)\/whatsapp\/?$/;
 const FALLBACK_INTERVAL_MS = 30_000;
@@ -13,14 +15,17 @@ function refreshDesktopInbox() {
   if (window.innerWidth < 1280) return;
   const summary = document.querySelector<HTMLElement>('[aria-label="Resumo do Inbox WhatsApp"]');
   if (!summary) return;
-  const refreshButton = Array.from(summary.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent?.includes('Atualizar')) || null;
+  const refreshButton = summary.querySelector<HTMLButtonElement>('button[aria-label="Atualizar conversas"]');
   if (refreshButton && !refreshButton.disabled) refreshButton.click();
 }
 
 export function StoreWhatsappRealtimeSync() {
   const pathname = usePathname();
+  const portal = useStorePortal();
   const supabase = useMemo(() => createClient(), []);
   const refreshTimerRef = useRef<number | null>(null);
+  const profileRole = portal.profile.role;
+  const storeId = portal.store.id;
 
   useEffect(() => {
     const match = pathname.match(WHATSAPP_STORE_PATH);
@@ -52,21 +57,14 @@ export function StoreWhatsappRealtimeSync() {
 
     async function connectRealtime() {
       try {
+        if (!canSubscribeStoreWideWhatsappRealtime(profileRole)) return;
+
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token;
         if (!token || !active) return;
 
         await supabase.realtime.setAuth(token);
         if (!active) return;
-
-        const response = await fetch(`/api/store-whatsapp?slug=${encodeURIComponent(slug)}`, {
-          headers: { Authorization: `Bearer ${token}` },
-          cache: 'no-store'
-        });
-        if (!response.ok || !active) return;
-
-        const result = await response.json();
-        const storeId = String(result?.store?.id || '').trim();
         if (!storeId || !active) return;
 
         realtimeChannel = supabase
@@ -112,7 +110,7 @@ export function StoreWhatsappRealtimeSync() {
       }
       if (realtimeChannel) void supabase.removeChannel(realtimeChannel);
     };
-  }, [pathname, supabase]);
+  }, [pathname, profileRole, storeId, supabase]);
 
   return null;
 }

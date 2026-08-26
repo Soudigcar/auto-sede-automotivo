@@ -14,6 +14,9 @@ const commerceMediaRoute = readFileSync('src/app/api/whatsapp/messages/send-medi
 const desktopMedia = readFileSync('src/components/WhatsappMediaMessage.tsx', 'utf8');
 const mobileMedia = readFileSync('src/components/WhatsappMobileMediaMessage.tsx', 'utf8');
 const masterInbox = readFileSync('src/app/api/master/whatsapp/inbox/route.ts', 'utf8');
+const realtimeSync = readFileSync('src/components/StoreWhatsappRealtimeSync.tsx', 'utf8');
+const rootLayout = readFileSync('src/app/layout.tsx', 'utf8');
+const storeLayout = readFileSync('src/app/loja/[slug]/layout.tsx', 'utf8');
 
 test('documents never inherit an active provider MIME and are always downloaded', () => {
   for (const mime of ['text/html', 'Text/HTML; charset=utf-8', 'application/xhtml+xml', 'image/svg+xml', 'application/pdf']) {
@@ -90,4 +93,28 @@ test('collapsed histories keep the newest bounded messages and present them chro
   assert.match(storeInboxRoute, /messages = \[\.\.\.\(messageRows \|\| \[\]\)\]\.reverse\(\)\.map/);
   assert.match(masterInbox, /\.order\('created_at', \{ ascending: false \}\)[\s\S]*?\.limit\(300\)/);
   assert.match(masterInbox, /messages = \[\.\.\.\(messageRows \|\| \[\]\)\]\.reverse\(\)\.map/);
+});
+
+test('collaborators refresh through the protected API without subscribing to store-wide Realtime rows', () => {
+  assert.doesNotMatch(rootLayout, /<StoreWhatsappRealtimeSync/);
+  assert.match(storeLayout, /<StorePortalShell>[\s\S]*?<StoreWhatsappRealtimeSync/);
+
+  const connectRealtime = realtimeSync.slice(
+    realtimeSync.indexOf('async function connectRealtime'),
+    realtimeSync.indexOf('void connectRealtime()')
+  );
+  assert.match(connectRealtime, /if \(!canSubscribeStoreWideWhatsappRealtime\(profileRole\)\) return/);
+  assert.ok(
+    connectRealtime.indexOf('canSubscribeStoreWideWhatsappRealtime(profileRole)') <
+      connectRealtime.indexOf('.channel(')
+  );
+  assert.match(realtimeSync, /window\.setInterval\([\s\S]*?queueRefresh\('fallback'\)/);
+  assert.match(realtimeSync, /button\[aria-label="Atualizar conversas"\]/);
+});
+
+test('store WhatsApp reads and mutations repeat the assigned-lead authorization boundary', () => {
+  assert.match(storeInboxRoute, /canAccessConversation\(profile, store, conversation, accessLeadsById\[conversation\.lead_id\]\)/);
+  assert.match(storeInboxRoute, /if \(!conversation \|\| !canAccessConversation\(profile, store, conversation, lead\)\)/);
+  for (const route of [sendRoute, locationRoute]) assert.match(route, /canAccessStoreConversation/);
+  for (const route of [attachmentRoute, commerceMediaRoute, mediaRoute]) assert.match(route, /canAccessStoreLead/);
 });
