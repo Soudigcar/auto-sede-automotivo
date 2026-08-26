@@ -49,6 +49,15 @@ test('list mode offers controlled multi-selection and an explicit destination co
   assert.match(pipelinePage, /A etapa comercial não será alterada/);
 });
 
+test('list mode identifies the current responsible member beside every lead', () => {
+  assert.match(pipelineRoute, /team,/);
+  assert.match(pipelinePage, /team: Array<\{ id: string; full_name: string; role: string; role_label: string \}>/);
+  assert.match(pipelinePage, /<span>Lead<\/span><span>Responsável<\/span><span>Origem<\/span>/);
+  assert.match(pipelinePage, /const responsibleMember = responsibleId \? teamById\.get\(responsibleId\) \|\| null : null/);
+  assert.match(pipelinePage, /Fila geral da loja/);
+  assert.match(pipelinePage, /Responsável não localizado/);
+});
+
 test('the existing one-at-a-time transfer remains available', () => {
   assert.match(pipelinePage, /body: JSON\.stringify\(\{ lead_id: transferLead\.id, target_user_id: targetUserId \|\| null \}\)/);
   assert.match(pipelinePage, /<CompactMenuAction label="Transferir"/);
