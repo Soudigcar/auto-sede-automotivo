@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Activity, ArrowRightLeft, BarChart3, Bot, BrainCircuit, CalendarDays, Car, ChevronLeft, ChevronRight, Database, FileText, FlaskConical, Gauge, Globe2, Inbox, Landmark, LogOut, Megaphone, Plug, Route, ShoppingBag, Store, UserCog, Workflow } from 'lucide-react';
+import { Activity, ArrowRightLeft, BarChart3, Bot, BrainCircuit, CalendarDays, Car, ChevronLeft, ChevronRight, CreditCard, Database, FileText, FlaskConical, Gauge, Globe2, Inbox, Landmark, LogOut, Megaphone, Plug, Route, ShoppingBag, Store, UserCog, Workflow } from 'lucide-react';
 import { MasterOlxImportBridge } from '@/components/marketplace/MasterOlxImportBridge';
 import { MasterLeadStoreCoverage } from '@/components/MasterLeadStoreCoverage';
 
@@ -16,6 +16,7 @@ export const masterMenu = [
   { label: 'Roteamento de Leads', href: '/master/lead-routing', icon: Route },
   { label: 'Relatórios', href: '/master/reports', icon: FileText },
   { label: 'Financeiro', href: '/master/finance', icon: Landmark },
+  { label: 'Planos & Billing', href: '/master/billing', icon: CreditCard },
   { label: 'Portal Oficial', href: '/master/portal', icon: Globe2 },
   { label: 'Marketplace', href: '/master/marketplace', icon: ShoppingBag },
   { label: 'Campanhas e Landings', href: '/master/campaigns', icon: Megaphone },

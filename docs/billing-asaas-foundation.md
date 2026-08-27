@@ -29,6 +29,15 @@ O valor padrao global e individual permanece desligado/`observe`. Erro de infrae
 - o trial nasce em `observe`, sem qualquer bloqueio;
 - nenhum status de loja ou usuario e alterado.
 
+## Etapa 2 — interface Master em Preview
+
+- a rota `/master/billing` apresenta o plano Profissional, o status por loja e a janela fixa do trial;
+- cadastro no portal, usuarios ativos no sistema e assinatura aparecem como conceitos separados;
+- somente loja ativa com pelo menos um usuario ativo do sistema e marcada como elegivel;
+- a API aceita leitura apenas quando `VERCEL_ENV=preview` e o project ref coincide com `BILLING_ALLOWED_SUPABASE_PROJECT_REF`;
+- `BILLING_TRIAL_START_ENABLED=false` bloqueia a mutacao no servidor antes da chamada ao banco;
+- nesta etapa, nenhuma assinatura ou trial e persistido e o Asaas continua sem configuracao.
+
 ## Asaas
 
 - API Key e token do Webhook sao exclusivamente server-side;
