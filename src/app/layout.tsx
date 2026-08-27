@@ -25,6 +25,8 @@ import { StorePortalMobileNavigation } from '@/components/StorePortalMobileNavig
 import { MasterMobileNavigation } from '@/components/MasterMobileNavigation';
 import { PrivacyConsentCenter } from '@/components/PrivacyConsentCenter';
 import { PwaInstallManager } from '@/components/PwaInstallManager';
+import { PwaUpdateAnalytics } from '@/components/PwaUpdateAnalytics';
+import { resolvePwaAppVersion } from '@/lib/server/pwaAppVersion';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.autosede.com.br'),
@@ -58,6 +60,8 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const appVersion = resolvePwaAppVersion();
+
   return (
     <html lang="pt-BR" suppressHydrationWarning>
       <body suppressHydrationWarning>
@@ -84,7 +88,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StorePortalMobileNavigation />
         <MasterMobileNavigation />
         <PrivacyConsentCenter />
-        <PwaInstallManager />
+        <PwaInstallManager currentVersion={appVersion} />
+        <PwaUpdateAnalytics />
       </body>
     </html>
   );
