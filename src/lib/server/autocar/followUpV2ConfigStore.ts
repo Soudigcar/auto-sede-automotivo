@@ -8,7 +8,12 @@ import {
   type FollowUpSettings
 } from '@/lib/server/autocar/smartFollowUpV2';
 
-export const FOLLOW_UP_V2_AUTOPILOT_LOCKED = true;
+export const FOLLOW_UP_V2_AUTOPILOT_CANARY_STORE_ID = '239755c3-a2d4-4cdd-9502-f1595031c924';
+export const FOLLOW_UP_V2_AUTOPILOT_LOCKED = false;
+
+export function followUpAutopilotCanaryAllowed(storeId: string) {
+  return String(storeId || '').trim() === FOLLOW_UP_V2_AUTOPILOT_CANARY_STORE_ID;
+}
 
 function cleanTime(value: unknown, fallback: string) {
   const text = String(value || '').trim();
@@ -16,11 +21,15 @@ function cleanTime(value: unknown, fallback: string) {
   return match ? `${match[1]}:${match[2]}` : fallback;
 }
 
+function dbMode(value: unknown): FollowUpSettings['mode'] {
+  return value === 'autopilot' ? 'autopilot' : value === 'copilot' ? 'copilot' : 'off';
+}
+
 function dbSettings(row: any, fallback: FollowUpSettings): FollowUpSettings {
   if (!row) return structuredClone(fallback);
   return {
     enabled: row.enabled === true,
-    mode: row.mode === 'copilot' ? 'copilot' : 'off',
+    mode: dbMode(row.mode),
     allowedStart: cleanTime(row.allowed_start, fallback.allowedStart),
     allowedEnd: cleanTime(row.allowed_end, fallback.allowedEnd),
     maxPerLeadPerDay: Number(row.max_per_lead_per_day || fallback.maxPerLeadPerDay),
@@ -52,17 +61,17 @@ function dbScenario(row: any, steps: any[], fallback: FollowUpScenario): FollowU
   };
 }
 
-function assertCopilotOnly(mode: unknown) {
-  if (mode === 'autopilot') {
-    throw new Error('AUTOPILOT do Smart Follow-up não está autorizado nesta etapa.');
-  }
-  if (mode !== 'off' && mode !== 'copilot') {
+function assertMode(mode: unknown, storeId?: string | null) {
+  if (!['off', 'copilot', 'autopilot'].includes(String(mode || ''))) {
     throw new Error('Modo do Smart Follow-up inválido.');
+  }
+  if (mode === 'autopilot' && storeId && !followUpAutopilotCanaryAllowed(storeId)) {
+    throw new Error('AUTOPILOT do Smart Follow-up está liberado somente para a A4 no canário atual.');
   }
 }
 
 function assertConfig(config: FollowUpConfigV2) {
-  assertCopilotOnly(config.global.mode);
+  assertMode(config.global.mode);
   const normalized: FollowUpConfigV2 = {
     ...config,
     global: {
@@ -145,6 +154,9 @@ export async function readStoreFollowUpV2(client: SupabaseClient, storeId: strin
   ]);
   if (settingsResult.error) throw settingsResult.error;
   const requestedSettings = dbSettings(settingsResult.data, safeStoreFallback(master.global));
+  if (requestedSettings.mode === 'autopilot' && !followUpAutopilotCanaryAllowed(storeId)) {
+    requestedSettings.mode = 'copilot';
+  }
   const effectiveSettings = clampStoreFollowUpSettings(master.global, requestedSettings);
   const rowMap = new Map(scenarioData.rows.map((row: any) => [row.scenario_key, row]));
   const requestedScenarios = master.scenarios.map((masterScenario) => {
@@ -259,7 +271,7 @@ export async function saveStoreFollowUpV2(
   input: FollowUpConfigV2,
   actorProfileId: string | null
 ) {
-  assertCopilotOnly(input.global.mode);
+  assertMode(input.global.mode, storeId);
   const master = await readMasterFollowUpV2(client);
   const requested: FollowUpConfigV2 = {
     ...input,
@@ -273,6 +285,9 @@ export async function saveStoreFollowUpV2(
   };
   const effectiveSettings = clampStoreFollowUpSettings(master.global, requested.global);
   if (requested.global.enabled && !master.global.enabled) throw new Error('O Master ainda não habilitou Smart Follow-up.');
+  if (requested.global.mode === 'autopilot' && master.global.mode !== 'autopilot') {
+    throw new Error('O Master ainda não liberou AUTOPILOT como teto do Smart Follow-up.');
+  }
   const before = await readStoreFollowUpV2(client, storeId);
   const { data: current, error: currentError } = await client.from('ai_follow_up_store_settings').select('version').eq('store_id', storeId).maybeSingle();
   if (currentError) throw currentError;
