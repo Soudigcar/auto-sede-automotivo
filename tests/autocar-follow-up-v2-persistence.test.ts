@@ -8,15 +8,18 @@ import { normalizeCommercialMemoryV2 } from '../src/lib/server/autocar/commercia
 
 const root = process.cwd();
 const migration = fs.readFileSync(path.join(root, 'supabase/migrations/20260826201000_autocar_smart_follow_up_v2_persistence.sql'), 'utf8');
+const canaryMigration = fs.readFileSync(path.join(root, 'supabase/migrations/20260827130000_autocar_follow_up_v2_autopilot_canary.sql'), 'utf8');
 const storeSource = fs.readFileSync(path.join(root, 'src/lib/server/autocar/followUpV2ConfigStore.ts'), 'utf8');
 const masterApi = fs.readFileSync(path.join(root, 'src/app/api/master/autocar/follow-up-v2/route.ts'), 'utf8');
 const storeApi = fs.readFileSync(path.join(root, 'src/app/api/store/portal/autocar/follow-up-v2/route.ts'), 'utf8');
 
 describe('Smart Follow-up V2 persistence rollout', () => {
-  it('bloqueia AUTOPILOT no banco e no backend nesta etapa', () => {
+  it('mantém baseline OFF/COPILOT e libera AUTOPILOT somente pelo canário A4', () => {
     assert.equal(migration.includes("mode in ('off','copilot')"), true);
-    assert.equal(storeSource.includes('FOLLOW_UP_V2_AUTOPILOT_LOCKED = true'), true);
-    assert.equal(storeSource.includes('AUTOPILOT do Smart Follow-up não está autorizado'), true);
+    assert.equal(canaryMigration.includes("mode in ('off','copilot','autopilot')"), true);
+    assert.equal(canaryMigration.includes("store_id = '239755c3-a2d4-4cdd-9502-f1595031c924'::uuid"), true);
+    assert.equal(storeSource.includes('FOLLOW_UP_V2_AUTOPILOT_CANARY_STORE_ID'), true);
+    assert.equal(storeSource.includes('AUTOPILOT do Smart Follow-up permanece restrito ao canário da A4 Multimarcas.'), true);
   });
 
   it('mantém as tabelas novas service-only para anon/authenticated', () => {
@@ -32,9 +35,11 @@ describe('Smart Follow-up V2 persistence rollout', () => {
     }
     assert.equal((migration.match(/service_only_deny_client_access/g) || []).length >= 12, true);
     assert.equal((migration.match(/using \(false\) with check \(false\)/g) || []).length, 6);
+    assert.equal(canaryMigration.includes('ai_follow_up_autopilot_executions'), true);
+    assert.equal(canaryMigration.includes('for all to anon, authenticated using (false) with check (false)'), true);
   });
 
-  it('não cria scheduler, cron, sender ou habilitação de create_follow_up', () => {
+  it('baseline não cria scheduler, sender ou habilitação de create_follow_up', () => {
     const executable = migration
       .split('\n')
       .filter((line) => !line.trim().startsWith('--'))
