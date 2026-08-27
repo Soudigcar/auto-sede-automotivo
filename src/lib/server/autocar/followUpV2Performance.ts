@@ -175,7 +175,7 @@ export async function readFollowUpV2Performance(input: {
     list.push(activity);
     activityByLead.set(id, list);
   }
-  const leadById = new Map((leadsResult.data || []).map((lead: any) => [String(lead.id), lead]));
+  const leadById = new Map<string, any>((leadsResult.data || []).map((lead: any) => [String(lead.id), lead]));
 
   for (const sent of sentRows) {
     const key = sent.scenario_key;
@@ -206,8 +206,14 @@ export async function readFollowUpV2Performance(input: {
     const activities = sent.production_lead_id ? activityByLead.get(sent.production_lead_id) || [] : [];
     const relevantActivity = activities.filter((activity) => inWindow(activity.created_at));
     const hadCommercialContinuation = firstInboundAt ? (
-      conversationMessages.some((message) => message.direction === 'outbound' && safeDate(message.sent_at || message.created_at)?.getTime()! > firstInboundAt.getTime() && inWindow(message.sent_at || message.created_at)) ||
-      relevantActivity.some((activity) => safeDate(activity.created_at)?.getTime()! > firstInboundAt.getTime())
+      conversationMessages.some((message) => {
+        const at = safeDate(message.sent_at || message.created_at)?.getTime();
+        return message.direction === 'outbound' && Boolean(at && at > firstInboundAt.getTime() && inWindow(message.sent_at || message.created_at));
+      }) ||
+      relevantActivity.some((activity) => {
+        const at = safeDate(activity.created_at)?.getTime();
+        return Boolean(at && at > firstInboundAt.getTime());
+      })
     ) : false;
     if (firstInboundAt && hadCommercialContinuation) {
       total.recovered += 1;
