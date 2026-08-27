@@ -19,7 +19,7 @@ describe('Smart Follow-up V2 persistence rollout', () => {
     assert.equal(canaryMigration.includes("mode in ('off','copilot','autopilot')"), true);
     assert.equal(canaryMigration.includes("store_id = '239755c3-a2d4-4cdd-9502-f1595031c924'::uuid"), true);
     assert.equal(storeSource.includes('FOLLOW_UP_V2_AUTOPILOT_CANARY_STORE_ID'), true);
-    assert.equal(storeSource.includes('AUTOPILOT do Smart Follow-up permanece restrito ao canário da A4 Multimarcas.'), true);
+    assert.equal(storeSource.includes('AUTOPILOT do Smart Follow-up está liberado somente para a A4 no canário atual.'), true);
   });
 
   it('mantém as tabelas novas service-only para anon/authenticated', () => {
