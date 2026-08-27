@@ -114,7 +114,7 @@ export function evaluateFollowUpCopilotCandidate(input: {
   const dueAt = new Date(latestOutbound._at.getTime() + step.delayMinutes * 60_000);
   if (now.getTime() < dueAt.getTime()) return { candidate: null, reason: 'Follow-up ainda não venceu.' };
 
-  const rawKey = [conversation.id, scenarioKey, step.id, latestOutbound._at.toISOString()].join(':');
+  const rawKey = ['contextual-reopening-v2', conversation.id, scenarioKey, step.id, latestOutbound._at.toISOString()].join(':');
   return {
     reason: 'Elegível para rascunho COPILOT com revisão humana.',
     candidate: {
