@@ -43,6 +43,8 @@ type BillingSubscription = {
   trial_ends_at: string | null;
   current_period_started_at: string | null;
   current_period_ends_at: string | null;
+  past_due_at: string | null;
+  grace_ends_at: string | null;
   provider_customer_id: string | null;
   provider_subscription_id: string | null;
   provider_checkout_id: string | null;
@@ -119,6 +121,8 @@ type BillingOverview = {
     preview_callback_configured: boolean;
     webhook_bypass_configured: boolean;
     sandbox_payment_confirmation_enabled: boolean;
+    sandbox_failure_test_enabled: boolean;
+    failure_synthetic_store_configured: boolean;
     configuration_valid: boolean;
     errors: string[];
   };
@@ -129,6 +133,7 @@ const paymentStatusLabels: Record<string, string> = {
   SANDBOX_CONFIRMATION_REQUESTED: 'Confirmação Sandbox em processamento',
   CONFIRMED: 'Pagamento confirmado',
   RECEIVED: 'Pagamento recebido',
+  CREDIT_CARD_CAPTURE_REFUSED: 'Cartão Sandbox recusado',
   OVERDUE: 'Cobrança vencida',
   REFUNDED: 'Pagamento estornado',
   CHARGEBACK_REQUESTED: 'Chargeback solicitado',
@@ -180,6 +185,16 @@ function trialRemaining(value: string | null, nowMs: number) {
   const extraHours = hours % 24;
   if (!days) return `${extraHours}h restantes`;
   return `${days}d ${extraHours}h restantes`;
+}
+
+function graceRemaining(value: string | null, nowMs: number) {
+  if (!value || !nowMs) return 'Carência não definida';
+  const remaining = Date.parse(value) - nowMs;
+  if (!Number.isFinite(remaining) || remaining <= 0) return 'Carência encerrada — acesso ainda preservado em observe';
+  const hours = Math.ceil(remaining / 3_600_000);
+  const days = Math.floor(hours / 24);
+  const extraHours = hours % 24;
+  return `${days}d ${extraHours}h de carência · acesso preservado`;
 }
 
 function sandboxCheckoutLink(checkoutId: string | null) {
@@ -345,6 +360,33 @@ export function MasterBillingCenter() {
     }
   }
 
+  async function runStageFiveScenario(storeId: string, action: string) {
+    if (!overview?.asaas.sandbox_failure_test_enabled || busy) return;
+    setBusy(true);
+    try {
+      const token = await accessToken();
+      if (!token) throw new Error('Sessão Master expirada. Entre novamente.');
+      const response = await fetch('/api/master/billing', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ action, store_id: storeId })
+      });
+      const body = await responseBody(response);
+      if (!response.ok) throw new Error(body.error || 'Não foi possível executar o cenário da etapa 5.');
+      setMessage(body.message || 'Cenário sintético processado sem bloqueio de acesso.');
+      await load(true);
+      window.setTimeout(() => void load(true), 2500);
+      window.setTimeout(() => void load(true), 6000);
+    } catch (error: any) {
+      setMessage(error?.message || 'Não foi possível executar o cenário da etapa 5.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const subscriptionsByStore = useMemo(() => new Map(
     (overview?.subscriptions || []).map((subscription) => [subscription.store_id, subscription])
   ), [overview?.subscriptions]);
@@ -391,7 +433,7 @@ export function MasterBillingCenter() {
             <div>
               <div className="flex items-center gap-2 text-red-600">
                 <CreditCard size={18} />
-                <span className="premium-eyebrow">SaaS · etapa 4 · {overview?.safety.runtime_environment || 'saas-dev'}</span>
+                <span className="premium-eyebrow">SaaS · etapa 5 · {overview?.safety.runtime_environment || 'saas-dev'}</span>
               </div>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Planos e Billing</h1>
               <p className="premium-muted mt-3 max-w-4xl text-sm">
@@ -410,9 +452,9 @@ export function MasterBillingCenter() {
             <SafetyCard icon={CreditCard} label="Asaas" value={overview?.asaas.sandbox_enabled ? 'Sandbox habilitado' : 'Aguardando configuração'} safe={Boolean(overview?.asaas.sandbox_enabled)} />
             <SafetyCard
               icon={Activity}
-              label="Confirmação teste"
-              value={overview?.asaas.sandbox_payment_confirmation_enabled ? 'Sandbox habilitada' : 'Desabilitada'}
-              safe={Boolean(overview?.asaas.sandbox_payment_confirmation_enabled)}
+              label="Falhas sintéticas"
+              value={overview?.asaas.sandbox_failure_test_enabled ? 'Etapa 5 habilitada' : 'Desabilitadas'}
+              safe={Boolean(overview?.asaas.sandbox_failure_test_enabled)}
             />
           </section>
 
@@ -422,7 +464,7 @@ export function MasterBillingCenter() {
             </div>
           ) : null}
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">
-            Homologação isolada: somente a Loja DEV Roteamento pode confirmar a cobrança no Asaas Sandbox. O modo continua em observação e nenhum acesso será bloqueado.
+            Homologação isolada: a Loja DEV Roteamento permanece como controle positivo; falhas são restritas à Loja DEV Billing Falhas. Ambas continuam em observação e nenhum acesso será bloqueado.
           </div>
           {message ? (
             <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 text-sm font-bold text-zinc-700">
@@ -514,6 +556,14 @@ export function MasterBillingCenter() {
                   && !confirmationRequested
                   && !busy
                 );
+                const isFailureStore = store.store_name === 'Loja DEV Billing Falhas';
+                const canRunStageFive = Boolean(
+                  isFailureStore
+                  && overview?.asaas.sandbox_failure_test_enabled
+                  && subscription?.access_enforcement_mode === 'observe'
+                  && payment
+                  && !busy
+                );
                 return (
                   <article key={store.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                     <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -569,6 +619,36 @@ export function MasterBillingCenter() {
                                 <Loader2 size={13} className="animate-spin" /> Aguardando webhook do Sandbox
                               </span>
                             ) : null}
+                            {canRunStageFive && normalizedPaymentStatus === 'PENDING' ? (
+                              <button type="button" onClick={() => void runStageFiveScenario(store.id, 'stage5-card-refused')} className="premium-button-secondary text-xs">
+                                <CreditCard size={14} /> Simular cartão recusado
+                              </button>
+                            ) : null}
+                            {canRunStageFive && normalizedPaymentStatus === 'CREDIT_CARD_CAPTURE_REFUSED' ? (
+                              <button type="button" onClick={() => void runStageFiveScenario(store.id, 'stage5-overdue')} className="premium-button-secondary text-xs">
+                                <Clock3 size={14} /> Forçar atraso Sandbox
+                              </button>
+                            ) : null}
+                            {canRunStageFive && normalizedPaymentStatus === 'OVERDUE' ? (
+                              <button type="button" onClick={() => void runStageFiveScenario(store.id, 'stage5-confirm-for-refund')} className="premium-button-secondary text-xs">
+                                <CheckCircle2 size={14} /> Confirmar para testar estorno
+                              </button>
+                            ) : null}
+                            {canRunStageFive && ['CONFIRMED', 'RECEIVED'].includes(normalizedPaymentStatus) ? (
+                              <button type="button" onClick={() => void runStageFiveScenario(store.id, 'stage5-refund')} className="premium-button-secondary text-xs">
+                                <History size={14} /> Estornar no Sandbox
+                              </button>
+                            ) : null}
+                            {canRunStageFive && normalizedPaymentStatus === 'REFUNDED' ? (
+                              <button type="button" onClick={() => void runStageFiveScenario(store.id, 'stage5-chargeback-sequence')} className="premium-button-secondary text-xs">
+                                <ShieldCheck size={14} /> Testar chargeback e idempotência
+                              </button>
+                            ) : null}
+                            {isFailureStore && ['CHARGEBACK_REQUESTED', 'CHARGEBACK_DISPUTE'].includes(normalizedPaymentStatus) ? (
+                              <span className="inline-flex items-center gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-700">
+                                <CheckCircle2 size={14} /> Cenário negativo concluído sem bloqueio
+                              </span>
+                            ) : null}
                           </>
                         ) : (
                           <>
@@ -594,15 +674,19 @@ export function MasterBillingCenter() {
                             : 'Cobrança ainda não criada'}
                           tone={payment && ['CONFIRMED', 'RECEIVED'].includes(normalizedPaymentStatus)
                             ? 'success'
-                            : 'neutral'}
+                            : payment && ['CREDIT_CARD_CAPTURE_REFUSED', 'OVERDUE', 'REFUNDED', 'CHARGEBACK_REQUESTED', 'CHARGEBACK_DISPUTE'].includes(normalizedPaymentStatus)
+                              ? 'warning'
+                              : 'neutral'}
                         />
                         <BillingDetail
                           icon={CalendarDays}
-                          label={subscription.status === 'active' ? 'Período vigente até' : 'Primeira cobrança'}
-                          value={subscription.status === 'active'
+                          label={subscription.status === 'past_due' ? 'Carência de 3 dias' : subscription.status === 'active' ? 'Período vigente até' : 'Primeira cobrança'}
+                          value={subscription.status === 'past_due'
+                            ? `${graceRemaining(subscription.grace_ends_at, nowMs)} · até ${dateTime(subscription.grace_ends_at)}`
+                            : subscription.status === 'active'
                             ? dateTime(subscription.current_period_ends_at)
                             : dateTime(payment?.due_at || subscription.trial_ends_at)}
-                          tone="neutral"
+                          tone={subscription.status === 'past_due' ? 'warning' : 'neutral'}
                         />
                         <BillingDetail
                           icon={History}
@@ -688,12 +772,12 @@ function BillingDetail({
   icon: typeof Store;
   label: string;
   value: string;
-  tone: 'success' | 'neutral';
+  tone: 'success' | 'neutral' | 'warning';
 }) {
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-3">
       <div className="flex items-center gap-2 text-zinc-400"><Icon size={14} /><p className="text-[9px] font-black uppercase tracking-wider">{label}</p></div>
-      <p className={`mt-2 text-xs font-black ${tone === 'success' ? 'text-emerald-700' : 'text-zinc-700'}`}>{value}</p>
+      <p className={`mt-2 text-xs font-black ${tone === 'success' ? 'text-emerald-700' : tone === 'warning' ? 'text-amber-700' : 'text-zinc-700'}`}>{value}</p>
     </div>
   );
 }

@@ -2,13 +2,61 @@ import {
   asaasSandboxCheckoutLink,
   confirmAsaasSandboxPayment,
   createAsaasRecurringCheckout,
+  deliverAsaasSandboxTestWebhook,
   ensureAsaasSandboxWebhook,
   formatAsaasDateTime,
+  forceAsaasSandboxPaymentOverdue,
+  refundAsaasSandboxPayment,
   type AsaasSandboxSafety,
   type AsaasServerConfiguration
 } from '@/lib/server/billing/asaas';
 
 export const BILLING_FOUNDATION_MIGRATION = '20260827044014_billing_foundation_asaas';
+export const BILLING_GRACE_PERIOD_DAYS = 3;
+
+type SyntheticStoreProfile = {
+  id: string;
+  name: string;
+  registrationSource: string;
+  scenario: 'positive' | 'failure';
+};
+
+function syntheticStoreProfile(safety: AsaasSandboxSafety, storeId: string): SyntheticStoreProfile | null {
+  if (storeId === safety.syntheticStoreId) {
+    return {
+      id: safety.syntheticStoreId,
+      name: 'Loja DEV Roteamento',
+      registrationSource: 'dev_routing_seed',
+      scenario: 'positive'
+    };
+  }
+  if (safety.failureTestEnabled && storeId === safety.failureSyntheticStoreId) {
+    return {
+      id: safety.failureSyntheticStoreId,
+      name: 'Loja DEV Billing Falhas',
+      registrationSource: 'billing_stage5_seed',
+      scenario: 'failure'
+    };
+  }
+  return null;
+}
+
+function assertSyntheticStore(store: any, profile: SyntheticStoreProfile | null) {
+  if (
+    !profile
+    || !store
+    || store.id !== profile.id
+    || store.store_name !== profile.name
+    || store.registration_source !== profile.registrationSource
+    || String(store.status || '').toLowerCase() !== 'active'
+  ) {
+    throw billingRepositoryError(
+      'ASAAS_SANDBOX_STORE_FORBIDDEN',
+      'A loja nao corresponde a um seed sintetico autorizado do saas-dev.'
+    );
+  }
+  return profile;
+}
 
 export function isStoreBillingEligible(input: {
   status: unknown;
@@ -201,10 +249,11 @@ export async function createStoreAsaasSandboxCheckout(supabase: any, input: {
   environment?: NodeJS.ProcessEnv;
   fetchImplementation?: typeof fetch;
 }) {
-  if (!input.safety.enabled || input.storeId !== input.safety.syntheticStoreId) {
+  const profile = syntheticStoreProfile(input.safety, input.storeId);
+  if (!input.safety.enabled || !profile) {
     throw billingRepositoryError(
       'ASAAS_SANDBOX_STORE_FORBIDDEN',
-      'O Checkout Sandbox esta restrito a Loja DEV Roteamento.'
+      'O Checkout Sandbox esta restrito as lojas sinteticas autorizadas.'
     );
   }
   const [storeResult, subscriptionResult] = await Promise.all([
@@ -224,12 +273,7 @@ export async function createStoreAsaasSandboxCheckout(supabase: any, input: {
   if (subscriptionResult.error) throw subscriptionResult.error;
   const store = storeResult.data;
   const subscription = subscriptionResult.data;
-  if (!store || store.store_name !== 'Loja DEV Roteamento' || store.registration_source !== 'dev_routing_seed') {
-    throw billingRepositoryError(
-      'ASAAS_SANDBOX_STORE_FORBIDDEN',
-      'A loja autorizada nao corresponde ao seed sintetico do saas-dev.'
-    );
-  }
+  assertSyntheticStore(store, profile);
   if (!subscription || subscription.status !== 'trialing' || subscription.access_enforcement_mode !== 'observe') {
     throw billingRepositoryError(
       'ASAAS_SANDBOX_TRIAL_REQUIRED',
@@ -534,6 +578,278 @@ export async function confirmStoreAsaasSandboxPayment(supabase: any, input: {
   };
 }
 
+export type AsaasStageFiveScenario =
+  | 'card-refused'
+  | 'overdue'
+  | 'confirm-for-refund'
+  | 'refund'
+  | 'chargeback-sequence';
+
+async function writeStageFiveAuditOnce(supabase: any, input: {
+  storeId: string;
+  subscriptionId: string;
+  actorUserId: string;
+  status: string;
+  scenario: AsaasStageFiveScenario;
+  paymentId: string;
+}) {
+  const action = `asaas_sandbox_stage5_${input.scenario.replaceAll('-', '_')}`;
+  const existing = await supabase
+    .from('billing_audit_log')
+    .select('id')
+    .eq('subscription_id', input.subscriptionId)
+    .eq('action', action)
+    .contains('metadata', { provider_payment_id: input.paymentId })
+    .limit(1)
+    .maybeSingle();
+  if (existing.error) throw existing.error;
+  if (existing.data) return;
+  const { error } = await supabase.from('billing_audit_log').insert({
+    store_id: input.storeId,
+    subscription_id: input.subscriptionId,
+    actor_user_id: input.actorUserId,
+    action,
+    previous_status: input.status,
+    new_status: input.status,
+    reason: 'Cenario financeiro sintetico executado na homologacao isolada da etapa 5.',
+    metadata: {
+      provider: 'asaas',
+      environment: 'sandbox',
+      scenario: input.scenario,
+      provider_payment_id: input.paymentId,
+      access_enforcement_mode: 'observe',
+      grace_period_days: BILLING_GRACE_PERIOD_DAYS
+    }
+  });
+  if (error) throw error;
+}
+
+function stageFiveWebhookBody(input: {
+  eventType: string;
+  eventSuffix: string;
+  providerStatus: string;
+  paymentId: string;
+  providerSubscriptionId: string;
+  providerCustomerId: string;
+  externalReference: string;
+  dueAt: string;
+}) {
+  return {
+    id: `evt_stage5_${input.eventSuffix}_${input.paymentId}`.slice(0, 240),
+    event: input.eventType,
+    dateCreated: new Date().toISOString(),
+    payment: {
+      object: 'payment',
+      id: input.paymentId,
+      status: input.providerStatus,
+      value: 1497,
+      dueDate: billingDateKey(input.dueAt),
+      billingType: 'CREDIT_CARD',
+      customer: input.providerCustomerId,
+      subscription: input.providerSubscriptionId,
+      externalReference: input.externalReference
+    }
+  };
+}
+
+export async function runStoreAsaasSandboxFailureScenario(supabase: any, input: {
+  storeId: string;
+  actorUserId: string;
+  scenario: AsaasStageFiveScenario;
+  configuration: AsaasServerConfiguration;
+  safety: AsaasSandboxSafety;
+  environment?: NodeJS.ProcessEnv;
+  fetchImplementation?: typeof fetch;
+}) {
+  const profile = syntheticStoreProfile(input.safety, input.storeId);
+  if (
+    !input.safety.enabled
+    || !input.safety.failureTestEnabled
+    || !profile
+    || profile.scenario !== 'failure'
+  ) {
+    throw billingRepositoryError(
+      'ASAAS_SANDBOX_FAILURE_TEST_FORBIDDEN',
+      'A etapa 5 esta restrita a segunda loja sintetica do saas-dev.'
+    );
+  }
+  const [storeResult, subscriptionResult] = await Promise.all([
+    supabase
+      .from('stores')
+      .select('id,store_name,status,registration_source')
+      .eq('id', input.storeId)
+      .maybeSingle(),
+    supabase
+      .from('store_billing_subscriptions')
+      .select('id,store_id,status,access_enforcement_mode,trial_ends_at,past_due_at,grace_ends_at,provider_customer_id,provider_subscription_id,external_reference')
+      .eq('store_id', input.storeId)
+      .neq('status', 'cancelled')
+      .maybeSingle()
+  ]);
+  if (storeResult.error) throw storeResult.error;
+  if (subscriptionResult.error) throw subscriptionResult.error;
+  assertSyntheticStore(storeResult.data, profile);
+  const subscription = subscriptionResult.data;
+  if (
+    !subscription
+    || !['trialing', 'active', 'past_due'].includes(subscription.status)
+    || subscription.access_enforcement_mode !== 'observe'
+    || !providerText(subscription.provider_customer_id).startsWith('cus_')
+    || !providerText(subscription.provider_subscription_id).startsWith('sub_')
+  ) {
+    throw billingRepositoryError(
+      'ASAAS_SANDBOX_PAYMENT_NOT_READY',
+      'A assinatura negativa nao esta pronta ou saiu do modo observe.'
+    );
+  }
+  const { data: payments, error: paymentsError } = await supabase
+    .from('billing_payments')
+    .select('id,provider_payment_id,provider_status,amount_cents,due_at,confirmed_at,received_at')
+    .eq('subscription_id', subscription.id)
+    .eq('store_id', input.storeId)
+    .order('due_at', { ascending: true })
+    .limit(2);
+  if (paymentsError) throw paymentsError;
+  if (!payments || payments.length !== 1) {
+    throw billingRepositoryError(
+      'ASAAS_SANDBOX_PAYMENT_NOT_READY',
+      'A etapa 5 exige exatamente uma cobranca sintetica vinculada.'
+    );
+  }
+  const payment = payments[0];
+  const paymentId = providerText(payment.provider_payment_id);
+  const paymentStatus = providerText(payment.provider_status).toUpperCase();
+  if (
+    Number(payment.amount_cents) !== 149700
+    || !paymentId.startsWith('pay_')
+    || billingDateKey(payment.due_at) !== billingDateKey(subscription.trial_ends_at)
+  ) {
+    throw billingRepositoryError(
+      'ASAAS_SANDBOX_PAYMENT_MISMATCH',
+      'A cobranca negativa nao corresponde ao plano ou vencimento autorizado.'
+    );
+  }
+
+  const environment = input.environment || process.env;
+  const fetchImplementation = input.fetchImplementation || fetch;
+  const webhookInput = {
+    paymentId,
+    providerSubscriptionId: providerText(subscription.provider_subscription_id),
+    providerCustomerId: providerText(subscription.provider_customer_id),
+    externalReference: providerText(subscription.external_reference, 200),
+    dueAt: providerText(payment.due_at, 80)
+  };
+  let result: Record<string, unknown> = { webhook_pending: false };
+
+  if (input.scenario === 'card-refused') {
+    if (!['PENDING', 'CREDIT_CARD_CAPTURE_REFUSED'].includes(paymentStatus)) {
+      throw billingRepositoryError('ASAAS_SANDBOX_PAYMENT_NOT_READY', 'O teste de recusa exige cobranca pendente.');
+    }
+    result = await deliverAsaasSandboxTestWebhook(
+      input.configuration,
+      input.safety,
+      stageFiveWebhookBody({
+        ...webhookInput,
+        eventType: 'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED',
+        eventSuffix: 'capture_refused',
+        providerStatus: 'CREDIT_CARD_CAPTURE_REFUSED'
+      }),
+      environment,
+      fetchImplementation
+    );
+  } else if (input.scenario === 'overdue') {
+    const overdue = await forceAsaasSandboxPaymentOverdue(
+      input.configuration,
+      paymentId,
+      fetchImplementation
+    );
+    result = { ...overdue, webhook_pending: true };
+  } else if (input.scenario === 'confirm-for-refund') {
+    if (['REFUNDED', 'CHARGEBACK_REQUESTED', 'CHARGEBACK_DISPUTE'].includes(paymentStatus)) {
+      throw billingRepositoryError('ASAAS_SANDBOX_PAYMENT_NOT_READY', 'A cobranca ja possui perda financeira terminal.');
+    }
+    const confirmation = await confirmAsaasSandboxPayment(
+      input.configuration,
+      paymentId,
+      fetchImplementation
+    );
+    result = { ...confirmation, webhook_pending: true };
+  } else if (input.scenario === 'refund') {
+    if (!['CONFIRMED', 'RECEIVED'].includes(paymentStatus)) {
+      throw billingRepositoryError('ASAAS_SANDBOX_PAYMENT_NOT_READY', 'O estorno exige pagamento confirmado.');
+    }
+    const refund = await refundAsaasSandboxPayment(
+      input.configuration,
+      paymentId,
+      fetchImplementation
+    );
+    result = { ...refund, webhook_pending: true };
+  } else {
+    if (!['REFUNDED', 'CHARGEBACK_REQUESTED', 'CHARGEBACK_DISPUTE'].includes(paymentStatus)) {
+      throw billingRepositoryError('ASAAS_SANDBOX_PAYMENT_NOT_READY', 'O chargeback sintetico exige estorno anterior.');
+    }
+    const requested = stageFiveWebhookBody({
+      ...webhookInput,
+      eventType: 'PAYMENT_CHARGEBACK_REQUESTED',
+      eventSuffix: 'chargeback_requested',
+      providerStatus: 'CHARGEBACK_REQUESTED'
+    });
+    const dispute = stageFiveWebhookBody({
+      ...webhookInput,
+      eventType: 'PAYMENT_CHARGEBACK_DISPUTE',
+      eventSuffix: 'chargeback_dispute',
+      providerStatus: 'CHARGEBACK_DISPUTE'
+    });
+    const staleConfirmation = stageFiveWebhookBody({
+      ...webhookInput,
+      eventType: 'PAYMENT_CONFIRMED',
+      eventSuffix: 'out_of_order_confirmed',
+      providerStatus: 'CONFIRMED'
+    });
+    const first = await deliverAsaasSandboxTestWebhook(
+      input.configuration, input.safety, requested, environment, fetchImplementation
+    );
+    const duplicateRequested = await deliverAsaasSandboxTestWebhook(
+      input.configuration, input.safety, requested, environment, fetchImplementation
+    );
+    const second = await deliverAsaasSandboxTestWebhook(
+      input.configuration, input.safety, dispute, environment, fetchImplementation
+    );
+    const duplicateDispute = await deliverAsaasSandboxTestWebhook(
+      input.configuration, input.safety, dispute, environment, fetchImplementation
+    );
+    const outOfOrder = await deliverAsaasSandboxTestWebhook(
+      input.configuration, input.safety, staleConfirmation, environment, fetchImplementation
+    );
+    result = {
+      first,
+      duplicate_requested: duplicateRequested.duplicate,
+      second,
+      duplicate_dispute: duplicateDispute.duplicate,
+      out_of_order: outOfOrder,
+      webhook_pending: false
+    };
+  }
+
+  await writeStageFiveAuditOnce(supabase, {
+    storeId: input.storeId,
+    subscriptionId: subscription.id,
+    actorUserId: input.actorUserId,
+    status: subscription.status,
+    scenario: input.scenario,
+    paymentId
+  });
+  return {
+    scenario: input.scenario,
+    payment_id: paymentId,
+    subscription_status_before: subscription.status,
+    access_enforcement_mode: 'observe',
+    grace_period_days: BILLING_GRACE_PERIOD_DAYS,
+    webhook_pending: result.webhook_pending === true,
+    details: result
+  };
+}
+
 export type StoredAsaasWebhookEvent = {
   provider_event_id?: string;
   event_type: string;
@@ -600,10 +916,10 @@ export function isSafeSyntheticAsaasFallback(input: {
 async function findSubscriptionForAsaasEvent(
   supabase: any,
   event: StoredAsaasWebhookEvent,
-  syntheticStoreId = ''
+  syntheticStoreIds: string[] = []
 ) {
   const references = extractAsaasWebhookReferences(event);
-  const select = 'id,store_id,status,access_enforcement_mode,trial_ends_at,current_period_started_at,current_period_ends_at,provider_customer_id,provider_subscription_id,provider_checkout_id,external_reference';
+  const select = 'id,store_id,status,access_enforcement_mode,trial_ends_at,current_period_started_at,current_period_ends_at,past_due_at,grace_ends_at,provider_customer_id,provider_subscription_id,provider_checkout_id,external_reference';
   const attempts: Array<[string, string]> = [
     ['external_reference', references.externalReference],
     ['provider_checkout_id', references.checkoutId],
@@ -621,22 +937,21 @@ async function findSubscriptionForAsaasEvent(
     if (data) return data;
   }
 
-  if (!syntheticStoreId || !['payment', 'subscription'].includes(String(event.provider_object_type || ''))) {
+  const authorizedIds = syntheticStoreIds.filter(Boolean);
+  if (!authorizedIds.length || !['payment', 'subscription'].includes(String(event.provider_object_type || ''))) {
     return null;
   }
   const { data: candidates, error: fallbackError } = await supabase
     .from('store_billing_subscriptions')
     .select(select)
-    .eq('store_id', syntheticStoreId)
+    .in('store_id', authorizedIds)
     .eq('status', 'trialing')
     .eq('access_enforcement_mode', 'observe')
-    .limit(2);
+    .limit(authorizedIds.length + 1);
   if (fallbackError) throw fallbackError;
-  const matches = (candidates || []).filter((candidate: any) => isSafeSyntheticAsaasFallback({
-    event,
-    candidate,
-    syntheticStoreId
-  }));
+  const matches = (candidates || []).filter((candidate: any) => authorizedIds.some((syntheticStoreId) => (
+    isSafeSyntheticAsaasFallback({ event, candidate, syntheticStoreId })
+  )));
   if (matches.length !== 1) return null;
   return matches[0];
 }
@@ -649,6 +964,10 @@ const PAYMENT_LOSS_STATUSES = new Set([
   'REFUND_REQUESTED',
   'CHARGEBACK_REQUESTED',
   'CHARGEBACK_DISPUTE'
+]);
+const PAYMENT_FAILURE_STATUSES = new Set([
+  'CREDIT_CARD_CAPTURE_REFUSED',
+  'REPROVED_BY_RISK_ANALYSIS'
 ]);
 
 function paymentStatusFromEvent(eventType: string) {
@@ -669,6 +988,8 @@ export function resolveAsaasPaymentState(input: {
     || PAYMENT_SUCCESS_STATUSES.has(existing);
   const existingLost = PAYMENT_LOSS_STATUSES.has(existing);
   const incomingLost = PAYMENT_LOSS_STATUSES.has(incoming) || PAYMENT_LOSS_STATUSES.has(eventStatus);
+  const incomingFailure = PAYMENT_FAILURE_STATUSES.has(incoming)
+    || PAYMENT_FAILURE_STATUSES.has(eventStatus);
   const incomingSuccess = PAYMENT_SUCCESS_STATUSES.has(incoming) || PAYMENT_SUCCESS_STATUSES.has(eventStatus);
   const incomingOverdue = incoming === 'OVERDUE' || eventStatus === 'OVERDUE';
 
@@ -681,6 +1002,13 @@ export function resolveAsaasPaymentState(input: {
   }
   if (existingLost) {
     return { providerStatus: existing, subscriptionTarget: null, stale: true };
+  }
+  if (incomingFailure) {
+    return {
+      providerStatus: incoming || eventStatus,
+      subscriptionTarget: 'past_due',
+      stale: false
+    };
   }
   if (incomingSuccess) {
     const providerStatus = existing === 'RECEIVED' && incoming !== 'RECEIVED'
@@ -780,6 +1108,9 @@ function safeTransitionReason(eventType: string) {
   if (eventType === 'PAYMENT_OVERDUE') {
     return 'Cobranca marcada como vencida pelo webhook autenticado do Asaas Sandbox.';
   }
+  if (eventType === 'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED') {
+    return 'Cartao sintetico recusado pelo fluxo autenticado de homologacao do Asaas Sandbox.';
+  }
   if (eventType === 'PAYMENT_REFUNDED') {
     return 'Pagamento marcado como estornado pelo webhook autenticado do Asaas Sandbox.';
   }
@@ -792,14 +1123,17 @@ function safeTransitionReason(eventType: string) {
 export async function processStoredAsaasWebhookEvent(
   supabase: any,
   event: StoredAsaasWebhookEvent,
-  options: { syntheticStoreId?: string } = {}
+  options: { syntheticStoreId?: string; syntheticStoreIds?: string[] } = {}
 ): Promise<{ processing_status: 'processed' | 'ignored'; subscription_id: string | null }> {
   const object = event.payload?.object || {};
   const references = extractAsaasWebhookReferences(event);
   const subscription = await findSubscriptionForAsaasEvent(
     supabase,
     event,
-    providerText(options.syntheticStoreId)
+    [
+      ...(options.syntheticStoreIds || []),
+      providerText(options.syntheticStoreId)
+    ].filter(Boolean)
   );
   if (!subscription) return { processing_status: 'ignored', subscription_id: null };
   if (subscription.access_enforcement_mode !== 'observe') {
@@ -862,7 +1196,7 @@ export async function processStoredAsaasWebhookEvent(
   if (event.provider_object_type === 'payment') {
     const providerPaymentId = providerText(event.provider_object_id);
     const amountCents = Math.round(Number(object.value || 0) * 100);
-    if (!providerPaymentId || !Number.isInteger(amountCents) || amountCents <= 0) {
+    if (!providerPaymentId || !Number.isInteger(amountCents) || amountCents !== 149700) {
       return { processing_status: 'ignored', subscription_id: subscription.id };
     }
     if (references.providerSubscriptionId || references.customerId) {
@@ -935,6 +1269,16 @@ export async function processStoredAsaasWebhookEvent(
         reason: 'Evento financeiro antigo preservado sem regredir o periodo atual da assinatura.'
       });
     }
+    if (paymentState.stale && !targetStatus) {
+      await writeWebhookAuditOnce(supabase, {
+        event,
+        subscription,
+        action: 'asaas_webhook_stale_transition_ignored',
+        previousStatus: subscription.status,
+        newStatus: subscription.status,
+        reason: 'Evento financeiro duplicado ou fora de ordem preservado sem regressao de estado.'
+      });
+    }
     if (targetStatus) {
       const update: Record<string, unknown> = {
         status: targetStatus,
@@ -951,8 +1295,9 @@ export async function processStoredAsaasWebhookEvent(
         update.past_due_at = null;
         update.grace_ends_at = null;
       } else {
-        update.past_due_at = now;
-        update.grace_ends_at = new Date(Date.now() + 3 * 86_400_000).toISOString();
+        update.past_due_at = subscription.past_due_at || now;
+        update.grace_ends_at = subscription.grace_ends_at
+          || new Date(Date.now() + BILLING_GRACE_PERIOD_DAYS * 86_400_000).toISOString();
       }
       const { error: subscriptionError } = await supabase
         .from('store_billing_subscriptions')

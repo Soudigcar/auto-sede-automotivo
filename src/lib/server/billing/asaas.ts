@@ -20,7 +20,10 @@ export type AsaasServerConfiguration = {
 export type AsaasSandboxSafety = {
   enabled: boolean;
   paymentConfirmationEnabled: boolean;
+  failureTestEnabled: boolean;
   syntheticStoreId: string;
+  failureSyntheticStoreId: string;
+  syntheticStoreIds: string[];
   previewBaseUrl: string;
   webhookBypassConfigured: boolean;
   errors: string[];
@@ -49,6 +52,7 @@ const ASAAS_WEBHOOK_EVENTS = [
   'PAYMENT_UPDATED',
   'PAYMENT_CONFIRMED',
   'PAYMENT_RECEIVED',
+  'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED',
   'PAYMENT_OVERDUE',
   'PAYMENT_REFUNDED',
   'PAYMENT_DELETED',
@@ -78,6 +82,12 @@ export function readAsaasSandboxSafety(
 ): AsaasSandboxSafety {
   const errors: string[] = [];
   const syntheticStoreId = String(environment.BILLING_ASAAS_SYNTHETIC_STORE_ID || '').trim();
+  const failureSyntheticStoreId = String(
+    environment.BILLING_ASAAS_FAILURE_SYNTHETIC_STORE_ID || ''
+  ).trim();
+  const failureTestRequested = explicitTrue(
+    environment.BILLING_ASAAS_SANDBOX_FAILURE_TEST_ENABLED
+  );
   const previewBaseUrl = safePreviewBaseUrl(environment.BILLING_ASAAS_PREVIEW_BASE_URL);
   const webhookBypassConfigured = Boolean(
     String(environment.VERCEL_AUTOMATION_BYPASS_SECRET || '').trim()
@@ -91,6 +101,12 @@ export function readAsaasSandboxSafety(
   }
   if (!UUID_PATTERN.test(syntheticStoreId)) {
     errors.push('A loja sintetica autorizada nao esta configurada.');
+  }
+  if (failureTestRequested && !UUID_PATTERN.test(failureSyntheticStoreId)) {
+    errors.push('A segunda loja sintetica da etapa 5 nao esta configurada.');
+  }
+  if (failureTestRequested && safeEqual(syntheticStoreId, failureSyntheticStoreId)) {
+    errors.push('As lojas sinteticas positiva e negativa devem ser diferentes.');
   }
   if (!previewBaseUrl) {
     errors.push('A URL base do Preview de billing nao esta configurada com seguranca.');
@@ -106,7 +122,11 @@ export function readAsaasSandboxSafety(
     enabled: errors.length === 0,
     paymentConfirmationEnabled: errors.length === 0
       && explicitTrue(environment.BILLING_ASAAS_SANDBOX_PAYMENT_CONFIRMATION_ENABLED),
+    failureTestEnabled: errors.length === 0 && failureTestRequested,
     syntheticStoreId,
+    failureSyntheticStoreId,
+    syntheticStoreIds: [syntheticStoreId, failureSyntheticStoreId]
+      .filter((value, index, values) => UUID_PATTERN.test(value) && values.indexOf(value) === index),
     previewBaseUrl,
     webhookBypassConfigured,
     errors
@@ -347,12 +367,126 @@ export async function confirmAsaasSandboxPayment(
   };
 }
 
+export async function forceAsaasSandboxPaymentOverdue(
+  configuration: AsaasServerConfiguration,
+  paymentId: string,
+  fetchImplementation: typeof fetch = fetch
+) {
+  const normalizedPaymentId = String(paymentId || '').trim();
+  if (!/^pay_[a-z0-9_-]{8,240}$/i.test(normalizedPaymentId)) {
+    throw new Error('A cobranca Sandbox possui identificador invalido.');
+  }
+  const response = await asaasRequest<any>(
+    configuration,
+    `/sandbox/payment/${encodeURIComponent(normalizedPaymentId)}/overdue`,
+    { method: 'POST' },
+    fetchImplementation
+  );
+  const returnedId = String(response?.id || normalizedPaymentId).trim();
+  if (returnedId !== normalizedPaymentId) {
+    throw new Error('O Asaas Sandbox alterou uma cobranca diferente da autorizada.');
+  }
+  return {
+    id: returnedId,
+    status: String(response?.status || 'OVERDUE').trim().toUpperCase().slice(0, 80)
+  };
+}
+
+export async function refundAsaasSandboxPayment(
+  configuration: AsaasServerConfiguration,
+  paymentId: string,
+  fetchImplementation: typeof fetch = fetch
+) {
+  const normalizedPaymentId = String(paymentId || '').trim();
+  if (!/^pay_[a-z0-9_-]{8,240}$/i.test(normalizedPaymentId)) {
+    throw new Error('A cobranca Sandbox possui identificador invalido.');
+  }
+  const response = await asaasRequest<any>(
+    configuration,
+    `/payments/${encodeURIComponent(normalizedPaymentId)}/refund`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ description: 'Homologacao sintetica da etapa 5 em modo observe' })
+    },
+    fetchImplementation
+  );
+  const returnedId = String(response?.id || normalizedPaymentId).trim();
+  if (returnedId !== normalizedPaymentId) {
+    throw new Error('O Asaas Sandbox estornou uma cobranca diferente da autorizada.');
+  }
+  return {
+    id: returnedId,
+    status: String(response?.status || 'REFUNDED').trim().toUpperCase().slice(0, 80)
+  };
+}
+
 function webhookTargetUrl(safety: AsaasSandboxSafety, environment: NodeJS.ProcessEnv) {
   const bypass = String(environment.VERCEL_AUTOMATION_BYPASS_SECRET || '').trim();
   if (!safety.enabled || !bypass) throw new Error(safety.errors[0] || 'Webhook Sandbox indisponivel.');
   const url = new URL('/api/webhooks/asaas', `${safety.previewBaseUrl}/`);
   url.searchParams.set('x-vercel-protection-bypass', bypass);
   return url.toString();
+}
+
+const STAGE_FIVE_TEST_EVENTS = new Set([
+  'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED',
+  'PAYMENT_CHARGEBACK_REQUESTED',
+  'PAYMENT_CHARGEBACK_DISPUTE',
+  'PAYMENT_CONFIRMED'
+]);
+
+export async function deliverAsaasSandboxTestWebhook(
+  configuration: AsaasServerConfiguration,
+  safety: AsaasSandboxSafety,
+  body: any,
+  environment: NodeJS.ProcessEnv = process.env,
+  fetchImplementation: typeof fetch = fetch
+) {
+  if (!safety.failureTestEnabled || !configuration.webhookConfigured) {
+    throw new Error('A homologacao negativa da etapa 5 permanece desabilitada.');
+  }
+  const eventId = String(body?.id || '').trim();
+  const eventType = String(body?.event || '').trim().toUpperCase();
+  const paymentId = String(body?.payment?.id || '').trim();
+  const subscriptionId = String(body?.payment?.subscription || '').trim();
+  if (
+    !/^evt_stage5_[a-z0-9_-]{8,220}$/i.test(eventId)
+    || !STAGE_FIVE_TEST_EVENTS.has(eventType)
+    || !/^pay_[a-z0-9_-]{8,240}$/i.test(paymentId)
+    || !/^sub_[a-z0-9_-]{8,240}$/i.test(subscriptionId)
+    || Number(body?.payment?.value) !== 1497
+    || String(body?.payment?.billingType || '').toUpperCase() !== 'CREDIT_CARD'
+  ) {
+    throw new Error('O evento sintetico da etapa 5 nao corresponde ao cenario autorizado.');
+  }
+  const targetUrl = webhookTargetUrl(safety, environment);
+  const response = await fetchImplementation(targetUrl, {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json',
+      'asaas-access-token': configuration.webhookToken
+    },
+    body: JSON.stringify(body),
+    cache: 'no-store',
+    redirect: 'error'
+  });
+  const text = await response.text();
+  let result: any = {};
+  if (text) {
+    try {
+      result = JSON.parse(text);
+    } catch {
+      result = {};
+    }
+  }
+  if (!response.ok || result?.received !== true) {
+    throw new Error(String(result?.error || `O webhook de homologacao respondeu com HTTP ${response.status}.`));
+  }
+  return {
+    duplicate: result.duplicate === true,
+    processing_status: String(result.processing_status || '').slice(0, 40)
+  };
 }
 
 export async function ensureAsaasSandboxWebhook(

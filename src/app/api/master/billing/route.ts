@@ -6,6 +6,7 @@ import {
   createStoreAsaasSandboxCheckout,
   missingBillingFoundation,
   readMasterBillingOverview,
+  runStoreAsaasSandboxFailureScenario,
   startStoreBillingTrial
 } from '@/lib/server/billing/repository';
 import { cleanText, getAdminClient, requireMaster } from '@/lib/server/masterApi';
@@ -72,6 +73,8 @@ export async function GET(request: Request) {
         preview_callback_configured: Boolean(asaasSandbox.previewBaseUrl),
         webhook_bypass_configured: asaasSandbox.webhookBypassConfigured,
         sandbox_payment_confirmation_enabled: asaasSandbox.paymentConfirmationEnabled,
+        sandbox_failure_test_enabled: asaasSandbox.failureTestEnabled,
+        failure_synthetic_store_configured: Boolean(asaasSandbox.failureSyntheticStoreId),
         configuration_valid: asaas.errors.length === 0,
         errors: [...asaas.errors, ...asaasSandbox.errors]
       }
@@ -91,7 +94,16 @@ export async function POST(request: Request) {
     }
 
     const action = cleanText(body.action, 60);
-    if (!['start-trial', 'create-sandbox-checkout', 'confirm-sandbox-payment'].includes(action)) {
+    if (![
+      'start-trial',
+      'create-sandbox-checkout',
+      'confirm-sandbox-payment',
+      'stage5-card-refused',
+      'stage5-overdue',
+      'stage5-confirm-for-refund',
+      'stage5-refund',
+      'stage5-chargeback-sequence'
+    ].includes(action)) {
       return NextResponse.json({ error: 'Acao de billing invalida.' }, { status: 400 });
     }
     const storeId = uuid(body.store_id);
@@ -134,9 +146,9 @@ export async function POST(request: Request) {
           code: 'asaas_sandbox_disabled'
         }, { status: 503 });
       }
-      if (storeId !== asaasSandbox.syntheticStoreId) {
+      if (!asaasSandbox.syntheticStoreIds.includes(storeId)) {
         return NextResponse.json({
-          error: 'O Checkout Sandbox esta restrito a Loja DEV Roteamento.',
+          error: 'O Checkout Sandbox esta restrito as lojas sinteticas autorizadas.',
           code: 'asaas_sandbox_store_forbidden'
         }, { status: 403 });
       }
@@ -196,6 +208,54 @@ export async function POST(request: Request) {
       });
     }
 
+    if (action.startsWith('stage5-')) {
+      const configuration = readAsaasServerConfiguration();
+      const asaasSandbox = readAsaasSandboxSafety();
+      if (
+        !configuration.apiConfigured
+        || !configuration.webhookConfigured
+        || !asaasSandbox.enabled
+        || !asaasSandbox.failureTestEnabled
+      ) {
+        return NextResponse.json({
+          error: configuration.errors[0]
+            || asaasSandbox.errors[0]
+            || 'A homologacao negativa da etapa 5 permanece desabilitada.',
+          code: 'asaas_sandbox_failure_test_disabled'
+        }, { status: 503 });
+      }
+      if (storeId !== asaasSandbox.failureSyntheticStoreId) {
+        return NextResponse.json({
+          error: 'A etapa 5 esta restrita a Loja DEV Billing Falhas.',
+          code: 'asaas_sandbox_store_forbidden'
+        }, { status: 403 });
+      }
+      const scenarioByAction = {
+        'stage5-card-refused': 'card-refused',
+        'stage5-overdue': 'overdue',
+        'stage5-confirm-for-refund': 'confirm-for-refund',
+        'stage5-refund': 'refund',
+        'stage5-chargeback-sequence': 'chargeback-sequence'
+      } as const;
+      const scenario = scenarioByAction[action as keyof typeof scenarioByAction];
+      const result = await runStoreAsaasSandboxFailureScenario(context.supabase, {
+        storeId,
+        actorUserId: context.master.id,
+        scenario,
+        configuration,
+        safety: asaasSandbox
+      });
+      return NextResponse.json({
+        success: true,
+        ...result,
+        environment: 'sandbox',
+        access_enforcement_mode: 'observe',
+        message: result.webhook_pending
+          ? 'Cenario solicitado no Asaas Sandbox; aguardando o webhook autenticado.'
+          : 'Cenario da etapa 5 processado com idempotencia e sem bloqueio de acesso.'
+      });
+    }
+
   } catch (error: any) {
     if (missingBillingFoundation(error)) {
       return NextResponse.json({
@@ -214,6 +274,7 @@ export async function POST(request: Request) {
             'ASAAS_SANDBOX_STORE_FORBIDDEN',
             'ASAAS_SANDBOX_TRIAL_REQUIRED',
             'ASAAS_SANDBOX_PAYMENT_CONFIRMATION_FORBIDDEN',
+            'ASAAS_SANDBOX_FAILURE_TEST_FORBIDDEN',
             'ASAAS_SANDBOX_PAYMENT_NOT_READY',
             'ASAAS_SANDBOX_PAYMENT_MISMATCH'
           ].includes(code)

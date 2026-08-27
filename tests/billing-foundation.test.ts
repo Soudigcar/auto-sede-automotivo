@@ -125,7 +125,10 @@ test('tabelas financeiras sao service-only e trial exige Master ativo no banco e
   assert.match(migration, /actor\.role = 'master'/);
   assert.match(migration, /actor\.status = 'active'/);
   assert.match(masterRoute, /requireMaster\(request, supabase\)/);
-  assert.match(masterRoute, /\['start-trial', 'create-sandbox-checkout', 'confirm-sandbox-payment'\]\.includes\(action\)/);
+  assert.match(masterRoute, /'start-trial'/);
+  assert.match(masterRoute, /'create-sandbox-checkout'/);
+  assert.match(masterRoute, /'confirm-sandbox-payment'/);
+  assert.match(masterRoute, /\.includes\(action\)/);
 });
 
 test('gates centrais consultam billing, mas a configuracao padrao nao adiciona consulta ao banco', () => {
