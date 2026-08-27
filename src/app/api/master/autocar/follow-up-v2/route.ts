@@ -11,6 +11,7 @@ import {
   saveMasterFollowUpV2,
   saveStoreFollowUpV2
 } from '@/lib/server/autocar/followUpV2ConfigStore';
+import { readFollowUpV2Performance } from '@/lib/server/autocar/followUpV2Performance';
 import type { FollowUpConfigV2 } from '@/lib/server/autocar/smartFollowUpV2';
 
 export const runtime = 'nodejs';
@@ -38,27 +39,39 @@ export async function GET(request: Request) {
     const client = getAutocarRuntimeClient();
     const url = new URL(request.url);
     const storeId = String(url.searchParams.get('store_id') || '').trim();
+    const performanceDays = Math.max(1, Math.min(Number(url.searchParams.get('performance_days') || 30), 90));
     const master = await readMasterFollowUpV2(client);
     if (!storeId) {
+      const performance = await readFollowUpV2Performance({
+        autocar: client,
+        crm: auth.crm,
+        storeId: FOLLOW_UP_V2_AUTOPILOT_CANARY_STORE_ID,
+        periodDays: performanceDays
+      });
       return NextResponse.json({
         success: true,
         autopilot_locked: FOLLOW_UP_V2_AUTOPILOT_LOCKED,
         autopilot_canary_store_id: FOLLOW_UP_V2_AUTOPILOT_CANARY_STORE_ID,
-        master
+        master,
+        performance
       });
     }
     const store = await auth.crm.from('stores').select('id,store_name,slug,status,portal_enabled').eq('id', storeId).maybeSingle();
     if (store.error) throw store.error;
     if (!store.data) return NextResponse.json({ error: 'Loja não encontrada.' }, { status: 404 });
     await ensureAutocarDevStore(getAutocarDevClient(), store.data);
-    const storeConfig = await readStoreFollowUpV2(client, storeId);
+    const [storeConfig, performance] = await Promise.all([
+      readStoreFollowUpV2(client, storeId),
+      readFollowUpV2Performance({ autocar: client, crm: auth.crm, storeId, periodDays: performanceDays })
+    ]);
     return NextResponse.json({
       success: true,
       autopilot_locked: FOLLOW_UP_V2_AUTOPILOT_LOCKED,
       autopilot_canary_allowed: followUpAutopilotCanaryAllowed(storeId),
       autopilot_canary_store_id: FOLLOW_UP_V2_AUTOPILOT_CANARY_STORE_ID,
       master,
-      store: storeConfig
+      store: storeConfig,
+      performance
     });
   } catch (error: any) {
     return NextResponse.json({ error: message(error), persistence_available: false }, { status: 503 });
