@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { FollowUpConfigV2, FollowUpScenarioKey } from '@/lib/server/autocar/smartFollowUpV2';
+import { looksLikeNonLeadAutomation } from '@/lib/server/autocar/followUpV2ContextualReopening';
 
 export const FOLLOW_UP_COPILOT_ELIGIBLE_SCENARIOS = [
   'silent_lead',
@@ -77,6 +78,9 @@ export function evaluateFollowUpCopilotCandidate(input: {
   }
   if (!lead || closedLeadStatus(lead.status)) {
     return { candidate: null, reason: 'Lead ausente ou encerrado.' };
+  }
+  if (looksLikeNonLeadAutomation(input.messages || [])) {
+    return { candidate: null, reason: 'Conversa parece automação promocional/contato indevido e não é elegível para Follow-up comercial.' };
   }
 
   const ordered = [...(input.messages || [])]
