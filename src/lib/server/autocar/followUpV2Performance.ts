@@ -21,11 +21,21 @@ export type FollowUpPerformanceSlice = {
   avgResponseMinutes: number | null;
 };
 
+export type FollowUpPerformanceTimelinePoint = {
+  date: string;
+  sent: number;
+  responses: number;
+  recovered: number;
+  appointments: number;
+  sales: number;
+};
+
 export type FollowUpPerformance = {
   periodDays: number;
   generatedAt: string;
   total: FollowUpPerformanceSlice;
   scenarios: Partial<Record<FollowUpScenarioKey, FollowUpPerformanceSlice>>;
+  timeline: FollowUpPerformanceTimelinePoint[];
 };
 
 type SentRow = {
@@ -39,6 +49,10 @@ type SentRow = {
 function safeDate(value: unknown) {
   const date = value ? new Date(String(value)) : null;
   return date && !Number.isNaN(date.getTime()) ? date : null;
+}
+
+function dateKey(value: Date) {
+  return value.toISOString().slice(0, 10);
 }
 
 function emptySlice(): FollowUpPerformanceSlice {
@@ -68,6 +82,18 @@ function finalize(slice: FollowUpPerformanceSlice, responseMinutes: number[]) {
   slice.avgResponseMinutes = responseMinutes.length
     ? Number((responseMinutes.reduce((sum, value) => sum + value, 0) / responseMinutes.length).toFixed(1))
     : null;
+}
+
+function buildTimeline(periodDays: number) {
+  const timeline = new Map<string, FollowUpPerformanceTimelinePoint>();
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  for (let offset = periodDays - 1; offset >= 0; offset -= 1) {
+    const day = new Date(today.getTime() - offset * DAY_MS);
+    const key = dateKey(day);
+    timeline.set(key, { date: key, sent: 0, responses: 0, recovered: 0, appointments: 0, sales: 0 });
+  }
+  return timeline;
 }
 
 export async function readFollowUpV2Performance(input: {
@@ -102,6 +128,7 @@ export async function readFollowUpV2Performance(input: {
   const scenarios: Partial<Record<FollowUpScenarioKey, FollowUpPerformanceSlice>> = {};
   const responseTimes = new Map<string, number[]>();
   const totalResponseTimes: number[] = [];
+  const timeline = buildTimeline(periodDays);
 
   function scenarioSlice(key: FollowUpScenarioKey) {
     if (!scenarios[key]) scenarios[key] = emptySlice();
@@ -120,7 +147,7 @@ export async function readFollowUpV2Performance(input: {
   if (!sentRows.length) {
     finalize(total, totalResponseTimes);
     for (const [key, slice] of Object.entries(scenarios)) finalize(slice!, responseTimes.get(key) || []);
-    return { periodDays, generatedAt: new Date().toISOString(), total, scenarios };
+    return { periodDays, generatedAt: new Date().toISOString(), total, scenarios, timeline: [...timeline.values()] };
   }
 
   const conversations = [...new Set(sentRows.map((row) => row.production_conversation_id).filter(Boolean))];
@@ -184,6 +211,8 @@ export async function readFollowUpV2Performance(input: {
     target.sent += 1;
     const sentAt = safeDate(sent.source_occurred_at);
     if (!sentAt) continue;
+    const timelinePoint = timeline.get(dateKey(sentAt));
+    if (timelinePoint) timelinePoint.sent += 1;
     const deadline = sentAt.getTime() + Math.max(1, Number(sent.attribution_window_minutes || 1440)) * 60_000;
     const inWindow = (value: unknown) => {
       const at = safeDate(value)?.getTime();
@@ -196,6 +225,7 @@ export async function readFollowUpV2Performance(input: {
     if (firstInboundAt) {
       total.responses += 1;
       target.responses += 1;
+      if (timelinePoint) timelinePoint.responses += 1;
       const minutes = Math.max(0, (firstInboundAt.getTime() - sentAt.getTime()) / 60_000);
       totalResponseTimes.push(minutes);
       const scenarioTimes = responseTimes.get(key) || [];
@@ -218,18 +248,27 @@ export async function readFollowUpV2Performance(input: {
     if (firstInboundAt && hadCommercialContinuation) {
       total.recovered += 1;
       target.recovered += 1;
+      if (timelinePoint) timelinePoint.recovered += 1;
     }
 
     const appointment = relevantActivity.some((activity) => activity.activity_type === 'schedule_created' || activity.to_status === 'scheduled');
-    if (appointment) { total.appointments += 1; target.appointments += 1; }
+    if (appointment) {
+      total.appointments += 1;
+      target.appointments += 1;
+      if (timelinePoint) timelinePoint.appointments += 1;
+    }
 
     const saleFromLog = relevantActivity.some((activity) => activity.to_status === 'sale_confirmed');
     const currentLead = sent.production_lead_id ? leadById.get(sent.production_lead_id) : null;
     const saleFromCurrent = Boolean(currentLead && currentLead.status === 'sale_confirmed' && inWindow(currentLead.updated_at));
-    if (saleFromLog || saleFromCurrent) { total.sales += 1; target.sales += 1; }
+    if (saleFromLog || saleFromCurrent) {
+      total.sales += 1;
+      target.sales += 1;
+      if (timelinePoint) timelinePoint.sales += 1;
+    }
   }
 
   finalize(total, totalResponseTimes);
   for (const [key, slice] of Object.entries(scenarios)) finalize(slice!, responseTimes.get(key) || []);
-  return { periodDays, generatedAt: new Date().toISOString(), total, scenarios };
+  return { periodDays, generatedAt: new Date().toISOString(), total, scenarios, timeline: [...timeline.values()] };
 }
