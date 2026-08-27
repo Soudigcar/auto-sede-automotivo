@@ -5,6 +5,10 @@
   "outputDirectory": ".next",
   "crons": [
     {
+      "path": "/api/cron/autocar-follow-up-v2",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/privacy-retention",
       "schedule": "17 3 * * *"
     }
