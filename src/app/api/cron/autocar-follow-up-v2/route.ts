@@ -2,10 +2,29 @@ import { NextResponse } from 'next/server';
 import { safeEqual } from '@/lib/server/requestSecurity';
 import { createAdminClient } from '@/lib/server/storeTeam';
 import { runA4FollowUpAutopilot } from '@/lib/server/autocar/followUpV2Autopilot';
+import { evaluateAutocarExternalExecutionGate, getAutocarRuntimeClient } from '@/lib/server/autocar/runtimeEnvironment';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
+
+async function preflightGate() {
+  const external = await evaluateAutocarExternalExecutionGate();
+  if (!external.allowed) return { allowed: false, reason: external.reason };
+  const autocar = getAutocarRuntimeClient();
+  const { data, error } = await autocar.from('ai_global_capability_policies')
+    .select('effect,reason,is_active,version')
+    .eq('capability', 'create_follow_up')
+    .eq('is_active', true)
+    .order('version', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (data?.effect !== 'allow') {
+    return { allowed: false, reason: String(data?.reason || 'Capability create_follow_up permanece bloqueada.') };
+  }
+  return { allowed: true, reason: 'SAFE CORE e capability liberados para o canário.' };
+}
 
 export async function GET(request: Request) {
   const configuredSecret = String(process.env.CRON_SECRET || '').trim();
@@ -18,6 +37,10 @@ export async function GET(request: Request) {
   }
 
   try {
+    const gate = await preflightGate();
+    if (!gate.allowed) {
+      return NextResponse.json({ success: true, skipped: true, sent: 0, reason: gate.reason });
+    }
     const result = await runA4FollowUpAutopilot({
       productionSupabase: createAdminClient(),
       maxSends: 3
