@@ -3,7 +3,9 @@ import { getAdminClient, requireMaster } from '@/lib/server/masterApi';
 import { ensureAutocarDevStore, getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 import { getAutocarRuntimeClient } from '@/lib/server/autocar/runtimeEnvironment';
 import {
+  FOLLOW_UP_V2_AUTOPILOT_CANARY_STORE_ID,
   FOLLOW_UP_V2_AUTOPILOT_LOCKED,
+  followUpAutopilotCanaryAllowed,
   readMasterFollowUpV2,
   readStoreFollowUpV2,
   saveMasterFollowUpV2,
@@ -38,14 +40,26 @@ export async function GET(request: Request) {
     const storeId = String(url.searchParams.get('store_id') || '').trim();
     const master = await readMasterFollowUpV2(client);
     if (!storeId) {
-      return NextResponse.json({ success: true, autopilot_locked: FOLLOW_UP_V2_AUTOPILOT_LOCKED, master });
+      return NextResponse.json({
+        success: true,
+        autopilot_locked: FOLLOW_UP_V2_AUTOPILOT_LOCKED,
+        autopilot_canary_store_id: FOLLOW_UP_V2_AUTOPILOT_CANARY_STORE_ID,
+        master
+      });
     }
     const store = await auth.crm.from('stores').select('id,store_name,slug,status,portal_enabled').eq('id', storeId).maybeSingle();
     if (store.error) throw store.error;
     if (!store.data) return NextResponse.json({ error: 'Loja não encontrada.' }, { status: 404 });
     await ensureAutocarDevStore(getAutocarDevClient(), store.data);
     const storeConfig = await readStoreFollowUpV2(client, storeId);
-    return NextResponse.json({ success: true, autopilot_locked: true, master, store: storeConfig });
+    return NextResponse.json({
+      success: true,
+      autopilot_locked: FOLLOW_UP_V2_AUTOPILOT_LOCKED,
+      autopilot_canary_allowed: followUpAutopilotCanaryAllowed(storeId),
+      autopilot_canary_store_id: FOLLOW_UP_V2_AUTOPILOT_CANARY_STORE_ID,
+      master,
+      store: storeConfig
+    });
   } catch (error: any) {
     return NextResponse.json({ error: message(error), persistence_available: false }, { status: 503 });
   }
@@ -63,7 +77,12 @@ export async function POST(request: Request) {
       const config = body?.config as FollowUpConfigV2;
       if (!config) return NextResponse.json({ error: 'Configuração Master obrigatória.' }, { status: 400 });
       const saved = await saveMasterFollowUpV2(client, config, auth.master.id);
-      return NextResponse.json({ success: true, autopilot_locked: true, master: saved });
+      return NextResponse.json({
+        success: true,
+        autopilot_locked: FOLLOW_UP_V2_AUTOPILOT_LOCKED,
+        autopilot_canary_store_id: FOLLOW_UP_V2_AUTOPILOT_CANARY_STORE_ID,
+        master: saved
+      });
     }
 
     if (action === 'save-store') {
@@ -75,13 +94,18 @@ export async function POST(request: Request) {
       if (!store.data) return NextResponse.json({ error: 'Loja não encontrada.' }, { status: 404 });
       await ensureAutocarDevStore(getAutocarDevClient(), store.data);
       const saved = await saveStoreFollowUpV2(client, storeId, config, auth.master.id);
-      return NextResponse.json({ success: true, autopilot_locked: true, store: saved });
+      return NextResponse.json({
+        success: true,
+        autopilot_locked: FOLLOW_UP_V2_AUTOPILOT_LOCKED,
+        autopilot_canary_allowed: followUpAutopilotCanaryAllowed(storeId),
+        store: saved
+      });
     }
 
     return NextResponse.json({ error: 'Ação de Follow-up inválida.' }, { status: 400 });
   } catch (error: any) {
     const text = message(error);
-    const status = /AUTOPILOT|inválid|não habilitou|não autorizado/i.test(text) ? 400 : 500;
+    const status = /AUTOPILOT|inválid|não habilitou|não autorizado|canário/i.test(text) ? 400 : 500;
     return NextResponse.json({ error: text }, { status });
   }
 }
