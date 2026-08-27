@@ -4,6 +4,7 @@ import { ensureAutocarDevStore, getAutocarDevClient } from '@/lib/server/autocar
 import { getAutocarRuntimeClient } from '@/lib/server/autocar/runtimeEnvironment';
 import {
   FOLLOW_UP_V2_AUTOPILOT_LOCKED,
+  followUpAutopilotCanaryAllowed,
   readStoreFollowUpV2,
   saveStoreFollowUpV2
 } from '@/lib/server/autocar/followUpV2ConfigStore';
@@ -33,6 +34,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       autopilot_locked: FOLLOW_UP_V2_AUTOPILOT_LOCKED,
+      autopilot_canary_allowed: followUpAutopilotCanaryAllowed(context.store.id),
       permissions: { manage: context.permissions.includes('manage_autocar') },
       store: { id: context.store.id, store_name: context.store.store_name, slug: context.store.slug },
       config
@@ -55,10 +57,15 @@ export async function POST(request: Request) {
     if (!config) return NextResponse.json({ error: 'Configuração do Follow-up obrigatória.' }, { status: 400 });
     await ensureAutocarDevStore(getAutocarDevClient(), context.store);
     const saved = await saveStoreFollowUpV2(getAutocarRuntimeClient(), context.store.id, config, context.profile.id);
-    return NextResponse.json({ success: true, autopilot_locked: true, config: saved });
+    return NextResponse.json({
+      success: true,
+      autopilot_locked: FOLLOW_UP_V2_AUTOPILOT_LOCKED,
+      autopilot_canary_allowed: followUpAutopilotCanaryAllowed(context.store.id),
+      config: saved
+    });
   } catch (error: any) {
     const text = humanError(error);
-    const status = /AUTOPILOT|inválid|não habilitou|não autorizado/i.test(text) ? 400 : 500;
+    const status = /AUTOPILOT|inválid|não habilitou|não autorizado|canário/i.test(text) ? 400 : 500;
     return NextResponse.json({ error: text }, { status });
   }
 }
