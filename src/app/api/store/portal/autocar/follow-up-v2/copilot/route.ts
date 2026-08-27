@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { analyzeAutocarCopilot } from '@/lib/server/autocar/copilot';
+import { generateContextualFollowUpReopening } from '@/lib/server/autocar/followUpV2ContextualReopening';
 import { readStoreFollowUpV2 } from '@/lib/server/autocar/followUpV2ConfigStore';
 import { evaluateFollowUpCopilotCandidate } from '@/lib/server/autocar/followUpV2CopilotQueue';
 import { getAutocarRuntimeClient } from '@/lib/server/autocar/runtimeEnvironment';
@@ -118,7 +118,7 @@ export async function GET(request: Request) {
         ? context.supabase.from('lead_commercial_details').select('lead_id,payment_type,financing_bank,financed_amount,installment_count,installment_value').in('lead_id', leadIds).eq('store_id', context.store.id)
         : Promise.resolve({ data: [], error: null }),
       conversationIds.length
-        ? context.supabase.from('whatsapp_messages').select('conversation_id,direction,sent_at,created_at').eq('store_id', context.store.id).in('conversation_id', conversationIds).order('sent_at', { ascending: false }).limit(500)
+        ? context.supabase.from('whatsapp_messages').select('conversation_id,direction,message_type,body,sent_at,created_at').eq('store_id', context.store.id).in('conversation_id', conversationIds).order('sent_at', { ascending: false }).limit(500)
         : Promise.resolve({ data: [], error: null }),
       conversationIds.length
         ? autocar.from('ai_runtime_conversations').select('production_conversation_id,human_state,effective_mode').eq('store_id', context.store.id).in('production_conversation_id', conversationIds)
@@ -163,6 +163,7 @@ export async function GET(request: Request) {
       enabled: true,
       autopilot_locked: true,
       external_send_available: false,
+      contextual_reopening: true,
       candidates,
       suggestions: suggestionsResult.data || []
     });
@@ -224,16 +225,20 @@ export async function POST(request: Request) {
       sent_at: message.sent_at || message.created_at || null
     })).filter((message: any) => Boolean(String(message.body || '').trim()));
 
-    const analysis = await analyzeAutocarCopilot({
+    const reopening = await generateContextualFollowUpReopening({
       store: context.store,
       lead: bundle.lead || null,
       baseLead: bundle.baseLead || null,
       commercial: bundle.commercial || null,
       messages: textMessages,
-      inventorySupabase: context.supabase
+      inventorySupabase: context.supabase,
+      scenarioKey: evaluated.candidate.scenario_key
     });
-    const suggestedMessage = clean(analysis.suggested_reply, 4000);
-    if (!suggestedMessage) throw new Error('A AUTOCAR não gerou um rascunho seguro para este Follow-up.');
+    if (!reopening.plan.is_commercial_conversation) {
+      return NextResponse.json({ error: reopening.plan.block_reason || 'Conversa sem intenção comercial segura para Follow-up.' }, { status: 409 });
+    }
+    const suggestedMessage = clean(reopening.plan.suggested_message, 4000);
+    if (!suggestedMessage) throw new Error('A AUTOCAR não gerou uma reabertura contextual segura para este Follow-up.');
 
     const { data: saved, error: saveError } = await autocar.from('ai_follow_up_copilot_suggestions').upsert({
       store_id: context.store.id,
@@ -246,8 +251,8 @@ export async function POST(request: Request) {
       suggested_message: suggestedMessage,
       status: 'pending',
       idempotency_key: evaluated.candidate.idempotency_key,
-      model: analysis.model,
-      usage: analysis.usage || {},
+      model: reopening.model,
+      usage: reopening.usage || {},
       generated_by_profile_id: context.profile.id,
       resolved_by_profile_id: null,
       resolved_at: null,
@@ -265,7 +270,18 @@ export async function POST(request: Request) {
       attribution_window_minutes: scenario?.attributionWindowMinutes || 1440,
       source_occurred_at: new Date().toISOString(),
       attributed_to_follow_up: false,
-      metadata: { suggestion_id: saved.id, copilot_only: true, external_send: false }
+      metadata: {
+        suggestion_id: saved.id,
+        copilot_only: true,
+        external_send: false,
+        contextual_reopening: true,
+        last_topic: reopening.plan.last_topic,
+        customer_last_intent: reopening.plan.customer_last_intent,
+        pending_thread: reopening.plan.pending_thread,
+        reopening_hook: reopening.plan.reopening_hook,
+        commercial_objective: reopening.plan.commercial_objective,
+        avoid_repeating: reopening.plan.avoid_repeating
+      }
     });
     if (performance.error) {
       const rollback = await autocar.from('ai_follow_up_copilot_suggestions').delete().eq('id', saved.id).eq('status', 'pending');
@@ -273,7 +289,19 @@ export async function POST(request: Request) {
       throw performance.error;
     }
 
-    return NextResponse.json({ success: true, reused: false, external_send_available: false, suggestion: saved });
+    return NextResponse.json({
+      success: true,
+      reused: false,
+      external_send_available: false,
+      contextual_reopening: true,
+      reopening_plan: {
+        last_topic: reopening.plan.last_topic,
+        pending_thread: reopening.plan.pending_thread,
+        reopening_hook: reopening.plan.reopening_hook,
+        commercial_objective: reopening.plan.commercial_objective
+      },
+      suggestion: saved
+    });
   } catch (error: any) {
     return NextResponse.json({ error: humanError(error) }, { status: 500 });
   }
