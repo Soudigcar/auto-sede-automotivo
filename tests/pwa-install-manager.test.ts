@@ -5,11 +5,14 @@ import { GET as getServiceWorker } from '../src/app/sw.js/route';
 import { GET as getPwaVersion } from '../src/app/api/pwa/version/route';
 import { resolvePwaAppVersion } from '../src/lib/server/pwaAppVersion';
 import { normalizePwaVersion, shouldApplyPwaUpdate } from '../src/lib/pwaVersion';
+import { buildPwaUpdateTelemetryProperties } from '../src/lib/client/pwaUpdateTelemetry';
 
 const manager = readFileSync('src/components/PwaInstallManager.tsx', 'utf8');
 const serviceWorkerRoute = readFileSync('src/app/sw.js/route.ts', 'utf8');
 const audioRecorder = readFileSync('src/components/WhatsappAudioRecorderButton.tsx', 'utf8');
 const rootLayout = readFileSync('src/app/layout.tsx', 'utf8');
+const telemetry = readFileSync('src/lib/client/pwaUpdateTelemetry.ts', 'utf8');
+const telemetryAnalytics = readFileSync('src/components/PwaUpdateAnalytics.tsx', 'utf8');
 
 test('PWA stays registered without showing a recurring install banner', () => {
   assert.match(manager, /\.register\('\/sw\.js'/);
@@ -29,6 +32,43 @@ test('PWA compares its loaded build with the active deployment on every importan
   assert.match(manager, /window\.addEventListener\('online', checkForUpdate\)/);
   assert.match(manager, /window\.addEventListener\('pageshow', checkForUpdate\)/);
   assert.match(manager, /setInterval\(checkForUpdate, UPDATE_INTERVAL_MS\)/);
+});
+
+test('PWA reports anonymous update lifecycle events to Vercel Analytics without business or user data', () => {
+  assert.match(rootLayout, /<PwaUpdateAnalytics \/>/);
+  assert.match(telemetryAnalytics, /import \{ Analytics, type BeforeSendEvent \} from '@vercel\/analytics\/next'/);
+  assert.match(telemetryAnalytics, /event\.type === 'pageview'/);
+  assert.match(telemetryAnalytics, /return null/);
+  assert.match(telemetryAnalytics, /url: `\$\{url\.origin\}\/pwa-update`/);
+  assert.doesNotMatch(telemetryAnalytics, /url\.pathname|url\.search|url\.hash/);
+  assert.match(telemetry, /import \{ track \} from '@vercel\/analytics'/);
+  assert.match(telemetry, /PWA Version Loaded/);
+  assert.match(telemetry, /PWA Update Detected/);
+  assert.match(telemetry, /PWA Update Deferred/);
+  assert.match(telemetry, /PWA Update Started/);
+  assert.match(telemetry, /PWA Update Reload Requested/);
+  assert.match(telemetry, /PWA Update Completed/);
+  assert.match(telemetry, /PWA Update Failed/);
+  assert.match(manager, /emitTelemetryOnce\('completed'/);
+  assert.match(manager, /TELEMETRY_KEY_PREFIX/);
+  assert.doesNotMatch(telemetry, /email|phone|telefone|user_id|store_id|message|conversation/i);
+
+  assert.deepEqual(
+    buildPwaUpdateTelemetryProperties('detected', {
+      currentVersion: ' current-version ',
+      targetVersion: 'target-version',
+      source: 'version_endpoint'
+    }),
+    {
+      stage: 'detected',
+      current_version: 'current-version',
+      target_version: 'target-version',
+      source: 'version_endpoint',
+      reason: 'none',
+      display_mode: 'unknown',
+      status_code: 0
+    }
+  );
 });
 
 test('PWA applies a different version automatically while preventing reload loops', () => {

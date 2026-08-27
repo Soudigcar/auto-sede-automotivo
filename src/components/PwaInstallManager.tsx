@@ -2,6 +2,12 @@
 
 import { useEffect, useRef } from 'react';
 import {
+  trackPwaUpdate,
+  type PwaUpdateTelemetryReason,
+  type PwaUpdateTelemetrySource,
+  type PwaUpdateTelemetryStage
+} from '@/lib/client/pwaUpdateTelemetry';
+import {
   normalizePwaVersion,
   PWA_VERSION_ENDPOINT,
   PWA_VERSION_QUERY_PARAM,
@@ -12,6 +18,7 @@ const UPDATE_INTERVAL_MS = 5 * 60 * 1000;
 const PENDING_RETRY_MS = 1000;
 const RELOAD_ATTEMPT_COOLDOWN_MS = 60 * 1000;
 const RELOAD_ATTEMPT_KEY = 'auto-controle:pwa-reload-attempt:v1';
+const TELEMETRY_KEY_PREFIX = 'auto-controle:pwa-telemetry:v1:';
 
 type ReloadAttempt = {
   version: string;
@@ -64,22 +71,66 @@ function removeReloadMarker() {
   window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
+function readReloadMarker() {
+  return normalizePwaVersion(new URL(window.location.href).searchParams.get(PWA_VERSION_QUERY_PARAM));
+}
+
+function reserveTelemetryEvent(key: string) {
+  const storageKey = `${TELEMETRY_KEY_PREFIX}${key.slice(0, 180)}`;
+
+  try {
+    if (window.sessionStorage.getItem(storageKey)) return false;
+    window.sessionStorage.setItem(storageKey, '1');
+  } catch {
+    // Sem sessionStorage, a deduplicação em memória continua ativa.
+  }
+
+  return true;
+}
+
 export function PwaInstallManager({ currentVersion }: { currentVersion: string }) {
   const reloadRequestedRef = useRef(false);
+  const telemetryEventsRef = useRef(new Set<string>());
 
   useEffect(() => {
-    if (!('serviceWorker' in navigator)) return;
-
     const loadedVersion = normalizePwaVersion(currentVersion);
+    const reloadMarker = readReloadMarker();
     let disposed = false;
     let registration: ServiceWorkerRegistration | null = null;
     let pendingVersion = '';
+    let pendingSource: PwaUpdateTelemetrySource = 'app_load';
     let applyingVersion = '';
     let versionRequestInFlight = false;
     let pendingTimer: number | null = null;
     let activationTimer: number | null = null;
 
+    const emitTelemetryOnce = (
+      stage: PwaUpdateTelemetryStage,
+      targetVersion = loadedVersion,
+      source: PwaUpdateTelemetrySource = 'app_load',
+      reason: PwaUpdateTelemetryReason = 'none',
+      statusCode = 0
+    ) => {
+      const key = [stage, loadedVersion, targetVersion, source, reason, statusCode].join(':');
+      if (telemetryEventsRef.current.has(key) || !reserveTelemetryEvent(key)) return;
+      telemetryEventsRef.current.add(key);
+      trackPwaUpdate(stage, {
+        currentVersion: loadedVersion,
+        targetVersion,
+        source,
+        reason,
+        statusCode
+      });
+    };
+
+    emitTelemetryOnce('loaded');
+    if (reloadMarker) {
+      if (reloadMarker === loadedVersion) emitTelemetryOnce('completed', reloadMarker);
+      else emitTelemetryOnce('failed', reloadMarker, 'app_load', 'reload_version_mismatch');
+    }
     removeReloadMarker();
+
+    if (!('serviceWorker' in navigator)) return;
 
     const clearPendingTimer = () => {
       if (pendingTimer !== null) window.clearTimeout(pendingTimer);
@@ -103,6 +154,7 @@ export function PwaInstallManager({ currentVersion }: { currentVersion: string }
 
       pendingVersion = latestVersion;
       if (hasProtectedUserOperation()) {
+        emitTelemetryOnce('deferred', latestVersion, pendingSource, 'protected_operation');
         schedulePendingUpdate();
         return;
       }
@@ -113,12 +165,14 @@ export function PwaInstallManager({ currentVersion }: { currentVersion: string }
         : RELOAD_ATTEMPT_COOLDOWN_MS;
 
       if (elapsed < RELOAD_ATTEMPT_COOLDOWN_MS) {
+        emitTelemetryOnce('deferred', latestVersion, pendingSource, 'reload_cooldown');
         schedulePendingUpdate(RELOAD_ATTEMPT_COOLDOWN_MS - elapsed);
         return;
       }
 
       reloadRequestedRef.current = true;
       saveReloadAttempt({ version: latestVersion, attemptedAt: Date.now() });
+      emitTelemetryOnce('reload_requested', latestVersion, pendingSource);
 
       const url = new URL(window.location.href);
       url.searchParams.set(PWA_VERSION_QUERY_PARAM, latestVersion.slice(0, 64));
@@ -135,15 +189,18 @@ export function PwaInstallManager({ currentVersion }: { currentVersion: string }
       ) return;
 
       if (hasProtectedUserOperation()) {
+        emitTelemetryOnce('deferred', latestVersion, pendingSource, 'protected_operation');
         schedulePendingUpdate();
         return;
       }
 
       applyingVersion = latestVersion;
+      emitTelemetryOnce('started', latestVersion, pendingSource);
       try {
         await registration?.update();
         registration?.waiting?.postMessage({ type: 'SKIP_WAITING' });
       } catch {
+        emitTelemetryOnce('failed', latestVersion, 'service_worker', 'service_worker_update');
         // A navegação com identificador de versão ainda força a busca do app atual.
       } finally {
         applyingVersion = '';
@@ -153,10 +210,12 @@ export function PwaInstallManager({ currentVersion }: { currentVersion: string }
       activationTimer = window.setTimeout(() => reloadWithLatestVersion(latestVersion), 1200);
     }
 
-    const requestVersionUpdate = (version: unknown) => {
+    const requestVersionUpdate = (version: unknown, source: PwaUpdateTelemetrySource) => {
       const latestVersion = normalizePwaVersion(version);
       if (!shouldApplyPwaUpdate(loadedVersion, latestVersion)) return;
+      emitTelemetryOnce('detected', latestVersion, source);
       pendingVersion = latestVersion;
+      pendingSource = source;
       void applyPendingUpdate();
     };
 
@@ -173,10 +232,14 @@ export function PwaInstallManager({ currentVersion }: { currentVersion: string }
           credentials: 'same-origin',
           headers: { 'X-Auto-Controle-Version': loadedVersion }
         });
-        if (!response.ok) return;
+        if (!response.ok) {
+          emitTelemetryOnce('failed', loadedVersion, 'version_endpoint', 'version_endpoint_http', response.status);
+          return;
+        }
         const body = await response.json().catch(() => null);
-        requestVersionUpdate(body?.version);
+        requestVersionUpdate(body?.version, 'version_endpoint');
       } catch {
+        emitTelemetryOnce('failed', loadedVersion, 'version_endpoint', 'version_endpoint_network');
         // Sem conexão, o usuário segue trabalhando e a próxima retomada tenta novamente.
       } finally {
         versionRequestInFlight = false;
@@ -196,7 +259,9 @@ export function PwaInstallManager({ currentVersion }: { currentVersion: string }
     };
 
     const handleWorkerMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'PWA_UPDATE_AVAILABLE') requestVersionUpdate(event.data.version);
+      if (event.data?.type === 'PWA_UPDATE_AVAILABLE') {
+        requestVersionUpdate(event.data.version, 'service_worker');
+      }
     };
 
     const handleControllerChange = () => {
@@ -219,6 +284,7 @@ export function PwaInstallManager({ currentVersion }: { currentVersion: string }
         checkForUpdate();
       })
       .catch(() => {
+        emitTelemetryOnce('failed', loadedVersion, 'service_worker', 'service_worker_registration');
         // O sistema web continua e a comparação explícita de versão permanece disponível.
         void fetchLatestVersion();
       });
