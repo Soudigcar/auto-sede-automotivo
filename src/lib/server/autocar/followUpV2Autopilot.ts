@@ -12,7 +12,6 @@ export const FOLLOW_UP_AUTOPILOT_VERSION = 'autocar-follow-up-v2-autopilot-canar
 export const FOLLOW_UP_AUTOPILOT_MAX_SENDS_PER_RUN = 3;
 export const FOLLOW_UP_AUTOPILOT_CANARY_STORE_ID = FOLLOW_UP_V2_AUTOPILOT_CANARY_STORE_ID;
 
-const terminalLeadStatuses = new Set(['won', 'lost', 'sale_confirmed', 'sold', 'closed', 'cancelled']);
 const optOutSignals = [
   /não\s+(quero|desejo)\s+(mais\s+)?(receber|mensagens|contato)/i,
   /pare\s+de\s+(mandar|enviar|me\s+chamar)/i,
@@ -224,7 +223,7 @@ async function executionCaps(autocar: any, config: any, candidate: any, now: Dat
   const todayResult = candidate.lead_id ? await todayQuery.eq('production_lead_id', candidate.lead_id) : await todayQuery.eq('production_conversation_id', candidate.conversation_id);
   if (todayResult.error) throw todayResult.error;
   if (Number(todayResult.count || todayResult.data?.length || 0) >= config.global.maxPerLeadPerDay) {
-    return { allowed: false, reason: 'Limite diário de Follow-up deste lead atingido.' };
+    return { allowed: false as const, reason: 'Limite diário de Follow-up deste lead atingido.' };
   }
 
   const { data: sequence, error: sequenceError } = await autocar.from('ai_follow_up_autopilot_executions')
@@ -237,29 +236,35 @@ async function executionCaps(autocar: any, config: any, candidate: any, now: Dat
     .order('created_at', { ascending: true });
   if (sequenceError) throw sequenceError;
   const sentSequence = sequence || [];
-  if (sentSequence.length >= config.global.maxPerSequence) return { allowed: false, reason: 'Limite máximo da sequência atingido.' };
+  if (sentSequence.length >= config.global.maxPerSequence) return { allowed: false as const, reason: 'Limite máximo da sequência atingido.' };
 
   const scenario = config.scenarios.find((row: any) => row.key === candidate.scenario_key);
   const steps = (scenario?.steps || []).filter((step: any) => step.enabled && step.delayMinutes >= 0).slice(0, config.global.maxPerSequence);
   const nextStep = steps[sentSequence.length];
-  if (!nextStep) return { allowed: false, reason: 'Não há próxima etapa habilitada nesta sequência.' };
+  if (!nextStep) return { allowed: false as const, reason: 'Não há próxima etapa habilitada nesta sequência.' };
 
   const firstAnchor = sentSequence[0]?.metadata?.sequence_anchor_at || candidate.last_store_message_at;
   const anchor = dateValue(firstAnchor);
-  if (!anchor) return { allowed: false, reason: 'Âncora temporal inválida para a sequência.' };
+  if (!anchor) return { allowed: false as const, reason: 'Âncora temporal inválida para a sequência.' };
   const maxEnd = anchor.getTime() + config.global.maxSequenceDays * 86_400_000;
-  if (now.getTime() > maxEnd) return { allowed: false, reason: 'Duração máxima da sequência encerrada.' };
+  if (now.getTime() > maxEnd) return { allowed: false as const, reason: 'Duração máxima da sequência encerrada.' };
   const dueAt = new Date(anchor.getTime() + Number(nextStep.delayMinutes) * 60_000);
-  if (now.getTime() < dueAt.getTime()) return { allowed: false, not_due: true, reason: `Próxima etapa ainda não venceu (${nextStep.label}).` };
+  if (now.getTime() < dueAt.getTime()) return { allowed: false as const, not_due: true, reason: `Próxima etapa ainda não venceu (${nextStep.label}).` };
 
   const latestSent = sentSequence.length ? dateValue(sentSequence[sentSequence.length - 1]?.completed_at || sentSequence[sentSequence.length - 1]?.created_at) : null;
   if (latestSent && now.getTime() - latestSent.getTime() < config.global.minIntervalMinutes * 60_000) {
-    return { allowed: false, not_due: true, reason: 'Intervalo mínimo entre Follow-ups ainda não foi cumprido.' };
+    return { allowed: false as const, not_due: true, reason: 'Intervalo mínimo entre Follow-ups ainda não foi cumprido.' };
   }
-  return { allowed: true, step: nextStep, sequence_anchor_at: anchor.toISOString(), sequence_index: sentSequence.length };
+  return {
+    allowed: true as const,
+    step: nextStep,
+    due_at: dueAt.toISOString(),
+    sequence_anchor_at: anchor.toISOString(),
+    sequence_index: sentSequence.length
+  };
 }
 
-async function claimExecution(autocar: any, candidate: any, step: any, sequenceAnchor: string, sequenceIndex: number) {
+async function claimExecution(autocar: any, candidate: any, step: any, dueAt: string, sequenceAnchor: string, sequenceIndex: number) {
   const rawKey = [FOLLOW_UP_AUTOPILOT_VERSION, candidate.conversation_id, candidate.scenario_key, step.id, candidate.last_customer_message_at, sequenceAnchor].join(':');
   const key = createHash('sha256').update(rawKey).digest('hex');
   const { data, error } = await autocar.from('ai_follow_up_autopilot_executions').insert({
@@ -268,7 +273,7 @@ async function claimExecution(autocar: any, candidate: any, step: any, sequenceA
     production_lead_id: candidate.lead_id,
     scenario_key: candidate.scenario_key,
     step_id: step.id,
-    due_at: candidate.due_at,
+    due_at: dueAt,
     trigger_last_customer_message_at: candidate.last_customer_message_at,
     trigger_last_store_message_at: candidate.last_store_message_at,
     idempotency_key: key,
@@ -284,7 +289,7 @@ async function claimExecution(autocar: any, candidate: any, step: any, sequenceA
 
 async function immediateRevalidation(productionSupabase: any, autocar: any, config: any, candidate: any, plannedMessage: string) {
   const bundle = await readBundle(productionSupabase, candidate.conversation_id);
-  if (!bundle) return { allowed: false, reason: 'Conversa não existe mais.' };
+  if (!bundle) return { allowed: false as const, reason: 'Conversa não existe mais.' };
   const runtime = await readRuntime(autocar, candidate.conversation_id);
   const current = evaluateFollowUpCopilotCandidate({
     config,
@@ -295,15 +300,74 @@ async function immediateRevalidation(productionSupabase: any, autocar: any, conf
     messages: bundle.messages,
     requiredMode: 'autopilot'
   });
-  if (!current.candidate) return { allowed: false, reason: `Revalidação bloqueou: ${current.reason}` };
-  if (current.candidate.last_customer_message_at !== candidate.last_customer_message_at) return { allowed: false, reason: 'Cliente respondeu ou o contexto mudou durante a preparação.' };
-  if (hasFollowUpOptOut(bundle.messages)) return { allowed: false, reason: 'Opt-out detectado imediatamente antes do envio.' };
-  if (looksLikeNonLeadAutomation(bundle.messages)) return { allowed: false, reason: 'Contato promocional/indevido detectado.' };
-  if (!bundle.integration || bundle.integration.status !== 'connected' || !bundle.integration.instance_name) return { allowed: false, reason: 'Integração WhatsApp da A4 não está conectada.' };
+  if (!current.candidate) return { allowed: false as const, reason: `Revalidação bloqueou: ${current.reason}` };
+  if (current.candidate.last_customer_message_at !== candidate.last_customer_message_at) return { allowed: false as const, reason: 'Cliente respondeu ou o contexto mudou durante a preparação.' };
+  if (hasFollowUpOptOut(bundle.messages)) return { allowed: false as const, reason: 'Opt-out detectado imediatamente antes do envio.' };
+  if (looksLikeNonLeadAutomation(bundle.messages)) return { allowed: false as const, reason: 'Contato promocional/indevido detectado.' };
+  if (!bundle.integration || bundle.integration.status !== 'connected' || !bundle.integration.instance_name) return { allowed: false as const, reason: 'Integração WhatsApp da A4 não está conectada.' };
   const recipient = normalizePhone(bundle.contact?.phone || bundle.contact?.wa_id);
-  if (!recipient) return { allowed: false, reason: 'Contato sem telefone válido.' };
-  if (!plannedMessage.trim()) return { allowed: false, reason: 'Mensagem final vazia.' };
-  return { allowed: true, bundle, runtime, recipient };
+  if (!recipient) return { allowed: false as const, reason: 'Contato sem telefone válido.' };
+  if (!plannedMessage.trim()) return { allowed: false as const, reason: 'Mensagem final vazia.' };
+  return { allowed: true as const, bundle, runtime, recipient };
+}
+
+function triggerOutboundMessageId(bundle: any, candidate: any) {
+  const target = dateValue(candidate.last_store_message_at)?.getTime();
+  const exact = (bundle.messages || []).find((message: any) => {
+    if (String(message.direction) !== 'outbound') return false;
+    const at = dateValue(message.sent_at || message.created_at)?.getTime();
+    return target && at === target;
+  });
+  const fallback = (bundle.messages || []).find((message: any) => String(message.direction) === 'outbound');
+  return String(exact?.id || fallback?.id || '').trim();
+}
+
+async function createLiveTextSendClaim(autocar: any, execution: any, bundle: any, candidate: any, text: string) {
+  const productionMessageId = triggerOutboundMessageId(bundle, candidate);
+  if (!productionMessageId) throw new Error('Mensagem outbound de origem não encontrada para claim LIVE do Follow-up.');
+  const key = `autocar:${FOLLOW_UP_AUTOPILOT_CANARY_STORE_ID}:${execution.id}:follow_up_live_text_send`;
+  const { data, error } = await autocar.from('ai_runtime_message_claims').insert({
+    store_id: FOLLOW_UP_AUTOPILOT_CANARY_STORE_ID,
+    production_conversation_id: candidate.conversation_id,
+    production_message_id: productionMessageId,
+    purpose: 'live_text_send',
+    idempotency_key: key,
+    direction: 'outbound',
+    message_type: 'text',
+    effective_mode: 'autopilot',
+    status: 'ready',
+    policy_capability: 'create_follow_up',
+    policy_effect: 'allow',
+    policy_source: 'follow_up_autopilot_gate',
+    policy_reason: 'Smart Follow-up A4 canário revalidado imediatamente antes do envio.',
+    result: {
+      follow_up_autopilot: true,
+      follow_up_execution_id: execution.id,
+      planned_text: text,
+      external_execution: false
+    }
+  }).select('*').single();
+  if (error) {
+    if (error.code === '23505') {
+      const existing = await autocar.from('ai_runtime_message_claims').select('*').eq('idempotency_key', key).maybeSingle();
+      if (existing.error) throw existing.error;
+      return existing.data;
+    }
+    throw error;
+  }
+  return data;
+}
+
+async function completeLiveTextSendClaim(autocar: any, claimId: string, patch: Record<string, unknown>, status: 'completed' | 'failed') {
+  const current = await autocar.from('ai_runtime_message_claims').select('result').eq('id', claimId).maybeSingle();
+  if (current.error) throw current.error;
+  const { error } = await autocar.from('ai_runtime_message_claims').update({
+    status,
+    result: { ...(current.data?.result || {}), ...patch },
+    completed_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }).eq('id', claimId).eq('purpose', 'live_text_send');
+  if (error) throw error;
 }
 
 async function sendClaimedExecution(productionSupabase: any, autocar: any, config: any, candidate: any, execution: any, generated: any, quality: any, sequence: any) {
@@ -334,8 +398,10 @@ async function sendClaimedExecution(productionSupabase: any, autocar: any, confi
   if (!withinFollowUpAllowedWindow(config, new Date())) return blockExecution(autocar, execution.id, 'Janela de envio encerrou durante a preparação.');
 
   const revalidated = await immediateRevalidation(productionSupabase, autocar, config, candidate, text);
-  if (!revalidated.allowed) return blockExecution(autocar, execution.id, revalidated.reason);
+  if (!revalidated.allowed) return blockExecution(autocar, execution.id, String(revalidated.reason || 'Revalidação final bloqueou o envio.'));
   const bundle: any = revalidated.bundle;
+  const liveClaim = await createLiveTextSendClaim(autocar, execution, bundle, candidate, text);
+  if (!liveClaim?.id) return blockExecution(autocar, execution.id, 'Claim LIVE do Follow-up não pôde ser criado.');
 
   try {
     const evolutionResult = await sendEvolutionText(String(bundle.integration.instance_name), String(revalidated.recipient), text);
@@ -365,8 +431,10 @@ async function sendClaimedExecution(productionSupabase: any, autocar: any, confi
         status: 'sent',
         raw_payload: {
           provider: 'evolution',
+          autocar_live_pilot: true,
           autocar_follow_up_autopilot: true,
           follow_up_execution_id: execution.id,
+          live_claim_id: liveClaim.id,
           evolution: evolutionResult
         },
         sent_at: sentAt
@@ -378,6 +446,14 @@ async function sendClaimedExecution(productionSupabase: any, autocar: any, confi
       last_message: text, last_message_at: sentAt, updated_at: sentAt
     }).eq('id', bundle.conversation.id).eq('store_id', FOLLOW_UP_AUTOPILOT_CANARY_STORE_ID);
     if (conversationUpdate.error) throw conversationUpdate.error;
+
+    await completeLiveTextSendClaim(autocar, liveClaim.id, {
+      external_execution: true,
+      sent_text: text,
+      provider: 'evolution',
+      provider_message_id: providerMessageId || null,
+      production_outbound_message_id: savedMessage?.id || null
+    }, 'completed');
 
     const completed = await autocar.from('ai_follow_up_autopilot_executions').update({
       status: 'sent',
@@ -403,6 +479,7 @@ async function sendClaimedExecution(productionSupabase: any, autocar: any, confi
     return { sent: true, execution_id: execution.id, conversation_id: candidate.conversation_id, message_id: savedMessage?.id || null };
   } catch (error: any) {
     const reason = String(error?.message || error || 'Falha no envio AUTOPILOT.').slice(0, 1000);
+    await completeLiveTextSendClaim(autocar, liveClaim.id, { external_execution: false, error: reason }, 'failed').catch(() => null);
     await autocar.from('ai_follow_up_autopilot_executions').update({
       status: 'failed', reason, completed_at: new Date().toISOString(), updated_at: new Date().toISOString()
     }).eq('id', execution.id).eq('status', 'claimed');
@@ -430,7 +507,14 @@ async function processConversation(productionSupabase: any, autocar: any, config
 
   const caps = await executionCaps(autocar, config, candidate, now);
   if (!caps.allowed) return { sent: false, skipped: true, reason: caps.reason };
-  const claim = await claimExecution(autocar, candidate, caps.step, caps.sequence_anchor_at, caps.sequence_index);
+  const claim = await claimExecution(
+    autocar,
+    candidate,
+    caps.step,
+    caps.due_at,
+    caps.sequence_anchor_at,
+    caps.sequence_index
+  );
   if (claim.duplicate || !claim.execution) return { sent: false, duplicate: true, reason: 'Execução AUTOPILOT já reivindicada.' };
 
   const textMessages = bundle.messages.slice().reverse().map((message: any) => ({
@@ -493,21 +577,4 @@ export async function runA4FollowUpAutopilot(input: { productionSupabase: any; n
     }
   }
   return { success: true, enabled: true, store_id: FOLLOW_UP_AUTOPILOT_CANARY_STORE_ID, sent, scanned: (conversations || []).length, results };
-}
-
-export async function matchesClaimedFollowUpAutopilotOutbound(input: { conversationId: string; body: string }) {
-  const body = String(input.body || '').trim();
-  if (!body) return false;
-  const autocar = getAutocarRuntimeClient();
-  const cutoff = new Date(Date.now() - 3 * 60_000).toISOString();
-  const { data, error } = await autocar.from('ai_follow_up_autopilot_executions')
-    .select('id,planned_message,status,created_at')
-    .eq('store_id', FOLLOW_UP_AUTOPILOT_CANARY_STORE_ID)
-    .eq('production_conversation_id', input.conversationId)
-    .in('status', ['claimed', 'sent'])
-    .gte('created_at', cutoff)
-    .order('created_at', { ascending: false })
-    .limit(5);
-  if (error) return false;
-  return (data || []).some((row: any) => String(row.planned_message || '').trim() === body);
 }
