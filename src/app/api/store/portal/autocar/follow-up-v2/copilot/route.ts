@@ -72,7 +72,6 @@ async function readConversationBundle(context: any, conversationId: string) {
   if (baseLeadError) throw baseLeadError;
   if (commercialError) throw commercialError;
   if (messagesError) throw messagesError;
-
   return { conversation, lead, baseLead, commercial, messages: messages || [] };
 }
 
@@ -94,8 +93,8 @@ export async function GET(request: Request) {
     const autocar = getAutocarRuntimeClient();
     const configBundle = await readStoreFollowUpV2(autocar, context.store.id);
     const config = configBundle.effective;
-    if (!config.global.enabled || config.global.mode !== 'copilot') {
-      return NextResponse.json({ success: true, enabled: false, candidates: [], suggestions: [] });
+    if (!config.global.enabled || config.global.mode === 'off') {
+      return NextResponse.json({ success: true, enabled: false, mode: config.global.mode, candidates: [], suggestions: [] });
     }
 
     const { data: conversations, error: conversationsError } = await context.supabase
@@ -124,7 +123,7 @@ export async function GET(request: Request) {
         ? autocar.from('ai_runtime_conversations').select('production_conversation_id,human_state,effective_mode').eq('store_id', context.store.id).in('production_conversation_id', conversationIds)
         : Promise.resolve({ data: [], error: null }),
       autocar.from('ai_follow_up_copilot_suggestions')
-        .select('id,production_conversation_id,production_lead_id,scenario_key,step_id,due_at,suggested_message,status,idempotency_key,model,created_at')
+        .select('id,production_conversation_id,production_lead_id,scenario_key,step_id,due_at,suggested_message,status,idempotency_key,model,metadata,created_at')
         .eq('store_id', context.store.id)
         .eq('status', 'pending')
         .order('created_at', { ascending: false })
@@ -144,7 +143,7 @@ export async function GET(request: Request) {
       messagesMap.set(message.conversation_id, list);
     }
 
-    const candidates = rows.flatMap((conversation: any) => {
+    const candidates = config.global.mode === 'copilot' ? rows.flatMap((conversation: any) => {
       const lead = leadMap.get(conversation.lead_id) || null;
       if (context.role !== 'master' && context.role !== 'store' && (!lead || !canAccessStoreLead(context.profile, context.role, lead))) return [];
       const evaluated = evaluateFollowUpCopilotCandidate({
@@ -153,19 +152,25 @@ export async function GET(request: Request) {
         lead,
         commercial: commercialMap.get(conversation.lead_id) || null,
         runtimeConversation: runtimeMap.get(conversation.id) || null,
-        messages: messagesMap.get(conversation.id) || []
+        messages: messagesMap.get(conversation.id) || [],
+        requiredMode: 'copilot'
       });
       return evaluated.candidate ? [evaluated.candidate] : [];
-    });
+    }) : [];
+
+    const suggestions = config.global.mode === 'autopilot'
+      ? (suggestionsResult.data || []).filter((row: any) => row?.metadata?.autopilot_fallback === true)
+      : suggestionsResult.data || [];
 
     return NextResponse.json({
       success: true,
       enabled: true,
-      autopilot_locked: true,
+      mode: config.global.mode,
+      autopilot_locked: false,
       external_send_available: false,
       contextual_reopening: true,
       candidates,
-      suggestions: suggestionsResult.data || []
+      suggestions
     });
   } catch (error: any) {
     return NextResponse.json({ error: humanError(error) }, { status: 500 });
@@ -197,10 +202,13 @@ export async function POST(request: Request) {
     }
 
     if (action !== 'generate') return NextResponse.json({ error: 'Ação COPILOT inválida.' }, { status: 400 });
+    const configBundle = await readStoreFollowUpV2(autocar, context.store.id);
+    if (configBundle.effective.global.mode !== 'copilot') {
+      return NextResponse.json({ error: 'No AUTOPILOT, a geração manual fica reservada aos casos rebaixados automaticamente para COPILOT.' }, { status: 409 });
+    }
     const conversationId = clean(body?.conversation_id, 100);
     if (!conversationId) return NextResponse.json({ error: 'Conversa obrigatória.' }, { status: 400 });
 
-    const configBundle = await readStoreFollowUpV2(autocar, context.store.id);
     const bundle = await readConversationBundle(context, conversationId);
     const runtime = await runtimeConversation(autocar, context.store.id, conversationId);
     const evaluated = evaluateFollowUpCopilotCandidate({
@@ -209,7 +217,8 @@ export async function POST(request: Request) {
       lead: bundle.lead,
       commercial: bundle.commercial,
       runtimeConversation: runtime,
-      messages: bundle.messages
+      messages: bundle.messages,
+      requiredMode: 'copilot'
     });
     if (!evaluated.candidate) return NextResponse.json({ error: evaluated.reason }, { status: 409 });
 
@@ -253,6 +262,14 @@ export async function POST(request: Request) {
       idempotency_key: evaluated.candidate.idempotency_key,
       model: reopening.model,
       usage: reopening.usage || {},
+      metadata: {
+        contextual_reopening: true,
+        last_topic: reopening.plan.last_topic,
+        pending_thread: reopening.plan.pending_thread,
+        reopening_hook: reopening.plan.reopening_hook,
+        commercial_objective: reopening.plan.commercial_objective,
+        avoid_repeating: reopening.plan.avoid_repeating
+      },
       generated_by_profile_id: context.profile.id,
       resolved_by_profile_id: null,
       resolved_at: null,
