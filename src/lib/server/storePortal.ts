@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
+import { resolveStoreBillingAccess } from '@/lib/server/billing/access';
 
 export const storePortalRoles = ['master', 'store', 'pre_sales', 'seller', 'prospector'] as const;
 export type StorePortalRole = (typeof storePortalRoles)[number];
@@ -72,7 +73,10 @@ export async function canUseStoreWhatsapp(supabase:any,profile:any,storeId:unkno
   if(!scopedStoreId||profile?.store_id!==scopedStoreId)return false;
   const {data:store,error}=await supabase.from('stores').select('id, status, portal_enabled').eq('id',scopedStoreId).maybeSingle();
   if(error)throw error;
-  return isOperationalStorePortal(store);
+  const operationalStore=isOperationalStorePortal(store);
+  if(!operationalStore)return false;
+  const billing=await resolveStoreBillingAccess(supabase,{role,storeId:scopedStoreId,operationalStore});
+  return billing.allowed;
 }
 
 export function applyStoreLeadScope(query:any,profile:any,role:StorePortalRole){ if(role==='master'||role==='store')return query; const userId=cleanText(profile?.id,80); if(!userId)return query.eq('id','__unauthorized__'); return query.eq('assigned_user_id',userId); }
@@ -91,9 +95,11 @@ async function authorizeStorePortalAccess(request:Request,expectedSlug:string,al
   if(storeError) throw storeError;
   if(!isOperationalStorePortal(store)&&!(allowMasterWhenStoreUnavailable&&role==='master')) return {error:NextResponse.json({error:'Portal da loja indisponível ou desativado.'},{status:404})} as const;
   if(role!=='master'&&profile.store_id!==store.id) return {error:NextResponse.json({error:'Este usuário não pertence a esta loja.'},{status:403})} as const;
+  const billing=await resolveStoreBillingAccess(supabase,{role,storeId:store.id,operationalStore:isOperationalStorePortal(store)});
+  if(!billing.allowed) return {error:NextResponse.json({error:'O acesso ao sistema requer uma assinatura válida.',code:billing.reason},{status:402})} as const;
   const permissions=storePortalPermissions(role);
   const menu=storePortalMenu(role,store.slug);
-  return {supabase,profile:{...profile,role},role,store,permissions,menu,scopeLabel:storePortalScopeLabel(role)} as const;
+  return {supabase,profile:{...profile,role},role,store,billing,permissions,menu,scopeLabel:storePortalScopeLabel(role)} as const;
 }
 
 export function authorizeStorePortal(request:Request,expectedSlug:string){ return authorizeStorePortalAccess(request,expectedSlug,false); }
