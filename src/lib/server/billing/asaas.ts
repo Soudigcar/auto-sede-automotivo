@@ -19,6 +19,7 @@ export type AsaasServerConfiguration = {
 
 export type AsaasSandboxSafety = {
   enabled: boolean;
+  paymentConfirmationEnabled: boolean;
   syntheticStoreId: string;
   previewBaseUrl: string;
   webhookBypassConfigured: boolean;
@@ -103,6 +104,8 @@ export function readAsaasSandboxSafety(
 
   return {
     enabled: errors.length === 0,
+    paymentConfirmationEnabled: errors.length === 0
+      && explicitTrue(environment.BILLING_ASAAS_SANDBOX_PAYMENT_CONFIRMATION_ENABLED),
     syntheticStoreId,
     previewBaseUrl,
     webhookBypassConfigured,
@@ -316,6 +319,31 @@ export async function createAsaasRecurringCheckout(
     link: validatedCheckoutLink(response?.link, id),
     status: String(response?.status || 'ACTIVE').trim().slice(0, 40),
     externalReference
+  };
+}
+
+export async function confirmAsaasSandboxPayment(
+  configuration: AsaasServerConfiguration,
+  paymentId: string,
+  fetchImplementation: typeof fetch = fetch
+) {
+  const normalizedPaymentId = String(paymentId || '').trim();
+  if (!/^pay_[a-z0-9_-]{8,240}$/i.test(normalizedPaymentId)) {
+    throw new Error('A cobranca Sandbox possui identificador invalido.');
+  }
+  const response = await asaasRequest<any>(
+    configuration,
+    `/sandbox/payment/${encodeURIComponent(normalizedPaymentId)}/confirm`,
+    { method: 'POST' },
+    fetchImplementation
+  );
+  const returnedId = String(response?.id || normalizedPaymentId).trim();
+  if (returnedId !== normalizedPaymentId) {
+    throw new Error('O Asaas Sandbox confirmou uma cobranca diferente da autorizada.');
+  }
+  return {
+    id: returnedId,
+    status: String(response?.status || 'CONFIRMED').trim().toUpperCase().slice(0, 80)
   };
 }
 

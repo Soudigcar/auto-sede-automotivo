@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { billingEnforcementEnabled } from '@/lib/server/billing/access';
 import {
   BILLING_FOUNDATION_MIGRATION,
+  confirmStoreAsaasSandboxPayment,
   createStoreAsaasSandboxCheckout,
   missingBillingFoundation,
   readMasterBillingOverview,
@@ -70,6 +71,7 @@ export async function GET(request: Request) {
         synthetic_store_configured: Boolean(asaasSandbox.syntheticStoreId),
         preview_callback_configured: Boolean(asaasSandbox.previewBaseUrl),
         webhook_bypass_configured: asaasSandbox.webhookBypassConfigured,
+        sandbox_payment_confirmation_enabled: asaasSandbox.paymentConfirmationEnabled,
         configuration_valid: asaas.errors.length === 0,
         errors: [...asaas.errors, ...asaasSandbox.errors]
       }
@@ -89,7 +91,7 @@ export async function POST(request: Request) {
     }
 
     const action = cleanText(body.action, 60);
-    if (action !== 'start-trial' && action !== 'create-sandbox-checkout') {
+    if (!['start-trial', 'create-sandbox-checkout', 'confirm-sandbox-payment'].includes(action)) {
       return NextResponse.json({ error: 'Acao de billing invalida.' }, { status: 400 });
     }
     const storeId = uuid(body.store_id);
@@ -155,6 +157,45 @@ export async function POST(request: Request) {
       });
     }
 
+    if (action === 'confirm-sandbox-payment') {
+      const configuration = readAsaasServerConfiguration();
+      const asaasSandbox = readAsaasSandboxSafety();
+      if (
+        !configuration.apiConfigured
+        || !configuration.webhookConfigured
+        || !asaasSandbox.enabled
+        || !asaasSandbox.paymentConfirmationEnabled
+      ) {
+        return NextResponse.json({
+          error: configuration.errors[0]
+            || asaasSandbox.errors[0]
+            || 'A confirmacao da cobranca Sandbox permanece desabilitada.',
+          code: 'asaas_sandbox_payment_confirmation_disabled'
+        }, { status: 503 });
+      }
+      if (storeId !== asaasSandbox.syntheticStoreId) {
+        return NextResponse.json({
+          error: 'A confirmacao Sandbox esta restrita a Loja DEV Roteamento.',
+          code: 'asaas_sandbox_store_forbidden'
+        }, { status: 403 });
+      }
+      const confirmation = await confirmStoreAsaasSandboxPayment(context.supabase, {
+        storeId,
+        actorUserId: context.master.id,
+        configuration,
+        safety: asaasSandbox
+      });
+      return NextResponse.json({
+        success: true,
+        ...confirmation,
+        environment: 'sandbox',
+        access_enforcement_mode: 'observe',
+        message: confirmation.webhook_pending
+          ? 'Confirmacao Sandbox solicitada. O estado sera atualizado somente pelo webhook autenticado.'
+          : 'A cobranca sintetica ja estava confirmada e foi preservada sem duplicacao.'
+      });
+    }
+
   } catch (error: any) {
     if (missingBillingFoundation(error)) {
       return NextResponse.json({
@@ -167,9 +208,17 @@ export async function POST(request: Request) {
       ? 409
       : code === 'P0002'
         ? 404
-        : ['42501', 'BILLING_STORE_NOT_ELIGIBLE', 'ASAAS_SANDBOX_STORE_FORBIDDEN', 'ASAAS_SANDBOX_TRIAL_REQUIRED'].includes(code)
+        : [
+            '42501',
+            'BILLING_STORE_NOT_ELIGIBLE',
+            'ASAAS_SANDBOX_STORE_FORBIDDEN',
+            'ASAAS_SANDBOX_TRIAL_REQUIRED',
+            'ASAAS_SANDBOX_PAYMENT_CONFIRMATION_FORBIDDEN',
+            'ASAAS_SANDBOX_PAYMENT_NOT_READY',
+            'ASAAS_SANDBOX_PAYMENT_MISMATCH'
+          ].includes(code)
           ? 403
           : 500;
-    return NextResponse.json({ error: safeErrorMessage(error, 'Falha ao iniciar o trial.') }, { status });
+    return NextResponse.json({ error: safeErrorMessage(error, 'Falha ao processar a operacao de billing.') }, { status });
   }
 }

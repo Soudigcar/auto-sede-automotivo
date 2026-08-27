@@ -50,7 +50,7 @@ export async function POST(request: Request) {
       provider_object_id: event.provider_object_id,
       processing_status: 'pending',
       payload: event.payload
-    }).select('id,event_type,provider_object_type,provider_object_id,payload,processing_status,processing_attempts').maybeSingle();
+    }).select('id,provider_event_id,event_type,provider_object_type,provider_object_id,payload,processing_status,processing_attempts').maybeSingle();
 
     if (inserted.error && String(inserted.error.code || '') !== '23505') throw inserted.error;
     duplicate = String(inserted.error?.code || '') === '23505';
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     if (duplicate) {
       const existing = await supabase
         .from('billing_webhook_events')
-        .select('id,event_type,provider_object_type,provider_object_id,payload,processing_status,processing_attempts')
+        .select('id,provider_event_id,event_type,provider_object_type,provider_object_id,payload,processing_status,processing_attempts')
         .eq('provider', 'asaas')
         .eq('provider_event_id', event.provider_event_id)
         .maybeSingle();
@@ -70,6 +70,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ received: true, duplicate: true, processing_status: storedEvent.processing_status });
     }
 
+    const nextAttempt = Number(storedEvent.processing_attempts || 0) + 1;
+    const claimed = await supabase
+      .from('billing_webhook_events')
+      .update({ processing_attempts: nextAttempt })
+      .eq('id', storedEvent.id)
+      .eq('processing_attempts', Number(storedEvent.processing_attempts || 0))
+      .in('processing_status', ['pending', 'failed'])
+      .select('id,provider_event_id,event_type,provider_object_type,provider_object_id,payload,processing_status,processing_attempts')
+      .maybeSingle();
+    if (claimed.error) throw claimed.error;
+    if (!claimed.data) {
+      return NextResponse.json({
+        received: true,
+        duplicate: true,
+        processing_status: storedEvent.processing_status
+      });
+    }
+    storedEvent = claimed.data;
+
     const processed = await processStoredAsaasWebhookEvent(supabase, storedEvent, {
       syntheticStoreId: asaasSandbox.syntheticStoreId
     });
@@ -78,7 +97,6 @@ export async function POST(request: Request) {
       .update({
         processing_status: processed.processing_status,
         processed_at: new Date().toISOString(),
-        processing_attempts: Number(storedEvent.processing_attempts || 0) + 1,
         last_error: null
       })
       .eq('id', storedEvent.id);
@@ -99,7 +117,6 @@ export async function POST(request: Request) {
         .from('billing_webhook_events')
         .update({
           processing_status: 'failed',
-          processing_attempts: Number(storedEvent.processing_attempts || 0) + 1,
           last_error: response.message.slice(0, 1000)
         })
         .eq('id', storedEvent.id);

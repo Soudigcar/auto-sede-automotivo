@@ -2,12 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Activity,
   Bot,
+  CalendarDays,
   CheckCircle2,
   Clock3,
   CreditCard,
   Eye,
   ExternalLink,
+  History,
   Loader2,
   RefreshCw,
   ShieldCheck,
@@ -38,10 +41,46 @@ type BillingSubscription = {
   activation_source: string;
   trial_started_at: string | null;
   trial_ends_at: string | null;
+  current_period_started_at: string | null;
   current_period_ends_at: string | null;
   provider_customer_id: string | null;
   provider_subscription_id: string | null;
   provider_checkout_id: string | null;
+};
+
+type BillingPayment = {
+  id: string;
+  subscription_id: string;
+  store_id: string;
+  provider_status: string;
+  amount_cents: number;
+  due_at: string | null;
+  confirmed_at: string | null;
+  received_at: string | null;
+  overdue_at: string | null;
+  refunded_at: string | null;
+  chargeback_at: string | null;
+};
+
+type BillingAuditEntry = {
+  id: string;
+  store_id: string;
+  subscription_id: string | null;
+  action: string;
+  previous_status: string | null;
+  new_status: string | null;
+  reason: string | null;
+  created_at: string;
+};
+
+type BillingWebhookHealth = {
+  total: number;
+  processed: number;
+  ignored: number;
+  pending: number;
+  failed: number;
+  last_event_type: string | null;
+  last_received_at: string | null;
 };
 
 type BillingStore = {
@@ -59,6 +98,9 @@ type BillingOverview = {
   required_migration: string | null;
   plans: BillingPlan[];
   subscriptions: BillingSubscription[];
+  payments: BillingPayment[];
+  webhook_health: BillingWebhookHealth;
+  audit_log: BillingAuditEntry[];
   stores: BillingStore[];
   safety: {
     global_enforcement_enabled: boolean;
@@ -76,9 +118,30 @@ type BillingOverview = {
     synthetic_store_configured: boolean;
     preview_callback_configured: boolean;
     webhook_bypass_configured: boolean;
+    sandbox_payment_confirmation_enabled: boolean;
     configuration_valid: boolean;
     errors: string[];
   };
+};
+
+const paymentStatusLabels: Record<string, string> = {
+  PENDING: 'Cobrança agendada',
+  SANDBOX_CONFIRMATION_REQUESTED: 'Confirmação Sandbox em processamento',
+  CONFIRMED: 'Pagamento confirmado',
+  RECEIVED: 'Pagamento recebido',
+  OVERDUE: 'Cobrança vencida',
+  REFUNDED: 'Pagamento estornado',
+  CHARGEBACK_REQUESTED: 'Chargeback solicitado',
+  CHARGEBACK_DISPUTE: 'Chargeback em disputa'
+};
+
+const auditLabels: Record<string, string> = {
+  trial_started_by_master: 'Trial iniciado pelo Master',
+  asaas_sandbox_checkout_created: 'Checkout Sandbox criado',
+  asaas_sandbox_webhooks_reconciled: 'Webhooks Sandbox reconciliados',
+  asaas_sandbox_payment_confirmation_requested: 'Confirmação Sandbox solicitada',
+  asaas_webhook_subscription_transition: 'Assinatura atualizada pelo webhook',
+  asaas_webhook_stale_transition_ignored: 'Evento antigo preservado sem regressão'
 };
 
 const statusLabels: Record<BillingSubscription['status'], string> = {
@@ -157,7 +220,7 @@ export function MasterBillingCenter() {
     return data.session?.access_token || '';
   }, [supabase]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (preserveMessage = false) => {
     setBusy(true);
     try {
       const token = await accessToken();
@@ -169,7 +232,7 @@ export function MasterBillingCenter() {
       const body = await responseBody(response);
       if (!response.ok) throw new Error(body.error || 'Não foi possível carregar o billing.');
       setOverview(body as BillingOverview);
-      setMessage('');
+      if (!preserveMessage) setMessage('');
     } catch (error: any) {
       setMessage(error?.message || 'Não foi possível carregar o billing.');
     } finally {
@@ -212,7 +275,7 @@ export function MasterBillingCenter() {
       setSelectedStoreId('');
       setReason('');
       setMessage(body.message || 'Trial iniciado em modo de observação.');
-      await load();
+      await load(true);
     } catch (error: any) {
       setMessage(error?.message || 'Não foi possível iniciar o trial.');
     } finally {
@@ -252,9 +315,55 @@ export function MasterBillingCenter() {
     }
   }
 
+  async function confirmSandboxPayment(storeId: string) {
+    if (!overview?.asaas.sandbox_payment_confirmation_enabled || busy) return;
+    setBusy(true);
+    try {
+      const token = await accessToken();
+      if (!token) throw new Error('Sessão Master expirada. Entre novamente.');
+      const response = await fetch('/api/master/billing', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          action: 'confirm-sandbox-payment',
+          store_id: storeId
+        })
+      });
+      const body = await responseBody(response);
+      if (!response.ok) throw new Error(body.error || 'Não foi possível confirmar a cobrança Sandbox.');
+      await load(true);
+      setMessage(body.message || 'Confirmação Sandbox solicitada; aguardando o webhook autenticado.');
+      window.setTimeout(() => void load(true), 2500);
+      window.setTimeout(() => void load(true), 6000);
+    } catch (error: any) {
+      setMessage(error?.message || 'Não foi possível confirmar a cobrança Sandbox.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const subscriptionsByStore = useMemo(() => new Map(
     (overview?.subscriptions || []).map((subscription) => [subscription.store_id, subscription])
   ), [overview?.subscriptions]);
+  const paymentsBySubscription = useMemo(() => {
+    const result = new Map<string, BillingPayment>();
+    for (const payment of overview?.payments || []) {
+      if (!result.has(payment.subscription_id)) result.set(payment.subscription_id, payment);
+    }
+    return result;
+  }, [overview?.payments]);
+  const latestAuditBySubscription = useMemo(() => {
+    const result = new Map<string, BillingAuditEntry>();
+    for (const entry of overview?.audit_log || []) {
+      if (entry.subscription_id && !result.has(entry.subscription_id)) {
+        result.set(entry.subscription_id, entry);
+      }
+    }
+    return result;
+  }, [overview?.audit_log]);
   const professional = overview?.plans.find((plan) => plan.code === 'professional') || null;
   const stores = (overview?.stores || []).filter((store) => (
     store.store_name.toLowerCase().includes(query.trim().toLowerCase())
@@ -282,7 +391,7 @@ export function MasterBillingCenter() {
             <div>
               <div className="flex items-center gap-2 text-red-600">
                 <CreditCard size={18} />
-                <span className="premium-eyebrow">SaaS · etapa 3 · {overview?.safety.runtime_environment || 'saas-dev'}</span>
+                <span className="premium-eyebrow">SaaS · etapa 4 · {overview?.safety.runtime_environment || 'saas-dev'}</span>
               </div>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Planos e Billing</h1>
               <p className="premium-muted mt-3 max-w-4xl text-sm">
@@ -294,11 +403,17 @@ export function MasterBillingCenter() {
             </button>
           </header>
 
-          <section className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <section className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <SafetyCard icon={ShieldCheck} label="Bloqueio global" value={overview?.safety.global_enforcement_enabled ? 'Ligado' : 'Desligado'} safe={!overview?.safety.global_enforcement_enabled} />
             <SafetyCard icon={Eye} label="Modo das lojas" value="Observação" safe />
             <SafetyCard icon={CreditCard} label="Liberar trial" value={overview?.safety.trial_start_enabled ? 'Habilitado' : 'Bloqueado nesta etapa'} safe={!overview?.safety.trial_start_enabled} />
             <SafetyCard icon={CreditCard} label="Asaas" value={overview?.asaas.sandbox_enabled ? 'Sandbox habilitado' : 'Aguardando configuração'} safe={Boolean(overview?.asaas.sandbox_enabled)} />
+            <SafetyCard
+              icon={Activity}
+              label="Confirmação teste"
+              value={overview?.asaas.sandbox_payment_confirmation_enabled ? 'Sandbox habilitada' : 'Desabilitada'}
+              safe={Boolean(overview?.asaas.sandbox_payment_confirmation_enabled)}
+            />
           </section>
 
           {!overview?.safety.trial_start_enabled ? (
@@ -306,6 +421,9 @@ export function MasterBillingCenter() {
               Preview somente para leitura e validação. O botão final de liberar os sete dias está bloqueado no servidor; nenhuma assinatura será criada.
             </div>
           ) : null}
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">
+            Homologação isolada: somente a Loja DEV Roteamento pode confirmar a cobrança no Asaas Sandbox. O modo continua em observação e nenhum acesso será bloqueado.
+          </div>
           {message ? (
             <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 text-sm font-bold text-zinc-700">
               {busy ? <Loader2 size={16} className="mr-2 inline animate-spin text-red-600" /> : null}{message}
@@ -335,11 +453,12 @@ export function MasterBillingCenter() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2">
               <Metric label="Trials ativos" value={trialing} />
               <Metric label="Assinaturas ativas" value={active} />
               <Metric label="Elegíveis sem assinatura" value={withoutSubscription} />
-              <div className="premium-card p-5 sm:col-span-3">
+              <Metric label="Webhooks processados" value={overview?.webhook_health.processed || 0} />
+              <div className="premium-card p-5 sm:col-span-2">
                 <h2 className="text-lg font-black text-zinc-950">Preparar liberação de trial</h2>
                 <p className="mt-2 text-xs leading-5 text-zinc-500">
                   {overview?.safety.trial_start_enabled
@@ -376,6 +495,25 @@ export function MasterBillingCenter() {
             <div className="mt-5 space-y-3">
               {stores.map((store) => {
                 const subscription = subscriptionsByStore.get(store.id) || null;
+                const payment = subscription ? paymentsBySubscription.get(subscription.id) || null : null;
+                const latestAudit = subscription ? latestAuditBySubscription.get(subscription.id) || null : null;
+                const cardReady = Boolean(
+                  subscription?.provider_customer_id
+                  && subscription?.provider_subscription_id
+                  && payment
+                );
+                const normalizedPaymentStatus = String(payment?.provider_status || '').toUpperCase();
+                const confirmationRequested = latestAudit?.action === 'asaas_sandbox_payment_confirmation_requested'
+                  || normalizedPaymentStatus === 'SANDBOX_CONFIRMATION_REQUESTED';
+                const canConfirmSandboxPayment = Boolean(
+                  overview?.asaas.sandbox_payment_confirmation_enabled
+                  && subscription?.status === 'trialing'
+                  && subscription.access_enforcement_mode === 'observe'
+                  && payment
+                  && normalizedPaymentStatus === 'PENDING'
+                  && !confirmationRequested
+                  && !busy
+                );
                 return (
                   <article key={store.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                     <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -393,7 +531,11 @@ export function MasterBillingCenter() {
                             <span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase ${statusTone(subscription.status)}`}>{statusLabels[subscription.status]}</span>
                             <p className="text-xs font-bold text-zinc-500">Modo: {subscription.access_enforcement_mode === 'observe' ? 'observação' : 'bloqueio habilitado'}</p>
                             {subscription.status === 'trialing' ? <p className="text-xs font-black text-sky-700">{trialRemaining(subscription.trial_ends_at, nowMs)} · termina em {dateTime(subscription.trial_ends_at)}</p> : null}
-                            {sandboxCheckoutLink(subscription.provider_checkout_id) ? (
+                            {cardReady ? (
+                              <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">
+                                <CheckCircle2 size={14} /> Cartão Sandbox cadastrado
+                              </span>
+                            ) : sandboxCheckoutLink(subscription.provider_checkout_id) ? (
                               <a
                                 href={sandboxCheckoutLink(subscription.provider_checkout_id)}
                                 target="_blank"
@@ -413,6 +555,20 @@ export function MasterBillingCenter() {
                                 Gerar Checkout Sandbox
                               </button>
                             ) : null}
+                            {canConfirmSandboxPayment ? (
+                              <button
+                                type="button"
+                                onClick={() => void confirmSandboxPayment(store.id)}
+                                className="premium-button-primary text-xs disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                <CreditCard size={14} /> Confirmar cobrança Sandbox
+                              </button>
+                            ) : null}
+                            {confirmationRequested && ['PENDING', 'SANDBOX_CONFIRMATION_REQUESTED'].includes(normalizedPaymentStatus) ? (
+                              <span className="inline-flex items-center gap-1.5 text-xs font-black text-sky-700">
+                                <Loader2 size={13} className="animate-spin" /> Aguardando webhook do Sandbox
+                              </span>
+                            ) : null}
                           </>
                         ) : (
                           <>
@@ -422,10 +578,95 @@ export function MasterBillingCenter() {
                         )}
                       </div>
                     </div>
+                    {subscription ? (
+                      <div className="mt-4 grid gap-3 border-t border-zinc-200 pt-4 sm:grid-cols-2 xl:grid-cols-4">
+                        <BillingDetail
+                          icon={CreditCard}
+                          label="Cartão recorrente"
+                          value={cardReady ? 'Cadastrado no Sandbox' : 'Aguardando cadastro'}
+                          tone={cardReady ? 'success' : 'neutral'}
+                        />
+                        <BillingDetail
+                          icon={Activity}
+                          label="Situação da cobrança"
+                          value={payment
+                            ? paymentStatusLabels[normalizedPaymentStatus] || normalizedPaymentStatus || 'Não informada'
+                            : 'Cobrança ainda não criada'}
+                          tone={payment && ['CONFIRMED', 'RECEIVED'].includes(normalizedPaymentStatus)
+                            ? 'success'
+                            : 'neutral'}
+                        />
+                        <BillingDetail
+                          icon={CalendarDays}
+                          label={subscription.status === 'active' ? 'Período vigente até' : 'Primeira cobrança'}
+                          value={subscription.status === 'active'
+                            ? dateTime(subscription.current_period_ends_at)
+                            : dateTime(payment?.due_at || subscription.trial_ends_at)}
+                          tone="neutral"
+                        />
+                        <BillingDetail
+                          icon={History}
+                          label="Última auditoria"
+                          value={latestAudit
+                            ? auditLabels[latestAudit.action] || latestAudit.action
+                            : 'Nenhum evento registrado'}
+                          tone="neutral"
+                        />
+                      </div>
+                    ) : null}
                   </article>
                 );
               })}
               {!stores.length && !busy ? <div className="rounded-2xl border border-dashed border-zinc-300 p-7 text-center text-sm font-bold text-zinc-400">Nenhuma loja encontrada.</div> : null}
+            </div>
+          </section>
+
+          <section className="mt-6 grid gap-5 xl:grid-cols-[0.75fr_1.25fr]">
+            <div className="premium-card p-5">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-700"><Activity size={18} /></span>
+                <div>
+                  <h2 className="text-lg font-black text-zinc-950">Saúde dos webhooks</h2>
+                  <p className="text-xs text-zinc-500">Eventos autenticados do Asaas Sandbox</p>
+                </div>
+              </div>
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <WebhookMetric label="Processados" value={overview?.webhook_health.processed || 0} tone="success" />
+                <WebhookMetric label="Pendentes" value={overview?.webhook_health.pending || 0} tone="neutral" />
+                <WebhookMetric label="Ignorados" value={overview?.webhook_health.ignored || 0} tone="neutral" />
+                <WebhookMetric label="Falhas" value={overview?.webhook_health.failed || 0} tone={(overview?.webhook_health.failed || 0) > 0 ? 'warning' : 'success'} />
+              </div>
+              <p className="mt-4 text-xs font-bold leading-5 text-zinc-500">
+                Último evento: <span className="text-zinc-800">{overview?.webhook_health.last_event_type || 'Nenhum'}</span>
+                {' · '}{dateTime(overview?.webhook_health.last_received_at || null)}
+              </p>
+            </div>
+
+            <div className="premium-card p-5">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-700"><History size={18} /></span>
+                <div>
+                  <h2 className="text-lg font-black text-zinc-950">Auditoria do billing</h2>
+                  <p className="text-xs text-zinc-500">Ações do Master e transições processadas pelo webhook</p>
+                </div>
+              </div>
+              <div className="mt-5 space-y-2">
+                {(overview?.audit_log || []).slice(0, 8).map((entry) => (
+                  <div key={entry.id} className="flex flex-col gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-xs font-black text-zinc-800">{auditLabels[entry.action] || entry.action}</p>
+                      <p className="mt-1 text-[11px] text-zinc-500">{entry.reason || 'Registro técnico do billing.'}</p>
+                    </div>
+                    <div className="shrink-0 text-[10px] font-bold text-zinc-400 sm:text-right">
+                      {entry.previous_status && entry.new_status ? <p>{entry.previous_status} → {entry.new_status}</p> : null}
+                      <p>{dateTime(entry.created_at)}</p>
+                    </div>
+                  </div>
+                ))}
+                {!overview?.audit_log?.length ? (
+                  <div className="rounded-xl border border-dashed border-zinc-300 p-5 text-center text-xs font-bold text-zinc-400">Nenhuma auditoria registrada.</div>
+                ) : null}
+              </div>
             </div>
           </section>
         </div>
@@ -436,6 +677,42 @@ export function MasterBillingCenter() {
 
 function Metric({ label, value }: { label: string; value: number }) {
   return <div className="premium-card p-5"><p className="text-[10px] font-black uppercase tracking-wider text-zinc-400">{label}</p><p className="mt-2 text-3xl font-black text-zinc-950">{value}</p></div>;
+}
+
+function BillingDetail({
+  icon: Icon,
+  label,
+  value,
+  tone
+}: {
+  icon: typeof Store;
+  label: string;
+  value: string;
+  tone: 'success' | 'neutral';
+}) {
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white p-3">
+      <div className="flex items-center gap-2 text-zinc-400"><Icon size={14} /><p className="text-[9px] font-black uppercase tracking-wider">{label}</p></div>
+      <p className={`mt-2 text-xs font-black ${tone === 'success' ? 'text-emerald-700' : 'text-zinc-700'}`}>{value}</p>
+    </div>
+  );
+}
+
+function WebhookMetric({
+  label,
+  value,
+  tone
+}: {
+  label: string;
+  value: number;
+  tone: 'success' | 'neutral' | 'warning';
+}) {
+  const className = tone === 'success'
+    ? 'bg-emerald-50 text-emerald-700'
+    : tone === 'warning'
+      ? 'bg-amber-50 text-amber-700'
+      : 'bg-zinc-100 text-zinc-700';
+  return <div className={`rounded-xl p-3 ${className}`}><p className="text-[9px] font-black uppercase tracking-wider opacity-70">{label}</p><p className="mt-1 text-2xl font-black">{value}</p></div>;
 }
 
 function PlanFeature({ icon: Icon, text }: { icon: typeof Store; text: string }) {
