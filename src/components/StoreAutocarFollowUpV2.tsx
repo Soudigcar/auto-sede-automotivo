@@ -48,6 +48,7 @@ export function StoreAutocarFollowUpV2({ storeName, canManage }: { storeName: st
   const [requested, setRequested] = useState<FollowUpConfigV2>(() => storeFallback());
   const [effective, setEffective] = useState<FollowUpConfigV2>(() => storeFallback());
   const [master, setMaster] = useState<FollowUpConfigV2>(() => structuredClone(defaultFollowUpConfigV2));
+  const [autopilotCanaryAllowed, setAutopilotCanaryAllowed] = useState(false);
   const [performanceKey, setPerformanceKey] = useState<FollowUpScenarioKey | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -72,6 +73,7 @@ export function StoreAutocarFollowUpV2({ storeName, canManage }: { storeName: st
       setMaster(body.config.master);
       setRequested(body.config.requested);
       setEffective(body.config.effective);
+      setAutopilotCanaryAllowed(body.autopilot_canary_allowed === true);
       setMessage('Configuração carregada do AUTOCAR.');
     } catch (error: any) {
       setMessage(error?.message || 'Não foi possível carregar a persistência do Smart Follow-up.');
@@ -84,10 +86,7 @@ export function StoreAutocarFollowUpV2({ storeName, canManage }: { storeName: st
 
   function changeGlobal<K extends keyof FollowUpConfigV2['global']>(key: K, value: FollowUpConfigV2['global'][K]) {
     if (!canManage) return;
-    setRequested((current) => {
-      const next = { ...current, global: { ...current.global, [key]: value } };
-      return next;
-    });
+    setRequested((current) => ({ ...current, global: { ...current.global, [key]: value } }));
   }
 
   function toggleScenario(key: FollowUpScenarioKey) {
@@ -137,7 +136,10 @@ export function StoreAutocarFollowUpV2({ storeName, canManage }: { storeName: st
       setMaster(body.config.master);
       setRequested(body.config.requested);
       setEffective(body.config.effective);
-      setMessage('Smart Follow-up salvo. AUTOPILOT permanece bloqueado.');
+      setAutopilotCanaryAllowed(body.autopilot_canary_allowed === true);
+      setMessage(body.config.effective.global.mode === 'autopilot'
+        ? 'Smart Follow-up salvo em AUTOPILOT CANÁRIO. Casos duvidosos continuam caindo para revisão humana.'
+        : 'Smart Follow-up salvo.');
     } catch (error: any) {
       setMessage(error?.message || 'Não foi possível salvar o Smart Follow-up.');
     } finally {
@@ -150,11 +152,13 @@ export function StoreAutocarFollowUpV2({ storeName, canManage }: { storeName: st
     global: clampStoreFollowUpSettings(master.global, requested.global)
   }), [effective, master.global, requested.global]);
 
+  const canaryActive = previewEffective.global.mode === 'autopilot';
+
   return <div className="space-y-5">
     <section className="premium-card p-5 md:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div><div className="flex items-center gap-2 text-red-600"><Workflow size={18}/><span className="premium-eyebrow">Smart Follow-up</span></div><h2 className="mt-2 text-2xl font-black text-zinc-950">Configuração da {storeName}</h2><p className="mt-2 max-w-3xl text-xs font-bold leading-5 text-zinc-500">A loja personaliza o Smart Follow-up dentro do teto definido pelo Master. O modo desta página é independente do atendimento normal da AUTOCAR.</p></div>
-        <div className="flex flex-wrap gap-2"><span className="rounded-full bg-amber-50 px-3 py-2 text-[10px] font-black uppercase text-amber-800">COPILOT · AUTOPILOT BLOQUEADO</span>{canManage ? <button type="button" onClick={() => void save()} disabled={saving || loading} className="premium-button-primary"><Save size={14}/>{saving ? 'Salvando...' : 'Salvar Follow-up'}</button> : null}</div>
+        <div className="flex flex-wrap gap-2"><span className={`rounded-full px-3 py-2 text-[10px] font-black uppercase ${canaryActive ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>{canaryActive ? 'AUTOPILOT CANÁRIO · SAFE CORE' : autopilotCanaryAllowed ? 'A4 · AUTOPILOT CANÁRIO DISPONÍVEL' : 'COPILOT · AUTOPILOT BLOQUEADO'}</span>{canManage ? <button type="button" onClick={() => void save()} disabled={saving || loading} className="premium-button-primary"><Save size={14}/>{saving ? 'Salvando...' : 'Salvar Follow-up'}</button> : null}</div>
       </div>
       {!canManage ? <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">Seu perfil pode visualizar esta área, mas não pode alterar a configuração.</div> : null}
       {message ? <div className="mt-4 flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs font-bold text-zinc-700">{loading || saving ? <Loader2 size={14} className="animate-spin"/> : null}{message}</div> : null}
@@ -163,16 +167,16 @@ export function StoreAutocarFollowUpV2({ storeName, canManage }: { storeName: st
     <section className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
       <div className="premium-card p-5"><div className="flex items-center gap-2"><SlidersHorizontal size={17} className="text-red-600"/><h3 className="text-lg font-black">Configurações do Follow-up</h3></div><div className="mt-4 grid gap-3 sm:grid-cols-2">
         <label className="text-xs font-black">Status do Follow-up<select disabled={!canManage || loading} value={requested.global.enabled ? 'on' : 'off'} onChange={(e) => changeGlobal('enabled', e.target.value === 'on')} className="premium-input mt-1.5"><option value="off">DESATIVADO</option><option value="on">ATIVADO</option></select></label>
-        <label className="text-xs font-black">Modo do Follow-up<select disabled={!canManage || loading} value={requested.global.mode} onChange={(e) => changeGlobal('mode', e.target.value as FollowUpMode)} className="premium-input mt-1.5"><option value="off">OFF</option><option value="copilot">COPILOT</option></select></label>
+        <label className="text-xs font-black">Modo do Follow-up<select disabled={!canManage || loading} value={requested.global.mode} onChange={(e) => changeGlobal('mode', e.target.value as FollowUpMode)} className="premium-input mt-1.5"><option value="off">OFF</option><option value="copilot">COPILOT</option>{autopilotCanaryAllowed ? <option value="autopilot">AUTOPILOT CANÁRIO</option> : null}</select></label>
         <label className="text-xs font-black">Início<input disabled={!canManage || loading} type="time" value={requested.global.allowedStart} onChange={(e) => changeGlobal('allowedStart', e.target.value)} className="premium-input mt-1.5"/></label>
         <label className="text-xs font-black">Fim<input disabled={!canManage || loading} type="time" value={requested.global.allowedEnd} onChange={(e) => changeGlobal('allowedEnd', e.target.value)} className="premium-input mt-1.5"/></label>
         <label className="text-xs font-black">Máx. por lead/dia<input disabled={!canManage || loading} type="number" min={1} max={5} value={requested.global.maxPerLeadPerDay} onChange={(e) => changeGlobal('maxPerLeadPerDay', Number(e.target.value))} className="premium-input mt-1.5"/></label>
         <label className="text-xs font-black">Máx. por sequência<input disabled={!canManage || loading} type="number" min={1} max={10} value={requested.global.maxPerSequence} onChange={(e) => changeGlobal('maxPerSequence', Number(e.target.value))} className="premium-input mt-1.5"/></label>
         <label className="text-xs font-black">Duração máx. (dias)<input disabled={!canManage || loading} type="number" min={1} max={30} value={requested.global.maxSequenceDays} onChange={(e) => changeGlobal('maxSequenceDays', Number(e.target.value))} className="premium-input mt-1.5"/></label>
         <label className="text-xs font-black">Intervalo mínimo (min)<input disabled={!canManage || loading} type="number" min={15} value={requested.global.minIntervalMinutes} onChange={(e) => changeGlobal('minIntervalMinutes', Number(e.target.value))} className="premium-input mt-1.5"/></label>
-      </div></div>
+      </div>{canaryActive ? <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[10px] font-bold leading-5 text-emerald-800">No AUTOPILOT CANÁRIO, a AUTOCAR revalida o contexto antes de cada envio. Dúvida, ambiguidade ou risco rebaixam o caso para COPILOT — não viram envio automático.</div> : null}</div>
 
-      <div className="premium-card p-5"><div className="flex items-center gap-2"><ShieldCheck size={17} className="text-emerald-600"/><h3 className="text-lg font-black">O que realmente vale no Follow-up</h3></div><p className="mt-2 text-xs font-bold leading-5 text-zinc-500">A configuração efetiva é limitada pelo Master e pelo SAFE CORE.</p><div className="mt-4 grid gap-2 text-xs font-bold"><div className="rounded-xl bg-zinc-50 p-3">Status efetivo: <strong>{previewEffective.global.enabled ? 'ATIVADO' : 'DESATIVADO'}</strong></div><div className="rounded-xl bg-zinc-50 p-3">Modo efetivo: <strong>{previewEffective.global.mode.toUpperCase()}</strong></div><div className="rounded-xl bg-zinc-50 p-3">Janela: <strong>{previewEffective.global.allowedStart}–{previewEffective.global.allowedEnd}</strong></div><div className="rounded-xl bg-zinc-50 p-3">Máx. por lead/dia: <strong>{previewEffective.global.maxPerLeadPerDay}</strong></div><div className="rounded-xl bg-zinc-50 p-3">Máx. por sequência: <strong>{previewEffective.global.maxPerSequence}</strong></div><div className="rounded-xl bg-zinc-50 p-3">Intervalo mínimo: <strong>{previewEffective.global.minIntervalMinutes} min</strong></div></div><div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[10px] font-bold leading-5 text-emerald-800">Resposta do cliente, venda, takeover humano e conversa fechada cancelam a sequência obrigatoriamente.</div></div>
+      <div className="premium-card p-5"><div className="flex items-center gap-2"><ShieldCheck size={17} className="text-emerald-600"/><h3 className="text-lg font-black">O que realmente vale no Follow-up</h3></div><p className="mt-2 text-xs font-bold leading-5 text-zinc-500">A configuração efetiva é limitada pelo Master e pelo SAFE CORE.</p><div className="mt-4 grid gap-2 text-xs font-bold"><div className="rounded-xl bg-zinc-50 p-3">Status efetivo: <strong>{previewEffective.global.enabled ? 'ATIVADO' : 'DESATIVADO'}</strong></div><div className="rounded-xl bg-zinc-50 p-3">Modo efetivo: <strong>{previewEffective.global.mode.toUpperCase()}</strong></div><div className="rounded-xl bg-zinc-50 p-3">Janela: <strong>{previewEffective.global.allowedStart}–{previewEffective.global.allowedEnd}</strong></div><div className="rounded-xl bg-zinc-50 p-3">Máx. por lead/dia: <strong>{previewEffective.global.maxPerLeadPerDay}</strong></div><div className="rounded-xl bg-zinc-50 p-3">Máx. por sequência: <strong>{previewEffective.global.maxPerSequence}</strong></div><div className="rounded-xl bg-zinc-50 p-3">Intervalo mínimo: <strong>{previewEffective.global.minIntervalMinutes} min</strong></div></div><div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[10px] font-bold leading-5 text-emerald-800">Resposta do cliente, venda, takeover humano, opt-out, spam e conversa fechada bloqueiam o envio automaticamente.</div></div>
     </section>
 
     <section className="premium-card p-5"><div className="flex items-center gap-2"><Workflow size={17} className="text-red-600"/><h3 className="text-lg font-black">Jornadas da loja</h3></div><p className="mt-1 text-xs font-bold text-zinc-500">Uma jornada só fica efetiva se também estiver liberada no teto Master.</p><div className="mt-4 space-y-3">{requested.scenarios.map((scenario) => { const attribution = timingParts(scenario.attributionWindowMinutes); const performanceOpen = performanceKey === scenario.key; return <div key={scenario.key} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><strong className="text-sm font-black">{scenario.title}</strong><p className="mt-1 text-[11px] font-bold leading-5 text-zinc-500">{scenario.description}</p></div><div className="flex gap-2"><button disabled={!canManage || loading} type="button" onClick={() => toggleScenario(scenario.key)} className="premium-button-secondary">{scenario.enabled ? 'Desativar' : 'Ativar'}</button><button type="button" onClick={() => setPerformanceKey(performanceOpen ? null : scenario.key)} className="premium-button-secondary"><BarChart3 size={14}/>Performance</button></div></div>
