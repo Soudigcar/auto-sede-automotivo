@@ -260,7 +260,7 @@ export function WhatsappAudioRecorderButton({
       </button>
 
       {open ? (
-        <div className={`fixed inset-0 z-[650] flex justify-center bg-black/45 p-3 backdrop-blur-[2px] ${compact ? 'items-end' : 'items-center'}`} onMouseDown={(event) => { if (event.currentTarget === event.target && state !== 'sending') reset(); }}>
+        <div data-pwa-update-lock="true" data-pwa-update-reason="whatsapp-audio" className={`fixed inset-0 z-[650] flex justify-center bg-black/45 p-3 backdrop-blur-[2px] ${compact ? 'items-end' : 'items-center'}`} onMouseDown={(event) => { if (event.currentTarget === event.target && state !== 'sending') reset(); }}>
           <div className={`w-full max-w-md bg-white shadow-2xl ${compact ? 'rounded-[24px]' : 'rounded-[24px] border border-zinc-200'}`}>
             <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
               <div><p className="text-[9px] font-black uppercase tracking-[0.15em] text-red-600">WhatsApp</p><h3 className="mt-1 text-base font-black text-zinc-950">{state === 'preview' || state === 'sending' ? 'Revisar áudio' : 'Gravando mensagem'}</h3></div>
