@@ -2,6 +2,7 @@ import {
   asaasSandboxCheckoutLink,
   createAsaasRecurringCheckout,
   ensureAsaasSandboxWebhook,
+  formatAsaasDateTime,
   type AsaasSandboxSafety,
   type AsaasServerConfiguration
 } from '@/lib/server/billing/asaas';
@@ -267,7 +268,7 @@ export async function createStoreAsaasSandboxCheckout(supabase: any, input: {
   };
 }
 
-type StoredAsaasWebhookEvent = {
+export type StoredAsaasWebhookEvent = {
   event_type: string;
   provider_object_type: string | null;
   provider_object_id: string | null;
@@ -275,10 +276,18 @@ type StoredAsaasWebhookEvent = {
 };
 
 function providerText(value: unknown, max = 240) {
-  return String(value || '').trim().slice(0, max);
+  if (typeof value !== 'string' && typeof value !== 'number') return '';
+  return String(value).trim().slice(0, max);
 }
 
-async function findSubscriptionForAsaasEvent(supabase: any, event: StoredAsaasWebhookEvent) {
+function providerIdentifier(value: unknown, max = 240) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return providerText((value as Record<string, unknown>).id, max);
+  }
+  return providerText(value, max);
+}
+
+export function extractAsaasWebhookReferences(event: StoredAsaasWebhookEvent) {
   const object = event.payload?.object || {};
   const externalReference = providerText(object.externalReference, 200);
   const checkoutId = event.provider_object_type === 'checkout'
@@ -286,14 +295,53 @@ async function findSubscriptionForAsaasEvent(supabase: any, event: StoredAsaasWe
     : '';
   const providerSubscriptionId = event.provider_object_type === 'subscription'
     ? providerText(event.provider_object_id)
-    : providerText(object.subscription);
-  const customerId = providerText(object.customer);
+    : providerIdentifier(object.subscription);
+  const customerId = providerIdentifier(object.customer);
+  return { externalReference, checkoutId, providerSubscriptionId, customerId };
+}
+
+export function isSafeSyntheticAsaasFallback(input: {
+  event: StoredAsaasWebhookEvent;
+  candidate: any;
+  syntheticStoreId: string;
+}) {
+  const { event, candidate, syntheticStoreId } = input;
+  if (!syntheticStoreId || candidate?.store_id !== syntheticStoreId) return false;
+  if (candidate?.status !== 'trialing' || candidate?.access_enforcement_mode !== 'observe') return false;
+  if (!providerText(candidate?.provider_checkout_id)) return false;
+
+  const object = event.payload?.object || {};
+  const references = extractAsaasWebhookReferences(event);
+  const amountCents = Math.round(Number(object.value || 0) * 100);
+  if (amountCents !== 149700 || !references.providerSubscriptionId.startsWith('sub_')) return false;
+
+  if (event.provider_object_type === 'payment') {
+    const dueDate = providerText(object.dueDate, 10);
+    const expectedDueDate = candidate?.trial_ends_at
+      ? formatAsaasDateTime(candidate.trial_ends_at).slice(0, 10)
+      : '';
+    return Boolean(dueDate && dueDate === expectedDueDate);
+  }
+
+  if (event.provider_object_type === 'subscription') {
+    return providerText(object.cycle, 40).toUpperCase() === 'MONTHLY';
+  }
+
+  return false;
+}
+
+async function findSubscriptionForAsaasEvent(
+  supabase: any,
+  event: StoredAsaasWebhookEvent,
+  syntheticStoreId = ''
+) {
+  const references = extractAsaasWebhookReferences(event);
   const select = 'id,store_id,status,access_enforcement_mode,trial_ends_at,provider_customer_id,provider_subscription_id,provider_checkout_id,external_reference';
   const attempts: Array<[string, string]> = [
-    ['external_reference', externalReference],
-    ['provider_checkout_id', checkoutId],
-    ['provider_subscription_id', providerSubscriptionId],
-    ['provider_customer_id', customerId]
+    ['external_reference', references.externalReference],
+    ['provider_checkout_id', references.checkoutId],
+    ['provider_subscription_id', references.providerSubscriptionId],
+    ['provider_customer_id', references.customerId]
   ];
   for (const [column, value] of attempts) {
     if (!value) continue;
@@ -305,7 +353,25 @@ async function findSubscriptionForAsaasEvent(supabase: any, event: StoredAsaasWe
     if (error) throw error;
     if (data) return data;
   }
-  return null;
+
+  if (!syntheticStoreId || !['payment', 'subscription'].includes(String(event.provider_object_type || ''))) {
+    return null;
+  }
+  const { data: candidates, error: fallbackError } = await supabase
+    .from('store_billing_subscriptions')
+    .select(select)
+    .eq('store_id', syntheticStoreId)
+    .eq('status', 'trialing')
+    .eq('access_enforcement_mode', 'observe')
+    .limit(2);
+  if (fallbackError) throw fallbackError;
+  const matches = (candidates || []).filter((candidate: any) => isSafeSyntheticAsaasFallback({
+    event,
+    candidate,
+    syntheticStoreId
+  }));
+  if (matches.length !== 1) return null;
+  return matches[0];
 }
 
 function paymentEventStatus(eventType: string) {
@@ -318,10 +384,16 @@ function paymentEventStatus(eventType: string) {
 
 export async function processStoredAsaasWebhookEvent(
   supabase: any,
-  event: StoredAsaasWebhookEvent
+  event: StoredAsaasWebhookEvent,
+  options: { syntheticStoreId?: string } = {}
 ): Promise<{ processing_status: 'processed' | 'ignored'; subscription_id: string | null }> {
   const object = event.payload?.object || {};
-  const subscription = await findSubscriptionForAsaasEvent(supabase, event);
+  const references = extractAsaasWebhookReferences(event);
+  const subscription = await findSubscriptionForAsaasEvent(
+    supabase,
+    event,
+    providerText(options.syntheticStoreId)
+  );
   if (!subscription) return { processing_status: 'ignored', subscription_id: null };
   if (subscription.access_enforcement_mode !== 'observe') {
     throw new Error('O Webhook Sandbox recusou assinatura fora do modo observe.');
@@ -329,13 +401,12 @@ export async function processStoredAsaasWebhookEvent(
 
   const now = new Date().toISOString();
   if (event.provider_object_type === 'checkout') {
-    const checkoutId = providerText(event.provider_object_id);
-    const customerId = providerText(object.customer);
-    const providerSubscriptionId = providerText(object.subscription);
     const update: Record<string, unknown> = { updated_at: now };
-    if (checkoutId) update.provider_checkout_id = checkoutId;
-    if (customerId) update.provider_customer_id = customerId;
-    if (providerSubscriptionId) update.provider_subscription_id = providerSubscriptionId;
+    if (references.checkoutId) update.provider_checkout_id = references.checkoutId;
+    if (references.customerId) update.provider_customer_id = references.customerId;
+    if (references.providerSubscriptionId) {
+      update.provider_subscription_id = references.providerSubscriptionId;
+    }
     const checkoutClosed = ['CHECKOUT_CANCELED', 'CHECKOUT_EXPIRED'].includes(event.event_type);
     if (checkoutClosed) {
       update.provider_checkout_id = null;
@@ -345,7 +416,7 @@ export async function processStoredAsaasWebhookEvent(
       .update(update)
       .eq('id', subscription.id);
     if (checkoutClosed) {
-      updateQuery = updateQuery.eq('provider_checkout_id', checkoutId);
+      updateQuery = updateQuery.eq('provider_checkout_id', references.checkoutId);
     }
     const { error } = await updateQuery;
     if (error) throw error;
@@ -353,11 +424,11 @@ export async function processStoredAsaasWebhookEvent(
   }
 
   if (event.provider_object_type === 'subscription') {
-    const providerSubscriptionId = providerText(event.provider_object_id);
-    const customerId = providerText(object.customer);
     const update: Record<string, unknown> = { updated_at: now };
-    if (providerSubscriptionId) update.provider_subscription_id = providerSubscriptionId;
-    if (customerId) update.provider_customer_id = customerId;
+    if (references.providerSubscriptionId) {
+      update.provider_subscription_id = references.providerSubscriptionId;
+    }
+    if (references.customerId) update.provider_customer_id = references.customerId;
     if (['SUBSCRIPTION_INACTIVATED', 'SUBSCRIPTION_DELETED'].includes(event.event_type)) {
       update.status = 'cancelled';
       update.cancelled_at = now;
@@ -375,6 +446,18 @@ export async function processStoredAsaasWebhookEvent(
     const amountCents = Math.round(Number(object.value || 0) * 100);
     if (!providerPaymentId || !Number.isInteger(amountCents) || amountCents <= 0) {
       return { processing_status: 'ignored', subscription_id: subscription.id };
+    }
+    if (references.providerSubscriptionId || references.customerId) {
+      const linkUpdate: Record<string, unknown> = { updated_at: now };
+      if (references.providerSubscriptionId) {
+        linkUpdate.provider_subscription_id = references.providerSubscriptionId;
+      }
+      if (references.customerId) linkUpdate.provider_customer_id = references.customerId;
+      const { error: linkError } = await supabase
+        .from('store_billing_subscriptions')
+        .update(linkUpdate)
+        .eq('id', subscription.id);
+      if (linkError) throw linkError;
     }
     const paymentDate = providerText(object.paymentDate || object.confirmedDate, 80) || null;
     const dueAt = providerText(object.dueDate, 80) || null;

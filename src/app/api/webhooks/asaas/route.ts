@@ -70,7 +70,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ received: true, duplicate: true, processing_status: storedEvent.processing_status });
     }
 
-    const processed = await processStoredAsaasWebhookEvent(supabase, storedEvent);
+    const processed = await processStoredAsaasWebhookEvent(supabase, storedEvent, {
+      syntheticStoreId: asaasSandbox.syntheticStoreId
+    });
     const { error: updateError } = await supabase
       .from('billing_webhook_events')
       .update({

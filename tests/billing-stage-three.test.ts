@@ -8,6 +8,10 @@ import {
   readAsaasSandboxSafety,
   readAsaasServerConfiguration
 } from '../src/lib/server/billing/asaas.ts';
+import {
+  extractAsaasWebhookReferences,
+  isSafeSyntheticAsaasFallback
+} from '../src/lib/server/billing/repository.ts';
 
 const masterRoute = readFileSync('src/app/api/master/billing/route.ts', 'utf8');
 const webhookRoute = readFileSync('src/app/api/webhooks/asaas/route.ts', 'utf8');
@@ -122,6 +126,83 @@ test('configuracao do webhook e idempotente por nome e usa token diferente da AP
   assert.ok(requests[1].body.events.includes('PAYMENT_CONFIRMED'));
 });
 
+test('payload real do Checkout nao transforma objeto de assinatura em identificador', () => {
+  const checkoutEvent = {
+    event_type: 'CHECKOUT_PAID',
+    provider_object_type: 'checkout',
+    provider_object_id: '7f774f89-e771-4cc4-80ff-acb492cd335c',
+    payload: {
+      object: {
+        externalReference: 'store:synthetic:subscription:synthetic',
+        subscription: {
+          cycle: 'MONTHLY',
+          nextDueDate: '2026-09-03T03:00:00+0000'
+        }
+      }
+    }
+  };
+  const references = extractAsaasWebhookReferences(checkoutEvent);
+  assert.equal(references.checkoutId, '7f774f89-e771-4cc4-80ff-acb492cd335c');
+  assert.equal(references.providerSubscriptionId, '');
+  assert.notEqual(references.providerSubscriptionId, '[object Object]');
+});
+
+test('evento de cobranca futura reconcilia somente o trial sintetico exato', () => {
+  const paymentEvent = {
+    event_type: 'PAYMENT_CREATED',
+    provider_object_type: 'payment',
+    provider_object_id: 'pay_kgw842775i1yy2fy',
+    payload: {
+      object: {
+        status: 'PENDING',
+        value: 1497,
+        dueDate: '2026-09-03',
+        customer: 'cus_000008903682',
+        subscription: 'sub_yod4sas6sk9c67g0'
+      }
+    }
+  };
+  const candidate = {
+    store_id: syntheticStoreId,
+    status: 'trialing',
+    access_enforcement_mode: 'observe',
+    trial_ends_at: '2026-09-03T14:11:56.82005Z',
+    provider_checkout_id: '7f774f89-e771-4cc4-80ff-acb492cd335c'
+  };
+  assert.deepEqual(extractAsaasWebhookReferences(paymentEvent), {
+    externalReference: '',
+    checkoutId: '',
+    providerSubscriptionId: 'sub_yod4sas6sk9c67g0',
+    customerId: 'cus_000008903682'
+  });
+  assert.equal(isSafeSyntheticAsaasFallback({
+    event: paymentEvent,
+    candidate,
+    syntheticStoreId
+  }), true);
+  assert.equal(isSafeSyntheticAsaasFallback({
+    event: paymentEvent,
+    candidate,
+    syntheticStoreId: '16652d5a-9ca6-4c4d-9bf5-0a2afb6b6dfe'
+  }), false);
+  assert.equal(isSafeSyntheticAsaasFallback({
+    event: {
+      ...paymentEvent,
+      payload: { object: { ...paymentEvent.payload.object, value: 1498 } }
+    },
+    candidate,
+    syntheticStoreId
+  }), false);
+  assert.equal(isSafeSyntheticAsaasFallback({
+    event: {
+      ...paymentEvent,
+      payload: { object: { ...paymentEvent.payload.object, dueDate: '2026-09-04' } }
+    },
+    candidate,
+    syntheticStoreId
+  }), false);
+});
+
 test('API, repositorio, webhook e UI preservam os limites da etapa 3', () => {
   assert.match(masterRoute, /action === 'create-sandbox-checkout'/);
   assert.match(masterRoute, /storeId !== asaasSandbox\.syntheticStoreId/);
@@ -132,6 +213,7 @@ test('API, repositorio, webhook e UI preservam os limites da etapa 3', () => {
   assert.match(webhookRoute, /provider_event_id/);
   assert.match(webhookRoute, /\['processed', 'ignored'\]\.includes/);
   assert.match(webhookRoute, /processStoredAsaasWebhookEvent/);
+  assert.match(webhookRoute, /syntheticStoreId: asaasSandbox\.syntheticStoreId/);
   assert.match(billingUi, /Gerar Checkout Sandbox/);
   assert.match(billingUi, /Nenhuma cobrança real é permitida/);
   assert.doesNotMatch(repository, /access_enforcement_mode:\s*'enforce'/);
