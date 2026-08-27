@@ -24,6 +24,9 @@ BILLING_ENFORCEMENT_ENABLED=false
 BILLING_ALLOWED_SUPABASE_PROJECT_REF=your_saas_dev_project_ref
 BILLING_RUNTIME_ENVIRONMENT_NAME=saas-dev
 BILLING_TRIAL_START_ENABLED=false
+BILLING_ASAAS_SANDBOX_ENABLED=false
+BILLING_ASAAS_SYNTHETIC_STORE_ID=your_saas_dev_synthetic_store_uuid
+BILLING_ASAAS_PREVIEW_BASE_URL=https://your-branch-preview.vercel.app
 ASAAS_ENV=sandbox
 ASAAS_API_KEY=your_asaas_sandbox_api_key
 ASAAS_WEBHOOK_TOKEN=your_random_asaas_webhook_token_32_to_255_chars
@@ -52,5 +55,7 @@ Antes de ativar um webhook, configure o mesmo verify token no provedor e na Verc
 `UMBLER_WEBHOOK_TOKEN` é exclusivamente server-side: o painel informa apenas se a variável está configurada e nunca aceita, persiste ou exibe seu valor. Configure o mesmo segredo manualmente na Umbler usando um header de webhook suportado pelo provedor; não inclua o token em URLs compartilhadas.
 
 `BILLING_ALLOWED_SUPABASE_PROJECT_REF` deve ser configurada somente no Preview e precisa coincidir com o projeto indicado por `NEXT_PUBLIC_SUPABASE_URL`; a API de billing falha fechada em outro projeto ou fora de `VERCEL_ENV=preview`. `BILLING_TRIAL_START_ENABLED` permanece `false` até uma autorização específica para persistir trials.
+
+`BILLING_ASAAS_SANDBOX_ENABLED` libera exclusivamente o Checkout Sandbox. A liberação exige simultaneamente `VERCEL_ENV=preview`, `ASAAS_ENV=sandbox`, URL HTTPS `*.vercel.app`, o UUID exato do seed sintético em `BILLING_ASAAS_SYNTHETIC_STORE_ID` e `VERCEL_AUTOMATION_BYPASS_SECRET`. O segredo de bypass é usado somente na URL server-side cadastrada no Webhook e nunca é retornado à interface.
 
 `ASAAS_ENV` aceita somente `sandbox` ou `production`. As URLs da API são definidas pelo servidor e não por variável arbitrária. O `ASAAS_WEBHOOK_TOKEN` deve ser diferente da API Key, ter entre 32 e 255 caracteres e ser configurado no header `asaas-access-token` do Webhook. Nunca habilite `BILLING_ENFORCEMENT_ENABLED` antes de todas as lojas com acesso ao sistema possuírem assinatura conciliada e modo individual `enforce` aprovado.

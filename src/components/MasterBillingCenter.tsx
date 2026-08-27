@@ -7,6 +7,7 @@ import {
   Clock3,
   CreditCard,
   Eye,
+  ExternalLink,
   Loader2,
   RefreshCw,
   ShieldCheck,
@@ -38,6 +39,9 @@ type BillingSubscription = {
   trial_started_at: string | null;
   trial_ends_at: string | null;
   current_period_ends_at: string | null;
+  provider_customer_id: string | null;
+  provider_subscription_id: string | null;
+  provider_checkout_id: string | null;
 };
 
 type BillingStore = {
@@ -68,6 +72,10 @@ type BillingOverview = {
     environment: string;
     api_configured: boolean;
     webhook_configured: boolean;
+    sandbox_enabled: boolean;
+    synthetic_store_configured: boolean;
+    preview_callback_configured: boolean;
+    webhook_bypass_configured: boolean;
     configuration_valid: boolean;
     errors: string[];
   };
@@ -109,6 +117,11 @@ function trialRemaining(value: string | null, nowMs: number) {
   const extraHours = hours % 24;
   if (!days) return `${extraHours}h restantes`;
   return `${days}d ${extraHours}h restantes`;
+}
+
+function sandboxCheckoutLink(checkoutId: string | null) {
+  if (!checkoutId || !/^[0-9a-f-]{36}$/i.test(checkoutId)) return '';
+  return `https://sandbox.asaas.com/checkoutSession/show/${encodeURIComponent(checkoutId)}`;
 }
 
 function statusTone(status: BillingSubscription['status']) {
@@ -207,6 +220,38 @@ export function MasterBillingCenter() {
     }
   }
 
+  async function createSandboxCheckout(storeId: string) {
+    if (!overview?.asaas.sandbox_enabled || busy) return;
+    setBusy(true);
+    try {
+      const token = await accessToken();
+      if (!token) throw new Error('Sessão Master expirada. Entre novamente.');
+      const response = await fetch('/api/master/billing', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          action: 'create-sandbox-checkout',
+          store_id: storeId
+        })
+      });
+      const body = await responseBody(response);
+      if (!response.ok) throw new Error(body.error || 'Não foi possível criar o Checkout Sandbox.');
+      if (!body.checkout_url || !String(body.checkout_url).startsWith('https://sandbox.asaas.com/')) {
+        throw new Error('O Asaas não retornou um link Sandbox válido.');
+      }
+      setMessage(body.message || 'Checkout Sandbox criado.');
+      await load();
+      window.location.assign(body.checkout_url);
+    } catch (error: any) {
+      setMessage(error?.message || 'Não foi possível criar o Checkout Sandbox.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const subscriptionsByStore = useMemo(() => new Map(
     (overview?.subscriptions || []).map((subscription) => [subscription.store_id, subscription])
   ), [overview?.subscriptions]);
@@ -237,7 +282,7 @@ export function MasterBillingCenter() {
             <div>
               <div className="flex items-center gap-2 text-red-600">
                 <CreditCard size={18} />
-                <span className="premium-eyebrow">SaaS · etapa 2 · {overview?.safety.runtime_environment || 'saas-dev'}</span>
+                <span className="premium-eyebrow">SaaS · etapa 3 · {overview?.safety.runtime_environment || 'saas-dev'}</span>
               </div>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Planos e Billing</h1>
               <p className="premium-muted mt-3 max-w-4xl text-sm">
@@ -249,10 +294,11 @@ export function MasterBillingCenter() {
             </button>
           </header>
 
-          <section className="mt-6 grid gap-3 md:grid-cols-3">
+          <section className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <SafetyCard icon={ShieldCheck} label="Bloqueio global" value={overview?.safety.global_enforcement_enabled ? 'Ligado' : 'Desligado'} safe={!overview?.safety.global_enforcement_enabled} />
             <SafetyCard icon={Eye} label="Modo das lojas" value="Observação" safe />
             <SafetyCard icon={CreditCard} label="Liberar trial" value={overview?.safety.trial_start_enabled ? 'Habilitado' : 'Bloqueado nesta etapa'} safe={!overview?.safety.trial_start_enabled} />
+            <SafetyCard icon={CreditCard} label="Asaas" value={overview?.asaas.sandbox_enabled ? 'Sandbox habilitado' : 'Aguardando configuração'} safe={Boolean(overview?.asaas.sandbox_enabled)} />
           </section>
 
           {!overview?.safety.trial_start_enabled ? (
@@ -283,7 +329,9 @@ export function MasterBillingCenter() {
                 <PlanFeature icon={Eye} text="Acesso inicial sempre em modo observe" />
               </div>
               <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs font-bold leading-5 text-zinc-600">
-                Asaas, checkout e cobrança automática ainda não estão configurados. O cadastro público no portal continua independente deste plano.
+                {overview?.asaas.sandbox_enabled
+                  ? 'Asaas Sandbox conectado para homologação. Nenhuma cobrança real é permitida e o acesso continua em observação.'
+                  : 'Asaas Sandbox ainda não está configurado. O cadastro público no portal continua independente deste plano.'}
               </div>
             </div>
 
@@ -294,7 +342,9 @@ export function MasterBillingCenter() {
               <div className="premium-card p-5 sm:col-span-3">
                 <h2 className="text-lg font-black text-zinc-950">Preparar liberação de trial</h2>
                 <p className="mt-2 text-xs leading-5 text-zinc-500">
-                  A seleção e a justificativa podem ser revisadas agora. A gravação continuará bloqueada até uma autorização posterior.
+                  {overview?.safety.trial_start_enabled
+                    ? 'A liberação permanece restrita ao Master e sempre cria sete dias exatos em modo de observação.'
+                    : 'A seleção e a justificativa podem ser revisadas; a gravação permanece bloqueada neste Preview.'}
                 </p>
                 <div className="mt-4 grid gap-3">
                   <select className="premium-input" value={selectedStoreId} onChange={(event) => setSelectedStoreId(event.target.value)}>
@@ -343,6 +393,26 @@ export function MasterBillingCenter() {
                             <span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase ${statusTone(subscription.status)}`}>{statusLabels[subscription.status]}</span>
                             <p className="text-xs font-bold text-zinc-500">Modo: {subscription.access_enforcement_mode === 'observe' ? 'observação' : 'bloqueio habilitado'}</p>
                             {subscription.status === 'trialing' ? <p className="text-xs font-black text-sky-700">{trialRemaining(subscription.trial_ends_at, nowMs)} · termina em {dateTime(subscription.trial_ends_at)}</p> : null}
+                            {sandboxCheckoutLink(subscription.provider_checkout_id) ? (
+                              <a
+                                href={sandboxCheckoutLink(subscription.provider_checkout_id)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="premium-button-secondary text-xs"
+                              >
+                                <ExternalLink size={14} /> Abrir Checkout Sandbox
+                              </a>
+                            ) : subscription.status === 'trialing' ? (
+                              <button
+                                type="button"
+                                disabled={!overview?.asaas.sandbox_enabled || busy}
+                                onClick={() => void createSandboxCheckout(store.id)}
+                                className="premium-button-secondary text-xs disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                {busy ? <Loader2 size={14} className="animate-spin" /> : <CreditCard size={14} />}
+                                Gerar Checkout Sandbox
+                              </button>
+                            ) : null}
                           </>
                         ) : (
                           <>
@@ -375,4 +445,3 @@ function PlanFeature({ icon: Icon, text }: { icon: typeof Store; text: string })
 function SafetyCard({ icon: Icon, label, value, safe }: { icon: typeof Store; label: string; value: string; safe: boolean }) {
   return <div className="premium-card flex items-center gap-3 p-4"><span className={`flex h-10 w-10 items-center justify-center rounded-xl ${safe ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{safe ? <CheckCircle2 size={19} /> : <Icon size={19} />}</span><div><p className="text-[10px] font-black uppercase tracking-wider text-zinc-400">{label}</p><p className="mt-1 text-sm font-black text-zinc-950">{value}</p></div></div>;
 }
-

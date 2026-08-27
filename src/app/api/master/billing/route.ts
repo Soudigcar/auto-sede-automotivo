@@ -2,12 +2,16 @@ import { NextResponse } from 'next/server';
 import { billingEnforcementEnabled } from '@/lib/server/billing/access';
 import {
   BILLING_FOUNDATION_MIGRATION,
+  createStoreAsaasSandboxCheckout,
   missingBillingFoundation,
   readMasterBillingOverview,
   startStoreBillingTrial
 } from '@/lib/server/billing/repository';
 import { cleanText, getAdminClient, requireMaster } from '@/lib/server/masterApi';
-import { readAsaasServerConfiguration } from '@/lib/server/billing/asaas';
+import {
+  readAsaasSandboxSafety,
+  readAsaasServerConfiguration
+} from '@/lib/server/billing/asaas';
 import { readBillingRuntimeSafety } from '@/lib/server/billing/runtime';
 import { safeErrorMessage } from '@/lib/safeErrorMessage';
 
@@ -45,6 +49,7 @@ export async function GET(request: Request) {
     if ('error' in context) return context.error;
     const overview = await readMasterBillingOverview(context.supabase);
     const asaas = readAsaasServerConfiguration();
+    const asaasSandbox = readAsaasSandboxSafety();
 
     return NextResponse.json({
       success: true,
@@ -61,8 +66,12 @@ export async function GET(request: Request) {
         environment: asaas.environment,
         api_configured: asaas.apiConfigured,
         webhook_configured: asaas.webhookConfigured,
+        sandbox_enabled: asaasSandbox.enabled,
+        synthetic_store_configured: Boolean(asaasSandbox.syntheticStoreId),
+        preview_callback_configured: Boolean(asaasSandbox.previewBaseUrl),
+        webhook_bypass_configured: asaasSandbox.webhookBypassConfigured,
         configuration_valid: asaas.errors.length === 0,
-        errors: asaas.errors
+        errors: [...asaas.errors, ...asaasSandbox.errors]
       }
     });
   } catch (error: any) {
@@ -74,43 +83,78 @@ export async function POST(request: Request) {
   try {
     const context = await masterContext(request);
     if ('error' in context) return context.error;
-    if (!context.safety.trialStartEnabled) {
-      return NextResponse.json({
-        error: 'A liberacao de trial esta bloqueada nesta etapa de Preview.',
-        code: 'billing_trial_start_disabled'
-      }, { status: 403 });
-    }
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ error: 'Dados invalidos.' }, { status: 400 });
     }
 
     const action = cleanText(body.action, 60);
-    if (action !== 'start-trial') {
+    if (action !== 'start-trial' && action !== 'create-sandbox-checkout') {
       return NextResponse.json({ error: 'Acao de billing invalida.' }, { status: 400 });
     }
-
     const storeId = uuid(body.store_id);
-    const planCode = cleanText(body.plan_code, 80).toLowerCase() || 'professional';
-    const reason = cleanText(body.reason, 1000);
     if (!storeId) return NextResponse.json({ error: 'Loja invalida.' }, { status: 400 });
-    if (reason.length < 10) {
-      return NextResponse.json({ error: 'Informe o motivo da liberacao do trial.' }, { status: 400 });
+
+    if (action === 'start-trial') {
+      if (!context.safety.trialStartEnabled) {
+        return NextResponse.json({
+          error: 'A liberacao de trial esta bloqueada nesta etapa de Preview.',
+          code: 'billing_trial_start_disabled'
+        }, { status: 403 });
+      }
+      const planCode = cleanText(body.plan_code, 80).toLowerCase() || 'professional';
+      const reason = cleanText(body.reason, 1000);
+      if (reason.length < 10) {
+        return NextResponse.json({ error: 'Informe o motivo da liberacao do trial.' }, { status: 400 });
+      }
+
+      const subscription = await startStoreBillingTrial(context.supabase, {
+        storeId,
+        planCode,
+        actorUserId: context.master.id,
+        reason
+      });
+
+      return NextResponse.json({
+        success: true,
+        subscription,
+        access_enforcement_mode: 'observe',
+        message: 'Trial de sete dias registrado sem bloquear ou alterar o acesso atual da loja.'
+      });
     }
 
-    const subscription = await startStoreBillingTrial(context.supabase, {
-      storeId,
-      planCode,
-      actorUserId: context.master.id,
-      reason
-    });
+    if (action === 'create-sandbox-checkout') {
+      const configuration = readAsaasServerConfiguration();
+      const asaasSandbox = readAsaasSandboxSafety();
+      if (!configuration.apiConfigured || !configuration.webhookConfigured || !asaasSandbox.enabled) {
+        return NextResponse.json({
+          error: configuration.errors[0] || asaasSandbox.errors[0] || 'Asaas Sandbox indisponivel.',
+          code: 'asaas_sandbox_disabled'
+        }, { status: 503 });
+      }
+      if (storeId !== asaasSandbox.syntheticStoreId) {
+        return NextResponse.json({
+          error: 'O Checkout Sandbox esta restrito a Loja DEV Roteamento.',
+          code: 'asaas_sandbox_store_forbidden'
+        }, { status: 403 });
+      }
+      const checkout = await createStoreAsaasSandboxCheckout(context.supabase, {
+        storeId,
+        actorUserId: context.master.id,
+        configuration,
+        safety: asaasSandbox
+      });
+      return NextResponse.json({
+        success: true,
+        ...checkout,
+        environment: 'sandbox',
+        access_enforcement_mode: 'observe',
+        message: checkout.reused
+          ? 'Checkout Sandbox existente recuperado sem duplicacao.'
+          : 'Checkout recorrente criado no Asaas Sandbox sem cobranca real.'
+      });
+    }
 
-    return NextResponse.json({
-      success: true,
-      subscription,
-      access_enforcement_mode: 'observe',
-      message: 'Trial de sete dias registrado sem bloquear ou alterar o acesso atual da loja.'
-    });
   } catch (error: any) {
     if (missingBillingFoundation(error)) {
       return NextResponse.json({
@@ -123,7 +167,7 @@ export async function POST(request: Request) {
       ? 409
       : code === 'P0002'
         ? 404
-        : ['42501', 'BILLING_STORE_NOT_ELIGIBLE'].includes(code)
+        : ['42501', 'BILLING_STORE_NOT_ELIGIBLE', 'ASAAS_SANDBOX_STORE_FORBIDDEN', 'ASAAS_SANDBOX_TRIAL_REQUIRED'].includes(code)
           ? 403
           : 500;
     return NextResponse.json({ error: safeErrorMessage(error, 'Falha ao iniciar o trial.') }, { status });
