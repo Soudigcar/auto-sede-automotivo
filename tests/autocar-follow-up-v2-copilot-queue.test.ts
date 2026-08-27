@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { evaluateFollowUpCopilotCandidate } from '../src/lib/server/autocar/followUpV2CopilotQueue';
+import { looksLikeNonLeadAutomation } from '../src/lib/server/autocar/followUpV2ContextualReopening';
 import { defaultFollowUpConfigV2 } from '../src/lib/server/autocar/smartFollowUpV2';
 
 function activeConfig() {
@@ -20,8 +21,8 @@ const base = {
   commercial: null,
   runtimeConversation: { human_state: 'autocar_active' },
   messages: [
-    { direction: 'inbound', sent_at: '2026-08-26T10:00:00-03:00' },
-    { direction: 'outbound', sent_at: '2026-08-26T10:05:00-03:00' }
+    { direction: 'inbound', body: 'Onde fica esse HB20?', sent_at: '2026-08-26T10:00:00-03:00' },
+    { direction: 'outbound', body: 'Ele está na loja. Te enviei o link completo do HB20.', sent_at: '2026-08-26T10:05:00-03:00' }
   ],
   now: new Date('2026-08-26T17:30:00-03:00')
 };
@@ -44,8 +45,8 @@ describe('Smart Follow-up V2 COPILOT queue', () => {
     const result = evaluateFollowUpCopilotCandidate({
       ...base,
       messages: [
-        { direction: 'outbound', sent_at: '2026-08-26T10:05:00-03:00' },
-        { direction: 'inbound', sent_at: '2026-08-26T16:00:00-03:00' }
+        { direction: 'outbound', body: 'Consegue vir hoje?', sent_at: '2026-08-26T10:05:00-03:00' },
+        { direction: 'inbound', body: 'Consigo amanhã.', sent_at: '2026-08-26T16:00:00-03:00' }
       ]
     });
     assert.equal(result.candidate, null);
@@ -62,6 +63,30 @@ describe('Smart Follow-up V2 COPILOT queue', () => {
     const result = evaluateFollowUpCopilotCandidate({ ...base, lead: { ...base.lead, scheduled_at: '2026-08-27T14:00:00-03:00' } });
     assert.equal(result.candidate, null);
     assert.equal(result.reason.includes('fato operacional'), true);
+  });
+
+  it('bloqueia mensagens promocionais automatizadas de terceiros antes da geração', () => {
+    const messages = [
+      { direction: 'inbound', body: 'Oi! Aqui é a Bahira, Product Marketing na Wati. Webinar de Produto. Powered by wati.io. Garanta sua vaga!', sent_at: '2026-08-26T10:00:00-03:00' },
+      { direction: 'outbound', body: 'Este canal é da A4 Multimarcas. Acredito que a mensagem foi enviada por engano.', sent_at: '2026-08-26T10:05:00-03:00' }
+    ];
+    assert.equal(looksLikeNonLeadAutomation(messages), true);
+    const result = evaluateFollowUpCopilotCandidate({ ...base, lead: { ...base.lead, interested_vehicle: '', interested_vehicle_id: null }, messages });
+    assert.equal(result.candidate, null);
+    assert.equal(result.reason.includes('automação promocional'), true);
+  });
+
+  it('usa reabertura contextual e roteamento comercial, sem sender', () => {
+    const contextual = fs.readFileSync(path.join(process.cwd(), 'src/lib/server/autocar/followUpV2ContextualReopening.ts'), 'utf8');
+    const route = fs.readFileSync(path.join(process.cwd(), 'src/app/api/store/portal/autocar/follow-up-v2/copilot/route.ts'), 'utf8');
+    assert.match(contextual, /task: 'commercial_reply'/);
+    assert.match(contextual, /último assunto concreto/i);
+    assert.match(contextual, /Nunca repita semanticamente/i);
+    assert.match(contextual, /recency_weight/);
+    assert.match(route, /generateContextualFollowUpReopening/);
+    assert.match(route, /contextual_reopening: true/);
+    assert.doesNotMatch(route, /analyzeAutocarCopilot/);
+    assert.doesNotMatch(route, /sendEvolution|sendWhatsApp|messages\/send|sendTextMessage|sendMedia/i);
   });
 
   it('fila permanece service-only e sem sender, cron ou AUTOPILOT', () => {
