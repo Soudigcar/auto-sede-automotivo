@@ -80,6 +80,23 @@ function billingRepositoryError(code: string, message: string) {
   return Object.assign(new Error(message), { code });
 }
 
+export function asaasCheckoutFailureState(subscription: any) {
+  return {
+    code: 'asaas_sandbox_checkout_retryable',
+    retryable: true,
+    trial_preserved: subscription?.status === 'trialing',
+    payment_confirmed: false,
+    access_enforcement_mode: 'observe' as const,
+    subscription: {
+      id: providerText(subscription?.id, 80),
+      status: providerText(subscription?.status, 40),
+      trial_started_at: providerText(subscription?.trial_started_at, 80) || null,
+      trial_ends_at: providerText(subscription?.trial_ends_at, 80) || null,
+      access_enforcement_mode: 'observe' as const
+    }
+  };
+}
+
 export function missingBillingFoundation(error: any) {
   const code = String(error?.code || '');
   const message = String(error?.message || error || '');
@@ -1297,6 +1314,18 @@ export async function processStoredAsaasWebhookEvent(
     throw new Error('O Webhook Sandbox recusou assinatura fora do modo observe.');
   }
 
+  if (subscription.status === 'cancelled' && event.provider_object_type !== 'payment') {
+    await writeWebhookAuditOnce(supabase, {
+      event,
+      subscription,
+      action: 'asaas_webhook_terminal_transition_ignored',
+      previousStatus: 'cancelled',
+      newStatus: 'cancelled',
+      reason: 'Evento atrasado preservado sem reabrir assinatura cancelada.'
+    });
+    return { processing_status: 'processed', subscription_id: subscription.id };
+  }
+
   const now = new Date().toISOString();
   if (event.provider_object_type === 'checkout') {
     const update: Record<string, unknown> = { updated_at: now };
@@ -1409,6 +1438,11 @@ export async function processStoredAsaasWebhookEvent(
     if (paymentError) throw paymentError;
 
     let targetStatus = paymentState.subscriptionTarget;
+    let terminalTransitionIgnored = false;
+    if (subscription.status === 'cancelled') {
+      terminalTransitionIgnored = true;
+      targetStatus = null;
+    }
     const lossEvent = event.event_type === 'PAYMENT_REFUNDED'
       || event.event_type.startsWith('PAYMENT_CHARGEBACK');
     if (
@@ -1434,6 +1468,16 @@ export async function processStoredAsaasWebhookEvent(
         previousStatus: subscription.status,
         newStatus: subscription.status,
         reason: 'Evento financeiro duplicado ou fora de ordem preservado sem regressao de estado.'
+      });
+    }
+    if (terminalTransitionIgnored) {
+      await writeWebhookAuditOnce(supabase, {
+        event,
+        subscription,
+        action: 'asaas_webhook_terminal_transition_ignored',
+        previousStatus: 'cancelled',
+        newStatus: 'cancelled',
+        reason: 'Evento financeiro atrasado preservado sem reabrir assinatura cancelada.'
       });
     }
     if (targetStatus) {

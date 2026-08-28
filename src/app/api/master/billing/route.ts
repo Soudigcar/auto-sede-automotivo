@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { billingEnforcementEnabled } from '@/lib/server/billing/access';
 import {
   BILLING_FOUNDATION_MIGRATION,
+  asaasCheckoutFailureState,
   confirmStoreAsaasSandboxPayment,
   createStoreAsaasSandboxCheckout,
   missingBillingFoundation,
@@ -225,12 +226,24 @@ export async function POST(request: Request) {
         actorUserId: context.master.id,
         reason: `Ensaio sintetico da etapa 13 em modo observe. Solicitacao ${requestId}.`
       });
-      const checkout = await createStoreAsaasSandboxCheckout(context.supabase, {
-        storeId,
-        actorUserId: context.master.id,
-        configuration,
-        safety: asaasSandbox
-      });
+      let checkout;
+      try {
+        checkout = await createStoreAsaasSandboxCheckout(context.supabase, {
+          storeId,
+          actorUserId: context.master.id,
+          configuration,
+          safety: asaasSandbox
+        });
+      } catch (checkoutError: any) {
+        console.warn('[billing.asaas] Checkout Sandbox indisponivel; trial preservado', {
+          code: cleanText(checkoutError?.code || 'unknown', 80)
+        });
+        return NextResponse.json({
+          success: false,
+          error: 'O Asaas Sandbox nao concluiu o Checkout. O trial foi preservado e a operacao pode ser repetida com seguranca.',
+          ...asaasCheckoutFailureState(subscription)
+        }, { status: 502 });
+      }
 
       return NextResponse.json({
         success: true,

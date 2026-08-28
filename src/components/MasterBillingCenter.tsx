@@ -276,7 +276,8 @@ const auditLabels: Record<string, string> = {
   asaas_sandbox_webhooks_reconciled: 'Webhooks Sandbox reconciliados',
   asaas_sandbox_payment_confirmation_requested: 'Confirmação Sandbox solicitada',
   asaas_webhook_subscription_transition: 'Assinatura atualizada pelo webhook',
-  asaas_webhook_stale_transition_ignored: 'Evento antigo preservado sem regressão'
+  asaas_webhook_stale_transition_ignored: 'Evento antigo preservado sem regressão',
+  asaas_webhook_terminal_transition_ignored: 'Evento atrasado não reabriu assinatura cancelada'
 };
 
 const registrationAuditLabels: Record<BillingRegistrationAudit['action'], string> = {
@@ -574,7 +575,7 @@ export function MasterBillingCenter() {
             <div>
               <div className="flex items-center gap-2 text-red-600">
                 <CreditCard size={18} />
-                <span className="premium-eyebrow">SaaS · etapa 13 · {overview?.safety.runtime_environment || 'ambiente seguro'}</span>
+                <span className="premium-eyebrow">SaaS · etapa 14 · {overview?.safety.runtime_environment || 'ambiente seguro'}</span>
               </div>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Planos e Billing</h1>
               <p className="premium-muted mt-3 max-w-4xl text-sm">
@@ -594,14 +595,17 @@ export function MasterBillingCenter() {
             <SafetyCard
               icon={FileCheck2}
               label="Ativação sintética"
-              value={overview?.safety.stage13_activation_enabled ? 'Etapa 13 habilitada' : 'Desabilitada'}
-              safe={Boolean(overview?.safety.stage13_activation_enabled)}
+              value={overview?.safety.stage13_activation_enabled ? 'Etapa 13 habilitada' : 'Encerrada e bloqueada'}
+              safe={!overview?.safety.stage13_activation_enabled}
             />
           </section>
 
           <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-sky-800">
-            Etapa 13: uma terceira loja exclusivamente sintética pode iniciar um único trial de 7 dias e gerar um Checkout recorrente no Asaas Sandbox. As mutações gerais permanecem somente para leitura, a cobrança não será confirmada e o acesso continua em observe.
+            Etapa 14: pacote de entrada em Production separado dos seeds sintéticos, permissões server-only e rollback protegido. Webhooks duplicados, atrasados ou fora de ordem não podem reabrir uma assinatura cancelada; toda decisão continua em observe. As mutações gerais permanecem somente para leitura.
           </div>
+          <p className="mt-2 text-xs text-slate-500">
+            Histórico preservado: SaaS · etapa 13 concluída exclusivamente no Sandbox, sem confirmação de pagamento.
+          </p>
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">
             Entitlement em observação: o sistema calcula o estado comercial de cada loja, registra o diagnóstico sem dados pessoais e preserva integralmente o acesso.
           </div>
