@@ -33,8 +33,10 @@ import {
 import { createClient } from '@/lib/supabase';
 import WhatsappCommerceActions from '@/components/WhatsappCommerceActions';
 import { WhatsappAttachmentButton } from '@/components/WhatsappAttachmentButton';
+import { WhatsappContactAvatar } from '@/components/WhatsappContactAvatar';
 import { WhatsappMediaMessage } from '@/components/WhatsappMediaMessage';
 import { apiErrorMessage } from '@/lib/client/apiErrorMessage';
+import { useStoreWhatsappProfilePictures } from '@/hooks/useStoreWhatsappProfilePictures';
 
 const pipelineStages = [
   { key: 'new_lead', label: 'Novo Lead Recebido', secureFlow: false },
@@ -84,22 +86,6 @@ function conversationName(conversation: any) {
 
 function conversationPhone(conversation: any) {
   return conversation?.contact?.phone || conversation?.lead?.customer_phone || conversation?.base_lead?.phone || '';
-}
-
-function conversationPicture(conversation: any) {
-  const contact = conversation?.contact || {};
-  const metadata = contact?.metadata || {};
-  return String(
-    contact?.profile_picture_url ||
-    contact?.profile_picture ||
-    contact?.avatar_url ||
-    contact?.photo_url ||
-    metadata?.profile_picture_url ||
-    metadata?.profilePictureUrl ||
-    metadata?.avatar_url ||
-    metadata?.photo_url ||
-    ''
-  ).trim();
 }
 
 function leadStatusLabel(status: any) {
@@ -187,7 +173,6 @@ export default function StoreWhatsappPage() {
   const [filter, setFilter] = useState<'all' | 'unread' | 'leads' | 'priority'>('all');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [profilePictures, setProfilePictures] = useState<Record<string, string>>({});
   const [autocarRuntime, setAutocarRuntime] = useState<any>(null);
   const [autocarCanTakeOver, setAutocarCanTakeOver] = useState(false);
   const [autocarLoading, setAutocarLoading] = useState(false);
@@ -454,49 +439,6 @@ export default function StoreWhatsappPage() {
   }, [slug]);
 
   const selectedConversation = useMemo(() => conversations.find((conversation) => conversation.id === selectedId) || null, [conversations, selectedId]);
-  const selectedContactId = String(selectedConversation?.contact?.id || '');
-  const selectedProfilePicture = profilePictures[selectedContactId] || conversationPicture(selectedConversation);
-  const selectedUsesEvolution = isEvolutionConversation(selectedConversation);
-
-  useEffect(() => {
-    if (!selectedId || !selectedContactId || !selectedUsesEvolution || selectedProfilePicture) return;
-
-    let cancelled = false;
-
-    async function loadSelectedProfilePicture() {
-      try {
-        const token = await getAuthToken();
-        if (!token || cancelled) return;
-
-        const response = await fetch('/api/store-whatsapp', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            action: 'load-profile-picture',
-            slug,
-            conversation_id: selectedId
-          })
-        });
-        const result = await response.json();
-        const profilePictureUrl = String(result?.profile_picture_url || '').trim();
-
-        if (!response.ok || !profilePictureUrl || cancelled) return;
-
-        setProfilePictures((current) =>
-          current[selectedContactId] === profilePictureUrl
-            ? current
-            : { ...current, [selectedContactId]: profilePictureUrl }
-        );
-      } catch {
-        // Foto é best effort; as iniciais permanecem como fallback.
-      }
-    }
-
-    void loadSelectedProfilePicture();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedContactId, selectedId, selectedProfilePicture, selectedUsesEvolution, slug]);
 
   const stats = useMemo(() => {
     const unread = conversations.reduce((sum, item) => sum + Number(item.unread_count || 0), 0);
@@ -519,6 +461,16 @@ export default function StoreWhatsappPage() {
       return true;
     });
   }, [conversations, filter, searchTerm]);
+
+  const { getProfilePicture, handleProfilePictureError } = useStoreWhatsappProfilePictures({
+    enabled: true,
+    slug,
+    conversations: filteredConversations,
+    selectedId,
+    selectedConversation,
+    getAccessToken: getAuthToken
+  });
+  const selectedProfilePicture = selectedConversation ? getProfilePicture(selectedConversation) : '';
 
   const selectedPhone = conversationPhone(selectedConversation);
   const selectedName = selectedLeadName(selectedConversation);
@@ -614,14 +566,12 @@ export default function StoreWhatsappPage() {
                     const unread = Number(conversation.unread_count || 0);
                     const hasLead = Boolean(conversation.lead_id || conversation.base_lead_id);
                     const pipelineStage = String(conversation.lead?.status || conversation.base_lead?.status || '').trim();
-                    const profilePicture =
-                      profilePictures[String(conversation?.contact?.id || '')] ||
-                      conversationPicture(conversation);
+                    const profilePicture = getProfilePicture(conversation);
                     return (
                       <button key={conversation.id} className={`group block w-full border-b border-zinc-100 px-3 py-3 text-left transition ${isSelected ? 'bg-red-50/70' : 'bg-white hover:bg-zinc-50'}`} type="button" onClick={() => selectConversation(conversation.id)}>
                         <div className={`rounded-2xl border p-3 transition ${isSelected ? 'border-red-200 bg-white shadow-sm' : 'border-transparent group-hover:border-zinc-200'}`}>
                           <div className="flex items-start gap-3">
-                            <div className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-black ${isSelected ? 'bg-red-600 text-white' : 'bg-zinc-100 text-zinc-600'}`}>{profilePicture ? <img src={profilePicture} alt={name} className="h-full w-full rounded-full object-cover" /> : initials(name)}<span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-emerald-500 text-white"><MessageCircle size={8} /></span></div>
+                            <div className={`relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full text-sm font-black ${isSelected ? 'bg-red-600 text-white' : 'bg-zinc-100 text-zinc-600'}`}><WhatsappContactAvatar name={name} src={profilePicture} imageClassName="absolute inset-0 h-full w-full rounded-full object-cover" onImageError={() => handleProfilePictureError(conversation)} /><span className="absolute -bottom-0.5 -right-0.5 z-10 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-emerald-500 text-white"><MessageCircle size={8} /></span></div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate text-sm font-black text-zinc-950">{name}</h3><p className="mt-0.5 truncate text-[11px] font-bold text-zinc-500">{formatPhone(phone)}</p></div><span className="shrink-0 text-[10px] font-bold text-zinc-400">{formatTime(conversation.last_message_at)}</span></div>
                               <p className="mt-2 line-clamp-2 text-xs font-semibold leading-relaxed text-zinc-600">{conversation.last_message || 'Sem mensagem'}</p>
@@ -650,7 +600,7 @@ export default function StoreWhatsappPage() {
                             aria-expanded={detailsOpen}
                             title={detailsOpen ? 'Fechar detalhes do lead' : 'Abrir detalhes do lead'}
                           >
-                            <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-sm font-black text-zinc-700 transition group-hover:bg-red-50 group-hover:text-red-600">{selectedProfilePicture ? <img src={selectedProfilePicture} alt={conversationName(selectedConversation)} className="h-full w-full rounded-full object-cover" /> : initials(conversationName(selectedConversation))}<span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" /></div>
+                            <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100 text-sm font-black text-zinc-700 transition group-hover:bg-red-50 group-hover:text-red-600"><WhatsappContactAvatar name={conversationName(selectedConversation)} src={selectedProfilePicture} imageClassName="absolute inset-0 h-full w-full rounded-full object-cover" onImageError={() => handleProfilePictureError(selectedConversation)} /><span className="absolute -bottom-0.5 -right-0.5 z-10 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" /></div>
                             <div className="min-w-0 pr-2">
                               <div className="flex flex-wrap items-center gap-2"><h2 className="truncate text-lg font-black text-zinc-950 group-hover:text-red-600">{conversationName(selectedConversation)}</h2>{selectedConversation.lead_id || selectedConversation.base_lead_id ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-black uppercase text-blue-700">Lead</span> : null}</div>
                               <p className="mt-0.5 text-xs font-bold text-zinc-500">{formatPhone(conversationPhone(selectedConversation))}</p>
@@ -707,8 +657,8 @@ export default function StoreWhatsappPage() {
                         return (
                           <div key={message.id} className={`flex items-end gap-1.5 ${outbound ? 'justify-end' : 'justify-start'}`}>
                             {!outbound ? (
-                              <span className="mb-0.5 flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white bg-zinc-200 text-[9px] font-black text-zinc-600 shadow-sm" title={avatarName}>
-                                {avatarUrl ? <img src={avatarUrl} alt={avatarName} className="h-full w-full object-cover" /> : initials(avatarName)}
+                              <span className="relative mb-0.5 flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white bg-zinc-200 text-[9px] font-black text-zinc-600 shadow-sm" title={avatarName}>
+                                <WhatsappContactAvatar name={avatarName} src={avatarUrl} imageClassName="absolute inset-0 h-full w-full object-cover" onImageError={() => handleProfilePictureError(selectedConversation)} />
                               </span>
                             ) : null}
                             <div className={`w-fit min-w-0 max-w-[78%] rounded-[14px] px-3 py-2 shadow-sm md:max-w-[64%] ${outbound ? 'rounded-br-[4px] bg-red-600 text-white' : 'rounded-bl-[4px] border border-zinc-200 bg-white text-zinc-900'}`}>
@@ -756,7 +706,7 @@ export default function StoreWhatsappPage() {
                 <div className="space-y-3">
                   <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                     <div className="flex items-start gap-3">
-                      <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-red-50 text-sm font-black text-red-600">{initials(selectedName)}<span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" /></div>
+                      <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-red-50 text-sm font-black text-red-600"><WhatsappContactAvatar name={selectedName} src={selectedProfilePicture} imageClassName="absolute inset-0 h-full w-full object-cover" onImageError={() => handleProfilePictureError(selectedConversation)} /><span className="absolute -bottom-0.5 -right-0.5 z-10 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" /></div>
                       <div className="min-w-0 flex-1"><p className="text-[10px] font-black uppercase tracking-[0.12em] text-zinc-400">Detalhes do contato</p><h3 className="mt-1 truncate text-base font-black text-zinc-950">{selectedName}</h3><p className="mt-1 text-xs font-bold text-zinc-500">{formatPhone(selectedPhone)}</p></div>
                       <button type="button" onClick={() => setDetailsOpen(false)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-400 transition hover:bg-zinc-50 hover:text-zinc-700" aria-label="Fechar detalhes do lead" title="Fechar detalhes"><X size={15} /></button>
                     </div>

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ArrowDown, ArrowLeft, MoreVertical, Plus, RefreshCw, Search, Send, X } from 'lucide-react';
+import { WhatsappContactAvatar } from '@/components/WhatsappContactAvatar';
 import { WhatsappMobileMediaMessage } from '@/components/WhatsappMobileMediaMessage';
 
 type FilterOption = { key: string; label: string; count?: number };
@@ -31,6 +32,7 @@ type Props = {
   getName: (conversation: any) => string;
   getPhone: (conversation: any) => string;
   getAvatarUrl?: (conversation: any) => string;
+  onAvatarError?: (conversation: any) => void;
   getLastMessage: (conversation: any) => string;
   getTime: (conversation: any) => string;
   getUnread: (conversation: any) => number;
@@ -40,23 +42,11 @@ type Props = {
   audioRecorder?: ReactNode;
 };
 
-function initials(value: string) {
-  const parts = String(value || 'Cliente').trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return 'C';
-  return `${parts[0]?.[0] || ''}${parts[1]?.[0] || ''}`.toUpperCase();
-}
-
-function MobileAvatar({ name, src, compact = false, online = false }: { name: string; src?: string; compact?: boolean; online?: boolean }) {
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    setFailed(false);
-  }, [src]);
-
+function MobileAvatar({ name, src, compact = false, online = false, onImageError }: { name: string; src?: string; compact?: boolean; online?: boolean; onImageError?: () => void }) {
   const size = compact ? 'h-10 w-10 text-xs' : 'h-12 w-12 text-sm';
   return (
     <span className={`relative flex ${size} shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100 font-black text-zinc-600`}>
-      {src && !failed ? <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover" onError={() => setFailed(true)} /> : <span aria-hidden="true">{initials(name)}</span>}
+      <WhatsappContactAvatar name={name} src={src} onImageError={onImageError} />
       <span className="sr-only">{name}</span>
       {online ? <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" /> : null}
     </span>
@@ -178,7 +168,7 @@ export function WhatsappMobileInboxV2(props: Props) {
               const unread = props.getUnread(conversation);
               return (
                 <button key={id} type="button" onClick={() => void openConversation(id)} className="flex w-full items-center gap-3 border-b border-zinc-100 px-4 py-3 text-left active:bg-zinc-50">
-                  <MobileAvatar name={name} src={avatar} online />
+                  <MobileAvatar name={name} src={avatar} online onImageError={() => props.onAvatarError?.(conversation)} />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-3"><strong className="truncate text-[15px] font-black text-zinc-950">{name}</strong><span className={`shrink-0 text-[11px] font-bold ${unread ? 'text-red-600' : 'text-zinc-400'}`}>{props.getTime(conversation)}</span></span>
                     <span className="mt-1 flex items-center justify-between gap-3"><span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium text-zinc-500">{props.getLastMessage(conversation) || phone || 'Sem mensagem'}</span></span>{unread ? <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-black text-white">{unread > 99 ? '99+' : unread}</span> : null}</span>
@@ -194,7 +184,7 @@ export function WhatsappMobileInboxV2(props: Props) {
           <header className="z-10 flex h-[58px] shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-2 shadow-sm">
             <button type="button" onClick={() => { setChatOpen(false); setSheetOpen(false); }} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-700 active:bg-zinc-100" aria-label="Voltar para conversas"><ArrowLeft size={22} /></button>
             <button type="button" onClick={() => setSheetOpen(true)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-              <MobileAvatar name={selectedName} src={selectedAvatar} compact />
+              <MobileAvatar name={selectedName} src={selectedAvatar} compact onImageError={() => props.selectedConversation && props.onAvatarError?.(props.selectedConversation)} />
               <span className="min-w-0"><strong className="block truncate text-[14px] font-black text-zinc-950">{selectedName || 'Conversa'}</strong><span className="block truncate text-[10px] font-bold text-zinc-500">{selectedPhone || 'WhatsApp'}</span></span>
             </button>
             <button type="button" onClick={() => setSheetOpen(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-600 active:bg-zinc-100" aria-label="Mais opções"><MoreVertical size={20} /></button>
