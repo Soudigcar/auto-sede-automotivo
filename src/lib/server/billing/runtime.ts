@@ -31,6 +31,7 @@ type BillingEnvironmentConfiguration = {
   readsRequested: boolean;
   mutationsRequested: boolean;
   enforcementRequested: boolean;
+  registrationWritesRequested: boolean;
 };
 
 function environmentConfiguration(
@@ -47,7 +48,8 @@ function environmentConfiguration(
         .slice(0, 80),
       readsRequested: explicitTrue(environment.BILLING_PRODUCTION_READS_ENABLED),
       mutationsRequested: explicitTrue(environment.BILLING_PRODUCTION_MUTATIONS_ENABLED),
-      enforcementRequested: explicitTrue(environment.BILLING_PRODUCTION_ENFORCEMENT_ENABLED)
+      enforcementRequested: explicitTrue(environment.BILLING_PRODUCTION_ENFORCEMENT_ENABLED),
+      registrationWritesRequested: false
     };
   }
 
@@ -61,7 +63,10 @@ function environmentConfiguration(
         .slice(0, 80),
       readsRequested: explicitTrue(environment.BILLING_PREVIEW_READS_ENABLED),
       mutationsRequested: explicitTrue(environment.BILLING_PREVIEW_MUTATIONS_ENABLED),
-      enforcementRequested: explicitTrue(environment.BILLING_PREVIEW_ENFORCEMENT_ENABLED)
+      enforcementRequested: explicitTrue(environment.BILLING_PREVIEW_ENFORCEMENT_ENABLED),
+      registrationWritesRequested: explicitTrue(
+        environment.BILLING_PREVIEW_REGISTRATION_WRITES_ENABLED
+      )
     };
   }
 
@@ -70,7 +75,8 @@ function environmentConfiguration(
     environmentName: 'unsupported',
     readsRequested: false,
     mutationsRequested: false,
-    enforcementRequested: false
+    enforcementRequested: false,
+    registrationWritesRequested: false
   };
 }
 
@@ -87,9 +93,11 @@ export type BillingRuntimeSafety = {
   readsRequested: boolean;
   mutationsRequested: boolean;
   enforcementRequested: boolean;
+  registrationWritesRequested: boolean;
   readsEnabled: boolean;
   mutationsEnabled: boolean;
   enforcementEnabled: boolean;
+  registrationWritesEnabled: boolean;
   trialStartEnabled: boolean;
   reason:
     | 'ready'
@@ -129,6 +137,9 @@ export function readBillingRuntimeSafety(
   const readsEnabled = reason === 'ready';
   const mutationsEnabled = readsEnabled && configuration.mutationsRequested;
   const enforcementEnabled = readsEnabled && configuration.enforcementRequested;
+  const registrationWritesEnabled = readsEnabled
+    && deploymentEnvironment === 'preview'
+    && configuration.registrationWritesRequested;
 
   return {
     environmentName: configuration.environmentName,
@@ -143,9 +154,11 @@ export function readBillingRuntimeSafety(
     readsRequested: configuration.readsRequested,
     mutationsRequested: configuration.mutationsRequested,
     enforcementRequested: configuration.enforcementRequested,
+    registrationWritesRequested: configuration.registrationWritesRequested,
     readsEnabled,
     mutationsEnabled,
     enforcementEnabled,
+    registrationWritesEnabled,
     trialStartEnabled: mutationsEnabled && explicitTrue(environment.BILLING_TRIAL_START_ENABLED),
     reason
   };

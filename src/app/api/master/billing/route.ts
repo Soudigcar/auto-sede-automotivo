@@ -19,7 +19,7 @@ import { safeErrorMessage } from '@/lib/safeErrorMessage';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const BILLING_STAGE11_DEV_PROJECT_REF = 'hfzmzfhuhukmxkxbkxay';
+const BILLING_STAGE12_DEV_PROJECT_REF = 'hfzmzfhuhukmxkxbkxay';
 
 function uuid(value: unknown) {
   const text = cleanText(value, 80);
@@ -56,8 +56,10 @@ export async function GET(request: Request) {
     const registrationSimulationEnabled = context.safety.readsEnabled
       && context.safety.previewEnvironment
       && context.safety.environmentName === 'saas-dev'
-      && context.safety.actualProjectRef === BILLING_STAGE11_DEV_PROJECT_REF
-      && context.safety.allowedProjectRef === BILLING_STAGE11_DEV_PROJECT_REF;
+      && context.safety.actualProjectRef === BILLING_STAGE12_DEV_PROJECT_REF
+      && context.safety.allowedProjectRef === BILLING_STAGE12_DEV_PROJECT_REF;
+    const registrationPersistenceEnabled = registrationSimulationEnabled
+      && context.safety.registrationWritesEnabled;
     const syntheticStoreIds = new Set(asaasSandbox.syntheticStoreIds);
     const stores = overview.stores.map((store: any) => ({
       ...store,
@@ -66,7 +68,11 @@ export async function GET(request: Request) {
         && (
           (store.store_name === 'Loja DEV Roteamento' && store.registration_source === 'dev_routing_seed')
           || (store.store_name === 'Loja DEV Billing Falhas' && store.registration_source === 'billing_stage5_seed')
-        )
+        ),
+      billing_registration_write_allowed: registrationPersistenceEnabled
+        && String(store.id) === asaasSandbox.failureSyntheticStoreId
+        && store.store_name === 'Loja DEV Billing Falhas'
+        && store.registration_source === 'billing_stage5_seed'
     }));
 
     return NextResponse.json({
@@ -83,6 +89,7 @@ export async function GET(request: Request) {
         connected_project_ref: context.safety.actualProjectRef,
         preview_only: context.safety.previewEnvironment,
         registration_simulation_enabled: registrationSimulationEnabled,
+        registration_persistence_enabled: registrationPersistenceEnabled,
         production_observe_prepared: context.safety.productionEnvironment
           && context.safety.readsEnabled
           && !context.safety.mutationsEnabled

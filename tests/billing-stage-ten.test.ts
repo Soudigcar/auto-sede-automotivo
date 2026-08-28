@@ -20,6 +20,7 @@ const auditSql = readFileSync('supabase/billing-stage-10-read-only-audit.sql', '
 test('manifesto da etapa 10 cobre cada migration local exatamente uma vez', () => {
   const repository = readdirSync('supabase/migrations')
     .filter((name) => name.endsWith('.sql'))
+    .filter((name) => name <= '20260828025428_whatsapp_profile_picture_private_cache.sql')
     .sort();
   const routed = manifest.migrations.map((entry) => entry.file).sort();
 

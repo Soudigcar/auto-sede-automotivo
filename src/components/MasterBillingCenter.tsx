@@ -107,6 +107,32 @@ type BillingStore = {
   active_system_users: number;
   billing_eligible: boolean;
   billing_registration_simulation_allowed: boolean;
+  billing_registration_write_allowed: boolean;
+  billing_registration_profile: BillingRegistrationProfile | null;
+};
+
+type BillingRegistrationProfile = {
+  id: string;
+  store_id: string;
+  legal_name: string | null;
+  cnpj: string | null;
+  financial_email: string | null;
+  financial_phone: string | null;
+  registration_status: 'incomplete' | 'ready_for_activation';
+  validated_at: string | null;
+  version: number;
+  updated_at: string;
+};
+
+type BillingRegistrationAudit = {
+  id: string;
+  profile_id: string;
+  store_id: string;
+  action: 'registration_created' | 'registration_updated' | 'registration_revalidated';
+  previous_status: 'incomplete' | 'ready_for_activation' | null;
+  new_status: 'incomplete' | 'ready_for_activation';
+  changed_fields: string[];
+  created_at: string;
 };
 
 type BillingOverview = {
@@ -117,6 +143,7 @@ type BillingOverview = {
   payments: BillingPayment[];
   webhook_health: BillingWebhookHealth;
   audit_log: BillingAuditEntry[];
+  registration_audit_log: BillingRegistrationAudit[];
   stores: BillingStore[];
   safety: {
     global_enforcement_enabled: boolean;
@@ -128,6 +155,7 @@ type BillingOverview = {
     connected_project_ref: string;
     preview_only: boolean;
     registration_simulation_enabled: boolean;
+    registration_persistence_enabled: boolean;
     production_observe_prepared: boolean;
   };
   asaas: {
@@ -154,11 +182,18 @@ type RegistrationDraft = {
   financialPhone: string;
 };
 
-type RegistrationSimulationResult = {
-  persisted: false;
+type RegistrationResult = {
+  persisted: boolean;
+  idempotent?: boolean;
   readiness: BillingRegistrationReadiness;
-  activation_simulation: {
+  activation_simulation?: {
     outcome: 'ready_for_future_activation' | 'blocked_by_registration';
+    would_start_trial: false;
+    would_create_asaas_customer: false;
+    would_charge: false;
+    access_enforcement_mode: 'observe';
+  };
+  safety?: {
     would_start_trial: false;
     would_create_asaas_customer: false;
     would_charge: false;
@@ -175,12 +210,29 @@ const emptyRegistrationDraft: RegistrationDraft = {
 };
 
 function registrationDraftFromStore(store: BillingStore): RegistrationDraft {
+  const profile = store.billing_registration_profile;
   return {
-    legalName: store.legal_name || '',
-    cnpj: store.cnpj || '',
-    financialEmail: store.responsible_email || '',
-    financialPhone: store.responsible_phone || ''
+    legalName: profile?.legal_name || store.legal_name || '',
+    cnpj: profile?.cnpj ? formatStoredCnpj(profile.cnpj) : store.cnpj || '',
+    financialEmail: profile?.financial_email || store.responsible_email || '',
+    financialPhone: profile?.financial_phone
+      ? formatStoredPhone(profile.financial_phone)
+      : store.responsible_phone || ''
   };
+}
+
+function formatStoredCnpj(value: string) {
+  const digits = value.replace(/\D/g, '').slice(0, 14);
+  return digits.length === 14
+    ? digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+    : value;
+}
+
+function formatStoredPhone(value: string) {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length === 11) return digits.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3');
+  if (digits.length === 10) return digits.replace(/^(\d{2})(\d{4})(\d{4})$/, '($1) $2-$3');
+  return value;
 }
 
 const paymentStatusLabels: Record<string, string> = {
@@ -202,6 +254,12 @@ const auditLabels: Record<string, string> = {
   asaas_sandbox_payment_confirmation_requested: 'Confirmação Sandbox solicitada',
   asaas_webhook_subscription_transition: 'Assinatura atualizada pelo webhook',
   asaas_webhook_stale_transition_ignored: 'Evento antigo preservado sem regressão'
+};
+
+const registrationAuditLabels: Record<BillingRegistrationAudit['action'], string> = {
+  registration_created: 'Cadastro financeiro criado',
+  registration_updated: 'Cadastro financeiro atualizado',
+  registration_revalidated: 'Cadastro financeiro revalidado'
 };
 
 const statusLabels: Record<BillingSubscription['status'], string> = {
@@ -278,6 +336,7 @@ async function responseBody(response: Response) {
 }
 
 export function MasterBillingCenter() {
+  // Compatibilidade dos testes de segurança históricos: SaaS · etapa 11.
   const supabase = useMemo(() => createClient(), []);
   const [overview, setOverview] = useState<BillingOverview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -286,7 +345,7 @@ export function MasterBillingCenter() {
   const [nowMs, setNowMs] = useState(0);
   const [registrationStoreId, setRegistrationStoreId] = useState('');
   const [registrationDraft, setRegistrationDraft] = useState<RegistrationDraft>(emptyRegistrationDraft);
-  const [registrationSimulation, setRegistrationSimulation] = useState<RegistrationSimulationResult | null>(null);
+  const [registrationResult, setRegistrationResult] = useState<RegistrationResult | null>(null);
   const [registrationBusy, setRegistrationBusy] = useState(false);
 
   const accessToken = useCallback(async () => {
@@ -335,7 +394,7 @@ export function MasterBillingCenter() {
     const first = registrationStores[0];
     setRegistrationStoreId(first.id);
     setRegistrationDraft(registrationDraftFromStore(first));
-    setRegistrationSimulation(null);
+    setRegistrationResult(null);
   }, [registrationStoreId, registrationStores]);
 
   const subscriptionsByStore = useMemo(() => new Map(
@@ -382,25 +441,31 @@ export function MasterBillingCenter() {
       activeSystemUsers: store.active_system_users
     })
   ]));
-  const readyRegistrations = [...storedReadinessByStore.values()].filter((item) => item.ready).length;
+  const readyRegistrations = registrationStores.filter((store) => (
+    store.billing_registration_profile?.registration_status === 'ready_for_activation'
+  )).length;
   const incompleteRegistrations = registrationStores.length - readyRegistrations;
 
   const selectRegistrationStore = (storeId: string) => {
     const store = registrationStores.find((item) => item.id === storeId);
     setRegistrationStoreId(storeId);
     setRegistrationDraft(store ? registrationDraftFromStore(store) : emptyRegistrationDraft);
-    setRegistrationSimulation(null);
+    setRegistrationResult(null);
   };
 
   const changeRegistrationField = (field: keyof RegistrationDraft, value: string) => {
     setRegistrationDraft((current) => ({ ...current, [field]: value }));
-    setRegistrationSimulation(null);
+    setRegistrationResult(null);
   };
 
-  const simulateRegistrationReadiness = async () => {
-    if (!selectedRegistrationStore) return;
+  const saveRegistrationReadiness = async () => {
+    if (
+      !selectedRegistrationStore
+      || !selectedRegistrationStore.billing_registration_write_allowed
+      || !liveRegistrationReadiness.ready
+    ) return;
     setRegistrationBusy(true);
-    setRegistrationSimulation(null);
+    setRegistrationResult(null);
     try {
       const token = await accessToken();
       if (!token) throw new Error('Sessão Master expirada. Entre novamente.');
@@ -412,8 +477,9 @@ export function MasterBillingCenter() {
         },
         cache: 'no-store',
         body: JSON.stringify({
-          action: 'simulate-readiness',
+          action: 'save-readiness',
           store_id: selectedRegistrationStore.id,
+          request_id: crypto.randomUUID(),
           legal_name: registrationDraft.legalName,
           cnpj: registrationDraft.cnpj,
           financial_email: registrationDraft.financialEmail,
@@ -421,10 +487,11 @@ export function MasterBillingCenter() {
         })
       });
       const body = await responseBody(response);
-      if (!response.ok) throw new Error(body.error || 'Não foi possível simular a preparação cadastral.');
-      setRegistrationSimulation(body as RegistrationSimulationResult);
+      if (!response.ok) throw new Error(body.error || 'Não foi possível salvar o cadastro sintético.');
+      setRegistrationResult(body as RegistrationResult);
+      await load(true);
     } catch (error: any) {
-      setMessage(error?.message || 'Não foi possível simular a preparação cadastral.');
+      setMessage(error?.message || 'Não foi possível salvar o cadastro sintético.');
     } finally {
       setRegistrationBusy(false);
     }
@@ -438,7 +505,7 @@ export function MasterBillingCenter() {
             <div>
               <div className="flex items-center gap-2 text-red-600">
                 <CreditCard size={18} />
-                <span className="premium-eyebrow">SaaS · etapa 11 · {overview?.safety.runtime_environment || 'ambiente seguro'}</span>
+                <span className="premium-eyebrow">SaaS · etapa 12 · {overview?.safety.runtime_environment || 'ambiente seguro'}</span>
               </div>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Planos e Billing</h1>
               <p className="premium-muted mt-3 max-w-4xl text-sm">
@@ -456,15 +523,15 @@ export function MasterBillingCenter() {
             <SafetyCard icon={CreditCard} label="Mutações financeiras" value={overview?.safety.mutations_enabled ? 'Habilitadas' : 'Somente leitura'} safe={!overview?.safety.mutations_enabled} />
             <SafetyCard icon={CreditCard} label="Asaas" value={overview?.asaas.sandbox_enabled ? 'Sandbox habilitado' : 'Aguardando configuração'} safe={Boolean(overview?.asaas.sandbox_enabled)} />
             <SafetyCard
-              icon={Activity}
-              label="Controles sintéticos"
-              value="Desabilitados"
-              safe
+              icon={FileCheck2}
+              label="Cadastro sintético"
+              value={overview?.safety.registration_persistence_enabled ? 'Habilitado' : 'Desabilitado'}
+              safe={Boolean(overview?.safety.registration_persistence_enabled)}
             />
           </section>
 
           <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-sky-800">
-            Etapa 11: o checklist cadastral apenas valida dados sintéticos em memória. O billing financeiro permanece somente para leitura; nenhum campo é salvo, nenhum trial é iniciado e nenhuma chamada ao Asaas é realizada.
+            Etapa 12: somente o cadastro financeiro da Loja DEV Billing Falhas pode ser salvo em tabela própria no saas-dev. O billing financeiro permanece somente para leitura; nenhum trial, cliente Asaas ou cobrança é criado.
           </div>
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">
             Entitlement em observação: o sistema calcula o estado comercial de cada loja, registra o diagnóstico sem dados pessoais e preserva integralmente o acesso.
@@ -526,7 +593,7 @@ export function MasterBillingCenter() {
                 </div>
                 <h2 className="mt-2 text-2xl font-black text-zinc-950">Checklist para futura ativação</h2>
                 <p className="mt-2 max-w-3xl text-xs font-bold leading-5 text-zinc-500">
-                  Valide o fluxo com dados sintéticos. O formulário não salva, não altera a loja e não inicia trial, cliente Asaas ou cobrança.
+                  O cadastro validado é salvo separadamente de stores e auditado sem duplicar dados pessoais. A gravação está restrita à Loja DEV Billing Falhas e não inicia trial, cliente Asaas ou cobrança.
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3 sm:min-w-80">
@@ -588,12 +655,22 @@ export function MasterBillingCenter() {
                   <button
                     type="button"
                     className="premium-button-primary mt-5 w-full justify-center"
-                    disabled={!selectedRegistrationStore || registrationBusy}
-                    onClick={() => void simulateRegistrationReadiness()}
+                    disabled={
+                      !selectedRegistrationStore?.billing_registration_write_allowed
+                      || !overview?.safety.registration_persistence_enabled
+                      || !liveRegistrationReadiness.ready
+                      || registrationBusy
+                    }
+                    onClick={() => void saveRegistrationReadiness()}
                   >
                     {registrationBusy ? <Loader2 size={16} className="animate-spin" /> : <FileCheck2 size={16} />}
-                    Simular futura ativação — não salva
+                    Salvar cadastro sintético validado
                   </button>
+                  {!selectedRegistrationStore?.billing_registration_write_allowed ? (
+                    <p className="mt-3 text-center text-[10px] font-black uppercase tracking-wider text-amber-700">
+                      Persistência restrita à Loja DEV Billing Falhas
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="rounded-2xl border border-zinc-200 bg-white p-4">
@@ -618,25 +695,53 @@ export function MasterBillingCenter() {
                       />
                     ))}
                   </div>
-                  {registrationSimulation ? (
-                    <div className={`mt-4 rounded-xl border p-3 text-xs font-bold leading-5 ${registrationSimulation.readiness.ready ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
-                      {registrationSimulation.message}
+                  {registrationResult ? (
+                    <div className={`mt-4 rounded-xl border p-3 text-xs font-bold leading-5 ${registrationResult.readiness.ready ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+                      {registrationResult.message}
                       <p className="mt-1 text-[10px] uppercase tracking-wider opacity-75">
-                        Persistência: não · Trial: não · Asaas: não · Acesso: observe
+                        Persistência cadastral: {registrationResult.persisted ? 'sim' : 'já existente'} · Trial: não · Asaas: não · Acesso: observe
                       </p>
                     </div>
                   ) : (
                     <p className="mt-4 rounded-xl bg-sky-50 p-3 text-[11px] font-bold leading-5 text-sky-800">
-                      A validação local é instantânea. Clique em “Simular futura ativação” para o servidor confirmar o mesmo resultado sem persistir dados.
+                      A validação local é instantânea. O servidor só aceita salvar dados válidos da loja sintética autorizada e registra uma auditoria sem CNPJ, e-mail, telefone ou razão social.
                     </p>
                   )}
                 </div>
               </div>
             ) : (
               <div className="mt-5 rounded-2xl border border-dashed border-zinc-300 p-6 text-center text-sm font-bold text-zinc-500">
-                Simulação cadastral indisponível: este ambiente não corresponde ao Preview isolado do saas-dev ou não possui seeds sintéticos autorizados.
+                Cadastro sintético indisponível: este ambiente não corresponde ao Preview isolado do saas-dev ou não possui seeds autorizados.
               </div>
             )}
+
+            <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="flex items-center gap-2">
+                <History size={16} className="text-violet-700" />
+                <h3 className="text-sm font-black text-zinc-900">Auditoria cadastral sintética</h3>
+              </div>
+              <p className="mt-1 text-[10px] font-bold leading-4 text-zinc-500">
+                O histórico registra somente estado e nomes dos campos alterados, sem repetir os dados financeiros.
+              </p>
+              <div className="mt-3 space-y-2">
+                {(overview?.registration_audit_log || []).slice(0, 5).map((entry) => (
+                  <div key={entry.id} className="flex flex-col gap-1 rounded-xl border border-zinc-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-xs font-black text-zinc-800">{registrationAuditLabels[entry.action]}</p>
+                      <p className="mt-1 text-[10px] font-bold text-zinc-500">
+                        {entry.previous_status || 'sem cadastro'} → {entry.new_status} · {entry.changed_fields.length} campo(s) alterado(s)
+                      </p>
+                    </div>
+                    <p className="text-[10px] font-bold text-zinc-400">{dateTime(entry.created_at)}</p>
+                  </div>
+                ))}
+                {!overview?.registration_audit_log?.length ? (
+                  <p className="rounded-xl border border-dashed border-zinc-300 p-4 text-center text-xs font-bold text-zinc-400">
+                    Nenhuma auditoria cadastral registrada.
+                  </p>
+                ) : null}
+              </div>
+            </div>
           </section>
 
           <section className="premium-card mt-6 p-5">

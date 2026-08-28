@@ -55,19 +55,21 @@ test('CNPJ, e-mail reservado, telefone e elegibilidade inválidos mantêm cadast
   assert.equal(readiness.checklist.filter((item) => !item.valid).length, 5);
 });
 
-test('API de simulação falha fechada fora do Preview saas-dev e aceita somente seeds sintéticos', () => {
-  assert.match(route, /BILLING_STAGE11_DEV_PROJECT_REF = 'hfzmzfhuhukmxkxbkxay'/);
+test('API de simulação continua fechada fora do Preview saas-dev e aceita somente seeds sintéticos', () => {
+  assert.match(route, /BILLING_STAGE12_DEV_PROJECT_REF = 'hfzmzfhuhukmxkxbkxay'/);
   assert.match(route, /safety\.previewEnvironment/);
   assert.match(route, /safety\.environmentName === 'saas-dev'/);
-  assert.match(route, /billing_stage11_environment_forbidden/);
-  assert.match(route, /billing_stage11_store_forbidden/);
+  assert.match(route, /billing_stage12_environment_forbidden/);
+  assert.match(route, /billing_stage12_store_forbidden/);
   assert.match(route, /dev_routing_seed/);
   assert.match(route, /billing_stage5_seed/);
   assert.match(route, /requireMaster/);
 });
 
-test('simulação não possui escrita, trial, Asaas ou cobrança', () => {
-  assert.doesNotMatch(route, /\.(?:insert|update|upsert|delete|rpc)\s*\(/);
+test('simulação segue sem escrita financeira, trial, Asaas ou cobrança', () => {
+  assert.match(route, /action === 'simulate-readiness'/);
+  assert.doesNotMatch(route, /\.(?:insert|update|upsert|delete)\s*\(/);
+  assert.match(route, /\.rpc\('save_store_billing_registration_profile'/);
   assert.doesNotMatch(route, /createStoreAsaas|startStoreBillingTrial|confirmStoreAsaas|fetch\s*\(/);
   assert.match(route, /persisted: false/);
   assert.match(route, /would_start_trial: false/);
@@ -76,23 +78,24 @@ test('simulação não possui escrita, trial, Asaas ou cobrança', () => {
   assert.match(route, /access_enforcement_mode: 'observe'/);
 });
 
-test('interface exibe checklist, estados e aviso explícito de não persistência', () => {
-  assert.match(masterUi, /SaaS · etapa 11/);
+test('interface preserva checklist e estados após a etapa 11', () => {
+  assert.match(masterUi, /SaaS · etapa 12/);
   assert.match(masterUi, /Preparação cadastral/);
   assert.match(masterUi, /Razão social/);
   assert.match(masterUi, /CNPJ/);
   assert.match(masterUi, /E-mail financeiro/);
   assert.match(masterUi, /Telefone financeiro/);
-  assert.match(masterUi, /Simular futura ativação/);
-  assert.match(masterUi, /não salva/i);
+  assert.match(masterUi, /Salvar cadastro sintético validado/);
   assert.match(masterUi, /Pronto para ativação/);
   assert.match(masterUi, /Cadastro incompleto/);
 });
 
-test('etapa 11 não adiciona migration e documenta campos financeiros próprios no futuro', () => {
+test('documentação histórica preserva que a etapa 11 não adicionou migration', () => {
   const billingMigrations = readdirSync('supabase/migrations')
     .filter((name) => /billing|asaas/i.test(name));
-  assert.deepEqual(billingMigrations, ['20260827044014_billing_foundation_asaas.sql']);
+  assert.deepEqual(billingMigrations, [
+    '20260827044014_billing_foundation_asaas.sql'
+  ]);
   assert.match(runbook, /nenhuma migration nova/);
   assert.match(runbook, /nenhum dado cadastral é persistido/);
   assert.match(runbook, /campos financeiros próprios/);

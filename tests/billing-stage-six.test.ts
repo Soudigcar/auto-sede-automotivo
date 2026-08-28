@@ -126,15 +126,15 @@ test('API da loja e interface sao estritamente de leitura e limitadas ao escopo 
   assert.doesNotMatch(storeUi, /method:\s*['"]POST['"]/);
 });
 
-test('Master fica somente leitura e controles sinteticos da etapa 5 nao sao expostos', () => {
+test('Master mantém finanças somente leitura e controles sintéticos da etapa 5 não são expostos', () => {
   const mutationGuard = masterRoute.indexOf('if (!context.safety.mutationsEnabled)');
   const bodyRead = masterRoute.indexOf('request.json()');
   assert.ok(mutationGuard >= 0);
   assert.ok(bodyRead > mutationGuard);
   assert.match(masterRoute, /billing_stage6_read_only/);
   assert.doesNotMatch(masterRoute, /stage5-card-refused|stage5-overdue|stage5-refund|stage5-chargeback-sequence/);
-  assert.match(masterUi, /Controles sintéticos/);
-  assert.match(masterUi, /Desabilitados/);
+  assert.match(masterUi, /Cadastro sintético/);
+  assert.match(masterUi, /Trial: não · Asaas: não · Acesso: observe/);
   assert.doesNotMatch(masterUi, /Gerar Checkout Sandbox|Confirmar cobrança Sandbox|Simular cartão recusado|Forçar atraso Sandbox|Estornar no Sandbox|Testar chargeback/);
 });
 

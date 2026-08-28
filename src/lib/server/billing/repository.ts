@@ -12,6 +12,8 @@ import {
 } from '@/lib/server/billing/asaas';
 
 export const BILLING_FOUNDATION_MIGRATION = '20260827044014_billing_foundation_asaas';
+export const BILLING_REGISTRATION_MIGRATION =
+  '20260828131550_store_registration_profiles_stage12';
 export const BILLING_GRACE_PERIOD_DAYS = 3;
 
 type SyntheticStoreProfile = {
@@ -74,7 +76,7 @@ export function missingBillingFoundation(error: any) {
   const code = String(error?.code || '');
   const message = String(error?.message || error || '');
   return ['42P01', '42883', 'PGRST202', 'PGRST205'].includes(code)
-    || /billing_plans|store_billing_subscriptions|start_store_billing_trial|schema cache|does not exist/i.test(message);
+    || /billing_plans|store_billing_subscriptions|store_billing_registration_profiles|store_billing_registration_audit|start_store_billing_trial|schema cache|does not exist/i.test(message);
 }
 
 export async function readMasterBillingOverview(supabase: any) {
@@ -85,7 +87,9 @@ export async function readMasterBillingOverview(supabase: any) {
     usersResult,
     paymentsResult,
     webhooksResult,
-    auditResult
+    auditResult,
+    registrationProfilesResult,
+    registrationAuditResult
   ] = await Promise.all([
     supabase
       .from('billing_plans')
@@ -120,6 +124,15 @@ export async function readMasterBillingOverview(supabase: any) {
       .from('billing_audit_log')
       .select('id,store_id,subscription_id,action,previous_status,new_status,reason,created_at')
       .order('created_at', { ascending: false })
+      .limit(100),
+    supabase
+      .from('store_billing_registration_profiles')
+      .select('id,store_id,legal_name,cnpj,financial_email,financial_phone,registration_status,validated_at,validated_by,version,created_at,updated_at')
+      .order('updated_at', { ascending: false }),
+    supabase
+      .from('store_billing_registration_audit')
+      .select('id,profile_id,store_id,actor_user_id,action,previous_status,new_status,changed_fields,created_at')
+      .order('created_at', { ascending: false })
       .limit(100)
   ]);
 
@@ -133,6 +146,11 @@ export async function readMasterBillingOverview(supabase: any) {
     activeUsersByStore.set(storeId, (activeUsersByStore.get(storeId) || 0) + 1);
   }
 
+  const registrationProfilesByStore = new Map<string, any>();
+  for (const profile of registrationProfilesResult.data || []) {
+    registrationProfilesByStore.set(String(profile.store_id), profile);
+  }
+
   const stores = (storesResult.data || []).map((store: any) => {
     const activeSystemUsers = activeUsersByStore.get(String(store.id)) || 0;
     return {
@@ -141,7 +159,8 @@ export async function readMasterBillingOverview(supabase: any) {
       billing_eligible: isStoreBillingEligible({
         status: store.status,
         activeSystemUsers
-      })
+      }),
+      billing_registration_profile: registrationProfilesByStore.get(String(store.id)) || null
     };
   });
 
@@ -150,7 +169,9 @@ export async function readMasterBillingOverview(supabase: any) {
     subscriptionsResult.error,
     paymentsResult.error,
     webhooksResult.error,
-    auditResult.error
+    auditResult.error,
+    registrationProfilesResult.error,
+    registrationAuditResult.error
   ].filter(Boolean);
   if (billingErrors.length) {
     if (billingErrors.every(missingBillingFoundation)) {
@@ -170,6 +191,8 @@ export async function readMasterBillingOverview(supabase: any) {
           last_received_at: null
         },
         audit_log: [],
+        registration_profiles: [],
+        registration_audit_log: [],
         stores
       };
     }
@@ -193,6 +216,8 @@ export async function readMasterBillingOverview(supabase: any) {
       last_received_at: webhookRows[0]?.received_at || null
     },
     audit_log: auditResult.data || [],
+    registration_profiles: registrationProfilesResult.data || [],
+    registration_audit_log: registrationAuditResult.data || [],
     stores
   };
 }
