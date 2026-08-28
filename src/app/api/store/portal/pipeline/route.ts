@@ -16,22 +16,13 @@ function maskPhone(value: unknown) {
   return ddd ? `(${ddd}) •••••-${tail}` : `••••-${tail}`;
 }
 
-function profilePictureUrl(contact: any) {
+function whatsappProvider(contact: any) {
   const metadata = contact?.metadata && typeof contact.metadata === 'object'
     ? contact.metadata
     : {};
-
-  return cleanText(
-    contact?.profile_picture_url ||
-    contact?.profile_picture ||
-    contact?.avatar_url ||
-    contact?.photo_url ||
-    metadata.profile_picture_url ||
-    metadata.profilePictureUrl ||
-    metadata.avatar_url ||
-    metadata.photo_url,
-    2_000
-  ) || null;
+  const provider = cleanText(metadata.provider, 40).toLowerCase();
+  if (provider) return provider;
+  return cleanText(metadata.remote_jid, 180) ? 'evolution' : null;
 }
 
 export async function GET(request: Request) {
@@ -157,7 +148,8 @@ export async function GET(request: Request) {
         customer_phone_masked: maskPhone(lead.customer_phone),
         has_phone: Boolean(String(lead.customer_phone || '').replace(/\D/g, '')),
         whatsapp_conversation_id: conversation?.id || null,
-        profile_picture_url: profilePictureUrl(contact),
+        whatsapp_contact_id: contact?.id || null,
+        whatsapp_provider: whatsappProvider(contact),
         human_response_minutes: response?.response_minutes ?? null,
         first_customer_message_at: response?.first_inbound_at || null,
         first_human_response_at: response?.first_human_response_at || null

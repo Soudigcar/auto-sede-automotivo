@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import Image, { type ImageLoaderProps } from 'next/image';
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import {
@@ -22,6 +21,8 @@ import {
   X,
   XCircle
 } from 'lucide-react';
+import { WhatsappContactAvatar } from '@/components/WhatsappContactAvatar';
+import { useStoreWhatsappProfilePictures } from '@/hooks/useStoreWhatsappProfilePictures';
 import { createClient } from '@/lib/supabase';
 
 const columns = [
@@ -74,7 +75,8 @@ type PipelineLead = {
   notes: string | null;
   created_at: string;
   whatsapp_conversation_id: string | null;
-  profile_picture_url: string | null;
+  whatsapp_contact_id: string | null;
+  whatsapp_provider: string | null;
   assigned_user_id?: string | null;
   seller_user_id?: string | null;
   pre_sales_user_id?: string | null;
@@ -101,6 +103,14 @@ type TransferPayload = {
 };
 
 type PipelineViewMode = 'kanban' | 'list';
+
+type PipelinePictureConversation = {
+  id: string;
+  contact: { id: string };
+  number: { provider: 'evolution' };
+};
+
+type PipelineProfilePictures = ReturnType<typeof useStoreWhatsappProfilePictures>;
 
 type PipelineStageOption = {
   id: string;
@@ -163,11 +173,6 @@ function readableOrigin(value: unknown) {
   return String(value || 'Manual').replace(/_/g, ' ');
 }
 
-function leadInitials(value: unknown) {
-  const parts = String(value || 'Lead').split(' ').map((part) => part.trim()).filter((part) => /[A-Za-zÀ-ÿ]/.test(part));
-  return ((parts[0]?.[0] || 'L') + (parts[1]?.[0] || '')).toUpperCase();
-}
-
 function compactSchedule(value: unknown) {
   if (!value) return 'Horário não informado';
   const date = new Date(String(value));
@@ -175,8 +180,18 @@ function compactSchedule(value: unknown) {
   return date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-function passthroughImageLoader({ src }: ImageLoaderProps) {
-  return src;
+function pipelinePictureConversation(lead: PipelineLead): PipelinePictureConversation | null {
+  if (
+    !lead.whatsapp_conversation_id ||
+    !lead.whatsapp_contact_id ||
+    String(lead.whatsapp_provider || '').toLowerCase() !== 'evolution'
+  ) return null;
+
+  return {
+    id: lead.whatsapp_conversation_id,
+    contact: { id: lead.whatsapp_contact_id },
+    number: { provider: 'evolution' }
+  };
 }
 
 function defaultTaskSlot() {
@@ -427,6 +442,18 @@ export default function StoreSlugPipelinePage() {
   const scopedLeads = useMemo(() => selectedResponsible === 'all'
     ? leads
     : leads.filter((lead) => leadResponsibleId(lead) === selectedResponsible), [leads, selectedResponsible]);
+
+  const profilePictureConversations = useMemo(() => scopedLeads
+    .map(pipelinePictureConversation)
+    .filter((conversation): conversation is PipelinePictureConversation => Boolean(conversation)), [scopedLeads]);
+
+  const profilePictures = useStoreWhatsappProfilePictures({
+    enabled: Boolean(payload),
+    slug,
+    conversations: profilePictureConversations,
+    selectedId: '',
+    getAccessToken: token
+  });
 
   useEffect(() => {
     const allowedIds = new Set(scopedLeads.map((lead) => lead.id));
@@ -790,6 +817,7 @@ export default function StoreSlugPipelinePage() {
                           <LeadCard
                             key={lead.id}
                             lead={lead}
+                            profilePictures={profilePictures}
                             columnKey={column.key}
                             tone={column.tone}
                             dragging={draggedLeadId === lead.id}
@@ -818,6 +846,7 @@ export default function StoreSlugPipelinePage() {
           ) : (
             <PipelineLeadList
               leads={scopedLeads}
+              profilePictures={profilePictures}
               team={payload.team}
               stages={stageOptions}
               assignments={customAssignments}
@@ -938,8 +967,53 @@ export default function StoreSlugPipelinePage() {
   );
 }
 
-function PipelineLeadList({ leads, team, stages, assignments, busy, canBulkTransfer, selectedLeadIds, onSelectionChange, onBulkTransfer, onOpen, onReveal, onWhatsapp, onSchedule, onStageChange, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
+function PipelineLeadAvatar({ lead, profilePictures }: {
+  lead: PipelineLead;
+  profilePictures: PipelineProfilePictures;
+}) {
+  const targetRef = useRef<HTMLSpanElement>(null);
+  const conversation = useMemo(() => pipelinePictureConversation(lead), [
+    lead.whatsapp_contact_id,
+    lead.whatsapp_conversation_id,
+    lead.whatsapp_provider
+  ]);
+  const { getProfilePicture, ensureProfilePicture, handleProfilePictureError } = profilePictures;
+  const picture = conversation ? getProfilePicture(conversation) : '';
+  const name = lead.customer_name || 'Cliente sem nome';
+
+  useEffect(() => {
+    if (!conversation || picture) return;
+    const target = targetRef.current;
+    if (!target || typeof IntersectionObserver === 'undefined') {
+      void ensureProfilePicture(conversation);
+      return;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      observer.disconnect();
+      void ensureProfilePicture(conversation);
+    }, { rootMargin: '160px 80px' });
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [conversation, ensureProfilePicture, picture]);
+
+  return (
+    <span ref={targetRef} className="absolute inset-0 flex items-center justify-center">
+      <WhatsappContactAvatar
+        name={name}
+        src={picture}
+        imageClassName="absolute inset-0 h-full w-full object-cover"
+        onImageError={conversation ? () => handleProfilePictureError(conversation) : undefined}
+      />
+    </span>
+  );
+}
+
+function PipelineLeadList({ leads, profilePictures, team, stages, assignments, busy, canBulkTransfer, selectedLeadIds, onSelectionChange, onBulkTransfer, onOpen, onReveal, onWhatsapp, onSchedule, onStageChange, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
   leads: PipelineLead[];
+  profilePictures: PipelineProfilePictures;
   team: PipelinePayload['team'];
   stages: PipelineStageOption[];
   assignments: Record<string, PipelineCustomAssignment>;
@@ -1028,6 +1102,7 @@ function PipelineLeadList({ leads, team, stages, assignments, busy, canBulkTrans
                 <LeadListRow
                   key={lead.id}
                   lead={lead}
+                  profilePictures={profilePictures}
                   responsibleName={responsibleMember?.full_name || (responsibleId ? 'Responsável não localizado' : 'Fila geral da loja')}
                   responsibleRole={responsibleMember?.role_label || (responsibleId ? 'Cadastro indisponível' : 'Sem atribuição individual')}
                   stages={visibleStages}
@@ -1058,8 +1133,9 @@ function PipelineLeadList({ leads, team, stages, assignments, busy, canBulkTrans
   );
 }
 
-function LeadListRow({ lead, responsibleName, responsibleRole, stages, stageId, busy, canSelect, selected, onSelectedChange, onOpen, onReveal, onWhatsapp, onSchedule, onStageChange, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
+function LeadListRow({ lead, profilePictures, responsibleName, responsibleRole, stages, stageId, busy, canSelect, selected, onSelectedChange, onOpen, onReveal, onWhatsapp, onSchedule, onStageChange, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
   lead: PipelineLead;
+  profilePictures: PipelineProfilePictures;
   responsibleName: string;
   responsibleRole: string;
   stages: PipelineStageOption[];
@@ -1093,7 +1169,7 @@ function LeadListRow({ lead, responsibleName, responsibleRole, stages, stageId, 
         {canSelect ? <input type="checkbox" className="h-4 w-4 justify-self-center accent-red-600" checked={selected} onChange={onSelectedChange} disabled={busy} aria-label={`Selecionar ${name} para transferência`} /> : null}
         <div className="flex min-w-0 items-center gap-2.5">
           <button type="button" onClick={onOpen} className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-zinc-100 text-[10px] font-black text-zinc-600" aria-label={`Abrir ${name}`}>
-            {lead.profile_picture_url ? <Image loader={passthroughImageLoader} unoptimized src={lead.profile_picture_url} alt={`Foto de ${name}`} fill sizes="36px" className="object-cover" /> : leadInitials(name)}
+            <PipelineLeadAvatar lead={lead} profilePictures={profilePictures} />
           </button>
           <div className="min-w-0">
             <button type="button" onClick={onOpen} className="block max-w-full truncate text-left text-[11px] font-black text-zinc-950 hover:text-red-600">{name}</button>
@@ -1144,8 +1220,9 @@ function LeadListRow({ lead, responsibleName, responsibleRole, stages, stageId, 
   );
 }
 
-function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onOpen, onReveal, onWhatsapp, onSchedule, onMove, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
+function LeadCard({ lead, profilePictures, columnKey, tone, dragging, onDragStart, onDragEnd, onOpen, onReveal, onWhatsapp, onSchedule, onMove, onCancel, onSale, onLost, onReopen, onTask, onTransfer }: {
   lead: PipelineLead;
+  profilePictures: PipelineProfilePictures;
   columnKey: string;
   tone: string;
   dragging: boolean;
@@ -1192,17 +1269,7 @@ function LeadCard({ lead, columnKey, tone, dragging, onDragStart, onDragEnd, onO
     >
       <div className="flex min-h-9 items-start gap-1.5">
         <div className={`relative flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg text-[9px] font-black ${styles.badge}`}>
-          {lead.profile_picture_url ? (
-            <Image
-              loader={passthroughImageLoader}
-              unoptimized
-              src={lead.profile_picture_url}
-              alt={`Foto de ${name}`}
-              fill
-              sizes="28px"
-              className="object-cover"
-            />
-          ) : leadInitials(name)}
+          <PipelineLeadAvatar lead={lead} profilePictures={profilePictures} />
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-[10px] font-black leading-3 text-zinc-950">{name}</h3>

@@ -144,10 +144,22 @@ export function useStoreWhatsappProfilePictures(input: HookInput) {
   const [renderVersion, setRenderVersion] = useState(0);
   const [retryNonce, setRetryNonce] = useState(0);
   const getAccessTokenRef = useRef(input.getAccessToken);
+  const accessTokenRequestRef = useRef<Promise<string> | null>(null);
 
   useEffect(() => {
     getAccessTokenRef.current = input.getAccessToken;
   }, [input.getAccessToken]);
+
+  const getAccessToken = useCallback(() => {
+    if (accessTokenRequestRef.current) return accessTokenRequestRef.current;
+    const pending = getAccessTokenRef.current();
+    accessTokenRequestRef.current = pending;
+    const clearPending = () => {
+      if (accessTokenRequestRef.current === pending) accessTokenRequestRef.current = null;
+    };
+    void pending.then(clearPending, clearPending);
+    return pending;
+  }, []);
 
   useEffect(() => {
     if (!input.enabled || !input.slug || !input.conversations.length) return;
@@ -166,7 +178,7 @@ export function useStoreWhatsappProfilePictures(input: HookInput) {
     let cancelled = false;
 
     async function preload() {
-      const accessToken = await getAccessTokenRef.current();
+      const accessToken = await getAccessToken();
       if (!accessToken || cancelled) return;
 
       await Promise.allSettled(candidates.map(async (conversation) => {
@@ -179,7 +191,23 @@ export function useStoreWhatsappProfilePictures(input: HookInput) {
     return () => {
       cancelled = true;
     };
-  }, [input.conversations, input.enabled, input.selectedConversation, input.selectedId, input.slug, retryNonce]);
+  }, [getAccessToken, input.conversations, input.enabled, input.selectedConversation, input.selectedId, input.slug, retryNonce]);
+
+  const ensureProfilePicture = useCallback(async (conversation: any) => {
+    if (!input.enabled || !input.slug || !isEvolutionConversation(conversation)) return;
+    const key = pictureKey(input.slug, conversation);
+    if (!key || sessionPictures.has(key)) return;
+
+    try {
+      const accessToken = await getAccessToken();
+      if (!accessToken) return;
+      await loadPicture(input.slug, conversation, accessToken);
+      setRenderVersion((current) => current + 1);
+    } catch {
+      // A ausência ou indisponibilidade temporária mantém o fallback de iniciais.
+      // Uma nova montagem visível pode tentar novamente, respeitando o retry do backend.
+    }
+  }, [getAccessToken, input.enabled, input.slug]);
 
   const getProfilePicture = useCallback((conversation: any) => {
     if (!isEvolutionConversation(conversation)) return legacyConversationPicture(conversation);
@@ -204,5 +232,5 @@ export function useStoreWhatsappProfilePictures(input: HookInput) {
     if (failures < 2) setRetryNonce((value) => value + 1);
   }, [input.slug]);
 
-  return { getProfilePicture, handleProfilePictureError };
+  return { getProfilePicture, ensureProfilePicture, handleProfilePictureError };
 }
