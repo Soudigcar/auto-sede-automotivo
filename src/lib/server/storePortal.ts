@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
-import { resolveStoreBillingAccess } from '@/lib/server/billing/access';
+import { resolveStoreBillingAccess, type BillingAccessDecision } from '@/lib/server/billing/access';
 
 export const storePortalRoles = ['master', 'store', 'pre_sales', 'seller', 'prospector'] as const;
 export type StorePortalRole = (typeof storePortalRoles)[number];
@@ -66,19 +66,55 @@ export function canAccessStoreLead(profile:any,role:StorePortalRole,lead:any){ i
 export function canAccessStoreConversation(profile:any,role:StorePortalRole,conversation:any,lead:any){ if(!profile||!conversation)return false; if(role==='master')return true; if(!profile.store_id||profile.store_id!==conversation.store_id)return false; if(role==='store')return true; if(!lead||conversation.lead_id!==lead.id)return false; return canAccessStoreLead(profile,role,lead); }
 
 export function isOperationalStorePortal(store:any){ return Boolean(store&&store.status==='active'&&store.portal_enabled===true); }
+export function isOperationalStoreSaas(store:any){ return Boolean(store&&store.status==='active'); }
+
+export type StoreEntitlementAuthorization =
+  | { error: NextResponse }
+  | { role: StorePortalRole; store: any; billing: BillingAccessDecision };
+
+export async function authorizeStoreEntitlement(supabase:any,input:{
+  role:unknown;
+  storeId:unknown;
+  profileStoreId?:unknown;
+  store?:any;
+  allowMasterWhenStoreUnavailable?:boolean;
+}): Promise<StoreEntitlementAuthorization>{
+  const role=asStorePortalRole(input.role);
+  const storeId=cleanText(input.storeId,80);
+  if(!role||!storeId) return {error:NextResponse.json({error:'Loja do sistema inválida.'},{status:403})} as const;
+  if(role!=='master'&&cleanText(input.profileStoreId,80)!==storeId){
+    return {error:NextResponse.json({error:'Este usuário não pertence a esta loja.'},{status:403})} as const;
+  }
+  let store=input.store&&cleanText(input.store.id,80)===storeId?input.store:null;
+  if(!store){
+    const {data,error}=await supabase.from('stores').select('id,store_name,slug,status,portal_enabled').eq('id',storeId).maybeSingle();
+    if(error)throw error;
+    store=data;
+  }
+  if(!store) return {error:NextResponse.json({error:'Loja não encontrada.'},{status:404})} as const;
+  const operationalStore=isOperationalStoreSaas(store);
+  if(!operationalStore&&!(role==='master'&&input.allowMasterWhenStoreUnavailable)){
+    return {error:NextResponse.json({error:'Acesso da loja ao sistema indisponível.'},{status:404})} as const;
+  }
+  const billing=await resolveStoreBillingAccess(supabase,{role,storeId,operationalStore});
+  if(!billing.allowed){
+    return {error:NextResponse.json({error:'O acesso ao sistema requer uma assinatura válida.',code:billing.reason},{status:402})} as const;
+  }
+  return {role,store,billing} as const;
+}
 
 export async function canUseStoreWhatsapp(supabase:any,profile:any,storeId:unknown){
   const role=asStorePortalRole(profile?.role);
   if(!role)return false;
-  if(role==='master')return true;
   const scopedStoreId=cleanText(storeId,80);
-  if(!scopedStoreId||profile?.store_id!==scopedStoreId)return false;
-  const {data:store,error}=await supabase.from('stores').select('id, status, portal_enabled').eq('id',scopedStoreId).maybeSingle();
-  if(error)throw error;
-  const operationalStore=isOperationalStorePortal(store);
-  if(!operationalStore)return false;
-  const billing=await resolveStoreBillingAccess(supabase,{role,storeId:scopedStoreId,operationalStore});
-  return billing.allowed;
+  if(role==='master'&&!scopedStoreId)return true;
+  const entitlement=await authorizeStoreEntitlement(supabase,{
+    role,
+    storeId:scopedStoreId,
+    profileStoreId:profile?.store_id,
+    allowMasterWhenStoreUnavailable:true
+  });
+  return !('error' in entitlement)&&entitlement.billing.allowed;
 }
 
 export function applyStoreLeadScope(query:any,profile:any,role:StorePortalRole){ if(role==='master'||role==='store')return query; const userId=cleanText(profile?.id,80); if(!userId)return query.eq('id','__unauthorized__'); return query.eq('assigned_user_id',userId); }
@@ -95,10 +131,16 @@ async function authorizeStorePortalAccess(request:Request,expectedSlug:string,al
   if(!slug) return {error:NextResponse.json({error:'Informe a loja do portal.'},{status:400})} as const;
   const {data:store,error:storeError}=await supabase.from('stores').select('id, store_name, slug, event_id, status, portal_enabled, responsible_name, responsible_email, responsible_phone, website_url').eq('slug',slug).maybeSingle();
   if(storeError) throw storeError;
-  if(!isOperationalStorePortal(store)&&!(allowMasterWhenStoreUnavailable&&role==='master')) return {error:NextResponse.json({error:'Portal da loja indisponível ou desativado.'},{status:404})} as const;
-  if(role!=='master'&&profile.store_id!==store.id) return {error:NextResponse.json({error:'Este usuário não pertence a esta loja.'},{status:403})} as const;
-  const billing=await resolveStoreBillingAccess(supabase,{role,storeId:store.id,operationalStore:isOperationalStorePortal(store)});
-  if(!billing.allowed) return {error:NextResponse.json({error:'O acesso ao sistema requer uma assinatura válida.',code:billing.reason},{status:402})} as const;
+  if(!store) return {error:NextResponse.json({error:'Loja não encontrada.'},{status:404})} as const;
+  const entitlement=await authorizeStoreEntitlement(supabase,{
+    role,
+    storeId:store.id,
+    profileStoreId:profile.store_id,
+    store,
+    allowMasterWhenStoreUnavailable
+  });
+  if('error' in entitlement)return entitlement;
+  const billing=entitlement.billing;
   const permissions=storePortalPermissions(role);
   const menu=storePortalMenu(role,store.slug);
   return {supabase,profile:{...profile,role},role,store,billing,permissions,menu,scopeLabel:storePortalScopeLabel(role)} as const;

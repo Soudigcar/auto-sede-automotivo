@@ -4,6 +4,7 @@ import {
   canUseStoreWhatsapp,
   canAccessStoreConversation,
   isOperationalStorePortal,
+  isOperationalStoreSaas,
   type StorePortalRole
 } from '../src/lib/server/storePortal.ts';
 import {
@@ -88,14 +89,15 @@ function storeLookup(store: any, error: any = null) {
   return { from(table: string) { return table === 'stores' ? storeQuery : billingQuery; } };
 }
 
-test('WhatsApp da loja exige portal ativo e publicado para papéis não-Master', async () => {
+test('WhatsApp da loja exige SaaS ativo sem depender da publicação no portal', async () => {
   const manager = { id: 'manager', role: 'store', store_id: storeId };
   assert.equal(isOperationalStorePortal({ status: 'active', portal_enabled: true }), true);
   assert.equal(isOperationalStorePortal({ status: 'inactive', portal_enabled: true }), false);
   assert.equal(isOperationalStorePortal({ status: 'active', portal_enabled: false }), false);
+  assert.equal(isOperationalStoreSaas({ status: 'active', portal_enabled: false }), true);
   assert.equal(await canUseStoreWhatsapp(storeLookup({ id: storeId, status: 'active', portal_enabled: true }), manager, storeId), true);
   assert.equal(await canUseStoreWhatsapp(storeLookup({ id: storeId, status: 'inactive', portal_enabled: true }), manager, storeId), false);
-  assert.equal(await canUseStoreWhatsapp(storeLookup({ id: storeId, status: 'active', portal_enabled: false }), manager, storeId), false);
+  assert.equal(await canUseStoreWhatsapp(storeLookup({ id: storeId, status: 'active', portal_enabled: false }), manager, storeId), true);
   assert.equal(await canUseStoreWhatsapp(storeLookup(null), manager, storeId), false);
   assert.equal(await canUseStoreWhatsapp(storeLookup({ id: storeId, status: 'active', portal_enabled: true }), manager, 'other-store'), false);
 });

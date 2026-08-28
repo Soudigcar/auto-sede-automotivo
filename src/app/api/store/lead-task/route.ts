@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
-import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import { asStorePortalRole, authorizeStoreEntitlement, canAccessStoreLead } from '@/lib/server/storePortal';
 import { checkStoreAvailability } from '@/lib/server/storeAvailability';
 
 export const runtime = 'nodejs';
@@ -49,6 +49,13 @@ export async function POST(request: Request) {
       .eq('id', leadId).maybeSingle();
     if (leadError) throw leadError;
     if (!lead || !canAccessLead(profile, lead)) return NextResponse.json({ error: 'Lead não encontrado na carteira deste usuário.' }, { status: 404 });
+    const entitlement = await authorizeStoreEntitlement(supabase, {
+      role: profile.role,
+      storeId: lead.assigned_store_id,
+      profileStoreId: profile.store_id,
+      allowMasterWhenStoreUnavailable: true
+    });
+    if ('error' in entitlement) return entitlement.error;
 
     const { data: store, error: storeError } = await supabase.from('stores').select('id, store_name').eq('id', lead.assigned_store_id).maybeSingle();
     if (storeError) throw storeError;

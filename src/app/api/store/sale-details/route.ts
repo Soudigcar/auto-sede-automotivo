@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
-import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import { asStorePortalRole, authorizeStoreEntitlement, canAccessStoreLead } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -87,6 +87,14 @@ export async function POST(request: Request) {
     if (leadError) throw leadError;
     if (!lead || !lead.assigned_store_id) return NextResponse.json({ error: 'Lead não encontrado.' }, { status: 404 });
     if (!canAccessLead(profile, lead)) return NextResponse.json({ error: 'Você não tem permissão para editar as condições deste lead.' }, { status: 403 });
+
+    const entitlement = await authorizeStoreEntitlement(supabase, {
+      role: profile.role,
+      storeId: lead.assigned_store_id,
+      profileStoreId: profile.store_id,
+      allowMasterWhenStoreUnavailable: true
+    });
+    if ('error' in entitlement) return entitlement.error;
 
     const [currentCommercial, currentSale] = await Promise.all([
       loadCommercial(supabase, lead.id, lead.assigned_store_id),

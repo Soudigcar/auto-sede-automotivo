@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
-import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import { asStorePortalRole, authorizeStoreEntitlement, canAccessStoreLead } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -160,6 +160,13 @@ export async function GET(request: Request) {
     if (!lead.assigned_store_id || !canAccessLead(profile, lead)) {
       return NextResponse.json({ error: 'Você não tem permissão para transferir este lead.' }, { status: 403 });
     }
+    const entitlement = await authorizeStoreEntitlement(supabase, {
+      role: profile.role,
+      storeId: lead.assigned_store_id,
+      profileStoreId: profile.store_id,
+      allowMasterWhenStoreUnavailable: true
+    });
+    if ('error' in entitlement) return entitlement.error;
 
     const [team, sale] = await Promise.all([
       loadTeam(supabase, lead.assigned_store_id),
@@ -248,6 +255,13 @@ export async function POST(request: Request) {
     }
 
     const storeId = storeIds[0];
+    const entitlement = await authorizeStoreEntitlement(supabase, {
+      role: profile.role,
+      storeId,
+      profileStoreId: profile.store_id,
+      allowMasterWhenStoreUnavailable: true
+    });
+    if ('error' in entitlement) return entitlement.error;
     const team = await loadTeam(supabase, storeId);
     const target = targetUserId ? team.find((member: any) => member.id === targetUserId) || null : null;
 

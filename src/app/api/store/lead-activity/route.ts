@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import { asStorePortalRole, authorizeStoreEntitlement, canAccessStoreLead } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -128,6 +128,13 @@ export async function POST(request: Request) {
     if (!canAccessLead(profile, lead)) {
       return NextResponse.json({ error: 'Este lead não pertence à carteira deste usuário.' }, { status: 403 });
     }
+    const entitlement = await authorizeStoreEntitlement(supabase, {
+      role: profile.role,
+      storeId: lead.assigned_store_id,
+      profileStoreId: profile.store_id,
+      allowMasterWhenStoreUnavailable: true
+    });
+    if ('error' in entitlement) return entitlement.error;
 
     const actorName = profile.full_name || profile.email || 'Usuário da loja';
     const now = new Date();

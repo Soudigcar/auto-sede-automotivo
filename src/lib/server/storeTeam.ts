@@ -67,7 +67,7 @@ export async function resolveManagedStore(supabase: any, profile: any, slug: str
     .maybeSingle();
 
   if (error) throw error;
-  if (!store || store.status !== 'active' || !store.portal_enabled) return null;
+  if (!store || store.status !== 'active') return null;
 
   if (profile?.role === 'master') return store;
   if (profile?.role === 'store' && profile.store_id === store.id) return store;

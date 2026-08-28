@@ -12,6 +12,7 @@ import {
   storeTeamRoleLabels
 } from '@/lib/server/storeTeam';
 import { enforceRateLimit } from '@/lib/server/rateLimit';
+import { authorizeStoreEntitlement } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -98,6 +99,16 @@ async function getManagerContext(request: Request, slug: string) {
   if (!store) {
     return { error: NextResponse.json({ error: 'Loja não encontrada ou sem permissão.' }, { status: 403 }) } as const;
   }
+
+  const entitlement = await authorizeStoreEntitlement(supabase, {
+    role: profile.role,
+    storeId: store.id,
+    profileStoreId: profile.store_id,
+    store,
+    allowMasterWhenStoreUnavailable: true
+  });
+
+  if ('error' in entitlement) return entitlement;
 
   return { supabase, profile, store } as const;
 }

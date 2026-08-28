@@ -171,16 +171,22 @@ export async function GET(request: Request) {
       sold: leads.filter((lead: any) => lead.status === 'sale_confirmed').length,
       lost: leads.filter((lead: any) => lead.status === 'lost').length
     };
+    const metricContext = {
+      supabase: context.supabase,
+      store: context.store,
+      profile: context.profile,
+      role: context.role
+    };
 
     const metrics = offset === 0 && (count || 0) > leads.length
       ? await (async () => {
           async function countStatus(status: string) {
-            let statusQuery = context.supabase
+            let statusQuery = metricContext.supabase
               .from('leads')
               .select('id', { count: 'exact', head: true })
-              .eq('assigned_store_id', context.store.id)
+              .eq('assigned_store_id', metricContext.store.id)
               .eq('status', status);
-            statusQuery = applyStoreLeadScope(statusQuery, context.profile, context.role!);
+            statusQuery = applyStoreLeadScope(statusQuery, metricContext.profile, metricContext.role);
             const { count: statusCount, error: statusError } = await statusQuery;
             if (statusError) throw statusError;
             return statusCount || 0;

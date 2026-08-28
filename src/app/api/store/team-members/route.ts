@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { authorizeStoreEntitlement } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -29,6 +30,14 @@ export async function GET(request: Request) {
     const storeId = profile.role === 'master' ? url.searchParams.get('store_id') : profile.store_id;
     if (!storeId) return NextResponse.json({ error: 'Loja não identificada.' }, { status: 400 });
 
+    const entitlement = await authorizeStoreEntitlement(supabase, {
+      role: profile.role,
+      storeId,
+      profileStoreId: profile.store_id,
+      allowMasterWhenStoreUnavailable: true
+    });
+    if ('error' in entitlement) return entitlement.error;
+
     const { data, error } = await supabase
       .from('users')
       .select('id,full_name,email,phone,role,status,receives_leads,routing_order,max_open_leads,created_at')
@@ -53,6 +62,14 @@ export async function PATCH(request: Request) {
     const { data: member } = await supabase.from('users').select('*').eq('id', id).maybeSingle();
     if (!member || !['pre_sales', 'seller', 'prospector'].includes(member.role)) return NextResponse.json({ error: 'Colaborador não encontrado.' }, { status: 404 });
     if (profile.role !== 'master' && member.store_id !== profile.store_id) return NextResponse.json({ error: 'Acesso negado.' }, { status: 403 });
+
+    const entitlement = await authorizeStoreEntitlement(supabase, {
+      role: profile.role,
+      storeId: member.store_id,
+      profileStoreId: profile.store_id,
+      allowMasterWhenStoreUnavailable: true
+    });
+    if ('error' in entitlement) return entitlement.error;
 
     const update: Record<string, any> = {};
     if (['active', 'paused', 'inactive'].includes(String(body.status))) update.status = String(body.status);

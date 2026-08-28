@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { enforceRateLimit } from '@/lib/server/rateLimit';
 import { publicError, readJsonBody } from '@/lib/server/requestSecurity';
 import { accountPasswordError } from '@/lib/storeTeamRegistration';
+import { authorizeStoreEntitlement, isOperationalStoreSaas } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -29,8 +30,17 @@ async function getValidLink(supabase: any, token: string) {
   if (!link) return null;
   if (link.expires_at && new Date(link.expires_at).getTime() < Date.now()) return null;
   if (link.max_uses !== null && link.usage_count >= link.max_uses) return null;
-  if (!link.stores || link.stores.status !== 'active' || !link.stores.portal_enabled) return null;
+  if (!isOperationalStoreSaas(link.stores)) return null;
   return link;
+}
+
+async function authorizeRegistrationLink(supabase: any, link: any) {
+  return authorizeStoreEntitlement(supabase, {
+    role: 'store',
+    storeId: link.store_id,
+    profileStoreId: link.store_id,
+    store: link.stores
+  });
 }
 
 export async function GET(request: Request) {
@@ -40,6 +50,8 @@ export async function GET(request: Request) {
     const supabase: any = adminClient();
     const link = await getValidLink(supabase, token);
     if (!link) return NextResponse.json({ error: 'Link inválido, vencido ou desativado.' }, { status: 404 });
+    const entitlement = await authorizeRegistrationLink(supabase, link);
+    if ('error' in entitlement) return entitlement.error;
     return NextResponse.json({
       store: { id: link.stores.id, name: link.stores.store_name, slug: link.stores.slug },
       role: link.role,
@@ -73,6 +85,9 @@ export async function POST(request: Request) {
     const supabase: any = adminClient();
     const link = await getValidLink(supabase, token);
     if (!link) return NextResponse.json({ error: 'Link inválido, vencido ou desativado.' }, { status: 404 });
+
+    const entitlement = await authorizeRegistrationLink(supabase, link);
+    if ('error' in entitlement) return entitlement.error;
 
     const { data: existing } = await supabase.from('users').select('id').ilike('email', email).maybeSingle();
     if (existing) return NextResponse.json({ error: 'Este e-mail já está cadastrado.' }, { status: 409 });

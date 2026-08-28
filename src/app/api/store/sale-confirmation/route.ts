@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
-import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import { asStorePortalRole, authorizeStoreEntitlement, canAccessStoreLead } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -64,7 +64,7 @@ async function loadStore(supabase: any, storeId: string) {
     .eq('id', storeId)
     .maybeSingle();
   if (error) throw error;
-  if (!data || data.status !== 'active' || !data.portal_enabled) return null;
+  if (!data || data.status !== 'active') return null;
   return data;
 }
 
@@ -153,6 +153,14 @@ export async function GET(request: Request) {
     if (!lead || !lead.assigned_store_id) return NextResponse.json({ error: 'Lead não encontrado.' }, { status: 404 });
     if (!canAccessLead(profile, lead)) return NextResponse.json({ error: 'Você não tem permissão para acessar este lead.' }, { status: 403 });
 
+    const entitlement = await authorizeStoreEntitlement(supabase, {
+      role: profile.role,
+      storeId: lead.assigned_store_id,
+      profileStoreId: profile.store_id,
+      allowMasterWhenStoreUnavailable: true
+    });
+    if ('error' in entitlement) return entitlement.error;
+
     const store = await loadStore(supabase, lead.assigned_store_id);
     if (!store) return NextResponse.json({ error: 'Loja indisponível.' }, { status: 404 });
 
@@ -231,6 +239,15 @@ export async function POST(request: Request) {
     const lead = await loadLead(supabase, leadId);
     if (!lead || !lead.assigned_store_id) return NextResponse.json({ error: 'Lead não encontrado.' }, { status: 404 });
     if (!canAccessLead(profile, lead)) return NextResponse.json({ error: 'Você não tem permissão para confirmar esta venda.' }, { status: 403 });
+
+    const entitlement = await authorizeStoreEntitlement(supabase, {
+      role: profile.role,
+      storeId: lead.assigned_store_id,
+      profileStoreId: profile.store_id,
+      allowMasterWhenStoreUnavailable: true
+    });
+    if ('error' in entitlement) return entitlement.error;
+
     if (profile.role === 'seller' && sellerUserId !== profile.id) {
       return NextResponse.json({ error: 'O vendedor só pode confirmar a própria venda.' }, { status: 403 });
     }
@@ -293,6 +310,14 @@ export async function DELETE(request: Request) {
     const lead = await loadLead(supabase, leadId);
     if (!lead || !lead.assigned_store_id) return NextResponse.json({ error: 'Lead não encontrado.' }, { status: 404 });
     if (!canAccessLead(profile, lead)) return NextResponse.json({ error: 'Você não tem permissão para cancelar esta venda.' }, { status: 403 });
+
+    const entitlement = await authorizeStoreEntitlement(supabase, {
+      role: profile.role,
+      storeId: lead.assigned_store_id,
+      profileStoreId: profile.store_id,
+      allowMasterWhenStoreUnavailable: true
+    });
+    if ('error' in entitlement) return entitlement.error;
 
     const actorName = profile.full_name || profile.email || 'Usuário';
     const { data: saleId, error: rpcError } = await supabase.rpc('store_cancel_sale_transaction', {

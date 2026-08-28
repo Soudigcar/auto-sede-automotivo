@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { authorizeStoreEntitlement } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -37,6 +38,14 @@ export async function GET(request: Request) {
     const storeId = profile.role === 'master' ? url.searchParams.get('store_id') : profile.store_id;
     if (!storeId) return NextResponse.json({ error: 'Loja não identificada.' }, { status: 400 });
 
+    const entitlement = await authorizeStoreEntitlement(supabase, {
+      role: profile.role,
+      storeId,
+      profileStoreId: profile.store_id,
+      allowMasterWhenStoreUnavailable: true
+    });
+    if ('error' in entitlement) return entitlement.error;
+
     const { data, error } = await supabase
       .from('store_team_registration_links')
       .select('id,store_id,role,status,expires_at,max_uses,usage_count,last_used_at,created_at')
@@ -61,6 +70,14 @@ export async function POST(request: Request) {
 
     const storeId = profile.role === 'master' ? String(body.store_id || '') : profile.store_id;
     if (!storeId) return NextResponse.json({ error: 'Loja não identificada.' }, { status: 400 });
+
+    const entitlement = await authorizeStoreEntitlement(supabase, {
+      role: profile.role,
+      storeId,
+      profileStoreId: profile.store_id,
+      allowMasterWhenStoreUnavailable: true
+    });
+    if ('error' in entitlement) return entitlement.error;
 
     await supabase
       .from('store_team_registration_links')
@@ -103,6 +120,15 @@ export async function PATCH(request: Request) {
     const { data: link } = await supabase.from('store_team_registration_links').select('*').eq('id', id).maybeSingle();
     if (!link) return NextResponse.json({ error: 'Link não encontrado.' }, { status: 404 });
     if (profile.role !== 'master' && link.store_id !== profile.store_id) return NextResponse.json({ error: 'Acesso negado.' }, { status: 403 });
+
+    const entitlement = await authorizeStoreEntitlement(supabase, {
+      role: profile.role,
+      storeId: link.store_id,
+      profileStoreId: profile.store_id,
+      allowMasterWhenStoreUnavailable: true
+    });
+    if ('error' in entitlement) return entitlement.error;
+
     const { error } = await supabase.from('store_team_registration_links').update({ status: 'revoked', revoked_at: new Date().toISOString() }).eq('id', id);
     if (error) throw error;
     return NextResponse.json({ success: true });

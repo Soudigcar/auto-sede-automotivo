@@ -10,6 +10,7 @@ import {
 import { enforceRateLimit } from '@/lib/server/rateLimit';
 import { publicError, readJsonBody } from '@/lib/server/requestSecurity';
 import { teamRegistrationPasswordError } from '@/lib/storeTeamRegistration';
+import { authorizeStoreEntitlement, isOperationalStoreSaas } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -46,7 +47,15 @@ async function loadValidLink(supabase: any, token: string) {
     .maybeSingle();
 
   if (storeError) throw storeError;
-  if (!store || store.status !== 'active' || !store.portal_enabled) return null;
+  if (!isOperationalStoreSaas(store)) return null;
+
+  const entitlement = await authorizeStoreEntitlement(supabase, {
+    role: 'store',
+    storeId: store.id,
+    profileStoreId: store.id,
+    store
+  });
+  if ('error' in entitlement) return null;
 
   return { link, store };
 }

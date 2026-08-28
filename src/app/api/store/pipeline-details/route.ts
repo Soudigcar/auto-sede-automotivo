@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
-import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
+import { asStorePortalRole, authorizeStoreEntitlement, canAccessStoreLead } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -46,13 +46,15 @@ async function getContext(request: Request, slug: string) {
     .maybeSingle();
 
   if (storeError) throw storeError;
-  if (!store || store.status !== 'active' || !store.portal_enabled) {
-    return { error: NextResponse.json({ error: 'Loja não encontrada ou portal desativado.' }, { status: 404 }) } as const;
-  }
-
-  if (profile.role !== 'master' && profile.store_id !== store.id) {
-    return { error: NextResponse.json({ error: 'Este usuário não pertence à loja informada.' }, { status: 403 }) } as const;
-  }
+  if (!store) return { error: NextResponse.json({ error: 'Loja não encontrada.' }, { status: 404 }) } as const;
+  const entitlement = await authorizeStoreEntitlement(supabase, {
+    role: profile.role,
+    storeId: store.id,
+    profileStoreId: profile.store_id,
+    store,
+    allowMasterWhenStoreUnavailable: true
+  });
+  if ('error' in entitlement) return entitlement;
 
   return { supabase, profile, store } as const;
 }

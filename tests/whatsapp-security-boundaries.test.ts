@@ -56,7 +56,8 @@ test('media API applies the server policy and both clients download documents in
 
 test('every store WhatsApp HTTP entry point enforces store lifecycle before sensitive work', () => {
   assert.match(storeInboxRoute, /authorizeStoreWhatsappPortal\(request, slug\)/);
-  assert.match(storePortal, /allowMasterWhenStoreUnavailable&&role==='master'/);
+  assert.match(storePortal, /role==='master'&&input\.allowMasterWhenStoreUnavailable/);
+  assert.match(storePortal, /isOperationalStoreSaas\(store\)/);
   for (const route of [mediaRoute, sendRoute, attachmentRoute, locationRoute, commerceMediaRoute]) {
     assert.match(route, /canUseStoreWhatsapp\(supabase, profile,/);
   }
