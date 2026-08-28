@@ -43,6 +43,12 @@ export type AsaasCheckoutCustomerData = {
   cpfCnpj: string;
   email: string;
   phone: string;
+  address: string;
+  addressNumber: number;
+  complement?: string;
+  province: string;
+  postalCode: string;
+  city: number;
 };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -338,7 +344,13 @@ export async function createAsaasRecurringCheckout(
         name: String(input.customerData.name || '').trim().replace(/\s+/g, ' ').slice(0, 180),
         cpfCnpj: String(input.customerData.cpfCnpj || '').replace(/\D/g, ''),
         email: String(input.customerData.email || '').trim().toLowerCase().slice(0, 254),
-        phone: String(input.customerData.phone || '').replace(/\D/g, '')
+        phone: String(input.customerData.phone || '').replace(/\D/g, ''),
+        address: String(input.customerData.address || '').trim().replace(/\s+/g, ' ').slice(0, 255),
+        addressNumber: Number(input.customerData.addressNumber),
+        complement: String(input.customerData.complement || '').trim().replace(/\s+/g, ' ').slice(0, 255),
+        province: String(input.customerData.province || '').trim().replace(/\s+/g, ' ').slice(0, 100),
+        postalCode: String(input.customerData.postalCode || '').replace(/\D/g, ''),
+        city: Number(input.customerData.city)
       }
     : null;
   if (customerData && (
@@ -346,6 +358,13 @@ export async function createAsaasRecurringCheckout(
     || !/^\d{14}$/.test(customerData.cpfCnpj)
     || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerData.email)
     || !/^[1-9]\d{9,10}$/.test(customerData.phone)
+    || customerData.address.length < 3
+    || !Number.isSafeInteger(customerData.addressNumber)
+    || customerData.addressNumber <= 0
+    || customerData.province.length < 2
+    || !/^\d{8}$/.test(customerData.postalCode)
+    || !Number.isSafeInteger(customerData.city)
+    || customerData.city <= 0
   )) {
     throw new Error('Os dados pre-preenchidos do Checkout Sandbox sao invalidos.');
   }

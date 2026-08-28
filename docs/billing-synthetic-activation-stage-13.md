@@ -43,6 +43,10 @@ de Preview. Production deve permanecer sem as duas chaves da etapa 13.
    Checkout Sandbox com cadastro pré-preenchido e Webhook autenticado.
 7. Não abrir o fluxo de confirmação de pagamento.
 
+O Asaas exige endereço no `customerData`. Para não introduzir dados reais nem
+ampliar o cadastro financeiro da loja, o ensaio envia um endereço técnico
+exclusivamente sintético junto dos quatro campos persistidos da etapa 12.
+
 ## Provas esperadas
 
 - exatamente 1 assinatura aberta para a terceira loja;

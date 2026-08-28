@@ -113,7 +113,13 @@ test('Checkout recorrente envia customerData sintético pré-preenchido sem conf
       name: 'Loja DEV Billing Ativacao Ltda',
       cpfCnpj: '98.765.432/0001-98',
       email: 'BILLING-STAGE13@EXAMPLE.COM',
-      phone: '(11) 90000-0000'
+      phone: '(11) 90000-0000',
+      address: 'Rua Sintetica',
+      addressNumber: 13,
+      complement: 'Ambiente Sandbox',
+      province: 'Centro',
+      postalCode: '01001-000',
+      city: 3550308
     }
   }, fakeFetch);
 
@@ -121,7 +127,13 @@ test('Checkout recorrente envia customerData sintético pré-preenchido sem conf
     name: 'Loja DEV Billing Ativacao Ltda',
     cpfCnpj: '98765432000198',
     email: 'billing-stage13@example.com',
-    phone: '11900000000'
+    phone: '11900000000',
+    address: 'Rua Sintetica',
+    addressNumber: 13,
+    complement: 'Ambiente Sandbox',
+    province: 'Centro',
+    postalCode: '01001000',
+    city: 3550308
   });
   assert.deepEqual(requestedBody.chargeTypes, ['RECURRENT']);
   assert.equal(requestedBody.subscription.cycle, 'MONTHLY');
@@ -152,6 +164,7 @@ test('API e repositório travam a ativação no seed, no perfil validado e em ob
   assert.match(repository, /registration_status !== 'ready_for_activation'/);
   assert.match(repository, /customerData/);
   assert.match(repository, /customer_data_prefilled/);
+  assert.match(repository, /address: 'Rua Sintetica'/);
   assert.doesNotMatch(repository, /access_enforcement_mode:\s*'enforce'/);
   assert.match(readinessRoute, /registrationWriteAllowed: false/);
 });

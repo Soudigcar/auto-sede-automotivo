@@ -440,7 +440,13 @@ export async function createStoreAsaasSandboxCheckout(supabase: any, input: {
         name: String(registration?.legal_name || ''),
         cpfCnpj: String(registration?.cnpj || ''),
         email: String(registration?.financial_email || ''),
-        phone: String(registration?.financial_phone || '')
+        phone: String(registration?.financial_phone || ''),
+        address: 'Rua Sintetica',
+        addressNumber: 13,
+        complement: 'Ambiente Sandbox',
+        province: 'Centro',
+        postalCode: '01001000',
+        city: 3550308
       }
     : undefined;
   const webhook = await ensureAsaasSandboxWebhook(
