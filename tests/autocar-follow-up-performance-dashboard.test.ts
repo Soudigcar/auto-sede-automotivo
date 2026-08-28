@@ -44,10 +44,27 @@ describe('Smart Follow-up performance dashboard', () => {
     assert.match(dashboard, /90 dias/);
   });
 
-  it('mostra funil e segurança sem esconder fallbacks, bloqueios e falhas', () => {
-    for (const label of ['Enviados', 'Responderam', 'Recuperados', 'Agendamentos', 'Vendas', 'Fallback COPILOT', 'Bloqueios / falhas']) {
+  it('separa funil estrito de reengajamento dos resultados comerciais atribuídos', () => {
+    assert.match(dashboard, /Funil de reengajamento/);
+    assert.match(dashboard, /Agendamentos atribuídos/);
+    assert.match(dashboard, /Vendas atribuídas/);
+    assert.match(dashboard, /não significam necessariamente que passaram por todas as etapas/);
+    assert.match(dashboard, /dos que responderam/);
+  });
+
+  it('inclui evolução temporal diária sem nova persistência', () => {
+    assert.match(service, /FollowUpPerformanceTimelinePoint/);
+    assert.match(service, /buildTimeline/);
+    assert.match(service, /timelinePoint\.sent/);
+    assert.match(service, /timelinePoint\.responses/);
+    assert.match(service, /timelinePoint\.appointments/);
+    assert.match(service, /timelinePoint\.sales/);
+    assert.match(dashboard, /Evolução temporal/);
+  });
+
+  it('mantém performance por jornada e transparência de segurança', () => {
+    for (const label of ['Fallback COPILOT', 'Bloqueios / falhas', 'Performance por jornada']) {
       assert.ok(dashboard.includes(label), `métrica ausente: ${label}`);
     }
-    assert.match(dashboard, /Performance por jornada/);
   });
 });
