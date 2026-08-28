@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { asStorePortalRole, storePortalPermissions } from '@/lib/server/storePortal';
+import { asStorePortalRole, authorizeStoreEntitlement, storePortalPermissions } from '@/lib/server/storePortal';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
 
 export const runtime = 'nodejs';
@@ -108,6 +108,14 @@ async function authorize(request: Request, requestedStoreId: string) {
   if (!store || store.status !== 'active' || !store.portal_enabled) {
     return { error: NextResponse.json({ error: 'A loja está inativa ou indisponível no portal.' }, { status: 409 }) } as const;
   }
+
+  const entitlement = await authorizeStoreEntitlement(supabase, {
+    role,
+    storeId: store.id,
+    profileStoreId: profile.store_id,
+    store
+  });
+  if ('error' in entitlement) return entitlement;
 
   return { profile, role, store } as const;
 }

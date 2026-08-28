@@ -11,6 +11,7 @@ import MasterWhatsappCommerceActions from '@/components/MasterWhatsappCommerceAc
 import { WhatsappAudioRecorderButton } from '@/components/WhatsappAudioRecorderButton';
 import { WhatsappLocationButton } from '@/components/WhatsappLocationButton';
 import { apiErrorMessage } from '@/lib/client/apiErrorMessage';
+import { useStoreWhatsappProfilePictures } from '@/hooks/useStoreWhatsappProfilePictures';
 
 const STORE_PATH = /^\/loja\/([^/]+)\/whatsapp\/?$/;
 const MASTER_PATH = '/master/whatsapp/inbox';
@@ -328,6 +329,16 @@ export function WhatsappMobileInboxBridge() {
     });
   }, [conversations, filter, searchTerm]);
 
+  const { getProfilePicture, handleProfilePictureError } = useStoreWhatsappProfilePictures({
+    enabled: mode === 'store' && mobile,
+    slug,
+    conversations: filtered,
+    selectedId,
+    selectedConversation,
+    getAccessToken: token
+  });
+  const mobileAvatar = mode === 'store' ? getProfilePicture : avatarOf;
+
   async function selectConversation(id: string) {
     setSelectedId(id);
     setMessages([]);
@@ -551,7 +562,8 @@ export function WhatsappMobileInboxBridge() {
       sendBlockedReason={!connected(selectedConversation) && selectedConversation ? `Envio temporariamente bloqueado: ${channelLabel(selectedConversation)}.` : ''}
       getName={nameOf}
       getPhone={(conversation) => formatPhone(phoneOf(conversation))}
-      getAvatarUrl={avatarOf}
+      getAvatarUrl={mobileAvatar}
+      onAvatarError={mode === 'store' ? handleProfilePictureError : undefined}
       getLastMessage={(conversation) => String(conversation?.last_message || '')}
       getTime={(item) => formatTime(item?.last_message_at || item?.sent_at || item?.created_at)}
       getUnread={(conversation) => Number(conversation?.unread_count || 0)}

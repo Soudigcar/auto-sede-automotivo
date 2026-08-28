@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { authorizeStoreEntitlement } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -86,6 +87,16 @@ async function getAuthorizedStore(request: Request, expectedSlug?: string) {
     return { error: 'Este usuário não pertence a esta loja.', status: 403, supabase, profile, store: null };
   }
 
+  const entitlement = await authorizeStoreEntitlement(supabase, {
+    role: profile.role,
+    storeId: store.id,
+    profileStoreId: profile.store_id,
+    store
+  });
+  if ('error' in entitlement) {
+    return { errorResponse: entitlement.error, supabase, profile, store: null };
+  }
+
   return { error: '', status: 200, supabase, profile, store };
 }
 
@@ -98,6 +109,7 @@ export async function POST(request: Request) {
 
     const context = await getAuthorizedStore(request, slug);
 
+    if ('errorResponse' in context) return context.errorResponse;
     if (context.error) {
       return NextResponse.json({ error: context.error }, { status: context.status });
     }

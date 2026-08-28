@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { asStorePortalRole, type StorePortalRole } from '@/lib/server/storePortal';
+import { asStorePortalRole, authorizeStoreEntitlement, type StorePortalRole } from '@/lib/server/storePortal';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
 import { extractCanonicalOlxUrl, extractOlxAdId } from '@/lib/olxSharedUrl';
 
@@ -92,6 +92,13 @@ export async function POST(request: Request) {
     if (role !== 'master' && profile.store_id !== store.id) {
       return NextResponse.json({ error: 'Você não pode importar veículos para outra loja.' }, { status: 403 });
     }
+    const entitlement = await authorizeStoreEntitlement(supabase, {
+      role,
+      storeId: store.id,
+      profileStoreId: profile.store_id,
+      store
+    });
+    if ('error' in entitlement) return entitlement.error;
 
     const sourceUrl = extractCanonicalOlxUrl(body.source_url || body.vehicle?.source_url);
     if (!sourceUrl) return NextResponse.json({ error: 'O navegador não enviou um link válido da OLX.' }, { status: 400 });

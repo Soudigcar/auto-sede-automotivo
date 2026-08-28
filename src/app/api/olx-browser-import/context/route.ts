@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { asStorePortalRole, storePortalRoleLabel } from '@/lib/server/storePortal';
+import { asStorePortalRole, authorizeStoreEntitlement, storePortalRoleLabel } from '@/lib/server/storePortal';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
 
 export const runtime = 'nodejs';
@@ -31,6 +31,15 @@ export async function GET(request: Request) {
     const { data: stores, error } = await query;
     if (error) throw error;
     if (!stores?.length) return NextResponse.json({ error: 'Nenhuma loja ativa disponível para importação.' }, { status: 404 });
+    if (role !== 'master') {
+      const entitlement = await authorizeStoreEntitlement(supabase, {
+        role,
+        storeId: stores[0].id,
+        profileStoreId: profile.store_id,
+        store: stores[0]
+      });
+      if ('error' in entitlement) return entitlement.error;
+    }
 
     return NextResponse.json({
       profile: {

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient, getProfileFromToken, isStoreTeamRole, readBearerToken } from '@/lib/server/storeTeam';
+import { authorizeStoreEntitlement } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -24,10 +25,22 @@ async function auth(request: Request) {
   return { supabase, profile:null, storeId:'' };
 }
 
+async function entitlementError(supabase: any, profile: any, storeId: string) {
+  if (!storeId) return null;
+  const entitlement = await authorizeStoreEntitlement(supabase, {
+    role: profile.role,
+    storeId,
+    profileStoreId: profile.store_id
+  });
+  return 'error' in entitlement ? entitlement.error : null;
+}
+
 export async function GET(request: Request) {
   try {
     const {supabase,profile,storeId}=await auth(request);
     if(!profile) return NextResponse.json({error:'Acesso negado.'},{status:403});
+    const denied = await entitlementError(supabase, profile, storeId);
+    if (denied) return denied;
 
     const storesPromise = profile.role==='master'
       ? supabase.from('stores').select('id,store_name,status').eq('status','active').order('store_name')
@@ -63,6 +76,8 @@ export async function POST(request: Request) {
   try {
     const {supabase,profile,storeId}=await auth(request);
     if(!profile || !storeId) return NextResponse.json({error:'Acesso negado.'},{status:403});
+    const denied = await entitlementError(supabase, profile, storeId);
+    if (denied) return denied;
     if(profile.role!=='master' && storeId!==profile.store_id) return NextResponse.json({error:'Loja fora do seu escopo.'},{status:403});
     const body=await request.json().catch(()=>null);
     if(!body || typeof body!=='object') return NextResponse.json({error:'Dados inválidos.'},{status:400});
@@ -115,6 +130,8 @@ export async function DELETE(request: Request) {
   try {
     const {supabase,profile,storeId}=await auth(request);
     if(!profile || !storeId) return NextResponse.json({error:'Acesso negado.'},{status:403});
+    const denied = await entitlementError(supabase, profile, storeId);
+    if (denied) return denied;
     const id=uuid(new URL(request.url).searchParams.get('id'));
     if(!id) return NextResponse.json({error:'Regra inválida.'},{status:400});
     const {error}=await supabase.from('lead_routing_rules').update({status:'archived',updated_by:profile.id,updated_at:new Date().toISOString()}).eq('id',id).eq('store_id',storeId);

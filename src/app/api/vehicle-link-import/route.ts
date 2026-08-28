@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { asStorePortalRole, type StorePortalRole } from '@/lib/server/storePortal';
+import { asStorePortalRole, authorizeStoreEntitlement, type StorePortalRole } from '@/lib/server/storePortal';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
 
 export const runtime = 'nodejs';
@@ -359,6 +359,16 @@ async function resolveContext(request: Request, requestedStoreId: string): Promi
   }
   if (role !== 'master' && profile.store_id !== store.id) {
     throw new ImportHttpError('Você não pode importar veículos para outra loja.', 403);
+  }
+
+  const entitlement = await authorizeStoreEntitlement(supabase, {
+    role,
+    storeId: store.id,
+    profileStoreId: profile.store_id,
+    store
+  });
+  if ('error' in entitlement) {
+    throw new ImportHttpError('O acesso ao sistema requer uma assinatura válida.', entitlement.error.status);
   }
 
   return { supabase, profile, role, store, canPublish: role === 'master' || role === 'store' };

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { asStorePortalRole } from '@/lib/server/storePortal';
+import { asStorePortalRole, authorizeStoreEntitlement } from '@/lib/server/storePortal';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
 import { extractOlxAdId } from '@/lib/olxSharedUrl';
 
@@ -28,6 +28,12 @@ export async function POST(request: Request) {
     if (!storeId || (role !== 'master' && profile.store_id !== storeId)) {
       return NextResponse.json({ error: 'Loja inválida para esta imagem.' }, { status: 403 });
     }
+    const entitlement = await authorizeStoreEntitlement(supabase, {
+      role,
+      storeId,
+      profileStoreId: profile.store_id
+    });
+    if ('error' in entitlement) return entitlement.error;
 
     const match = String(body.data_url || '').match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/i);
     if (!match) return NextResponse.json({ error: 'Formato de imagem inválido.' }, { status: 400 });

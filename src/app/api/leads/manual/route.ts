@@ -5,6 +5,7 @@ import {
   getProfileFromToken,
   readBearerToken
 } from '@/lib/server/storeTeam';
+import { authorizeStoreEntitlement } from '@/lib/server/storePortal';
 
 export const runtime = 'nodejs';
 
@@ -88,6 +89,15 @@ async function loadStore(supabase: any, profile: any, requestedStoreId?: string)
   if (profile.role !== 'master' && profile.store_id !== store.id) return null;
 
   return store;
+}
+
+async function authorizeLoadedStore(supabase: any, profile: any, store: any) {
+  return authorizeStoreEntitlement(supabase, {
+    role: profile.role,
+    storeId: store.id,
+    profileStoreId: profile.store_id,
+    store
+  });
 }
 
 async function loadStock(supabase: any, storeId: string) {
@@ -185,6 +195,8 @@ export async function GET(request: Request) {
         if (!selectedStore) {
           return NextResponse.json({ error: 'Loja selecionada não encontrada ou indisponível.' }, { status: 404 });
         }
+        const entitlement = await authorizeLoadedStore(supabase, profile, selectedStore);
+        if ('error' in entitlement) return entitlement.error;
         stock = await loadStock(supabase, selectedStore.id);
       }
 
@@ -202,6 +214,9 @@ export async function GET(request: Request) {
     if (!store) {
       return NextResponse.json({ error: 'Loja vinculada não encontrada ou indisponível.' }, { status: 403 });
     }
+
+    const entitlement = await authorizeLoadedStore(supabase, profile, store);
+    if ('error' in entitlement) return entitlement.error;
 
     const stock = await loadStock(supabase, store.id);
 
@@ -247,6 +262,9 @@ export async function POST(request: Request) {
     if (!store) {
       return NextResponse.json({ error: 'Selecione uma loja ativa e autorizada.' }, { status: 403 });
     }
+
+    const entitlement = await authorizeLoadedStore(supabase, profile, store);
+    if ('error' in entitlement) return entitlement.error;
 
     let interestedVehicle = typedInterestedVehicle || null;
     let interestedVehiclePrice: number | null = null;
