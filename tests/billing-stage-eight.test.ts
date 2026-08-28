@@ -110,17 +110,21 @@ test('todos os estados comerciais preservam acesso quando a homologacao esta em 
 
 test('homologacao exige duas chaves para enforcement e mantem mutacoes financeiras desligadas', () => {
   assert.equal(billingEnforcementEnabled({ BILLING_ENFORCEMENT_ENABLED: 'true' } as NodeJS.ProcessEnv), false);
-  assert.equal(billingEnforcementEnabled({ BILLING_STAGE6_ENFORCEMENT_ENABLED: 'true' } as NodeJS.ProcessEnv), false);
+  assert.equal(billingEnforcementEnabled({
+    VERCEL_ENV: 'preview',
+    BILLING_PREVIEW_ENFORCEMENT_ENABLED: 'true'
+  } as NodeJS.ProcessEnv), false);
 
   const safety = readBillingRuntimeSafety({
     VERCEL_ENV: 'preview',
     NEXT_PUBLIC_SUPABASE_URL: 'https://hfzmzfhuhukmxkxbkxay.supabase.co',
     NEXT_PUBLIC_SUPABASE_ANON_KEY: 'publishable-test-key',
     SUPABASE_SERVICE_ROLE_KEY: 'service-role-test-key',
-    BILLING_ALLOWED_SUPABASE_PROJECT_REF: 'hfzmzfhuhukmxkxbkxay',
+    BILLING_PREVIEW_ALLOWED_SUPABASE_PROJECT_REF: 'hfzmzfhuhukmxkxbkxay',
+    BILLING_PREVIEW_READS_ENABLED: 'true',
     BILLING_ENFORCEMENT_ENABLED: 'false',
-    BILLING_STAGE6_ENFORCEMENT_ENABLED: 'false',
-    BILLING_STAGE6_MUTATIONS_ENABLED: 'false',
+    BILLING_PREVIEW_ENFORCEMENT_ENABLED: 'false',
+    BILLING_PREVIEW_MUTATIONS_ENABLED: 'false',
     BILLING_TRIAL_START_ENABLED: 'false'
   } as NodeJS.ProcessEnv);
 

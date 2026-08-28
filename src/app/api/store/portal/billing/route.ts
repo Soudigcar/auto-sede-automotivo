@@ -13,7 +13,7 @@ export async function GET(request: Request) {
     const safety = readBillingRuntimeSafety();
     if (!safety.readsEnabled) {
       return NextResponse.json({
-        error: 'Billing indisponível: o Preview não está isolado no saas-dev.',
+        error: 'Billing indisponível: a configuração segura deste ambiente recusou a leitura.',
         code: safety.reason
       }, { status: 503 });
     }
@@ -75,8 +75,13 @@ export async function GET(request: Request) {
         read_only: true,
         mutations_enabled: false,
         runtime_environment: safety.environmentName,
+        deployment_environment: safety.deploymentEnvironment,
         connected_project_ref: safety.actualProjectRef,
-        preview_only: true
+        preview_only: safety.previewEnvironment,
+        production_observe_prepared: safety.productionEnvironment
+          && safety.readsEnabled
+          && !safety.mutationsEnabled
+          && !safety.enforcementEnabled
       }
     });
   } catch (error: any) {

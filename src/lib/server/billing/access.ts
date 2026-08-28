@@ -47,8 +47,13 @@ export type BillingAccessDecision = {
 
 export function billingEnforcementEnabled(environment: NodeJS.ProcessEnv = process.env) {
   const enabled = (value: unknown) => String(value || '').trim().toLowerCase() === 'true';
-  return enabled(environment.BILLING_ENFORCEMENT_ENABLED)
-    && enabled(environment.BILLING_STAGE6_ENFORCEMENT_ENABLED);
+  const vercelEnvironment = String(environment.VERCEL_ENV || '').trim().toLowerCase();
+  const environmentEnabled = vercelEnvironment === 'preview'
+    ? enabled(environment.BILLING_PREVIEW_ENFORCEMENT_ENABLED)
+    : vercelEnvironment === 'production'
+      ? enabled(environment.BILLING_PRODUCTION_ENFORCEMENT_ENABLED)
+      : false;
+  return enabled(environment.BILLING_ENFORCEMENT_ENABLED) && environmentEnabled;
 }
 
 function validFutureDate(value: string | null | undefined, nowMs: number) {

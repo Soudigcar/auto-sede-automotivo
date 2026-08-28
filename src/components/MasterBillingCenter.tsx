@@ -109,8 +109,10 @@ type BillingOverview = {
     trial_start_enabled: boolean;
     existing_store_default: 'observe';
     runtime_environment: string;
+    deployment_environment: 'preview' | 'production';
     connected_project_ref: string;
     preview_only: boolean;
+    production_observe_prepared: boolean;
   };
   asaas: {
     environment: string;
@@ -123,6 +125,7 @@ type BillingOverview = {
     sandbox_payment_confirmation_enabled: boolean;
     sandbox_failure_test_enabled: boolean;
     failure_synthetic_store_configured: boolean;
+    production_blocked: true;
     configuration_valid: boolean;
     errors: string[];
   };
@@ -303,7 +306,7 @@ export function MasterBillingCenter() {
             <div>
               <div className="flex items-center gap-2 text-red-600">
                 <CreditCard size={18} />
-                <span className="premium-eyebrow">SaaS · etapa 6 · {overview?.safety.runtime_environment || 'saas-dev'}</span>
+                <span className="premium-eyebrow">SaaS · etapa 9 · {overview?.safety.runtime_environment || 'ambiente seguro'}</span>
               </div>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Planos e Billing</h1>
               <p className="premium-muted mt-3 max-w-4xl text-sm">

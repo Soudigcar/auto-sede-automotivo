@@ -20,11 +20,18 @@ CRON_SECRET=your_random_vercel_cron_secret
 # Billing Asaas (server only)
 # O enforcement deve permanecer false durante implantacao, trial e conciliacao inicial.
 BILLING_ENFORCEMENT_ENABLED=false
-# A etapa 6 e Preview-only, aceita exclusivamente o projeto informado e nasce somente leitura.
-BILLING_ALLOWED_SUPABASE_PROJECT_REF=your_saas_dev_project_ref
-BILLING_RUNTIME_ENVIRONMENT_NAME=saas-dev
-BILLING_STAGE6_ENFORCEMENT_ENABLED=false
-BILLING_STAGE6_MUTATIONS_ENABLED=false
+# Preview: as quatro chaves sao exclusivas deste ambiente e da branch autorizada.
+BILLING_PREVIEW_ALLOWED_SUPABASE_PROJECT_REF=your_saas_dev_project_ref
+BILLING_PREVIEW_ENVIRONMENT_NAME=saas-dev
+BILLING_PREVIEW_READS_ENABLED=true
+BILLING_PREVIEW_MUTATIONS_ENABLED=false
+BILLING_PREVIEW_ENFORCEMENT_ENABLED=false
+# Production: mantenha todas desligadas ate uma autorizacao posterior especifica.
+BILLING_PRODUCTION_ALLOWED_SUPABASE_PROJECT_REF=
+BILLING_PRODUCTION_ENVIRONMENT_NAME=production
+BILLING_PRODUCTION_READS_ENABLED=false
+BILLING_PRODUCTION_MUTATIONS_ENABLED=false
+BILLING_PRODUCTION_ENFORCEMENT_ENABLED=false
 BILLING_TRIAL_START_ENABLED=false
 BILLING_ASAAS_SANDBOX_ENABLED=false
 BILLING_ASAAS_SYNTHETIC_STORE_ID=your_saas_dev_synthetic_store_uuid
@@ -56,8 +63,10 @@ Antes de ativar um webhook, configure o mesmo verify token no provedor e na Verc
 
 `UMBLER_WEBHOOK_TOKEN` é exclusivamente server-side: o painel informa apenas se a variável está configurada e nunca aceita, persiste ou exibe seu valor. Configure o mesmo segredo manualmente na Umbler usando um header de webhook suportado pelo provedor; não inclua o token em URLs compartilhadas.
 
-`BILLING_ALLOWED_SUPABASE_PROJECT_REF` deve ser configurada somente no Preview e precisa coincidir com o projeto indicado por `NEXT_PUBLIC_SUPABASE_URL`; a API de billing falha fechada em outro projeto ou fora de `VERCEL_ENV=preview`. `BILLING_STAGE6_ENFORCEMENT_ENABLED` nasce `false` e mantém o entitlement em observação mesmo que a chave global antiga seja alterada acidentalmente. `BILLING_STAGE6_MUTATIONS_ENABLED` também nasce `false` e bloqueia no servidor trial, Checkout e simulações, mesmo que uma variável de etapa anterior ainda esteja habilitada. `BILLING_TRIAL_START_ENABLED` permanece `false` até uma autorização específica para persistir trials.
+As configurações `BILLING_PREVIEW_*` e `BILLING_PRODUCTION_*` são independentes. Cada ambiente precisa de sua própria allowlist, nome, chave de leitura, chave de mutação e chave de enforcement. Variáveis antigas (`BILLING_ALLOWED_SUPABASE_PROJECT_REF` e `BILLING_STAGE6_*`) não liberam a etapa 9. A leitura falha fechada quando a chave do ambiente está desligada, o project ref não coincide ou faltam credenciais server-side. Production nasce com leitura, mutação e enforcement desligados.
+
+Mesmo quando a leitura de Production for autorizada futuramente, mutações exigirão `BILLING_PRODUCTION_MUTATIONS_ENABLED=true`; enforcement exigirá simultaneamente `BILLING_ENFORCEMENT_ENABLED=true`, `BILLING_PRODUCTION_ENFORCEMENT_ENABLED=true` e `access_enforcement_mode='enforce'` na assinatura individual. `BILLING_TRIAL_START_ENABLED` permanece `false` até uma autorização específica para persistir trials.
 
 `BILLING_ASAAS_SANDBOX_ENABLED` libera exclusivamente o Checkout Sandbox. A liberação exige simultaneamente `VERCEL_ENV=preview`, `ASAAS_ENV=sandbox`, URL HTTPS `*.vercel.app`, o UUID exato do seed sintético em `BILLING_ASAAS_SYNTHETIC_STORE_ID` e `VERCEL_AUTOMATION_BYPASS_SECRET`. O segredo de bypass é usado somente na URL server-side cadastrada no Webhook e nunca é retornado à interface.
 
-`ASAAS_ENV` aceita somente `sandbox` ou `production`. As URLs da API são definidas pelo servidor e não por variável arbitrária. O `ASAAS_WEBHOOK_TOKEN` deve ser diferente da API Key, ter entre 32 e 255 caracteres e ser configurado no header `asaas-access-token` do Webhook. Nunca habilite `BILLING_ENFORCEMENT_ENABLED` antes de todas as lojas com acesso ao sistema possuírem assinatura conciliada e modo individual `enforce` aprovado.
+`ASAAS_ENV` aceita somente `sandbox` ou `production`, mas a etapa 9 continua recusando toda chamada HTTP ao Asaas Production com `ASAAS_PRODUCTION_FORBIDDEN`. As URLs são definidas pelo servidor e não por variável arbitrária. O `ASAAS_WEBHOOK_TOKEN` deve ser diferente da API Key, ter entre 32 e 255 caracteres e ser configurado no header `asaas-access-token` do Webhook. Nunca habilite `BILLING_ENFORCEMENT_ENABLED` antes de todas as lojas com acesso ao sistema possuírem assinatura conciliada e modo individual `enforce` aprovado.

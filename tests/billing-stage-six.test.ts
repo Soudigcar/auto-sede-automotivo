@@ -34,7 +34,9 @@ test('etapa 6 mantem mutacoes bloqueadas mesmo com flags antigas habilitadas', (
     NEXT_PUBLIC_SUPABASE_URL: 'https://hfzmzfhuhukmxkxbkxay.supabase.co',
     NEXT_PUBLIC_SUPABASE_ANON_KEY: 'publishable-test-key',
     SUPABASE_SERVICE_ROLE_KEY: 'service-role-test-key',
-    BILLING_ALLOWED_SUPABASE_PROJECT_REF: 'hfzmzfhuhukmxkxbkxay',
+    BILLING_PREVIEW_ALLOWED_SUPABASE_PROJECT_REF: 'hfzmzfhuhukmxkxbkxay',
+    BILLING_PREVIEW_READS_ENABLED: 'true',
+    BILLING_PREVIEW_MUTATIONS_ENABLED: 'false',
     BILLING_TRIAL_START_ENABLED: 'true',
     ASAAS_SANDBOX_CHECKOUT_ENABLED: 'true',
     ASAAS_SANDBOX_PAYMENT_CONFIRMATION_ENABLED: 'true',
@@ -49,6 +51,7 @@ test('etapa 6 mantem mutacoes bloqueadas mesmo com flags antigas habilitadas', (
 test('etapa 6 mantem entitlement em observe se apenas a chave global antiga for habilitada', async () => {
   const { billingEnforcementEnabled } = await import('../src/lib/server/billing/access.ts');
   assert.equal(billingEnforcementEnabled({
+    VERCEL_ENV: 'preview',
     BILLING_ENFORCEMENT_ENABLED: 'true'
   } as NodeJS.ProcessEnv), false);
 });

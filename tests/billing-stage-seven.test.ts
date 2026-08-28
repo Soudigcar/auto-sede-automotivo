@@ -116,14 +116,16 @@ test('nenhuma rota da etapa 7 ativa bloqueio ou mutacao financeira', () => {
     NEXT_PUBLIC_SUPABASE_URL: 'https://hfzmzfhuhukmxkxbkxay.supabase.co',
     NEXT_PUBLIC_SUPABASE_ANON_KEY: 'publishable-test-key',
     SUPABASE_SERVICE_ROLE_KEY: 'service-role-test-key',
-    BILLING_ALLOWED_SUPABASE_PROJECT_REF: 'hfzmzfhuhukmxkxbkxay',
+    BILLING_PREVIEW_ALLOWED_SUPABASE_PROJECT_REF: 'hfzmzfhuhukmxkxbkxay',
+    BILLING_PREVIEW_READS_ENABLED: 'true',
     BILLING_ENFORCEMENT_ENABLED: 'false',
-    BILLING_STAGE6_ENFORCEMENT_ENABLED: 'false',
-    BILLING_STAGE6_MUTATIONS_ENABLED: 'false',
+    BILLING_PREVIEW_ENFORCEMENT_ENABLED: 'false',
+    BILLING_PREVIEW_MUTATIONS_ENABLED: 'false',
     BILLING_TRIAL_START_ENABLED: 'false'
   } as NodeJS.ProcessEnv);
 
-  assert.match(access, /BILLING_STAGE6_ENFORCEMENT_ENABLED/);
+  assert.match(access, /BILLING_PREVIEW_ENFORCEMENT_ENABLED/);
+  assert.match(access, /BILLING_PRODUCTION_ENFORCEMENT_ENABLED/);
   assert.equal(safety.mutationsEnabled, false);
   assert.equal(safety.trialStartEnabled, false);
 });

@@ -12,9 +12,10 @@ A migration nao altera `stores`, `users`, `portal_enabled`, leads, estoque, What
 
 ## Protecao contra interrupcao
 
-O bloqueio depende simultaneamente de duas autorizacoes:
+O bloqueio depende simultaneamente de tres autorizacoes:
 
 - `BILLING_ENFORCEMENT_ENABLED=true` no ambiente;
+- `BILLING_PREVIEW_ENFORCEMENT_ENABLED=true` ou `BILLING_PRODUCTION_ENFORCEMENT_ENABLED=true`, conforme o ambiente;
 - `access_enforcement_mode='enforce'` na assinatura individual.
 
 O valor padrao global e individual permanece desligado/`observe`. Erro de infraestrutura ou migration ausente tambem preserva o acesso atual (`billing_infrastructure_unavailable`). O Master sempre possui bypass administrativo.
@@ -34,7 +35,7 @@ O valor padrao global e individual permanece desligado/`observe`. Erro de infrae
 - a rota `/master/billing` apresenta o plano Profissional, o status por loja e a janela fixa do trial;
 - cadastro no portal, usuarios ativos no sistema e assinatura aparecem como conceitos separados;
 - somente loja ativa com pelo menos um usuario ativo do sistema e marcada como elegivel;
-- a API aceita leitura apenas quando `VERCEL_ENV=preview` e o project ref coincide com `BILLING_ALLOWED_SUPABASE_PROJECT_REF`;
+- a API aceita leitura no Preview apenas quando a chave de leitura está ativa e o project ref coincide com `BILLING_PREVIEW_ALLOWED_SUPABASE_PROJECT_REF`;
 - `BILLING_TRIAL_START_ENABLED=false` bloqueia a mutacao no servidor antes da chamada ao banco;
 - nesta etapa, nenhuma assinatura ou trial e persistido e o Asaas continua sem configuracao.
 
@@ -46,8 +47,20 @@ O valor padrao global e individual permanece desligado/`observe`. Erro de infrae
 - uma trava adicional da etapa 6 impede enforcement mesmo se a chave global antiga for ativada isoladamente;
 - o diagnostico e enviado aos logs sem nome, email ou telefone;
 - falhas de consulta ao billing permanecem fail-open;
-- `BILLING_STAGE6_MUTATIONS_ENABLED=false` bloqueia no servidor trial, Checkout, confirmacao manual e cenarios sinteticos;
+- `BILLING_PREVIEW_MUTATIONS_ENABLED=false` bloqueia no servidor trial, Checkout, confirmacao manual e cenarios sinteticos;
 - os controles da etapa 5 nao aparecem na interface e seus endpoints deixam de ser expostos.
+
+## Etapa 9 — preparacao segura para Production
+
+- Preview e Production possuem allowlists independentes do project ref do Supabase;
+- cada ambiente possui chaves próprias de leitura, mutação e enforcement;
+- Production nasce com todas as chaves desligadas e não herda nenhuma variável do Preview ou da etapa 6;
+- quando autorizada futuramente, a leitura de Production poderá operar em modo `observe` sem liberar POST, trials, Checkout ou bloqueio;
+- mismatch de projeto, credencial ausente, ambiente não suportado ou leitura desligada falham fechados antes do acesso ao billing;
+- a interface e as APIs não dependem mais de texto ou contrato exclusivo de Preview;
+- Node.js fica fixado em `24.x`, compatível com as bibliotecas atuais do Supabase;
+- nenhuma migration, assinatura, cobrança ou dado é criado por esta etapa;
+- toda chamada HTTP ao Asaas Production continua proibida por `ASAAS_PRODUCTION_FORBIDDEN`.
 
 ## Asaas
 

@@ -17,10 +17,12 @@ function previewEnvironment(patch: Record<string, string> = {}) {
     NEXT_PUBLIC_SUPABASE_URL: 'https://hfzmzfhuhukmxkxbkxay.supabase.co',
     NEXT_PUBLIC_SUPABASE_ANON_KEY: 'publishable-test-key',
     SUPABASE_SERVICE_ROLE_KEY: 'service-role-test-key',
-    BILLING_ALLOWED_SUPABASE_PROJECT_REF: 'hfzmzfhuhukmxkxbkxay',
-    BILLING_RUNTIME_ENVIRONMENT_NAME: 'saas-dev',
+    BILLING_PREVIEW_ALLOWED_SUPABASE_PROJECT_REF: 'hfzmzfhuhukmxkxbkxay',
+    BILLING_PREVIEW_ENVIRONMENT_NAME: 'saas-dev',
+    BILLING_PREVIEW_READS_ENABLED: 'true',
+    BILLING_PREVIEW_ENFORCEMENT_ENABLED: 'false',
     BILLING_ENFORCEMENT_ENABLED: 'false',
-    BILLING_STAGE6_MUTATIONS_ENABLED: 'false',
+    BILLING_PREVIEW_MUTATIONS_ENABLED: 'false',
     BILLING_TRIAL_START_ENABLED: 'false',
     ...patch
   } as NodeJS.ProcessEnv;
@@ -49,7 +51,7 @@ test('billing do Preview falha fechado fora do saas-dev e trial nasce desligado'
   }));
   assert.equal(production.readsEnabled, false);
   assert.equal(production.trialStartEnabled, false);
-  assert.equal(production.reason, 'preview_only');
+  assert.equal(production.reason, 'reads_disabled');
 
   const wrongProject = readBillingRuntimeSafety(previewEnvironment({
     NEXT_PUBLIC_SUPABASE_URL: 'https://wufikrdgyxrsszlbpfmv.supabase.co'

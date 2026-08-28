@@ -36,8 +36,9 @@ test('billing nasce desligado e exige duas autorizacoes explicitas para enforcem
   assert.equal(billingEnforcementEnabled({ BILLING_ENFORCEMENT_ENABLED: 'false' } as NodeJS.ProcessEnv), false);
   assert.equal(billingEnforcementEnabled({ BILLING_ENFORCEMENT_ENABLED: 'true' } as NodeJS.ProcessEnv), false);
   assert.equal(billingEnforcementEnabled({
+    VERCEL_ENV: 'preview',
     BILLING_ENFORCEMENT_ENABLED: 'true',
-    BILLING_STAGE6_ENFORCEMENT_ENABLED: 'true'
+    BILLING_PREVIEW_ENFORCEMENT_ENABLED: 'true'
   } as NodeJS.ProcessEnv), true);
 });
 

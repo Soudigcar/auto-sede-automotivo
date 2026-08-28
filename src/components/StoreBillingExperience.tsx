@@ -63,8 +63,10 @@ type StoreBillingOverview = {
     read_only: true;
     mutations_enabled: false;
     runtime_environment: string;
+    deployment_environment: 'preview' | 'production';
     connected_project_ref: string;
-    preview_only: true;
+    preview_only: boolean;
+    production_observe_prepared: boolean;
   };
 };
 
@@ -277,7 +279,7 @@ export function StoreBillingExperience() {
           <div className="mt-4 grid gap-4 md:grid-cols-3">
             <Explanation title="Portal público" text="A presença da loja e o estoque público não dependem da assinatura do sistema." />
             <Explanation title="Acesso ao sistema" text="O billing calcula o estado comercial, mas o modo observe preserva todas as funcionalidades." />
-            <Explanation title="Cobrança" text="Checkout e alterações financeiras estão bloqueados neste Preview de validação." />
+            <Explanation title="Cobrança" text="Checkout e alterações financeiras estão bloqueados neste ambiente de observação." />
           </div>
         </section>
       </section>

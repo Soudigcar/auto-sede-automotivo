@@ -31,7 +31,7 @@ async function masterContext(request: Request) {
   if (!safety.readsEnabled) {
     return {
       error: NextResponse.json({
-        error: 'Billing indisponivel: o Preview nao esta isolado no saas-dev.',
+        error: 'Billing indisponivel: a configuracao segura deste ambiente recusou a leitura.',
         code: safety.reason
       }, { status: 503 })
     } as const;
@@ -61,8 +61,13 @@ export async function GET(request: Request) {
         trial_start_enabled: context.safety.trialStartEnabled,
         existing_store_default: 'observe',
         runtime_environment: context.safety.environmentName,
+        deployment_environment: context.safety.deploymentEnvironment,
         connected_project_ref: context.safety.actualProjectRef,
-        preview_only: true
+        preview_only: context.safety.previewEnvironment,
+        production_observe_prepared: context.safety.productionEnvironment
+          && context.safety.readsEnabled
+          && !context.safety.mutationsEnabled
+          && !context.safety.enforcementEnabled
       },
       asaas: {
         environment: asaas.environment,
@@ -76,6 +81,7 @@ export async function GET(request: Request) {
           && asaasSandbox.paymentConfirmationEnabled,
         sandbox_failure_test_enabled: false,
         failure_synthetic_store_configured: Boolean(asaasSandbox.failureSyntheticStoreId),
+        production_blocked: true,
         configuration_valid: asaas.errors.length === 0,
         errors: [...asaas.errors, ...asaasSandbox.errors]
       }
