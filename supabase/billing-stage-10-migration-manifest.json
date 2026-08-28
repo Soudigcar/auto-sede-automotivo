@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "purpose": "Route every repository migration to exactly one Supabase project before billing reaches CRM Production.",
+  "audited_at": "2026-08-28",
+  "source_commit": "e426b08189b1798546c085cb3faa088c62650718",
+  "projects": {
+    "crm-production": {
+      "project_ref": "wufikrdgyxrsszlbpfmv",
+      "remote_history_entries": 27,
+      "billing_objects_present": false
+    },
+    "saas-dev": {
+      "project_ref": "hfzmzfhuhukmxkxbkxay",
+      "remote_history_entries": 16,
+      "history_model": "bootstrap-and-alignment; intentionally not version-identical to CRM Production"
+    },
+    "autocar-production": {
+      "project_ref": "separate-project",
+      "audit_scope": "not queried during stage 10"
+    }
+  },
+  "migrations": [
+    { "file": "20260809212450_baseline_current_schema.sql", "target": "crm-production", "state": "applied", "remote_version": "20260809212450" },
+    { "file": "20260811032505_inventory_sale_flow.sql", "target": "crm-production", "state": "applied", "remote_version": "20260811032505" },
+    { "file": "20260811144525_create_store_whatsapp_evolution_integrations.sql", "target": "crm-production", "state": "applied", "remote_version": "20260811144525" },
+    { "file": "20260811163935_support_master_and_store_whatsapp_scopes.sql", "target": "crm-production", "state": "applied", "remote_version": "20260811163935" },
+    { "file": "20260812115100_harden_store_lead_and_whatsapp_portfolio_access.sql", "target": "crm-production", "state": "applied", "remote_version": "20260812115100" },
+    { "file": "20260814064000_harden_store_portal_audit_security.sql", "target": "crm-production", "state": "applied", "remote_version": "20260814064000" },
+    { "file": "20260814105800_harden_security_definer_rpc_execute.sql", "target": "crm-production", "state": "applied", "remote_version": "20260814105800" },
+    { "file": "20260814141000_create_autocar_foundation.sql", "target": "autocar-production", "state": "not-audited-stage-10" },
+    { "file": "20260814152100_fix_inventory_sale_lead_constraints.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260814152556" },
+    { "file": "20260814154800_add_pipeline_appointment_type.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260814155146" },
+    { "file": "20260814170000_enable_whatsapp_inbox_realtime.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260814165622" },
+    { "file": "20260814175500_create_autocar_knowledge_library.sql", "target": "autocar-production", "state": "not-audited-stage-10" },
+    { "file": "20260815015500_create_autocar_training_lab.sql", "target": "autocar-production", "state": "not-audited-stage-10" },
+    { "file": "20260815034500_create_autocar_dual_control.sql", "target": "autocar-production", "state": "not-audited-stage-10" },
+    { "file": "20260815041000_create_autocar_safe_runtime.sql", "target": "autocar-production", "state": "not-audited-stage-10" },
+    { "file": "20260815050000_create_autocar_operational_profile.sql", "target": "autocar-production", "state": "not-audited-stage-10" },
+    { "file": "20260815173500_create_autocar_live_visit_booking_rpc.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260815173955" },
+    { "file": "20260818024817_security_lgpd_hardening.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260818175526" },
+    { "file": "20260818043000_isolate_rls_helpers_and_merge_policies.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260818175538" },
+    { "file": "20260818050000_security_lgpd_predeploy_bridge.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260818174918" },
+    { "file": "20260818185000_umbler_server_config_and_users_policy.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260818200040" },
+    { "file": "20260821151148_add_store_operational_profile_to_crm.sql", "target": "crm-production", "state": "applied", "remote_version": "20260821151148" },
+    { "file": "20260822151932_autocar_training_publication_governance.sql", "target": "autocar-production", "state": "not-audited-stage-10" },
+    { "file": "20260823040800_autocar_master_control_plane_v2.sql", "target": "autocar-production", "state": "not-audited-stage-10" },
+    { "file": "20260823042000_autocar_smart_follow_up_v1.sql", "target": "autocar-production", "state": "not-audited-stage-10" },
+    { "file": "20260823101351_master_base_lead_import.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260823171313" },
+    { "file": "20260823223000_lead_routing_rules_master_store.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260824223541" },
+    { "file": "20260824204500_lead_routing_bulk_distribution_hardening.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260824223607" },
+    { "file": "20260824211800_lead_routing_bulk_distribution_fail_closed_v2.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260824223704" },
+    { "file": "20260825001000_master_lead_transfer_privacy.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260825033057" },
+    { "file": "20260825111500_master_transfer_obey_destination_routing.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260825111828" },
+    { "file": "20260825111800_master_transfer_deferred_routing_trigger.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260825111849" },
+    { "file": "20260825133000_master_lead_multistore_v1.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260825203204" },
+    { "file": "20260825134500_master_multistore_fail_closed_routing.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260825203301" },
+    { "file": "20260825135000_master_multistore_fk_indexes.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260825203310" },
+    { "file": "20260826201000_autocar_smart_follow_up_v2_persistence.sql", "target": "autocar-production", "state": "not-audited-stage-10" },
+    { "file": "20260826205000_autocar_follow_up_v2_copilot_suggestions.sql", "target": "autocar-production", "state": "not-audited-stage-10" },
+    { "file": "20260827044014_billing_foundation_asaas.sql", "target": "crm-production", "state": "pending-explicit-authorization" },
+    { "file": "20260827130000_autocar_follow_up_v2_autopilot_canary.sql", "target": "autocar-production", "state": "not-audited-stage-10" },
+    { "file": "20260828025428_whatsapp_profile_picture_private_cache.sql", "target": "crm-production", "state": "applied-alias", "remote_version": "20260828033054" }
+  ]
+}
