@@ -15,6 +15,10 @@ const masterRoute = readFileSync('src/app/api/master/billing/route.ts', 'utf8');
 const webhookRoute = readFileSync('src/app/api/webhooks/asaas/route.ts', 'utf8');
 const repository = readFileSync('src/lib/server/billing/repository.ts', 'utf8');
 const billingUi = readFileSync('src/components/MasterBillingCenter.tsx', 'utf8');
+const atomicMigration = readFileSync(
+  'supabase/production_ready/billing_stage15b/20260828173000_billing_webhook_atomicity.sql',
+  'utf8'
+);
 
 const syntheticStoreId = '06652d5a-9ca6-4c4d-9bf5-0a2afb6b6dfe';
 
@@ -138,9 +142,12 @@ test('API, webhook, repositorio e UI preservam o escopo sintetico da etapa 4', (
   assert.match(repository, /access_enforcement_mode !== 'observe'/);
   assert.match(repository, /asaas_sandbox_payment_confirmation_requested/);
   assert.match(repository, /SANDBOX_CONFIRMATION_REQUESTED/);
-  assert.match(repository, /asaas_webhook_subscription_transition/);
+  assert.match(repository, /apply_asaas_subscription_webhook_event/);
+  assert.match(atomicMigration, /asaas_webhook_subscription_transition/);
   assert.match(webhookRoute, /provider_event_id,event_type/);
-  assert.match(webhookRoute, /\.eq\('processing_attempts', Number\(storedEvent\.processing_attempts \|\| 0\)\)/);
+  assert.match(webhookRoute, /claimStoredBillingWebhookEvent/);
+  assert.match(webhookRoute, /completeStoredBillingWebhookEvent/);
+  assert.doesNotMatch(webhookRoute, /\.eq\('processing_attempts'/);
   assert.match(billingUi, /Cartão Sandbox cadastrado/);
   assert.doesNotMatch(billingUi, /Confirmar cobrança Sandbox/);
   assert.match(billingUi, /Saúde dos webhooks/);

@@ -1,5 +1,10 @@
 # Billing Production-ready — etapa 14
 
+> **SUBSTITUÍDO / NÃO EXECUTAR.** A auditoria read-only da etapa 15A encontrou
+> falhas no preflight anterior, no rollback parcial e na concorrência de
+> webhooks. A única allowlist candidata a uma autorização futura é
+> `supabase/production_ready/billing_stage15b/`.
+
 Este diretório é uma allowlist manual. Ele não é aplicado por `supabase db push`
 e não autoriza qualquer alteração em Production.
 

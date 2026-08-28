@@ -575,7 +575,7 @@ export function MasterBillingCenter() {
             <div>
               <div className="flex items-center gap-2 text-red-600">
                 <CreditCard size={18} />
-                <span className="premium-eyebrow">SaaS · etapa 14 · {overview?.safety.runtime_environment || 'ambiente seguro'}</span>
+                <span className="premium-eyebrow">SaaS · etapa 15B · {overview?.safety.runtime_environment || 'ambiente seguro'}</span>
               </div>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Planos e Billing</h1>
               <p className="premium-muted mt-3 max-w-4xl text-sm">
@@ -601,7 +601,7 @@ export function MasterBillingCenter() {
           </section>
 
           <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-sky-800">
-            Etapa 14: pacote de entrada em Production separado dos seeds sintéticos, permissões server-only e rollback protegido. Webhooks duplicados, atrasados ou fora de ordem não podem reabrir uma assinatura cancelada; toda decisão continua em observe. As mutações gerais permanecem somente para leitura.
+            Etapa 15B: pacote de entrada em Production separado dos seeds sintéticos, permissões server-only, rollback versionado e claims de webhook atômicos. Eventos duplicados, concorrentes, atrasados ou fora de ordem não podem reabrir uma assinatura cancelada; toda decisão continua em observe. As mutações gerais permanecem somente para leitura.
           </div>
           <p className="mt-2 text-xs text-slate-500">
             Histórico preservado: SaaS · etapa 13 concluída exclusivamente no Sandbox, sem confirmação de pagamento.

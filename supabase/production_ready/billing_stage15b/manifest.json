@@ -1,0 +1,66 @@
+{
+  "stage": "15B",
+  "mode": "observe",
+  "deployment_strategy": "supabase_apply_migration_only",
+  "requires_new_production_authorization": true,
+  "supersedes": "supabase/production_ready/billing_stage14",
+  "approved_migrations": [
+    {
+      "order": 1,
+      "migration_name": "billing_stage15b_foundation_asaas",
+      "path": "supabase/production_ready/billing_stage15b/20260828170000_billing_foundation_asaas.sql",
+      "sha256": "11548f52e56a325f065dfaff43e9f517d4483ac9e64c97c9e859c8c4d56f70f2"
+    },
+    {
+      "order": 2,
+      "migration_name": "billing_stage15b_registration_profiles",
+      "path": "supabase/production_ready/billing_stage15b/20260828171000_store_billing_registration_profiles.sql",
+      "sha256": "cab6d8acf19ab8b54efabe2582090e826d0238483d80cb203559d30ea10b57bc"
+    },
+    {
+      "order": 3,
+      "migration_name": "billing_stage15b_observe_hardening",
+      "path": "supabase/production_ready/billing_stage15b/20260828172000_billing_observe_hardening.sql",
+      "sha256": "71ee05b51bb12b21181249977f34b4b33ee3a482a44c055600839920bf43a892"
+    },
+    {
+      "order": 4,
+      "migration_name": "billing_stage15b_webhook_atomicity",
+      "path": "supabase/production_ready/billing_stage15b/20260828173000_billing_webhook_atomicity.sql",
+      "sha256": "6b942b6ad183eff287f2c76f375806a22df13454954b76d4129ab0824b752ae8"
+    }
+  ],
+  "history": {
+    "record_each_step": true,
+    "direct_sql_forbidden": true,
+    "db_push_forbidden": true,
+    "application_receipt_required": true,
+    "rollback_strategy": "forward_migration",
+    "rollback_migration_name": "billing_stage15b_forward_rollback"
+  },
+  "verification": {
+    "preflight_path": "supabase/production_ready/billing_stage15b/preflight_before_read_only.sql",
+    "preflight_sha256": "be61a1a5bfef1e2670dff8306c56dd42ea44e44f26f877af8343277caef45632",
+    "postflight_path": "supabase/production_ready/billing_stage15b/postflight_after_read_only.sql",
+    "postflight_sha256": "de187046da19bda9e3edd619d3022c6078914accd7340c792c2c85ea705afad8",
+    "rollback_path": "supabase/production_ready/billing_stage15b/20260828174000_billing_stage15b_forward_rollback.sql",
+    "rollback_sha256": "77444b4de5ed38c47f9850df6ea5d8768484a5c556488940f4f79e55aa68cc54",
+    "rehearsal_builder_path": "scripts/build-billing-stage15b-rehearsal.mjs",
+    "rehearsal_builder_sha256": "12d41107d65a903f0172ee3d6fab93d114ca07ab202bb141a5e843a09be26b61"
+  },
+  "excluded_paths": [
+    "supabase/production_ready/billing_stage14",
+    "supabase/migrations/20260827044014_billing_foundation_asaas.sql",
+    "supabase/migrations/20260828131550_store_registration_profiles_stage12.sql",
+    "supabase/billing-stage-13-synthetic-activation-seed.sql"
+  ],
+  "required_flags": {
+    "production_reads": false,
+    "production_mutations": false,
+    "trial_start": false,
+    "payment_confirmation": false,
+    "global_enforcement": false,
+    "production_enforcement": false,
+    "asaas_production_credentials": false
+  }
+}

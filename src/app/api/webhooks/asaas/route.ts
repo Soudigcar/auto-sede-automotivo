@@ -7,6 +7,8 @@ import {
   readAsaasServerConfiguration
 } from '@/lib/server/billing/asaas';
 import {
+  claimStoredBillingWebhookEvent,
+  completeStoredBillingWebhookEvent,
   missingBillingFoundation,
   processStoredAsaasWebhookEvent
 } from '@/lib/server/billing/repository';
@@ -70,37 +72,29 @@ export async function POST(request: Request) {
       return NextResponse.json({ received: true, duplicate: true, processing_status: storedEvent.processing_status });
     }
 
-    const nextAttempt = Number(storedEvent.processing_attempts || 0) + 1;
-    const claimed = await supabase
-      .from('billing_webhook_events')
-      .update({ processing_attempts: nextAttempt })
-      .eq('id', storedEvent.id)
-      .eq('processing_attempts', Number(storedEvent.processing_attempts || 0))
-      .in('processing_status', ['pending', 'failed'])
-      .select('id,provider_event_id,event_type,provider_object_type,provider_object_id,payload,processing_status,processing_attempts')
-      .maybeSingle();
-    if (claimed.error) throw claimed.error;
-    if (!claimed.data) {
+    const claimed = await claimStoredBillingWebhookEvent(supabase, storedEvent.id);
+    if (!claimed) {
       return NextResponse.json({
         received: true,
         duplicate: true,
         processing_status: storedEvent.processing_status
       });
     }
-    storedEvent = claimed.data;
+    storedEvent = claimed;
 
     const processed = await processStoredAsaasWebhookEvent(supabase, storedEvent, {
       syntheticStoreIds: asaasSandbox.syntheticStoreIds
     });
-    const { error: updateError } = await supabase
-      .from('billing_webhook_events')
-      .update({
-        processing_status: processed.processing_status,
-        processed_at: new Date().toISOString(),
-        last_error: null
-      })
-      .eq('id', storedEvent.id);
-    if (updateError) throw updateError;
+    const completed = await completeStoredBillingWebhookEvent(supabase, {
+      eventId: storedEvent.id,
+      processingToken: storedEvent.processing_token,
+      processingStatus: processed.processing_status
+    });
+    if (!completed) {
+      throw Object.assign(new Error('O lease do webhook expirou antes da finalizacao.'), {
+        code: 'BILLING_WEBHOOK_LEASE_LOST'
+      });
+    }
 
     return NextResponse.json({
       received: true,
@@ -112,14 +106,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Billing ainda nao provisionado.' }, { status: 503 });
     }
     const response = publicError(error, 'Falha ao receber evento do Asaas.');
-    if (storedEvent?.id) {
-      await supabase
-        .from('billing_webhook_events')
-        .update({
-          processing_status: 'failed',
-          last_error: response.message.slice(0, 1000)
-        })
-        .eq('id', storedEvent.id);
+    if (storedEvent?.id && storedEvent?.processing_token) {
+      try {
+        await completeStoredBillingWebhookEvent(supabase, {
+          eventId: storedEvent.id,
+          processingToken: storedEvent.processing_token,
+          processingStatus: 'failed',
+          lastError: response.message
+        });
+      } catch {
+        // O erro original permanece a resposta; outro worker pode ter retomado o lease.
+      }
     }
     return NextResponse.json({ error: response.message }, { status: response.status });
   }

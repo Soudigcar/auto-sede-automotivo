@@ -9,6 +9,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "billing:stage15b:rehearsal-sql": "node scripts/build-billing-stage15b-rehearsal.mjs --schema billing_stage15b_rehearsal",
     "lint": "eslint . --max-warnings=0",
     "test": "node --import tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit"

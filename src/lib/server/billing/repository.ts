@@ -11,9 +11,9 @@ import {
   type AsaasServerConfiguration
 } from '@/lib/server/billing/asaas';
 
-export const BILLING_FOUNDATION_MIGRATION = '20260827044014_billing_foundation_asaas';
+export const BILLING_FOUNDATION_MIGRATION = 'billing_stage15b_foundation_asaas';
 export const BILLING_REGISTRATION_MIGRATION =
-  '20260828131550_store_registration_profiles_stage12';
+  'billing_stage15b_registration_profiles';
 export const BILLING_GRACE_PERIOD_DAYS = 3;
 
 type SyntheticStoreProfile = {
@@ -80,6 +80,31 @@ function billingRepositoryError(code: string, message: string) {
   return Object.assign(new Error(message), { code });
 }
 
+export async function claimStoredBillingWebhookEvent(supabase: any, eventId: string) {
+  const { data, error } = await supabase.rpc('claim_billing_webhook_event', {
+    p_event_id: eventId,
+    p_lease_seconds: 120
+  });
+  if (error) throw error;
+  return Array.isArray(data) ? data[0] || null : data || null;
+}
+
+export async function completeStoredBillingWebhookEvent(supabase: any, input: {
+  eventId: string;
+  processingToken: string;
+  processingStatus: 'processed' | 'ignored' | 'failed';
+  lastError?: string | null;
+}) {
+  const { data, error } = await supabase.rpc('complete_billing_webhook_event', {
+    p_event_id: input.eventId,
+    p_processing_token: input.processingToken,
+    p_processing_status: input.processingStatus,
+    p_last_error: input.lastError || null
+  });
+  if (error) throw error;
+  return data === true;
+}
+
 export function asaasCheckoutFailureState(subscription: any) {
   return {
     code: 'asaas_sandbox_checkout_retryable',
@@ -101,7 +126,7 @@ export function missingBillingFoundation(error: any) {
   const code = String(error?.code || '');
   const message = String(error?.message || error || '');
   return ['42P01', '42883', 'PGRST202', 'PGRST205'].includes(code)
-    || /billing_plans|store_billing_subscriptions|store_billing_registration_profiles|store_billing_registration_audit|start_store_billing_trial|schema cache|does not exist/i.test(message);
+    || /billing_plans|store_billing_subscriptions|store_billing_registration_profiles|store_billing_registration_audit|start_store_billing_trial|claim_billing_webhook_event|apply_asaas_(?:subscription|payment)_webhook_event|schema cache|does not exist/i.test(message);
 }
 
 export async function readMasterBillingOverview(supabase: any) {
@@ -548,6 +573,14 @@ export function asaasDueDateKey(value: unknown) {
   const text = providerText(value, 80);
   const match = /^(\d{4}-\d{2}-\d{2})/.exec(text);
   return match?.[1] || '';
+}
+
+function asaasTimestamp(value: unknown) {
+  const text = providerText(value, 80);
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return `${text}T00:00:00.000Z`;
+  const parsed = new Date(text);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
 }
 
 export async function confirmStoreAsaasSandboxPayment(supabase: any, input: {
@@ -1228,12 +1261,6 @@ export function monthlyBillingPeriod(input: unknown) {
   };
 }
 
-function staleBillingPeriod(dueAt: unknown, currentPeriodStartedAt: unknown) {
-  const dueDate = asaasDueDateKey(dueAt);
-  const currentDate = billingDateKey(currentPeriodStartedAt);
-  return Boolean(dueDate && currentDate && dueDate < currentDate);
-}
-
 async function writeWebhookAuditOnce(supabase: any, input: {
   event: StoredAsaasWebhookEvent;
   subscription: any;
@@ -1273,25 +1300,6 @@ async function writeWebhookAuditOnce(supabase: any, input: {
     }
   });
   if (error) throw error;
-}
-
-function safeTransitionReason(eventType: string) {
-  if (['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED'].includes(eventType)) {
-    return 'Pagamento sintetico confirmado pelo webhook autenticado do Asaas Sandbox.';
-  }
-  if (eventType === 'PAYMENT_OVERDUE') {
-    return 'Cobranca marcada como vencida pelo webhook autenticado do Asaas Sandbox.';
-  }
-  if (eventType === 'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED') {
-    return 'Cartao sintetico recusado pelo fluxo autenticado de homologacao do Asaas Sandbox.';
-  }
-  if (eventType === 'PAYMENT_REFUNDED') {
-    return 'Pagamento marcado como estornado pelo webhook autenticado do Asaas Sandbox.';
-  }
-  if (eventType.startsWith('PAYMENT_CHARGEBACK')) {
-    return 'Chargeback informado pelo webhook autenticado do Asaas Sandbox.';
-  }
-  return 'Estado da assinatura atualizado pelo webhook autenticado do Asaas Sandbox.';
 }
 
 export async function processStoredAsaasWebhookEvent(
@@ -1351,31 +1359,14 @@ export async function processStoredAsaasWebhookEvent(
   }
 
   if (event.provider_object_type === 'subscription') {
-    const update: Record<string, unknown> = { updated_at: now };
-    if (references.providerSubscriptionId) {
-      update.provider_subscription_id = references.providerSubscriptionId;
-    }
-    if (references.customerId) update.provider_customer_id = references.customerId;
-    const cancelled = ['SUBSCRIPTION_INACTIVATED', 'SUBSCRIPTION_DELETED'].includes(event.event_type);
-    if (cancelled) {
-      update.status = 'cancelled';
-      update.cancelled_at = now;
-    }
-    const { error } = await supabase
-      .from('store_billing_subscriptions')
-      .update(update)
-      .eq('id', subscription.id);
+    const { error } = await supabase.rpc('apply_asaas_subscription_webhook_event', {
+      p_subscription_id: subscription.id,
+      p_provider_event_id: providerText(event.provider_event_id, 240),
+      p_event_type: event.event_type,
+      p_provider_subscription_id: references.providerSubscriptionId || null,
+      p_provider_customer_id: references.customerId || null
+    });
     if (error) throw error;
-    if (cancelled && subscription.status !== 'cancelled') {
-      await writeWebhookAuditOnce(supabase, {
-        event,
-        subscription,
-        action: 'asaas_webhook_subscription_transition',
-        previousStatus: subscription.status,
-        newStatus: 'cancelled',
-        reason: 'Assinatura cancelada pelo webhook autenticado do Asaas Sandbox.'
-      });
-    }
     return { processing_status: 'processed', subscription_id: subscription.id };
   }
 
@@ -1385,137 +1376,23 @@ export async function processStoredAsaasWebhookEvent(
     if (!providerPaymentId || !Number.isInteger(amountCents) || amountCents !== 149700) {
       return { processing_status: 'ignored', subscription_id: subscription.id };
     }
-    if (references.providerSubscriptionId || references.customerId) {
-      const linkUpdate: Record<string, unknown> = { updated_at: now };
-      if (references.providerSubscriptionId) {
-        linkUpdate.provider_subscription_id = references.providerSubscriptionId;
-      }
-      if (references.customerId) linkUpdate.provider_customer_id = references.customerId;
-      const { error: linkError } = await supabase
-        .from('store_billing_subscriptions')
-        .update(linkUpdate)
-        .eq('id', subscription.id);
-      if (linkError) throw linkError;
-    }
     const paymentDate = providerText(object.paymentDate || object.confirmedDate, 80) || null;
     const dueAt = providerText(object.dueDate, 80) || null;
-    const existingPaymentResult = await supabase
-      .from('billing_payments')
-      .select('provider_status,due_at,confirmed_at,received_at,overdue_at,refunded_at,chargeback_at,external_reference')
-      .eq('provider_payment_id', providerPaymentId)
-      .maybeSingle();
-    if (existingPaymentResult.error) throw existingPaymentResult.error;
-    const existingPayment = existingPaymentResult.data || {};
-    const paymentState = resolveAsaasPaymentState({
-      eventType: event.event_type,
-      providerStatus: object.status,
-      existingStatus: existingPayment.provider_status,
-      existingConfirmedAt: existingPayment.confirmed_at,
-      existingReceivedAt: existingPayment.received_at
+    const { error } = await supabase.rpc('apply_asaas_payment_webhook_event', {
+      p_subscription_id: subscription.id,
+      p_store_id: subscription.store_id,
+      p_provider_event_id: providerText(event.provider_event_id, 240),
+      p_provider_payment_id: providerPaymentId,
+      p_event_type: event.event_type,
+      p_provider_status: providerText(object.status, 120) || null,
+      p_amount_cents: amountCents,
+      p_due_at: asaasTimestamp(dueAt),
+      p_payment_at: asaasTimestamp(paymentDate),
+      p_external_reference: providerText(object.externalReference, 200) || null,
+      p_provider_subscription_id: references.providerSubscriptionId || null,
+      p_provider_customer_id: references.customerId || null
     });
-    const { error: paymentError } = await supabase.from('billing_payments').upsert({
-      subscription_id: subscription.id,
-      store_id: subscription.store_id,
-      provider: 'asaas',
-      provider_payment_id: providerPaymentId,
-      provider_status: paymentState.providerStatus,
-      amount_cents: amountCents,
-      due_at: existingPayment.due_at || dueAt || null,
-      confirmed_at: paymentState.subscriptionTarget === 'active'
-        ? existingPayment.confirmed_at || paymentDate || now
-        : existingPayment.confirmed_at || null,
-      received_at: ['RECEIVED', 'RECEIVED_IN_CASH'].includes(paymentState.providerStatus)
-        ? existingPayment.received_at || paymentDate || now
-        : existingPayment.received_at || null,
-      overdue_at: paymentState.providerStatus === 'OVERDUE' ? now : existingPayment.overdue_at || null,
-      refunded_at: paymentState.providerStatus.startsWith('REFUND') ? now : existingPayment.refunded_at || null,
-      chargeback_at: paymentState.providerStatus.startsWith('CHARGEBACK')
-        ? now
-        : existingPayment.chargeback_at || null,
-      external_reference: providerText(object.externalReference, 200) || existingPayment.external_reference || null,
-      updated_at: now
-    }, { onConflict: 'provider_payment_id' });
-    if (paymentError) throw paymentError;
-
-    let targetStatus = paymentState.subscriptionTarget;
-    let terminalTransitionIgnored = false;
-    if (subscription.status === 'cancelled') {
-      terminalTransitionIgnored = true;
-      targetStatus = null;
-    }
-    const lossEvent = event.event_type === 'PAYMENT_REFUNDED'
-      || event.event_type.startsWith('PAYMENT_CHARGEBACK');
-    if (
-      targetStatus
-      && staleBillingPeriod(dueAt || existingPayment.due_at, subscription.current_period_started_at)
-      && !lossEvent
-    ) {
-      targetStatus = null;
-      await writeWebhookAuditOnce(supabase, {
-        event,
-        subscription,
-        action: 'asaas_webhook_stale_transition_ignored',
-        previousStatus: subscription.status,
-        newStatus: subscription.status,
-        reason: 'Evento financeiro antigo preservado sem regredir o periodo atual da assinatura.'
-      });
-    }
-    if (paymentState.stale && !targetStatus) {
-      await writeWebhookAuditOnce(supabase, {
-        event,
-        subscription,
-        action: 'asaas_webhook_stale_transition_ignored',
-        previousStatus: subscription.status,
-        newStatus: subscription.status,
-        reason: 'Evento financeiro duplicado ou fora de ordem preservado sem regressao de estado.'
-      });
-    }
-    if (terminalTransitionIgnored) {
-      await writeWebhookAuditOnce(supabase, {
-        event,
-        subscription,
-        action: 'asaas_webhook_terminal_transition_ignored',
-        previousStatus: 'cancelled',
-        newStatus: 'cancelled',
-        reason: 'Evento financeiro atrasado preservado sem reabrir assinatura cancelada.'
-      });
-    }
-    if (targetStatus) {
-      const update: Record<string, unknown> = {
-        status: targetStatus,
-        updated_at: now
-      };
-      if (targetStatus === 'active') {
-        const effectiveDueAt = existingPayment.due_at || dueAt;
-        const periodAnchor = asaasDueDateKey(effectiveDueAt) === billingDateKey(subscription.trial_ends_at)
-          ? subscription.trial_ends_at
-          : effectiveDueAt || paymentDate || now;
-        const period = monthlyBillingPeriod(periodAnchor);
-        update.current_period_started_at = period?.startsAt || paymentDate || now;
-        update.current_period_ends_at = period?.endsAt || null;
-        update.past_due_at = null;
-        update.grace_ends_at = null;
-      } else {
-        update.past_due_at = subscription.past_due_at || now;
-        update.grace_ends_at = subscription.grace_ends_at
-          || new Date(Date.now() + BILLING_GRACE_PERIOD_DAYS * 86_400_000).toISOString();
-      }
-      const { error: subscriptionError } = await supabase
-        .from('store_billing_subscriptions')
-        .update(update)
-        .eq('id', subscription.id);
-      if (subscriptionError) throw subscriptionError;
-      if (subscription.status !== targetStatus) {
-        await writeWebhookAuditOnce(supabase, {
-          event,
-          subscription,
-          action: 'asaas_webhook_subscription_transition',
-          previousStatus: subscription.status,
-          newStatus: targetStatus,
-          reason: safeTransitionReason(event.event_type)
-        });
-      }
-    }
+    if (error) throw error;
     return { processing_status: 'processed', subscription_id: subscription.id };
   }
 

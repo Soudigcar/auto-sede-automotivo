@@ -242,9 +242,9 @@ test('falha do Asaas preserva trial, não confirma pagamento e permite retry seg
   assert.doesNotMatch(masterRoute, /checkoutError\?\.message/);
 });
 
-test('Preview e runbook identificam a etapa 14 sem autorizar Production', () => {
-  assert.match(masterUi, /SaaS · etapa 14/);
-  assert.match(masterUi, /pacote de entrada em Production separado dos seeds sintéticos/);
+test('Preview identifica a etapa 15B e o runbook histórico não autoriza Production', () => {
+  assert.match(masterUi, /SaaS · etapa 15B/);
+  assert.match(masterUi, /claims de webhook atômicos/);
   assert.match(runbook, /Uma nova autorização será necessária/);
   assert.match(runbook, /Não executar `supabase db push` indiscriminadamente/);
   assert.match(runbook, /continua permitido enquanto o enforcement global/);

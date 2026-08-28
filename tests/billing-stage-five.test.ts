@@ -19,6 +19,10 @@ const repository = readFileSync('src/lib/server/billing/repository.ts', 'utf8');
 const masterRoute = readFileSync('src/app/api/master/billing/route.ts', 'utf8');
 const webhookRoute = readFileSync('src/app/api/webhooks/asaas/route.ts', 'utf8');
 const billingUi = readFileSync('src/components/MasterBillingCenter.tsx', 'utf8');
+const atomicMigration = readFileSync(
+  'supabase/production_ready/billing_stage15b/20260828173000_billing_webhook_atomicity.sql',
+  'utf8'
+);
 
 const positiveStoreId = '06652d5a-9ca6-4c4d-9bf5-0a2afb6b6dfe';
 const failureStoreId = '16652d5a-9ca6-4c4d-9bf5-0a2afb6b6dfe';
@@ -184,8 +188,9 @@ test('vencimento civil do Asaas nao retrocede um dia ao passar por timestamptz',
 
 test('codigo preserva carencia e evidencias da etapa 5, mas remove seus controles sinteticos', () => {
   assert.equal(BILLING_GRACE_PERIOD_DAYS, 3);
-  assert.match(repository, /subscription\.past_due_at \|\| now/);
-  assert.match(repository, /subscription\.grace_ends_at[\s\S]*BILLING_GRACE_PERIOD_DAYS/);
+  assert.match(repository, /apply_asaas_payment_webhook_event/);
+  assert.match(atomicMigration, /clock_timestamp\(\) \+ interval '3 days'/);
+  assert.match(atomicMigration, /for update/);
   assert.match(repository, /PAYMENT_CREDIT_CARD_CAPTURE_REFUSED/);
   assert.match(repository, /duplicate_requested/);
   assert.match(repository, /out_of_order/);
