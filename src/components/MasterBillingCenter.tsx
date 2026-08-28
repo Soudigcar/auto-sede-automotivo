@@ -4,19 +4,28 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   Bot,
+  Building2,
   CalendarDays,
   CheckCircle2,
   Clock3,
   CreditCard,
   Eye,
+  FileCheck2,
   History,
+  IdCard,
   Loader2,
+  Mail,
+  Phone,
   RefreshCw,
   ShieldCheck,
   Store,
   Users
 } from 'lucide-react';
 import { MasterSidebar } from '@/components/MasterSidebar';
+import {
+  evaluateBillingRegistrationReadiness,
+  type BillingRegistrationReadiness
+} from '@/lib/billingRegistrationReadiness';
 import { createClient } from '@/lib/supabase';
 
 type BillingPlan = {
@@ -90,8 +99,14 @@ type BillingStore = {
   slug: string | null;
   status: string | null;
   portal_enabled: boolean | null;
+  registration_source: string | null;
+  legal_name: string | null;
+  cnpj: string | null;
+  responsible_email: string | null;
+  responsible_phone: string | null;
   active_system_users: number;
   billing_eligible: boolean;
+  billing_registration_simulation_allowed: boolean;
 };
 
 type BillingOverview = {
@@ -112,6 +127,7 @@ type BillingOverview = {
     deployment_environment: 'preview' | 'production';
     connected_project_ref: string;
     preview_only: boolean;
+    registration_simulation_enabled: boolean;
     production_observe_prepared: boolean;
   };
   asaas: {
@@ -130,6 +146,42 @@ type BillingOverview = {
     errors: string[];
   };
 };
+
+type RegistrationDraft = {
+  legalName: string;
+  cnpj: string;
+  financialEmail: string;
+  financialPhone: string;
+};
+
+type RegistrationSimulationResult = {
+  persisted: false;
+  readiness: BillingRegistrationReadiness;
+  activation_simulation: {
+    outcome: 'ready_for_future_activation' | 'blocked_by_registration';
+    would_start_trial: false;
+    would_create_asaas_customer: false;
+    would_charge: false;
+    access_enforcement_mode: 'observe';
+  };
+  message: string;
+};
+
+const emptyRegistrationDraft: RegistrationDraft = {
+  legalName: '',
+  cnpj: '',
+  financialEmail: '',
+  financialPhone: ''
+};
+
+function registrationDraftFromStore(store: BillingStore): RegistrationDraft {
+  return {
+    legalName: store.legal_name || '',
+    cnpj: store.cnpj || '',
+    financialEmail: store.responsible_email || '',
+    financialPhone: store.responsible_phone || ''
+  };
+}
 
 const paymentStatusLabels: Record<string, string> = {
   PENDING: 'Cobrança agendada',
@@ -232,6 +284,10 @@ export function MasterBillingCenter() {
   const [message, setMessage] = useState('');
   const [query, setQuery] = useState('');
   const [nowMs, setNowMs] = useState(0);
+  const [registrationStoreId, setRegistrationStoreId] = useState('');
+  const [registrationDraft, setRegistrationDraft] = useState<RegistrationDraft>(emptyRegistrationDraft);
+  const [registrationSimulation, setRegistrationSimulation] = useState<RegistrationSimulationResult | null>(null);
+  const [registrationBusy, setRegistrationBusy] = useState(false);
 
   const accessToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
@@ -269,6 +325,19 @@ export function MasterBillingCenter() {
     return () => window.clearInterval(timer);
   }, []);
 
+  const registrationStores = useMemo(() => (
+    (overview?.stores || []).filter((store) => store.billing_registration_simulation_allowed)
+  ), [overview?.stores]);
+
+  useEffect(() => {
+    if (!registrationStores.length) return;
+    if (registrationStores.some((store) => store.id === registrationStoreId)) return;
+    const first = registrationStores[0];
+    setRegistrationStoreId(first.id);
+    setRegistrationDraft(registrationDraftFromStore(first));
+    setRegistrationSimulation(null);
+  }, [registrationStoreId, registrationStores]);
+
   const subscriptionsByStore = useMemo(() => new Map(
     (overview?.subscriptions || []).map((subscription) => [subscription.store_id, subscription])
   ), [overview?.subscriptions]);
@@ -297,6 +366,69 @@ export function MasterBillingCenter() {
   const withoutSubscription = (overview?.stores || []).filter((store) => (
     store.billing_eligible && !subscriptionsByStore.has(store.id)
   )).length;
+  const selectedRegistrationStore = registrationStores.find((store) => (
+    store.id === registrationStoreId
+  )) || null;
+  const liveRegistrationReadiness = evaluateBillingRegistrationReadiness({
+    ...registrationDraft,
+    storeStatus: selectedRegistrationStore?.status,
+    activeSystemUsers: selectedRegistrationStore?.active_system_users
+  });
+  const storedReadinessByStore = new Map(registrationStores.map((store) => [
+    store.id,
+    evaluateBillingRegistrationReadiness({
+      ...registrationDraftFromStore(store),
+      storeStatus: store.status,
+      activeSystemUsers: store.active_system_users
+    })
+  ]));
+  const readyRegistrations = [...storedReadinessByStore.values()].filter((item) => item.ready).length;
+  const incompleteRegistrations = registrationStores.length - readyRegistrations;
+
+  const selectRegistrationStore = (storeId: string) => {
+    const store = registrationStores.find((item) => item.id === storeId);
+    setRegistrationStoreId(storeId);
+    setRegistrationDraft(store ? registrationDraftFromStore(store) : emptyRegistrationDraft);
+    setRegistrationSimulation(null);
+  };
+
+  const changeRegistrationField = (field: keyof RegistrationDraft, value: string) => {
+    setRegistrationDraft((current) => ({ ...current, [field]: value }));
+    setRegistrationSimulation(null);
+  };
+
+  const simulateRegistrationReadiness = async () => {
+    if (!selectedRegistrationStore) return;
+    setRegistrationBusy(true);
+    setRegistrationSimulation(null);
+    try {
+      const token = await accessToken();
+      if (!token) throw new Error('Sessão Master expirada. Entre novamente.');
+      const response = await fetch('/api/master/billing/readiness', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        cache: 'no-store',
+        body: JSON.stringify({
+          action: 'simulate-readiness',
+          store_id: selectedRegistrationStore.id,
+          legal_name: registrationDraft.legalName,
+          cnpj: registrationDraft.cnpj,
+          financial_email: registrationDraft.financialEmail,
+          financial_phone: registrationDraft.financialPhone
+        })
+      });
+      const body = await responseBody(response);
+      if (!response.ok) throw new Error(body.error || 'Não foi possível simular a preparação cadastral.');
+      setRegistrationSimulation(body as RegistrationSimulationResult);
+    } catch (error: any) {
+      setMessage(error?.message || 'Não foi possível simular a preparação cadastral.');
+    } finally {
+      setRegistrationBusy(false);
+    }
+  };
   return (
     <main className="premium-page">
       <section className="premium-shell flex min-h-screen">
@@ -306,7 +438,7 @@ export function MasterBillingCenter() {
             <div>
               <div className="flex items-center gap-2 text-red-600">
                 <CreditCard size={18} />
-                <span className="premium-eyebrow">SaaS · etapa 9 · {overview?.safety.runtime_environment || 'ambiente seguro'}</span>
+                <span className="premium-eyebrow">SaaS · etapa 11 · {overview?.safety.runtime_environment || 'ambiente seguro'}</span>
               </div>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Planos e Billing</h1>
               <p className="premium-muted mt-3 max-w-4xl text-sm">
@@ -321,7 +453,7 @@ export function MasterBillingCenter() {
           <section className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <SafetyCard icon={ShieldCheck} label="Bloqueio global" value={overview?.safety.global_enforcement_enabled ? 'Ligado' : 'Desligado'} safe={!overview?.safety.global_enforcement_enabled} />
             <SafetyCard icon={Eye} label="Modo das lojas" value="Observação" safe />
-            <SafetyCard icon={CreditCard} label="Mutações" value={overview?.safety.mutations_enabled ? 'Habilitadas' : 'Somente leitura'} safe={!overview?.safety.mutations_enabled} />
+            <SafetyCard icon={CreditCard} label="Mutações financeiras" value={overview?.safety.mutations_enabled ? 'Habilitadas' : 'Somente leitura'} safe={!overview?.safety.mutations_enabled} />
             <SafetyCard icon={CreditCard} label="Asaas" value={overview?.asaas.sandbox_enabled ? 'Sandbox habilitado' : 'Aguardando configuração'} safe={Boolean(overview?.asaas.sandbox_enabled)} />
             <SafetyCard
               icon={Activity}
@@ -332,7 +464,7 @@ export function MasterBillingCenter() {
           </section>
 
           <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-sky-800">
-            Etapa 6 somente para leitura: trial, Checkout Sandbox, confirmação manual e cenários negativos estão bloqueados no servidor. Nenhum registro financeiro será criado por esta tela.
+            Etapa 11: o checklist cadastral apenas valida dados sintéticos em memória. O billing financeiro permanece somente para leitura; nenhum campo é salvo, nenhum trial é iniciado e nenhuma chamada ao Asaas é realizada.
           </div>
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">
             Entitlement em observação: o sistema calcula o estado comercial de cada loja, registra o diagnóstico sem dados pessoais e preserva integralmente o acesso.
@@ -386,6 +518,128 @@ export function MasterBillingCenter() {
           </section>
 
           <section className="premium-card mt-6 p-5">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-red-600">
+                  <FileCheck2 size={18} />
+                  <p className="premium-eyebrow">Preparação cadastral</p>
+                </div>
+                <h2 className="mt-2 text-2xl font-black text-zinc-950">Checklist para futura ativação</h2>
+                <p className="mt-2 max-w-3xl text-xs font-bold leading-5 text-zinc-500">
+                  Valide o fluxo com dados sintéticos. O formulário não salva, não altera a loja e não inicia trial, cliente Asaas ou cobrança.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:min-w-80">
+                <RegistrationMetric label="Prontas" value={readyRegistrations} tone="success" />
+                <RegistrationMetric label="Incompletas" value={incompleteRegistrations} tone="warning" />
+              </div>
+            </div>
+
+            {overview?.safety.registration_simulation_enabled && registrationStores.length ? (
+              <div className="mt-5 grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <label className="block text-[10px] font-black uppercase tracking-wider text-zinc-500">
+                    Loja sintética
+                    <select
+                      className="premium-input mt-2"
+                      value={registrationStoreId}
+                      onChange={(event) => selectRegistrationStore(event.target.value)}
+                    >
+                      {registrationStores.map((store) => (
+                        <option key={store.id} value={store.id}>{store.store_name}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <RegistrationField
+                      icon={Building2}
+                      label="Razão social"
+                      value={registrationDraft.legalName}
+                      placeholder="Loja Sintética Automóveis Ltda"
+                      onChange={(value) => changeRegistrationField('legalName', value)}
+                    />
+                    <RegistrationField
+                      icon={IdCard}
+                      label="CNPJ"
+                      value={registrationDraft.cnpj}
+                      placeholder="00.000.000/0000-00"
+                      inputMode="numeric"
+                      onChange={(value) => changeRegistrationField('cnpj', value)}
+                    />
+                    <RegistrationField
+                      icon={Mail}
+                      label="E-mail financeiro"
+                      value={registrationDraft.financialEmail}
+                      placeholder="financeiro@empresa.com.br"
+                      inputMode="email"
+                      onChange={(value) => changeRegistrationField('financialEmail', value)}
+                    />
+                    <RegistrationField
+                      icon={Phone}
+                      label="Telefone financeiro"
+                      value={registrationDraft.financialPhone}
+                      placeholder="(61) 99999-1234"
+                      inputMode="tel"
+                      onChange={(value) => changeRegistrationField('financialPhone', value)}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    className="premium-button-primary mt-5 w-full justify-center"
+                    disabled={!selectedRegistrationStore || registrationBusy}
+                    onClick={() => void simulateRegistrationReadiness()}
+                  >
+                    {registrationBusy ? <Loader2 size={16} className="animate-spin" /> : <FileCheck2 size={16} />}
+                    Simular futura ativação — não salva
+                  </button>
+                </div>
+
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Estado atual do formulário</p>
+                      <h3 className="mt-1 text-lg font-black text-zinc-950">
+                        {liveRegistrationReadiness.ready ? 'Pronto para ativação' : 'Cadastro incompleto'}
+                      </h3>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-[9px] font-black uppercase ${liveRegistrationReadiness.ready ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                      {liveRegistrationReadiness.ready ? 'Pronto' : 'Incompleto'}
+                    </span>
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    {liveRegistrationReadiness.checklist.map((item) => (
+                      <RegistrationCheck
+                        key={item.key}
+                        label={item.label}
+                        valid={item.valid}
+                        message={item.message}
+                      />
+                    ))}
+                  </div>
+                  {registrationSimulation ? (
+                    <div className={`mt-4 rounded-xl border p-3 text-xs font-bold leading-5 ${registrationSimulation.readiness.ready ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+                      {registrationSimulation.message}
+                      <p className="mt-1 text-[10px] uppercase tracking-wider opacity-75">
+                        Persistência: não · Trial: não · Asaas: não · Acesso: observe
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="mt-4 rounded-xl bg-sky-50 p-3 text-[11px] font-bold leading-5 text-sky-800">
+                      A validação local é instantânea. Clique em “Simular futura ativação” para o servidor confirmar o mesmo resultado sem persistir dados.
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-5 rounded-2xl border border-dashed border-zinc-300 p-6 text-center text-sm font-bold text-zinc-500">
+                Simulação cadastral indisponível: este ambiente não corresponde ao Preview isolado do saas-dev ou não possui seeds sintéticos autorizados.
+              </div>
+            )}
+          </section>
+
+          <section className="premium-card mt-6 p-5">
             <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
               <div>
                 <h2 className="text-xl font-black text-zinc-950">Situação por loja</h2>
@@ -405,6 +659,7 @@ export function MasterBillingCenter() {
                 );
                 const normalizedPaymentStatus = String(payment?.provider_status || '').toUpperCase();
                 const isFailureStore = store.store_name === 'Loja DEV Billing Falhas';
+                const storedReadiness = storedReadinessByStore.get(store.id) || null;
                 return (
                   <article key={store.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                     <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -413,6 +668,11 @@ export function MasterBillingCenter() {
                           <h3 className="truncate font-black text-zinc-950">{store.store_name}</h3>
                           <span className={`rounded-full px-2.5 py-1 text-[9px] font-black uppercase ${store.portal_enabled ? 'bg-violet-50 text-violet-700' : 'bg-zinc-200 text-zinc-600'}`}>Portal {store.portal_enabled ? 'ativo' : 'desligado'}</span>
                           <span className={`rounded-full px-2.5 py-1 text-[9px] font-black uppercase ${store.billing_eligible ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{store.billing_eligible ? 'Acesso SaaS identificado' : 'Somente portal/sem usuário ativo'}</span>
+                          {storedReadiness ? (
+                            <span className={`rounded-full px-2.5 py-1 text-[9px] font-black uppercase ${storedReadiness.ready ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                              {storedReadiness.ready ? 'Pronto para ativação' : 'Cadastro incompleto'}
+                            </span>
+                          ) : null}
                         </div>
                         <p className="mt-2 text-xs font-bold text-zinc-500">{store.active_system_users} usuário(s) ativo(s) vinculado(s) ao sistema · loja {String(store.status || 'sem status')}</p>
                       </div>
@@ -545,6 +805,74 @@ export function MasterBillingCenter() {
         </div>
       </section>
     </main>
+  );
+}
+
+function RegistrationMetric({
+  label,
+  value,
+  tone
+}: {
+  label: string;
+  value: number;
+  tone: 'success' | 'warning';
+}) {
+  return (
+    <div className={`rounded-xl p-3 ${tone === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+      <p className="text-[9px] font-black uppercase tracking-wider opacity-70">{label}</p>
+      <p className="mt-1 text-2xl font-black">{value}</p>
+    </div>
+  );
+}
+
+function RegistrationField({
+  icon: Icon,
+  label,
+  value,
+  placeholder,
+  inputMode = 'text',
+  onChange
+}: {
+  icon: typeof Store;
+  label: string;
+  value: string;
+  placeholder: string;
+  inputMode?: 'text' | 'numeric' | 'email' | 'tel';
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block text-[10px] font-black uppercase tracking-wider text-zinc-500">
+      <span className="flex items-center gap-2"><Icon size={14} /> {label}</span>
+      <input
+        className="premium-input mt-2 normal-case tracking-normal"
+        value={value}
+        placeholder={placeholder}
+        inputMode={inputMode}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function RegistrationCheck({
+  label,
+  valid,
+  message
+}: {
+  label: string;
+  valid: boolean;
+  message: string;
+}) {
+  return (
+    <div className={`flex items-start gap-3 rounded-xl border p-3 ${valid ? 'border-emerald-100 bg-emerald-50' : 'border-zinc-200 bg-zinc-50'}`}>
+      <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${valid ? 'bg-emerald-600 text-white' : 'bg-zinc-200 text-zinc-500'}`}>
+        {valid ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}
+      </span>
+      <div>
+        <p className={`text-xs font-black ${valid ? 'text-emerald-800' : 'text-zinc-700'}`}>{label}</p>
+        <p className="mt-1 text-[10px] font-bold leading-4 text-zinc-500">{message}</p>
+      </div>
+    </div>
   );
 }
 

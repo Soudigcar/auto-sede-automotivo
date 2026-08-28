@@ -98,7 +98,7 @@ export async function readMasterBillingOverview(supabase: any) {
       .order('created_at', { ascending: false }),
     supabase
       .from('stores')
-      .select('id,store_name,slug,status,portal_enabled,cnpj')
+      .select('id,store_name,slug,status,portal_enabled,registration_source,legal_name,cnpj,responsible_email,responsible_phone')
       .neq('status', 'deleted')
       .order('store_name', { ascending: true }),
     supabase

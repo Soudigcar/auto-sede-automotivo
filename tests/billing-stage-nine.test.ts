@@ -132,7 +132,7 @@ test('APIs e interface ficam genericas para Production observe e Asaas Productio
   assert.match(masterRoute, /production_blocked: true/);
   assert.match(storeRoute, /deployment_environment/);
   assert.doesNotMatch(storeRoute, /Preview não está isolado/);
-  assert.match(masterUi, /SaaS · etapa 9/);
+  assert.match(masterUi, /SaaS · etapa 11/);
   assert.match(storeUi, /ambiente de observação/);
   assert.match(asaas, /ASAAS_PRODUCTION_FORBIDDEN/);
   assert.match(asaas, /configuration\.environment !== 'sandbox'/);

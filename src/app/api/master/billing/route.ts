@@ -19,6 +19,8 @@ import { safeErrorMessage } from '@/lib/safeErrorMessage';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const BILLING_STAGE11_DEV_PROJECT_REF = 'hfzmzfhuhukmxkxbkxay';
+
 function uuid(value: unknown) {
   const text = cleanText(value, 80);
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text)
@@ -51,10 +53,26 @@ export async function GET(request: Request) {
     const overview = await readMasterBillingOverview(context.supabase);
     const asaas = readAsaasServerConfiguration();
     const asaasSandbox = readAsaasSandboxSafety();
+    const registrationSimulationEnabled = context.safety.readsEnabled
+      && context.safety.previewEnvironment
+      && context.safety.environmentName === 'saas-dev'
+      && context.safety.actualProjectRef === BILLING_STAGE11_DEV_PROJECT_REF
+      && context.safety.allowedProjectRef === BILLING_STAGE11_DEV_PROJECT_REF;
+    const syntheticStoreIds = new Set(asaasSandbox.syntheticStoreIds);
+    const stores = overview.stores.map((store: any) => ({
+      ...store,
+      billing_registration_simulation_allowed: registrationSimulationEnabled
+        && syntheticStoreIds.has(String(store.id))
+        && (
+          (store.store_name === 'Loja DEV Roteamento' && store.registration_source === 'dev_routing_seed')
+          || (store.store_name === 'Loja DEV Billing Falhas' && store.registration_source === 'billing_stage5_seed')
+        )
+    }));
 
     return NextResponse.json({
       success: true,
       ...overview,
+      stores,
       safety: {
         global_enforcement_enabled: billingEnforcementEnabled(),
         mutations_enabled: context.safety.mutationsEnabled,
@@ -64,6 +82,7 @@ export async function GET(request: Request) {
         deployment_environment: context.safety.deploymentEnvironment,
         connected_project_ref: context.safety.actualProjectRef,
         preview_only: context.safety.previewEnvironment,
+        registration_simulation_enabled: registrationSimulationEnabled,
         production_observe_prepared: context.safety.productionEnvironment
           && context.safety.readsEnabled
           && !context.safety.mutationsEnabled
