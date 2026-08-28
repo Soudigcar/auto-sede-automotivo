@@ -176,6 +176,13 @@ function dateTime(value: string | null) {
   }).format(date);
 }
 
+function asaasDueDate(value: string | null) {
+  if (!value) return 'Não definido';
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match) return 'Data inválida';
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
 function trialRemaining(value: string | null, nowMs: number) {
   if (!value || !nowMs) return '7 dias fixos';
   const remaining = Date.parse(value) - nowMs;
@@ -685,7 +692,9 @@ export function MasterBillingCenter() {
                             ? `${graceRemaining(subscription.grace_ends_at, nowMs)} · até ${dateTime(subscription.grace_ends_at)}`
                             : subscription.status === 'active'
                             ? dateTime(subscription.current_period_ends_at)
-                            : dateTime(payment?.due_at || subscription.trial_ends_at)}
+                            : payment?.due_at
+                              ? asaasDueDate(payment.due_at)
+                              : dateTime(subscription.trial_ends_at)}
                           tone={subscription.status === 'past_due' ? 'warning' : 'neutral'}
                         />
                         <BillingDetail

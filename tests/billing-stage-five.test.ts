@@ -9,6 +9,8 @@ import {
   refundAsaasSandboxPayment
 } from '../src/lib/server/billing/asaas.ts';
 import {
+  asaasDueDateKey,
+  billingDateKey,
   BILLING_GRACE_PERIOD_DAYS,
   resolveAsaasPaymentState
 } from '../src/lib/server/billing/repository.ts';
@@ -167,6 +169,17 @@ test('recusa entra em past_due, sucesso posterior recupera e perda terminal reje
     subscriptionTarget: null,
     stale: true
   });
+});
+
+test('vencimento civil do Asaas nao retrocede um dia ao passar por timestamptz', () => {
+  assert.equal(asaasDueDateKey('2026-09-03T00:00:00.000Z'), '2026-09-03');
+  assert.equal(asaasDueDateKey('2026-09-03 00:00:00+00'), '2026-09-03');
+  assert.equal(billingDateKey('2026-09-03T22:34:14.441Z'), '2026-09-03');
+  assert.equal(
+    asaasDueDateKey('2026-09-03T00:00:00.000Z'),
+    billingDateKey('2026-09-03T22:34:14.441Z')
+  );
+  assert.match(billingUi, /asaasDueDate\(payment\.due_at\)/);
 });
 
 test('codigo fixa carencia em 3 dias, preserva observe e expoe a trilha da etapa 5', () => {

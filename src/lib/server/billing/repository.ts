@@ -365,7 +365,7 @@ export async function createStoreAsaasSandboxCheckout(supabase: any, input: {
   };
 }
 
-function billingDateKey(value: unknown) {
+export function billingDateKey(value: unknown) {
   const text = providerText(value, 80);
   if (!text) return '';
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
@@ -374,6 +374,15 @@ function billingDateKey(value: unknown) {
   } catch {
     return '';
   }
+}
+
+// O Asaas trata o vencimento como uma data civil, sem horario. Quando essa
+// data passa por uma coluna timestamptz, o Postgres a devolve como meia-noite
+// UTC; converter esse instante para Brasilia deslocaria o dia para a vespera.
+export function asaasDueDateKey(value: unknown) {
+  const text = providerText(value, 80);
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(text);
+  return match?.[1] || '';
 }
 
 export async function confirmStoreAsaasSandboxPayment(supabase: any, input: {
@@ -462,7 +471,7 @@ export async function confirmStoreAsaasSandboxPayment(supabase: any, input: {
   if (
     Number(payment.amount_cents) !== 149700
     || !providerText(payment.provider_payment_id).startsWith('pay_')
-    || billingDateKey(payment.due_at) !== billingDateKey(subscription.trial_ends_at)
+    || asaasDueDateKey(payment.due_at) !== billingDateKey(subscription.trial_ends_at)
   ) {
     throw billingRepositoryError(
       'ASAAS_SANDBOX_PAYMENT_MISMATCH',
@@ -643,7 +652,7 @@ function stageFiveWebhookBody(input: {
       id: input.paymentId,
       status: input.providerStatus,
       value: 1497,
-      dueDate: billingDateKey(input.dueAt),
+      dueDate: asaasDueDateKey(input.dueAt),
       billingType: 'CREDIT_CARD',
       customer: input.providerCustomerId,
       subscription: input.providerSubscriptionId,
@@ -722,7 +731,7 @@ export async function runStoreAsaasSandboxFailureScenario(supabase: any, input: 
   if (
     Number(payment.amount_cents) !== 149700
     || !paymentId.startsWith('pay_')
-    || billingDateKey(payment.due_at) !== billingDateKey(subscription.trial_ends_at)
+    || asaasDueDateKey(payment.due_at) !== billingDateKey(subscription.trial_ends_at)
   ) {
     throw billingRepositoryError(
       'ASAAS_SANDBOX_PAYMENT_MISMATCH',
@@ -1055,7 +1064,7 @@ export function monthlyBillingPeriod(input: unknown) {
 }
 
 function staleBillingPeriod(dueAt: unknown, currentPeriodStartedAt: unknown) {
-  const dueDate = billingDateKey(dueAt);
+  const dueDate = asaasDueDateKey(dueAt);
   const currentDate = billingDateKey(currentPeriodStartedAt);
   return Boolean(dueDate && currentDate && dueDate < currentDate);
 }
@@ -1286,7 +1295,7 @@ export async function processStoredAsaasWebhookEvent(
       };
       if (targetStatus === 'active') {
         const effectiveDueAt = existingPayment.due_at || dueAt;
-        const periodAnchor = billingDateKey(effectiveDueAt) === billingDateKey(subscription.trial_ends_at)
+        const periodAnchor = asaasDueDateKey(effectiveDueAt) === billingDateKey(subscription.trial_ends_at)
           ? subscription.trial_ends_at
           : effectiveDueAt || paymentDate || now;
         const period = monthlyBillingPeriod(periodAnchor);
