@@ -42,6 +42,16 @@ function expectedSyntheticStore(
       registrationWriteAllowed: true
     };
   }
+  if (
+    sandbox.stage13ActivationEnabled
+    && storeId === sandbox.stage13SyntheticStoreId
+  ) {
+    return {
+      name: 'Loja DEV Billing Ativacao',
+      registrationSource: 'billing_stage13_seed',
+      registrationWriteAllowed: false
+    };
+  }
   return null;
 }
 

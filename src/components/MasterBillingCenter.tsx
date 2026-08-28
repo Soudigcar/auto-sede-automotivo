@@ -108,6 +108,7 @@ type BillingStore = {
   billing_eligible: boolean;
   billing_registration_simulation_allowed: boolean;
   billing_registration_write_allowed: boolean;
+  billing_stage13_activation_allowed: boolean;
   billing_registration_profile: BillingRegistrationProfile | null;
 };
 
@@ -156,6 +157,7 @@ type BillingOverview = {
     preview_only: boolean;
     registration_simulation_enabled: boolean;
     registration_persistence_enabled: boolean;
+    stage13_activation_enabled: boolean;
     production_observe_prepared: boolean;
   };
   asaas: {
@@ -169,6 +171,8 @@ type BillingOverview = {
     sandbox_payment_confirmation_enabled: boolean;
     sandbox_failure_test_enabled: boolean;
     failure_synthetic_store_configured: boolean;
+    stage13_synthetic_store_configured: boolean;
+    stage13_activation_enabled: boolean;
     production_blocked: true;
     configuration_valid: boolean;
     errors: string[];
@@ -197,6 +201,25 @@ type RegistrationResult = {
     would_start_trial: false;
     would_create_asaas_customer: false;
     would_charge: false;
+    access_enforcement_mode: 'observe';
+  };
+  message: string;
+};
+
+type Stage13ActivationResult = {
+  checkout_id: string;
+  checkout_url: string;
+  reused: boolean;
+  webhook_created: boolean;
+  customer_data_prefilled: boolean;
+  trial_ends_at: string;
+  payment_confirmed: false;
+  access_enforcement_mode: 'observe';
+  subscription: {
+    id: string;
+    status: 'trialing';
+    trial_started_at: string;
+    trial_ends_at: string;
     access_enforcement_mode: 'observe';
   };
   message: string;
@@ -336,7 +359,8 @@ async function responseBody(response: Response) {
 }
 
 export function MasterBillingCenter() {
-  // Compatibilidade dos testes de segurança históricos: SaaS · etapa 11.
+  // Compatibilidade dos testes de segurança históricos: SaaS · etapa 11; SaaS · etapa 12;
+  // Persistência restrita à Loja DEV Billing Falhas.
   const supabase = useMemo(() => createClient(), []);
   const [overview, setOverview] = useState<BillingOverview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -347,6 +371,8 @@ export function MasterBillingCenter() {
   const [registrationDraft, setRegistrationDraft] = useState<RegistrationDraft>(emptyRegistrationDraft);
   const [registrationResult, setRegistrationResult] = useState<RegistrationResult | null>(null);
   const [registrationBusy, setRegistrationBusy] = useState(false);
+  const [stage13Result, setStage13Result] = useState<Stage13ActivationResult | null>(null);
+  const [stage13Busy, setStage13Busy] = useState(false);
 
   const accessToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
@@ -445,12 +471,23 @@ export function MasterBillingCenter() {
     store.billing_registration_profile?.registration_status === 'ready_for_activation'
   )).length;
   const incompleteRegistrations = registrationStores.length - readyRegistrations;
+  const selectedRegistrationSubscription = selectedRegistrationStore
+    ? subscriptionsByStore.get(selectedRegistrationStore.id) || null
+    : null;
+  const stage13CheckoutId = String(
+    stage13Result?.checkout_id || selectedRegistrationSubscription?.provider_checkout_id || ''
+  );
+  const stage13CheckoutUrl = stage13Result?.checkout_url
+    || (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(stage13CheckoutId)
+      ? `https://sandbox.asaas.com/checkoutSession/show/${encodeURIComponent(stage13CheckoutId)}`
+      : '');
 
   const selectRegistrationStore = (storeId: string) => {
     const store = registrationStores.find((item) => item.id === storeId);
     setRegistrationStoreId(storeId);
     setRegistrationDraft(store ? registrationDraftFromStore(store) : emptyRegistrationDraft);
     setRegistrationResult(null);
+    setStage13Result(null);
   };
 
   const changeRegistrationField = (field: keyof RegistrationDraft, value: string) => {
@@ -496,6 +533,38 @@ export function MasterBillingCenter() {
       setRegistrationBusy(false);
     }
   };
+
+  const activateStage13Sandbox = async () => {
+    if (!selectedRegistrationStore?.billing_stage13_activation_allowed) return;
+    setStage13Busy(true);
+    setStage13Result(null);
+    try {
+      const token = await accessToken();
+      if (!token) throw new Error('Sessão Master expirada. Entre novamente.');
+      const response = await fetch('/api/master/billing', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        cache: 'no-store',
+        body: JSON.stringify({
+          action: 'activate-stage13-sandbox',
+          store_id: selectedRegistrationStore.id,
+          request_id: crypto.randomUUID()
+        })
+      });
+      const body = await responseBody(response);
+      if (!response.ok) throw new Error(body.error || 'Não foi possível executar o ensaio sintético.');
+      setStage13Result(body as Stage13ActivationResult);
+      setMessage(body.message || 'Ensaio sintético concluído.');
+      await load(true);
+    } catch (error: any) {
+      setMessage(error?.message || 'Não foi possível executar o ensaio sintético.');
+    } finally {
+      setStage13Busy(false);
+    }
+  };
   return (
     <main className="premium-page">
       <section className="premium-shell flex min-h-screen">
@@ -505,7 +574,7 @@ export function MasterBillingCenter() {
             <div>
               <div className="flex items-center gap-2 text-red-600">
                 <CreditCard size={18} />
-                <span className="premium-eyebrow">SaaS · etapa 12 · {overview?.safety.runtime_environment || 'ambiente seguro'}</span>
+                <span className="premium-eyebrow">SaaS · etapa 13 · {overview?.safety.runtime_environment || 'ambiente seguro'}</span>
               </div>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Planos e Billing</h1>
               <p className="premium-muted mt-3 max-w-4xl text-sm">
@@ -520,18 +589,18 @@ export function MasterBillingCenter() {
           <section className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <SafetyCard icon={ShieldCheck} label="Bloqueio global" value={overview?.safety.global_enforcement_enabled ? 'Ligado' : 'Desligado'} safe={!overview?.safety.global_enforcement_enabled} />
             <SafetyCard icon={Eye} label="Modo das lojas" value="Observação" safe />
-            <SafetyCard icon={CreditCard} label="Mutações financeiras" value={overview?.safety.mutations_enabled ? 'Habilitadas' : 'Somente leitura'} safe={!overview?.safety.mutations_enabled} />
+            <SafetyCard icon={CreditCard} label="Mutações gerais" value={overview?.safety.mutations_enabled ? 'Habilitadas' : 'Somente leitura'} safe={!overview?.safety.mutations_enabled} />
             <SafetyCard icon={CreditCard} label="Asaas" value={overview?.asaas.sandbox_enabled ? 'Sandbox habilitado' : 'Aguardando configuração'} safe={Boolean(overview?.asaas.sandbox_enabled)} />
             <SafetyCard
               icon={FileCheck2}
-              label="Cadastro sintético"
-              value={overview?.safety.registration_persistence_enabled ? 'Habilitado' : 'Desabilitado'}
-              safe={Boolean(overview?.safety.registration_persistence_enabled)}
+              label="Ativação sintética"
+              value={overview?.safety.stage13_activation_enabled ? 'Etapa 13 habilitada' : 'Desabilitada'}
+              safe={Boolean(overview?.safety.stage13_activation_enabled)}
             />
           </section>
 
           <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-sky-800">
-            Etapa 12: somente o cadastro financeiro da Loja DEV Billing Falhas pode ser salvo em tabela própria no saas-dev. O billing financeiro permanece somente para leitura; nenhum trial, cliente Asaas ou cobrança é criado.
+            Etapa 13: uma terceira loja exclusivamente sintética pode iniciar um único trial de 7 dias e gerar um Checkout recorrente no Asaas Sandbox. As mutações gerais permanecem somente para leitura, a cobrança não será confirmada e o acesso continua em observe.
           </div>
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">
             Entitlement em observação: o sistema calcula o estado comercial de cada loja, registra o diagnóstico sem dados pessoais e preserva integralmente o acesso.
@@ -578,7 +647,7 @@ export function MasterBillingCenter() {
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <ReadOnlyFeature title="Login existente" text="A sessão atual continua sendo validada pelo Supabase Auth." />
                   <ReadOnlyFeature title="Entitlement" text="O resultado é calculado e observado sem bloquear rotas." />
-                  <ReadOnlyFeature title="Financeiro" text="Todas as ações permanecem bloqueadas nesta etapa." />
+                  <ReadOnlyFeature title="Financeiro" text="Somente a ativação da terceira loja sintética é liberada." />
                 </div>
               </div>
             </div>
@@ -593,7 +662,7 @@ export function MasterBillingCenter() {
                 </div>
                 <h2 className="mt-2 text-2xl font-black text-zinc-950">Checklist para futura ativação</h2>
                 <p className="mt-2 max-w-3xl text-xs font-bold leading-5 text-zinc-500">
-                  O cadastro validado é salvo separadamente de stores e auditado sem duplicar dados pessoais. A gravação está restrita à Loja DEV Billing Falhas e não inicia trial, cliente Asaas ou cobrança.
+                  O cadastro validado permanece separado de stores e auditado sem duplicar dados pessoais. A terceira loja sintética usa esse perfil para preencher o Checkout recorrente sem confirmar cobrança.
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3 sm:min-w-80">
@@ -668,7 +737,7 @@ export function MasterBillingCenter() {
                   </button>
                   {!selectedRegistrationStore?.billing_registration_write_allowed ? (
                     <p className="mt-3 text-center text-[10px] font-black uppercase tracking-wider text-amber-700">
-                      Persistência restrita à Loja DEV Billing Falhas
+                      Cadastro já persistido ou gravação restrita ao ensaio autorizado
                     </p>
                   ) : null}
                 </div>
@@ -714,6 +783,62 @@ export function MasterBillingCenter() {
                 Cadastro sintético indisponível: este ambiente não corresponde ao Preview isolado do saas-dev ou não possui seeds autorizados.
               </div>
             )}
+
+            {selectedRegistrationStore?.billing_stage13_activation_allowed ? (
+              <div className="mt-5 rounded-2xl border border-sky-200 bg-sky-50 p-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 text-sky-700">
+                      <CreditCard size={17} />
+                      <p className="text-[10px] font-black uppercase tracking-wider">Ensaio completo da ativação</p>
+                    </div>
+                    <h3 className="mt-2 text-lg font-black text-zinc-950">Trial único + Checkout recorrente Sandbox</h3>
+                    <p className="mt-1 max-w-3xl text-xs font-bold leading-5 text-zinc-600">
+                      O Master inicia exatamente 7 dias, reutiliza a mesma assinatura em novas tentativas e envia razão social, CNPJ, e-mail e telefone já preenchidos ao Asaas Sandbox. Nenhuma cobrança será confirmada.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="premium-button-primary shrink-0 justify-center"
+                    disabled={stage13Busy || !overview?.safety.stage13_activation_enabled}
+                    onClick={() => void activateStage13Sandbox()}
+                  >
+                    {stage13Busy ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}
+                    {selectedRegistrationSubscription?.provider_checkout_id
+                      ? 'Revalidar sem duplicar'
+                      : 'Iniciar trial e gerar Checkout'}
+                  </button>
+                </div>
+
+                {selectedRegistrationSubscription?.status === 'trialing' ? (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <ReadOnlyFeature title="Contagem regressiva" text={trialRemaining(selectedRegistrationSubscription.trial_ends_at, nowMs)} />
+                    <ReadOnlyFeature title="Modo de acesso" text="Observe — acesso preservado" />
+                    <ReadOnlyFeature title="Pagamento" text="Não confirmado" />
+                  </div>
+                ) : null}
+
+                {stage13Result ? (
+                  <div className="mt-4 rounded-xl border border-emerald-200 bg-white p-4 text-xs font-bold leading-5 text-emerald-800">
+                    <p>{stage13Result.message}</p>
+                    <p className="mt-1 text-[10px] uppercase tracking-wider text-emerald-700">
+                      Trial: 7 dias · Cadastro pré-preenchido: {stage13Result.customer_data_prefilled ? 'sim' : 'não'} · Idempotente: {stage13Result.reused ? 'reutilizado' : 'primeira execução'} · Cobrança: não confirmada
+                    </p>
+                  </div>
+                ) : null}
+
+                {stage13CheckoutUrl ? (
+                  <a
+                    className="premium-button-secondary mt-4 inline-flex"
+                    href={stage13CheckoutUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <CreditCard size={16} /> Abrir Checkout Sandbox — não concluir pagamento
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
               <div className="flex items-center gap-2">

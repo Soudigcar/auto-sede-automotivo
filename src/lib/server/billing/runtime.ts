@@ -32,6 +32,7 @@ type BillingEnvironmentConfiguration = {
   mutationsRequested: boolean;
   enforcementRequested: boolean;
   registrationWritesRequested: boolean;
+  stage13ActivationRequested: boolean;
 };
 
 function environmentConfiguration(
@@ -49,7 +50,8 @@ function environmentConfiguration(
       readsRequested: explicitTrue(environment.BILLING_PRODUCTION_READS_ENABLED),
       mutationsRequested: explicitTrue(environment.BILLING_PRODUCTION_MUTATIONS_ENABLED),
       enforcementRequested: explicitTrue(environment.BILLING_PRODUCTION_ENFORCEMENT_ENABLED),
-      registrationWritesRequested: false
+      registrationWritesRequested: false,
+      stage13ActivationRequested: false
     };
   }
 
@@ -66,6 +68,9 @@ function environmentConfiguration(
       enforcementRequested: explicitTrue(environment.BILLING_PREVIEW_ENFORCEMENT_ENABLED),
       registrationWritesRequested: explicitTrue(
         environment.BILLING_PREVIEW_REGISTRATION_WRITES_ENABLED
+      ),
+      stage13ActivationRequested: explicitTrue(
+        environment.BILLING_PREVIEW_STAGE13_ACTIVATION_ENABLED
       )
     };
   }
@@ -76,7 +81,8 @@ function environmentConfiguration(
     readsRequested: false,
     mutationsRequested: false,
     enforcementRequested: false,
-    registrationWritesRequested: false
+    registrationWritesRequested: false,
+    stage13ActivationRequested: false
   };
 }
 
@@ -94,10 +100,12 @@ export type BillingRuntimeSafety = {
   mutationsRequested: boolean;
   enforcementRequested: boolean;
   registrationWritesRequested: boolean;
+  stage13ActivationRequested: boolean;
   readsEnabled: boolean;
   mutationsEnabled: boolean;
   enforcementEnabled: boolean;
   registrationWritesEnabled: boolean;
+  stage13ActivationEnabled: boolean;
   trialStartEnabled: boolean;
   reason:
     | 'ready'
@@ -140,6 +148,12 @@ export function readBillingRuntimeSafety(
   const registrationWritesEnabled = readsEnabled
     && deploymentEnvironment === 'preview'
     && configuration.registrationWritesRequested;
+  const stage13ActivationEnabled = readsEnabled
+    && deploymentEnvironment === 'preview'
+    && configuration.stage13ActivationRequested
+    && !configuration.mutationsRequested
+    && !configuration.enforcementRequested
+    && explicitTrue(environment.BILLING_TRIAL_START_ENABLED);
 
   return {
     environmentName: configuration.environmentName,
@@ -155,11 +169,14 @@ export function readBillingRuntimeSafety(
     mutationsRequested: configuration.mutationsRequested,
     enforcementRequested: configuration.enforcementRequested,
     registrationWritesRequested: configuration.registrationWritesRequested,
+    stage13ActivationRequested: configuration.stage13ActivationRequested,
     readsEnabled,
     mutationsEnabled,
     enforcementEnabled,
     registrationWritesEnabled,
-    trialStartEnabled: mutationsEnabled && explicitTrue(environment.BILLING_TRIAL_START_ENABLED),
+    stage13ActivationEnabled,
+    trialStartEnabled: (mutationsEnabled || stage13ActivationEnabled)
+      && explicitTrue(environment.BILLING_TRIAL_START_ENABLED),
     reason
   };
 }

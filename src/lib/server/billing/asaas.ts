@@ -21,8 +21,10 @@ export type AsaasSandboxSafety = {
   enabled: boolean;
   paymentConfirmationEnabled: boolean;
   failureTestEnabled: boolean;
+  stage13ActivationEnabled: boolean;
   syntheticStoreId: string;
   failureSyntheticStoreId: string;
+  stage13SyntheticStoreId: string;
   syntheticStoreIds: string[];
   previewBaseUrl: string;
   webhookBypassConfigured: boolean;
@@ -34,6 +36,13 @@ export type AsaasCheckoutResult = {
   link: string;
   status: string;
   externalReference: string;
+};
+
+export type AsaasCheckoutCustomerData = {
+  name: string;
+  cpfCnpj: string;
+  email: string;
+  phone: string;
 };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -85,8 +94,14 @@ export function readAsaasSandboxSafety(
   const failureSyntheticStoreId = String(
     environment.BILLING_ASAAS_FAILURE_SYNTHETIC_STORE_ID || ''
   ).trim();
+  const stage13SyntheticStoreId = String(
+    environment.BILLING_ASAAS_STAGE13_SYNTHETIC_STORE_ID || ''
+  ).trim();
   const failureTestRequested = explicitTrue(
     environment.BILLING_ASAAS_SANDBOX_FAILURE_TEST_ENABLED
+  );
+  const stage13ActivationRequested = explicitTrue(
+    environment.BILLING_PREVIEW_STAGE13_ACTIVATION_ENABLED
   );
   const previewBaseUrl = safePreviewBaseUrl(environment.BILLING_ASAAS_PREVIEW_BASE_URL);
   const webhookBypassConfigured = Boolean(
@@ -108,6 +123,17 @@ export function readAsaasSandboxSafety(
   if (failureTestRequested && safeEqual(syntheticStoreId, failureSyntheticStoreId)) {
     errors.push('As lojas sinteticas positiva e negativa devem ser diferentes.');
   }
+  if (stage13ActivationRequested && !UUID_PATTERN.test(stage13SyntheticStoreId)) {
+    errors.push('A terceira loja sintetica da etapa 13 nao esta configurada.');
+  }
+  if (
+    stage13ActivationRequested
+    && [syntheticStoreId, failureSyntheticStoreId].some((value) => (
+      UUID_PATTERN.test(value) && safeEqual(value, stage13SyntheticStoreId)
+    ))
+  ) {
+    errors.push('A loja sintetica da etapa 13 deve ser diferente das lojas anteriores.');
+  }
   if (!previewBaseUrl) {
     errors.push('A URL base do Preview de billing nao esta configurada com seguranca.');
   }
@@ -123,9 +149,11 @@ export function readAsaasSandboxSafety(
     paymentConfirmationEnabled: errors.length === 0
       && explicitTrue(environment.BILLING_ASAAS_SANDBOX_PAYMENT_CONFIRMATION_ENABLED),
     failureTestEnabled: errors.length === 0 && failureTestRequested,
+    stage13ActivationEnabled: errors.length === 0 && stage13ActivationRequested,
     syntheticStoreId,
     failureSyntheticStoreId,
-    syntheticStoreIds: [syntheticStoreId, failureSyntheticStoreId]
+    stage13SyntheticStoreId,
+    syntheticStoreIds: [syntheticStoreId, failureSyntheticStoreId, stage13SyntheticStoreId]
       .filter((value, index, values) => UUID_PATTERN.test(value) && values.indexOf(value) === index),
     previewBaseUrl,
     webhookBypassConfigured,
@@ -289,6 +317,7 @@ export async function createAsaasRecurringCheckout(
     includedUsers: number;
     trialEndsAt: string;
     previewBaseUrl: string;
+    customerData?: AsaasCheckoutCustomerData;
   },
   fetchImplementation: typeof fetch = fetch
 ): Promise<AsaasCheckoutResult> {
@@ -304,12 +333,29 @@ export async function createAsaasRecurringCheckout(
   }
   const previewBaseUrl = safePreviewBaseUrl(input.previewBaseUrl);
   if (!previewBaseUrl) throw new Error('URL segura do Preview ausente.');
+  const customerData = input.customerData
+    ? {
+        name: String(input.customerData.name || '').trim().replace(/\s+/g, ' ').slice(0, 180),
+        cpfCnpj: String(input.customerData.cpfCnpj || '').replace(/\D/g, ''),
+        email: String(input.customerData.email || '').trim().toLowerCase().slice(0, 254),
+        phone: String(input.customerData.phone || '').replace(/\D/g, '')
+      }
+    : null;
+  if (customerData && (
+    customerData.name.length < 3
+    || !/^\d{14}$/.test(customerData.cpfCnpj)
+    || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerData.email)
+    || !/^[1-9]\d{9,10}$/.test(customerData.phone)
+  )) {
+    throw new Error('Os dados pre-preenchidos do Checkout Sandbox sao invalidos.');
+  }
 
   const body = {
     billingTypes: ['CREDIT_CARD'],
     chargeTypes: ['RECURRENT'],
     minutesToExpire: 1440,
     externalReference,
+    ...(customerData ? { customerData } : {}),
     callback: {
       successUrl: `${previewBaseUrl}/master/billing?asaas_checkout=success`,
       cancelUrl: `${previewBaseUrl}/master/billing?asaas_checkout=cancelled`,

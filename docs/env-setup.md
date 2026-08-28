@@ -27,6 +27,7 @@ BILLING_PREVIEW_READS_ENABLED=true
 BILLING_PREVIEW_MUTATIONS_ENABLED=false
 BILLING_PREVIEW_ENFORCEMENT_ENABLED=false
 BILLING_PREVIEW_REGISTRATION_WRITES_ENABLED=false
+BILLING_PREVIEW_STAGE13_ACTIVATION_ENABLED=false
 # Production: mantenha todas desligadas ate uma autorizacao posterior especifica.
 BILLING_PRODUCTION_ALLOWED_SUPABASE_PROJECT_REF=
 BILLING_PRODUCTION_ENVIRONMENT_NAME=production
@@ -36,6 +37,7 @@ BILLING_PRODUCTION_ENFORCEMENT_ENABLED=false
 BILLING_TRIAL_START_ENABLED=false
 BILLING_ASAAS_SANDBOX_ENABLED=false
 BILLING_ASAAS_SYNTHETIC_STORE_ID=your_saas_dev_synthetic_store_uuid
+BILLING_ASAAS_STAGE13_SYNTHETIC_STORE_ID=your_stage13_synthetic_store_uuid
 BILLING_ASAAS_PREVIEW_BASE_URL=https://your-branch-preview.vercel.app
 ASAAS_ENV=sandbox
 ASAAS_API_KEY=your_asaas_sandbox_api_key
@@ -67,6 +69,8 @@ Antes de ativar um webhook, configure o mesmo verify token no provedor e na Verc
 As configurações `BILLING_PREVIEW_*` e `BILLING_PRODUCTION_*` são independentes. Cada ambiente precisa de sua própria allowlist, nome, chave de leitura, chave de mutação e chave de enforcement. Variáveis antigas (`BILLING_ALLOWED_SUPABASE_PROJECT_REF` e `BILLING_STAGE6_*`) não liberam a etapa 9. A leitura falha fechada quando a chave do ambiente está desligada, o project ref não coincide ou faltam credenciais server-side. Production nasce com leitura, mutação e enforcement desligados.
 
 `BILLING_PREVIEW_REGISTRATION_WRITES_ENABLED=true` libera somente a RPC cadastral da etapa 12, exclusivamente no Preview conectado ao `saas-dev` e para o seed `Loja DEV Billing Falhas`. Essa chave não habilita `BILLING_PREVIEW_MUTATIONS_ENABLED`, trial, Checkout, confirmação de pagamento, Asaas ou enforcement. Production ignora essa chave.
+
+`BILLING_PREVIEW_STAGE13_ACTIVATION_ENABLED=true` libera somente a ação combinada da terceira loja sintética da etapa 13. Ela exige `BILLING_PREVIEW_MUTATIONS_ENABLED=false`, `BILLING_PREVIEW_ENFORCEMENT_ENABLED=false`, `BILLING_TRIAL_START_ENABLED=true`, Asaas Sandbox válido e o UUID exato em `BILLING_ASAAS_STAGE13_SYNTHETIC_STORE_ID`. A ação inicia um único trial e cria ou reutiliza o Checkout; confirmação de pagamento e enforcement continuam bloqueados. Production ignora essa chave.
 
 Mesmo quando a leitura de Production for autorizada futuramente, mutações exigirão `BILLING_PRODUCTION_MUTATIONS_ENABLED=true`; enforcement exigirá simultaneamente `BILLING_ENFORCEMENT_ENABLED=true`, `BILLING_PRODUCTION_ENFORCEMENT_ENABLED=true` e `access_enforcement_mode='enforce'` na assinatura individual. `BILLING_TRIAL_START_ENABLED` permanece `false` até uma autorização específica para persistir trials.
 

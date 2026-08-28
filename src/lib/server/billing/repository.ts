@@ -20,7 +20,7 @@ type SyntheticStoreProfile = {
   id: string;
   name: string;
   registrationSource: string;
-  scenario: 'positive' | 'failure';
+  scenario: 'positive' | 'failure' | 'activation';
 };
 
 function syntheticStoreProfile(safety: AsaasSandboxSafety, storeId: string): SyntheticStoreProfile | null {
@@ -38,6 +38,14 @@ function syntheticStoreProfile(safety: AsaasSandboxSafety, storeId: string): Syn
       name: 'Loja DEV Billing Falhas',
       registrationSource: 'billing_stage5_seed',
       scenario: 'failure'
+    };
+  }
+  if (safety.stage13ActivationEnabled && storeId === safety.stage13SyntheticStoreId) {
+    return {
+      id: safety.stage13SyntheticStoreId,
+      name: 'Loja DEV Billing Ativacao',
+      registrationSource: 'billing_stage13_seed',
+      scenario: 'activation'
     };
   }
   return null;
@@ -358,7 +366,7 @@ export async function createStoreAsaasSandboxCheckout(supabase: any, input: {
       'O Checkout Sandbox esta restrito as lojas sinteticas autorizadas.'
     );
   }
-  const [storeResult, subscriptionResult] = await Promise.all([
+  const [storeResult, subscriptionResult, registrationResult] = await Promise.all([
     supabase
       .from('stores')
       .select('id,store_name,status,registration_source')
@@ -369,17 +377,37 @@ export async function createStoreAsaasSandboxCheckout(supabase: any, input: {
       .select('id,store_id,plan_id,status,access_enforcement_mode,trial_ends_at,provider_checkout_id,external_reference')
       .eq('store_id', input.storeId)
       .neq('status', 'cancelled')
-      .maybeSingle()
+      .maybeSingle(),
+    profile.scenario === 'activation'
+      ? supabase
+          .from('store_billing_registration_profiles')
+          .select('store_id,legal_name,cnpj,financial_email,financial_phone,registration_status,validated_at')
+          .eq('store_id', input.storeId)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null })
   ]);
   if (storeResult.error) throw storeResult.error;
   if (subscriptionResult.error) throw subscriptionResult.error;
+  if (registrationResult.error) throw registrationResult.error;
   const store = storeResult.data;
   const subscription = subscriptionResult.data;
+  const registration = registrationResult.data;
   assertSyntheticStore(store, profile);
   if (!subscription || subscription.status !== 'trialing' || subscription.access_enforcement_mode !== 'observe') {
     throw billingRepositoryError(
       'ASAAS_SANDBOX_TRIAL_REQUIRED',
       'O Checkout Sandbox exige o trial sintetico ativo em modo de observacao.'
+    );
+  }
+  if (profile.scenario === 'activation' && (
+    !registration
+    || registration.store_id !== input.storeId
+    || registration.registration_status !== 'ready_for_activation'
+    || !registration.validated_at
+  )) {
+    throw billingRepositoryError(
+      'ASAAS_SANDBOX_REGISTRATION_REQUIRED',
+      'O Checkout da etapa 13 exige cadastro financeiro sintetico validado.'
     );
   }
   if (subscription.provider_checkout_id) {
@@ -390,6 +418,7 @@ export async function createStoreAsaasSandboxCheckout(supabase: any, input: {
       checkout_url: existingLink,
       reused: true,
       webhook_created: false,
+      customer_data_prefilled: profile.scenario === 'activation',
       trial_ends_at: subscription.trial_ends_at
     };
   }
@@ -406,6 +435,14 @@ export async function createStoreAsaasSandboxCheckout(supabase: any, input: {
     throw billingRepositoryError('ASAAS_SANDBOX_PLAN_INVALID', 'Plano Profissional invalido para o Checkout Sandbox.');
   }
 
+  const customerData = profile.scenario === 'activation'
+    ? {
+        name: String(registration?.legal_name || ''),
+        cpfCnpj: String(registration?.cnpj || ''),
+        email: String(registration?.financial_email || ''),
+        phone: String(registration?.financial_phone || '')
+      }
+    : undefined;
   const webhook = await ensureAsaasSandboxWebhook(
     input.configuration,
     input.safety,
@@ -422,7 +459,8 @@ export async function createStoreAsaasSandboxCheckout(supabase: any, input: {
     amountCents: plan.amount_cents,
     includedUsers: plan.included_users,
     trialEndsAt: subscription.trial_ends_at,
-    previewBaseUrl: input.safety.previewBaseUrl
+    previewBaseUrl: input.safety.previewBaseUrl,
+    customerData
   }, input.fetchImplementation);
   const updatedAt = new Date().toISOString();
   const { data: updated, error: updateError } = await supabase
@@ -453,6 +491,7 @@ export async function createStoreAsaasSandboxCheckout(supabase: any, input: {
       environment: 'sandbox',
       provider_checkout_id: checkout.id,
       next_due_at: subscription.trial_ends_at,
+      customer_data_prefilled: Boolean(customerData),
       access_enforcement_mode: 'observe'
     }
   });
@@ -463,6 +502,7 @@ export async function createStoreAsaasSandboxCheckout(supabase: any, input: {
     checkout_url: checkout.link,
     reused: false,
     webhook_created: webhook.created,
+    customer_data_prefilled: Boolean(customerData),
     trial_ends_at: subscription.trial_ends_at
   };
 }
