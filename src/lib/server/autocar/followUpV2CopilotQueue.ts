@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { FollowUpConfigV2, FollowUpScenarioKey } from '@/lib/server/autocar/smartFollowUpV2';
+import type { FollowUpConfigV2, FollowUpMode, FollowUpScenarioKey } from '@/lib/server/autocar/smartFollowUpV2';
 import { looksLikeNonLeadAutomation } from '@/lib/server/autocar/followUpV2ContextualReopening';
 
 export const FOLLOW_UP_COPILOT_ELIGIBLE_SCENARIOS = [
@@ -45,7 +45,7 @@ function scenarioForLead(lead: any, commercial: any): FollowUpCopilotCandidate['
   return 'silent_lead';
 }
 
-function withinAllowedWindow(config: FollowUpConfigV2, now: Date) {
+export function withinFollowUpAllowedWindow(config: FollowUpConfigV2, now: Date) {
   const current = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
   }).format(now);
@@ -60,14 +60,16 @@ export function evaluateFollowUpCopilotCandidate(input: {
   runtimeConversation: any | null;
   messages: any[];
   now?: Date;
+  requiredMode?: Extract<FollowUpMode, 'copilot' | 'autopilot'>;
 }): { candidate: FollowUpCopilotCandidate | null; reason: string } {
   const now = input.now || new Date();
+  const requiredMode = input.requiredMode || 'copilot';
   const { config, conversation, lead, commercial, runtimeConversation } = input;
 
-  if (!config.global.enabled || config.global.mode !== 'copilot') {
-    return { candidate: null, reason: 'Follow-up efetivo não está em COPILOT.' };
+  if (!config.global.enabled || config.global.mode !== requiredMode) {
+    return { candidate: null, reason: `Follow-up efetivo não está em ${requiredMode.toUpperCase()}.` };
   }
-  if (!withinAllowedWindow(config, now)) {
+  if (!withinFollowUpAllowedWindow(config, now)) {
     return { candidate: null, reason: 'Fora da janela permitida do Follow-up.' };
   }
   if (String(conversation?.status || '').toLowerCase() !== 'open') {
@@ -114,9 +116,11 @@ export function evaluateFollowUpCopilotCandidate(input: {
   const dueAt = new Date(latestOutbound._at.getTime() + step.delayMinutes * 60_000);
   if (now.getTime() < dueAt.getTime()) return { candidate: null, reason: 'Follow-up ainda não venceu.' };
 
-  const rawKey = ['contextual-reopening-v2', conversation.id, scenarioKey, step.id, latestOutbound._at.toISOString()].join(':');
+  const rawKey = ['contextual-reopening-v2', requiredMode, conversation.id, scenarioKey, step.id, latestOutbound._at.toISOString()].join(':');
   return {
-    reason: 'Elegível para rascunho COPILOT com revisão humana.',
+    reason: requiredMode === 'autopilot'
+      ? 'Elegível para revalidação AUTOPILOT antes do envio.'
+      : 'Elegível para rascunho COPILOT com revisão humana.',
     candidate: {
       conversation_id: String(conversation.id),
       lead_id: lead?.id ? String(lead.id) : null,

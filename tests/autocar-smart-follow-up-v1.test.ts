@@ -6,6 +6,7 @@ import { parseExplicitCallbackRequest, simulateSmartFollowUp } from '../src/lib/
 
 const migration = fs.readFileSync(path.join(process.cwd(), 'supabase/migrations/20260823042000_autocar_smart_follow_up_v1.sql'), 'utf8');
 const cron = fs.readFileSync(path.join(process.cwd(), 'src/app/api/cron/autocar-follow-up/route.ts'), 'utf8');
+const canaryCron = fs.readFileSync(path.join(process.cwd(), 'src/app/api/cron/autocar-follow-up-v2/route.ts'), 'utf8');
 const vercel = fs.readFileSync(path.join(process.cwd(), 'vercel.json'), 'utf8');
 
 describe('AUTOCAR Smart Follow-up V1', () => {
@@ -14,7 +15,7 @@ describe('AUTOCAR Smart Follow-up V1', () => {
     assert.equal(cron.includes('AUTOCAR_SMART_FOLLOW_UP_DRY_RUN_ENABLED'), true);
   });
 
-  it('executa o endpoint de cron somente em Vercel Preview antes do acesso ao banco', () => {
+  it('executa o endpoint V1 somente em Vercel Preview antes do acesso ao banco', () => {
     assert.equal(cron.includes("process.env.VERCEL_ENV !== 'preview'"), true);
     const envGuardIndex = cron.indexOf("process.env.VERCEL_ENV !== 'preview'");
     assert.ok(envGuardIndex >= 0);
@@ -22,10 +23,14 @@ describe('AUTOCAR Smart Follow-up V1', () => {
     assert.ok(cron.indexOf('getAutocarDevClient()', envGuardIndex) > envGuardIndex);
   });
 
-  it('não agenda Smart Follow-up no Vercel e preserva o cron de LGPD', () => {
-    assert.equal(vercel.includes('/api/cron/autocar-follow-up'), false);
-    assert.equal(vercel.includes('/api/cron/privacy-retention'), true);
-    assert.equal(vercel.includes('17 3 * * *'), true);
+  it('mantém V1 sem agendamento e agenda somente o canário V2 protegido, preservando LGPD', () => {
+    const parsed = JSON.parse(vercel);
+    const crons = Array.isArray(parsed.crons) ? parsed.crons : [];
+    assert.equal(crons.some((item: any) => item.path === '/api/cron/autocar-follow-up'), false);
+    assert.equal(crons.some((item: any) => item.path === '/api/cron/autocar-follow-up-v2' && item.schedule === '*/5 * * * *'), true);
+    assert.equal(crons.some((item: any) => item.path === '/api/cron/privacy-retention' && item.schedule === '17 3 * * *'), true);
+    assert.equal(canaryCron.includes('CRON_SECRET'), true);
+    assert.equal(canaryCron.includes("process.env.VERCEL_ENV !== 'production'"), true);
   });
 
   it('usa lease idempotente com SKIP LOCKED', () => {

@@ -1,10 +1,9 @@
 export const dynamic = 'force-dynamic';
 
-const UPDATE_MARKER_CACHE = 'auto-controle-pwa-update-manager-v2';
+import { resolvePwaAppVersion } from '@/lib/server/pwaAppVersion';
 
 function buildServiceWorker(version: string) {
   return `const SW_VERSION = ${JSON.stringify(version)};
-const UPDATE_MARKER_CACHE = ${JSON.stringify(UPDATE_MARKER_CACHE)};
 
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting());
@@ -13,14 +12,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const cacheKeys = await caches.keys();
-    const firstManagedActivation = !cacheKeys.includes(UPDATE_MARKER_CACHE);
-
-    await Promise.all(
-      cacheKeys
-        .filter((key) => key !== UPDATE_MARKER_CACHE)
-        .map((key) => caches.delete(key))
-    );
-    await caches.open(UPDATE_MARKER_CACHE);
+    await Promise.all(cacheKeys.map((key) => caches.delete(key)));
     await self.clients.claim();
 
     const windowClients = await self.clients.matchAll({
@@ -28,17 +20,9 @@ self.addEventListener('activate', (event) => {
       includeUncontrolled: true
     });
 
-    await Promise.all(windowClients.map(async (client) => {
+    windowClients.forEach((client) => {
       client.postMessage({ type: 'PWA_UPDATE_AVAILABLE', version: SW_VERSION });
-
-      if (firstManagedActivation && 'navigate' in client) {
-        try {
-          await client.navigate(client.url);
-        } catch {
-          // A próxima abertura ou retomada do PWA fará a atualização.
-        }
-      }
-    }));
+    });
   })());
 });
 
@@ -51,7 +35,7 @@ self.addEventListener('fetch', (event) => {
 });
 
 self.addEventListener('message', (event) => {
-  if (event.data === 'SKIP_WAITING') {
+  if (event.data === 'SKIP_WAITING' || event.data?.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
 });
@@ -61,10 +45,7 @@ console.info('[PWA] Service worker ativo:', SW_VERSION);
 }
 
 export function GET() {
-  const version =
-    process.env.VERCEL_GIT_COMMIT_SHA ||
-    process.env.VERCEL_DEPLOYMENT_ID ||
-    'auto-controle-pwa-v2-local';
+  const version = resolvePwaAppVersion();
 
   return new Response(buildServiceWorker(version), {
     headers: {
