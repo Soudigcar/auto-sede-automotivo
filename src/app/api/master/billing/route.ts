@@ -6,7 +6,6 @@ import {
   createStoreAsaasSandboxCheckout,
   missingBillingFoundation,
   readMasterBillingOverview,
-  runStoreAsaasSandboxFailureScenario,
   startStoreBillingTrial
 } from '@/lib/server/billing/repository';
 import { cleanText, getAdminClient, requireMaster } from '@/lib/server/masterApi';
@@ -58,6 +57,7 @@ export async function GET(request: Request) {
       ...overview,
       safety: {
         global_enforcement_enabled: billingEnforcementEnabled(),
+        mutations_enabled: context.safety.mutationsEnabled,
         trial_start_enabled: context.safety.trialStartEnabled,
         existing_store_default: 'observe',
         runtime_environment: context.safety.environmentName,
@@ -72,8 +72,9 @@ export async function GET(request: Request) {
         synthetic_store_configured: Boolean(asaasSandbox.syntheticStoreId),
         preview_callback_configured: Boolean(asaasSandbox.previewBaseUrl),
         webhook_bypass_configured: asaasSandbox.webhookBypassConfigured,
-        sandbox_payment_confirmation_enabled: asaasSandbox.paymentConfirmationEnabled,
-        sandbox_failure_test_enabled: asaasSandbox.failureTestEnabled,
+        sandbox_payment_confirmation_enabled: context.safety.mutationsEnabled
+          && asaasSandbox.paymentConfirmationEnabled,
+        sandbox_failure_test_enabled: false,
         failure_synthetic_store_configured: Boolean(asaasSandbox.failureSyntheticStoreId),
         configuration_valid: asaas.errors.length === 0,
         errors: [...asaas.errors, ...asaasSandbox.errors]
@@ -88,6 +89,12 @@ export async function POST(request: Request) {
   try {
     const context = await masterContext(request);
     if ('error' in context) return context.error;
+    if (!context.safety.mutationsEnabled) {
+      return NextResponse.json({
+        error: 'A etapa 6 e somente leitura; trials, checkouts e simulacoes estao bloqueados no servidor.',
+        code: 'billing_stage6_read_only'
+      }, { status: 403 });
+    }
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ error: 'Dados invalidos.' }, { status: 400 });
@@ -97,12 +104,7 @@ export async function POST(request: Request) {
     if (![
       'start-trial',
       'create-sandbox-checkout',
-      'confirm-sandbox-payment',
-      'stage5-card-refused',
-      'stage5-overdue',
-      'stage5-confirm-for-refund',
-      'stage5-refund',
-      'stage5-chargeback-sequence'
+      'confirm-sandbox-payment'
     ].includes(action)) {
       return NextResponse.json({ error: 'Acao de billing invalida.' }, { status: 400 });
     }
@@ -205,54 +207,6 @@ export async function POST(request: Request) {
         message: confirmation.webhook_pending
           ? 'Confirmacao Sandbox solicitada. O estado sera atualizado somente pelo webhook autenticado.'
           : 'A cobranca sintetica ja estava confirmada e foi preservada sem duplicacao.'
-      });
-    }
-
-    if (action.startsWith('stage5-')) {
-      const configuration = readAsaasServerConfiguration();
-      const asaasSandbox = readAsaasSandboxSafety();
-      if (
-        !configuration.apiConfigured
-        || !configuration.webhookConfigured
-        || !asaasSandbox.enabled
-        || !asaasSandbox.failureTestEnabled
-      ) {
-        return NextResponse.json({
-          error: configuration.errors[0]
-            || asaasSandbox.errors[0]
-            || 'A homologacao negativa da etapa 5 permanece desabilitada.',
-          code: 'asaas_sandbox_failure_test_disabled'
-        }, { status: 503 });
-      }
-      if (storeId !== asaasSandbox.failureSyntheticStoreId) {
-        return NextResponse.json({
-          error: 'A etapa 5 esta restrita a Loja DEV Billing Falhas.',
-          code: 'asaas_sandbox_store_forbidden'
-        }, { status: 403 });
-      }
-      const scenarioByAction = {
-        'stage5-card-refused': 'card-refused',
-        'stage5-overdue': 'overdue',
-        'stage5-confirm-for-refund': 'confirm-for-refund',
-        'stage5-refund': 'refund',
-        'stage5-chargeback-sequence': 'chargeback-sequence'
-      } as const;
-      const scenario = scenarioByAction[action as keyof typeof scenarioByAction];
-      const result = await runStoreAsaasSandboxFailureScenario(context.supabase, {
-        storeId,
-        actorUserId: context.master.id,
-        scenario,
-        configuration,
-        safety: asaasSandbox
-      });
-      return NextResponse.json({
-        success: true,
-        ...result,
-        environment: 'sandbox',
-        access_enforcement_mode: 'observe',
-        message: result.webhook_pending
-          ? 'Cenario solicitado no Asaas Sandbox; aguardando o webhook autenticado.'
-          : 'Cenario da etapa 5 processado com idempotencia e sem bloqueio de acesso.'
       });
     }
 

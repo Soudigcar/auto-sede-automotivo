@@ -9,7 +9,6 @@ import {
   Clock3,
   CreditCard,
   Eye,
-  ExternalLink,
   History,
   Loader2,
   RefreshCw,
@@ -106,6 +105,7 @@ type BillingOverview = {
   stores: BillingStore[];
   safety: {
     global_enforcement_enabled: boolean;
+    mutations_enabled: boolean;
     trial_start_enabled: boolean;
     existing_store_default: 'observe';
     runtime_environment: string;
@@ -204,11 +204,6 @@ function graceRemaining(value: string | null, nowMs: number) {
   return `${days}d ${extraHours}h de carência · acesso preservado`;
 }
 
-function sandboxCheckoutLink(checkoutId: string | null) {
-  if (!checkoutId || !/^[0-9a-f-]{36}$/i.test(checkoutId)) return '';
-  return `https://sandbox.asaas.com/checkoutSession/show/${encodeURIComponent(checkoutId)}`;
-}
-
 function statusTone(status: BillingSubscription['status']) {
   if (status === 'active') return 'bg-emerald-50 text-emerald-700';
   if (status === 'trialing') return 'bg-sky-50 text-sky-700';
@@ -233,8 +228,6 @@ export function MasterBillingCenter() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [query, setQuery] = useState('');
-  const [selectedStoreId, setSelectedStoreId] = useState('');
-  const [reason, setReason] = useState('');
   const [nowMs, setNowMs] = useState(0);
 
   const accessToken = useCallback(async () => {
@@ -273,127 +266,6 @@ export function MasterBillingCenter() {
     return () => window.clearInterval(timer);
   }, []);
 
-  async function startTrial() {
-    if (!overview?.safety.trial_start_enabled || !selectedStoreId || reason.trim().length < 10) return;
-    setBusy(true);
-    try {
-      const token = await accessToken();
-      if (!token) throw new Error('Sessão Master expirada. Entre novamente.');
-      const response = await fetch('/api/master/billing', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          action: 'start-trial',
-          store_id: selectedStoreId,
-          plan_code: 'professional',
-          reason
-        })
-      });
-      const body = await responseBody(response);
-      if (!response.ok) throw new Error(body.error || 'Não foi possível iniciar o trial.');
-      setSelectedStoreId('');
-      setReason('');
-      setMessage(body.message || 'Trial iniciado em modo de observação.');
-      await load(true);
-    } catch (error: any) {
-      setMessage(error?.message || 'Não foi possível iniciar o trial.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function createSandboxCheckout(storeId: string) {
-    if (!overview?.asaas.sandbox_enabled || busy) return;
-    setBusy(true);
-    try {
-      const token = await accessToken();
-      if (!token) throw new Error('Sessão Master expirada. Entre novamente.');
-      const response = await fetch('/api/master/billing', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          action: 'create-sandbox-checkout',
-          store_id: storeId
-        })
-      });
-      const body = await responseBody(response);
-      if (!response.ok) throw new Error(body.error || 'Não foi possível criar o Checkout Sandbox.');
-      if (!body.checkout_url || !String(body.checkout_url).startsWith('https://sandbox.asaas.com/')) {
-        throw new Error('O Asaas não retornou um link Sandbox válido.');
-      }
-      setMessage(body.message || 'Checkout Sandbox criado.');
-      await load();
-      window.location.assign(body.checkout_url);
-    } catch (error: any) {
-      setMessage(error?.message || 'Não foi possível criar o Checkout Sandbox.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function confirmSandboxPayment(storeId: string) {
-    if (!overview?.asaas.sandbox_payment_confirmation_enabled || busy) return;
-    setBusy(true);
-    try {
-      const token = await accessToken();
-      if (!token) throw new Error('Sessão Master expirada. Entre novamente.');
-      const response = await fetch('/api/master/billing', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          action: 'confirm-sandbox-payment',
-          store_id: storeId
-        })
-      });
-      const body = await responseBody(response);
-      if (!response.ok) throw new Error(body.error || 'Não foi possível confirmar a cobrança Sandbox.');
-      await load(true);
-      setMessage(body.message || 'Confirmação Sandbox solicitada; aguardando o webhook autenticado.');
-      window.setTimeout(() => void load(true), 2500);
-      window.setTimeout(() => void load(true), 6000);
-    } catch (error: any) {
-      setMessage(error?.message || 'Não foi possível confirmar a cobrança Sandbox.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function runStageFiveScenario(storeId: string, action: string) {
-    if (!overview?.asaas.sandbox_failure_test_enabled || busy) return;
-    setBusy(true);
-    try {
-      const token = await accessToken();
-      if (!token) throw new Error('Sessão Master expirada. Entre novamente.');
-      const response = await fetch('/api/master/billing', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ action, store_id: storeId })
-      });
-      const body = await responseBody(response);
-      if (!response.ok) throw new Error(body.error || 'Não foi possível executar o cenário da etapa 5.');
-      setMessage(body.message || 'Cenário sintético processado sem bloqueio de acesso.');
-      await load(true);
-      window.setTimeout(() => void load(true), 2500);
-      window.setTimeout(() => void load(true), 6000);
-    } catch (error: any) {
-      setMessage(error?.message || 'Não foi possível executar o cenário da etapa 5.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const subscriptionsByStore = useMemo(() => new Map(
     (overview?.subscriptions || []).map((subscription) => [subscription.store_id, subscription])
   ), [overview?.subscriptions]);
@@ -422,15 +294,6 @@ export function MasterBillingCenter() {
   const withoutSubscription = (overview?.stores || []).filter((store) => (
     store.billing_eligible && !subscriptionsByStore.has(store.id)
   )).length;
-  const selectedStore = overview?.stores.find((store) => store.id === selectedStoreId) || null;
-  const activationAllowed = Boolean(
-    overview?.safety.trial_start_enabled
-    && selectedStore?.billing_eligible
-    && !subscriptionsByStore.has(selectedStore.id)
-    && reason.trim().length >= 10
-    && !busy
-  );
-
   return (
     <main className="premium-page">
       <section className="premium-shell flex min-h-screen">
@@ -440,7 +303,7 @@ export function MasterBillingCenter() {
             <div>
               <div className="flex items-center gap-2 text-red-600">
                 <CreditCard size={18} />
-                <span className="premium-eyebrow">SaaS · etapa 5 · {overview?.safety.runtime_environment || 'saas-dev'}</span>
+                <span className="premium-eyebrow">SaaS · etapa 6 · {overview?.safety.runtime_environment || 'saas-dev'}</span>
               </div>
               <h1 className="premium-title mt-2 text-4xl md:text-5xl">Planos e Billing</h1>
               <p className="premium-muted mt-3 max-w-4xl text-sm">
@@ -455,23 +318,21 @@ export function MasterBillingCenter() {
           <section className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <SafetyCard icon={ShieldCheck} label="Bloqueio global" value={overview?.safety.global_enforcement_enabled ? 'Ligado' : 'Desligado'} safe={!overview?.safety.global_enforcement_enabled} />
             <SafetyCard icon={Eye} label="Modo das lojas" value="Observação" safe />
-            <SafetyCard icon={CreditCard} label="Liberar trial" value={overview?.safety.trial_start_enabled ? 'Habilitado' : 'Bloqueado nesta etapa'} safe={!overview?.safety.trial_start_enabled} />
+            <SafetyCard icon={CreditCard} label="Mutações" value={overview?.safety.mutations_enabled ? 'Habilitadas' : 'Somente leitura'} safe={!overview?.safety.mutations_enabled} />
             <SafetyCard icon={CreditCard} label="Asaas" value={overview?.asaas.sandbox_enabled ? 'Sandbox habilitado' : 'Aguardando configuração'} safe={Boolean(overview?.asaas.sandbox_enabled)} />
             <SafetyCard
               icon={Activity}
-              label="Falhas sintéticas"
-              value={overview?.asaas.sandbox_failure_test_enabled ? 'Etapa 5 habilitada' : 'Desabilitadas'}
-              safe={Boolean(overview?.asaas.sandbox_failure_test_enabled)}
+              label="Controles sintéticos"
+              value="Desabilitados"
+              safe
             />
           </section>
 
-          {!overview?.safety.trial_start_enabled ? (
-            <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-sky-800">
-              Preview somente para leitura e validação. O botão final de liberar os sete dias está bloqueado no servidor; nenhuma assinatura será criada.
-            </div>
-          ) : null}
+          <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-sky-800">
+            Etapa 6 somente para leitura: trial, Checkout Sandbox, confirmação manual e cenários negativos estão bloqueados no servidor. Nenhum registro financeiro será criado por esta tela.
+          </div>
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">
-            Homologação isolada: a Loja DEV Roteamento permanece como controle positivo; falhas são restritas à Loja DEV Billing Falhas. Ambas continuam em observação e nenhum acesso será bloqueado.
+            Entitlement em observação: o sistema calcula o estado comercial de cada loja, registra o diagnóstico sem dados pessoais e preserva integralmente o acesso.
           </div>
           {message ? (
             <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 text-sm font-bold text-zinc-700">
@@ -508,26 +369,14 @@ export function MasterBillingCenter() {
               <Metric label="Elegíveis sem assinatura" value={withoutSubscription} />
               <Metric label="Webhooks processados" value={overview?.webhook_health.processed || 0} />
               <div className="premium-card p-5 sm:col-span-2">
-                <h2 className="text-lg font-black text-zinc-950">Preparar liberação de trial</h2>
+                <h2 className="text-lg font-black text-zinc-950">Experiência da loja habilitada</h2>
                 <p className="mt-2 text-xs leading-5 text-zinc-500">
-                  {overview?.safety.trial_start_enabled
-                    ? 'A liberação permanece restrita ao Master e sempre cria sete dias exatos em modo de observação.'
-                    : 'A seleção e a justificativa podem ser revisadas; a gravação permanece bloqueada neste Preview.'}
+                  Gestores podem consultar plano, trial, vencimento, cartão e situação da cobrança em “Plano & Assinatura”. Equipes comerciais não recebem acesso aos dados financeiros.
                 </p>
-                <div className="mt-4 grid gap-3">
-                  <select className="premium-input" value={selectedStoreId} onChange={(event) => setSelectedStoreId(event.target.value)}>
-                    <option value="">Selecione uma loja elegível</option>
-                    {(overview?.stores || []).filter((store) => store.billing_eligible && !subscriptionsByStore.has(store.id)).map((store) => (
-                      <option key={store.id} value={store.id}>{store.store_name}</option>
-                    ))}
-                  </select>
-                  <textarea className="premium-input min-h-24" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={1000} placeholder="Motivo da liberação pelo Master (mínimo de 10 caracteres)" />
-                  <button type="button" className="premium-button-primary justify-center disabled:cursor-not-allowed disabled:opacity-50" disabled={!activationAllowed} onClick={() => void startTrial()}>
-                    <Clock3 size={16} /> Liberar trial de 7 dias
-                  </button>
-                  <p className="text-center text-[10px] font-black uppercase tracking-wider text-zinc-400">
-                    {overview?.safety.trial_start_enabled ? 'Aguardando loja e justificativa válidas' : 'Gravação bloqueada por BILLING_TRIAL_START_ENABLED=false'}
-                  </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <ReadOnlyFeature title="Login existente" text="A sessão atual continua sendo validada pelo Supabase Auth." />
+                  <ReadOnlyFeature title="Entitlement" text="O resultado é calculado e observado sem bloquear rotas." />
+                  <ReadOnlyFeature title="Financeiro" text="Todas as ações permanecem bloqueadas nesta etapa." />
                 </div>
               </div>
             </div>
@@ -552,25 +401,7 @@ export function MasterBillingCenter() {
                   && payment
                 );
                 const normalizedPaymentStatus = String(payment?.provider_status || '').toUpperCase();
-                const confirmationRequested = latestAudit?.action === 'asaas_sandbox_payment_confirmation_requested'
-                  || normalizedPaymentStatus === 'SANDBOX_CONFIRMATION_REQUESTED';
-                const canConfirmSandboxPayment = Boolean(
-                  overview?.asaas.sandbox_payment_confirmation_enabled
-                  && subscription?.status === 'trialing'
-                  && subscription.access_enforcement_mode === 'observe'
-                  && payment
-                  && normalizedPaymentStatus === 'PENDING'
-                  && !confirmationRequested
-                  && !busy
-                );
                 const isFailureStore = store.store_name === 'Loja DEV Billing Falhas';
-                const canRunStageFive = Boolean(
-                  isFailureStore
-                  && overview?.asaas.sandbox_failure_test_enabled
-                  && subscription?.access_enforcement_mode === 'observe'
-                  && payment
-                  && !busy
-                );
                 return (
                   <article key={store.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                     <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -592,64 +423,10 @@ export function MasterBillingCenter() {
                               <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">
                                 <CheckCircle2 size={14} /> Cartão Sandbox cadastrado
                               </span>
-                            ) : sandboxCheckoutLink(subscription.provider_checkout_id) ? (
-                              <a
-                                href={sandboxCheckoutLink(subscription.provider_checkout_id)}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="premium-button-secondary text-xs"
-                              >
-                                <ExternalLink size={14} /> Abrir Checkout Sandbox
-                              </a>
-                            ) : subscription.status === 'trialing' ? (
-                              <button
-                                type="button"
-                                disabled={!overview?.asaas.sandbox_enabled || busy}
-                                onClick={() => void createSandboxCheckout(store.id)}
-                                className="premium-button-secondary text-xs disabled:cursor-not-allowed disabled:opacity-40"
-                              >
-                                {busy ? <Loader2 size={14} className="animate-spin" /> : <CreditCard size={14} />}
-                                Gerar Checkout Sandbox
-                              </button>
-                            ) : null}
-                            {canConfirmSandboxPayment ? (
-                              <button
-                                type="button"
-                                onClick={() => void confirmSandboxPayment(store.id)}
-                                className="premium-button-primary text-xs disabled:cursor-not-allowed disabled:opacity-40"
-                              >
-                                <CreditCard size={14} /> Confirmar cobrança Sandbox
-                              </button>
-                            ) : null}
-                            {confirmationRequested && ['PENDING', 'SANDBOX_CONFIRMATION_REQUESTED'].includes(normalizedPaymentStatus) ? (
-                              <span className="inline-flex items-center gap-1.5 text-xs font-black text-sky-700">
-                                <Loader2 size={13} className="animate-spin" /> Aguardando webhook do Sandbox
+                            ) : subscription.provider_checkout_id ? (
+                              <span className="inline-flex items-center gap-1.5 rounded-xl bg-sky-50 px-3 py-2 text-xs font-black text-sky-700">
+                                <CreditCard size={14} /> Checkout Sandbox registrado
                               </span>
-                            ) : null}
-                            {canRunStageFive && normalizedPaymentStatus === 'PENDING' ? (
-                              <button type="button" onClick={() => void runStageFiveScenario(store.id, 'stage5-card-refused')} className="premium-button-secondary text-xs">
-                                <CreditCard size={14} /> Simular cartão recusado
-                              </button>
-                            ) : null}
-                            {canRunStageFive && normalizedPaymentStatus === 'CREDIT_CARD_CAPTURE_REFUSED' ? (
-                              <button type="button" onClick={() => void runStageFiveScenario(store.id, 'stage5-overdue')} className="premium-button-secondary text-xs">
-                                <Clock3 size={14} /> Forçar atraso Sandbox
-                              </button>
-                            ) : null}
-                            {canRunStageFive && normalizedPaymentStatus === 'OVERDUE' ? (
-                              <button type="button" onClick={() => void runStageFiveScenario(store.id, 'stage5-confirm-for-refund')} className="premium-button-secondary text-xs">
-                                <CheckCircle2 size={14} /> Confirmar para testar estorno
-                              </button>
-                            ) : null}
-                            {canRunStageFive && ['CONFIRMED', 'RECEIVED'].includes(normalizedPaymentStatus) ? (
-                              <button type="button" onClick={() => void runStageFiveScenario(store.id, 'stage5-refund')} className="premium-button-secondary text-xs">
-                                <History size={14} /> Estornar no Sandbox
-                              </button>
-                            ) : null}
-                            {canRunStageFive && normalizedPaymentStatus === 'REFUNDED' ? (
-                              <button type="button" onClick={() => void runStageFiveScenario(store.id, 'stage5-chargeback-sequence')} className="premium-button-secondary text-xs">
-                                <ShieldCheck size={14} /> Testar chargeback e idempotência
-                              </button>
                             ) : null}
                             {isFailureStore && ['CHARGEBACK_REQUESTED', 'CHARGEBACK_DISPUTE'].includes(normalizedPaymentStatus) ? (
                               <span className="inline-flex items-center gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-700">
@@ -660,7 +437,7 @@ export function MasterBillingCenter() {
                         ) : (
                           <>
                             <span className="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase text-zinc-500">Sem assinatura</span>
-                            <button type="button" disabled={!store.billing_eligible} onClick={() => setSelectedStoreId(store.id)} className="premium-button-secondary text-xs disabled:cursor-not-allowed disabled:opacity-40">Selecionar para trial</button>
+                            <span className="text-xs font-bold text-zinc-500">Acesso preservado em observação</span>
                           </>
                         )}
                       </div>
@@ -770,6 +547,10 @@ export function MasterBillingCenter() {
 
 function Metric({ label, value }: { label: string; value: number }) {
   return <div className="premium-card p-5"><p className="text-[10px] font-black uppercase tracking-wider text-zinc-400">{label}</p><p className="mt-2 text-3xl font-black text-zinc-950">{value}</p></div>;
+}
+
+function ReadOnlyFeature({ title, text }: { title: string; text: string }) {
+  return <article className="rounded-xl border border-zinc-200 bg-zinc-50 p-3"><p className="text-xs font-black text-zinc-900">{title}</p><p className="mt-1 text-[11px] font-bold leading-4 text-zinc-500">{text}</p></article>;
 }
 
 function BillingDetail({

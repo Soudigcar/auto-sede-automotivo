@@ -8,6 +8,15 @@ export type StorePortalContextResult =
       permissions: string[];
       menu: any[];
       scope_label: string;
+      billing: {
+        access_preserved: boolean;
+        enforced: boolean;
+        mode: 'observe';
+        reason: string;
+        observed_allowed: boolean;
+        observed_reason: string;
+        subscription_status: string | null;
+      };
     }
   | {
       status: 'unauthenticated' | 'forbidden' | 'store_not_found' | 'error';

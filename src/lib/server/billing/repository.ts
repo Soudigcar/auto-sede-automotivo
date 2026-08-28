@@ -197,6 +197,83 @@ export async function readMasterBillingOverview(supabase: any) {
   };
 }
 
+export async function readStoreBillingOverview(supabase: any, storeId: string) {
+  const [subscriptionResult, planResult] = await Promise.all([
+    supabase
+      .from('store_billing_subscriptions')
+      .select('id,store_id,plan_id,status,access_enforcement_mode,trial_started_at,trial_ends_at,current_period_started_at,current_period_ends_at,past_due_at,grace_ends_at,provider_customer_id,provider_subscription_id,provider_checkout_id,created_at,updated_at')
+      .eq('store_id', storeId)
+      .neq('status', 'cancelled')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('billing_plans')
+      .select('id,code,name,amount_cents,billing_cycle,included_users,ai_included,is_active,version')
+      .eq('code', 'professional')
+      .eq('is_active', true)
+      .maybeSingle()
+  ]);
+
+  const foundationErrors = [subscriptionResult.error, planResult.error].filter(Boolean);
+  if (foundationErrors.length) {
+    if (foundationErrors.every(missingBillingFoundation)) {
+      return {
+        schema_ready: false,
+        required_migration: BILLING_FOUNDATION_MIGRATION,
+        plan: null,
+        subscription: null,
+        payment: null,
+        latest_audit: null
+      };
+    }
+    throw foundationErrors[0];
+  }
+
+  const subscription = subscriptionResult.data || null;
+  if (!subscription) {
+    return {
+      schema_ready: true,
+      required_migration: null,
+      plan: planResult.data || null,
+      subscription: null,
+      payment: null,
+      latest_audit: null
+    };
+  }
+
+  const [paymentResult, auditResult] = await Promise.all([
+    supabase
+      .from('billing_payments')
+      .select('id,subscription_id,store_id,provider_status,amount_cents,due_at,confirmed_at,received_at,overdue_at,refunded_at,chargeback_at,created_at,updated_at')
+      .eq('store_id', storeId)
+      .eq('subscription_id', subscription.id)
+      .order('due_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('billing_audit_log')
+      .select('id,store_id,subscription_id,action,previous_status,new_status,reason,created_at')
+      .eq('store_id', storeId)
+      .eq('subscription_id', subscription.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+  ]);
+
+  const detailError = paymentResult.error || auditResult.error;
+  if (detailError) throw detailError;
+
+  return {
+    schema_ready: true,
+    required_migration: null,
+    plan: planResult.data || null,
+    subscription,
+    payment: paymentResult.data || null,
+    latest_audit: auditResult.data || null
+  };
+}
+
 export async function startStoreBillingTrial(supabase: any, input: {
   storeId: string;
   planCode: string;

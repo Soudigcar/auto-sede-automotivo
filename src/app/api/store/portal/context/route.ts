@@ -12,6 +12,17 @@ export async function GET(request: Request) {
 
     if ('error' in context) return context.error;
 
+    if (context.role !== 'master') {
+      console.info('[billing.entitlement.observe]', {
+        store_id: context.store.id,
+        role: context.role,
+        access_preserved: context.billing.allowed,
+        observed_allowed: context.billing.observedAllowed,
+        observed_reason: context.billing.observedReason,
+        subscription_status: context.billing.subscriptionStatus
+      });
+    }
+
     return NextResponse.json({
       status: 'ok',
       profile: {
@@ -26,7 +37,16 @@ export async function GET(request: Request) {
       store: context.store,
       permissions: context.permissions,
       menu: context.menu,
-      scope_label: context.scopeLabel
+      scope_label: context.scopeLabel,
+      billing: {
+        access_preserved: context.billing.allowed,
+        enforced: context.billing.enforced,
+        mode: 'observe',
+        reason: context.billing.reason,
+        observed_allowed: context.billing.observedAllowed,
+        observed_reason: context.billing.observedReason,
+        subscription_status: context.billing.subscriptionStatus
+      }
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Não foi possível validar o Portal da Loja.' }, { status: 500 });

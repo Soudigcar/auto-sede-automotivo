@@ -31,10 +31,14 @@ function subscription(patch: Partial<BillingSubscriptionAccessRow> = {}): Billin
   };
 }
 
-test('billing nasce globalmente desligado e somente true explicito habilita enforcement', () => {
+test('billing nasce desligado e exige duas autorizacoes explicitas para enforcement', () => {
   assert.equal(billingEnforcementEnabled({} as NodeJS.ProcessEnv), false);
   assert.equal(billingEnforcementEnabled({ BILLING_ENFORCEMENT_ENABLED: 'false' } as NodeJS.ProcessEnv), false);
-  assert.equal(billingEnforcementEnabled({ BILLING_ENFORCEMENT_ENABLED: 'true' } as NodeJS.ProcessEnv), true);
+  assert.equal(billingEnforcementEnabled({ BILLING_ENFORCEMENT_ENABLED: 'true' } as NodeJS.ProcessEnv), false);
+  assert.equal(billingEnforcementEnabled({
+    BILLING_ENFORCEMENT_ENABLED: 'true',
+    BILLING_STAGE6_ENFORCEMENT_ENABLED: 'true'
+  } as NodeJS.ProcessEnv), true);
 });
 
 test('modo observacao preserva integralmente o acesso de loja operacional', () => {
@@ -44,7 +48,11 @@ test('modo observacao preserva integralmente o acesso de loja operacional', () =
     allowed: true,
     enforced: false,
     reason: 'global_observation_mode',
-    subscriptionId: null
+    subscriptionId: null,
+    subscriptionStatus: null,
+    accessEnforcementMode: null,
+    observedAllowed: false,
+    observedReason: 'subscription_required'
   });
 
   assert.equal(evaluateBillingAccess({
@@ -131,9 +139,10 @@ test('tabelas financeiras sao service-only e trial exige Master ativo no banco e
   assert.match(masterRoute, /\.includes\(action\)/);
 });
 
-test('gates centrais consultam billing, mas a configuracao padrao nao adiciona consulta ao banco', () => {
+test('gates centrais consultam billing em observacao sem bloquear o acesso operacional', () => {
   assert.match(storePortal, /resolveStoreBillingAccess/);
   assert.match(storePortal, /status:402/);
+  assert.doesNotMatch(storePortal, /if\s*\([^)]*!enforcementEnabled/);
 });
 
 test('configuracao Asaas separa ambientes, nao aceita token curto e usa access_token server-side', () => {

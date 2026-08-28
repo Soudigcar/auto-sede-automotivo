@@ -72,12 +72,20 @@ test('Gestor acessa as conversas da própria loja e não cruza tenant', () => {
 });
 
 function storeLookup(store: any, error: any = null) {
-  const query: any = {
-    select() { return query; },
-    eq() { return query; },
+  const storeQuery: any = {
+    select() { return storeQuery; },
+    eq() { return storeQuery; },
     async maybeSingle() { return { data: store, error }; }
   };
-  return { from() { return query; } };
+  const billingQuery: any = {
+    select() { return billingQuery; },
+    eq() { return billingQuery; },
+    neq() { return billingQuery; },
+    order() { return billingQuery; },
+    limit() { return billingQuery; },
+    async maybeSingle() { return { data: null, error: null }; }
+  };
+  return { from(table: string) { return table === 'stores' ? storeQuery : billingQuery; } };
 }
 
 test('WhatsApp da loja exige portal ativo e publicado para papéis não-Master', async () => {

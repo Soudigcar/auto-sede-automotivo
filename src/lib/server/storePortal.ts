@@ -18,6 +18,7 @@ export type StorePortalPermission =
   | 'manage_operation'
   | 'manage_team'
   | 'manage_lead_routing'
+  | 'view_billing'
   | 'view_autocar'
   | 'manage_autocar'
   | 'approve_autocar_actions';
@@ -29,8 +30,8 @@ const roleLabels: Record<StorePortalRole, string> = {
 };
 
 const rolePermissions: Record<StorePortalRole, StorePortalPermission[]> = {
-  master: ['view_dashboard','manage_store','view_pipeline','view_whatsapp','manage_integrations','view_calendar','manage_stock','submit_stock_import','manage_operation','manage_team','manage_lead_routing','view_autocar','manage_autocar','approve_autocar_actions'],
-  store: ['view_dashboard','manage_store','view_pipeline','view_whatsapp','manage_integrations','view_calendar','manage_stock','submit_stock_import','manage_operation','manage_team','manage_lead_routing','view_autocar','manage_autocar','approve_autocar_actions'],
+  master: ['view_dashboard','manage_store','view_pipeline','view_whatsapp','manage_integrations','view_calendar','manage_stock','submit_stock_import','manage_operation','manage_team','manage_lead_routing','view_billing','view_autocar','manage_autocar','approve_autocar_actions'],
+  store: ['view_dashboard','manage_store','view_pipeline','view_whatsapp','manage_integrations','view_calendar','manage_stock','submit_stock_import','manage_operation','manage_team','manage_lead_routing','view_billing','view_autocar','manage_autocar','approve_autocar_actions'],
   pre_sales: ['view_dashboard','view_pipeline','view_whatsapp','view_calendar','view_stock','view_autocar'],
   seller: ['view_dashboard','view_pipeline','view_whatsapp','view_calendar','view_stock','view_autocar'],
   prospector: ['view_dashboard','view_pipeline','view_whatsapp','view_calendar','view_stock','view_autocar']
@@ -49,7 +50,8 @@ const menuCatalog: Array<Omit<StorePortalMenuItem,'href'>> = [
   { key:'stock', label:'Estoque', segment:'estoque-consulta', permission:'view_stock' },
   { key:'stock', label:'Estoque', segment:'estoque', permission:'manage_stock' },
   { key:'operation', label:'Operação', segment:'operacao', permission:'manage_operation' },
-  { key:'team', label:'Equipe', segment:'equipe', permission:'manage_team' }
+  { key:'team', label:'Equipe', segment:'equipe', permission:'manage_team' },
+  { key:'billing', label:'Plano & Assinatura', segment:'assinatura', permission:'view_billing' }
 ];
 
 export function asStorePortalRole(value: unknown): StorePortalRole | null { const role=String(value||'') as StorePortalRole; return storePortalRoles.includes(role)?role:null; }

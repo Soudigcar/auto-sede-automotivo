@@ -182,7 +182,7 @@ test('vencimento civil do Asaas nao retrocede um dia ao passar por timestamptz',
   assert.match(billingUi, /asaasDueDate\(payment\.due_at\)/);
 });
 
-test('codigo fixa carencia em 3 dias, preserva observe e expoe a trilha da etapa 5', () => {
+test('codigo preserva carencia e evidencias da etapa 5, mas remove seus controles sinteticos', () => {
   assert.equal(BILLING_GRACE_PERIOD_DAYS, 3);
   assert.match(repository, /subscription\.past_due_at \|\| now/);
   assert.match(repository, /subscription\.grace_ends_at[\s\S]*BILLING_GRACE_PERIOD_DAYS/);
@@ -190,8 +190,8 @@ test('codigo fixa carencia em 3 dias, preserva observe e expoe a trilha da etapa
   assert.match(repository, /duplicate_requested/);
   assert.match(repository, /out_of_order/);
   assert.doesNotMatch(repository, /access_enforcement_mode:\s*'enforce'/);
-  assert.match(masterRoute, /stage5-chargeback-sequence/);
-  assert.match(masterRoute, /storeId !== asaasSandbox\.failureSyntheticStoreId/);
+  assert.doesNotMatch(masterRoute, /stage5-chargeback-sequence/);
+  assert.doesNotMatch(masterRoute, /stage5-card-refused/);
   assert.match(webhookRoute, /syntheticStoreIds: asaasSandbox\.syntheticStoreIds/);
   assert.match(billingUi, /Carência de 3 dias/);
   assert.match(billingUi, /Cenário negativo concluído sem bloqueio/);

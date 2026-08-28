@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  CreditCard,
   LayoutDashboard,
   LogOut,
   MessageCircle,
@@ -55,6 +56,15 @@ export type StorePortalClientContext = {
     permission: string;
   }>;
   scope_label: string;
+  billing: {
+    access_preserved: boolean;
+    enforced: boolean;
+    mode: 'observe';
+    reason: string;
+    observed_allowed: boolean;
+    observed_reason: string;
+    subscription_status: string | null;
+  };
 };
 
 export type StorePortalTheme = 'light' | 'dark';
@@ -76,7 +86,8 @@ const menuIcons: Record<string, LucideIcon> = {
   calendar: CalendarDays,
   stock: Package,
   operation: ClipboardList,
-  team: UsersRound
+  team: UsersRound,
+  billing: CreditCard
 };
 
 function initials(value: string) {

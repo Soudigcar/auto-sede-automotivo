@@ -142,7 +142,7 @@ test('API, webhook, repositorio e UI preservam o escopo sintetico da etapa 4', (
   assert.match(webhookRoute, /provider_event_id,event_type/);
   assert.match(webhookRoute, /\.eq\('processing_attempts', Number\(storedEvent\.processing_attempts \|\| 0\)\)/);
   assert.match(billingUi, /Cartão Sandbox cadastrado/);
-  assert.match(billingUi, /Confirmar cobrança Sandbox/);
+  assert.doesNotMatch(billingUi, /Confirmar cobrança Sandbox/);
   assert.match(billingUi, /Saúde dos webhooks/);
   assert.match(billingUi, /Auditoria do billing/);
   assert.doesNotMatch(repository, /access_enforcement_mode:\s*'enforce'/);

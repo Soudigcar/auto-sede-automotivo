@@ -38,6 +38,17 @@ O valor padrao global e individual permanece desligado/`observe`. Erro de infrae
 - `BILLING_TRIAL_START_ENABLED=false` bloqueia a mutacao no servidor antes da chamada ao banco;
 - nesta etapa, nenhuma assinatura ou trial e persistido e o Asaas continua sem configuracao.
 
+## Etapa 6 — experiencia da loja e entitlement observado
+
+- gestores da loja consultam plano, trial, vencimento, cartao e situacao da cobranca em `/loja/[slug]/assinatura`;
+- equipes comerciais nao recebem permissao para visualizar dados financeiros;
+- o entitlement consulta a assinatura e calcula o resultado comercial, mas sempre preserva o acesso em `observe`;
+- uma trava adicional da etapa 6 impede enforcement mesmo se a chave global antiga for ativada isoladamente;
+- o diagnostico e enviado aos logs sem nome, email ou telefone;
+- falhas de consulta ao billing permanecem fail-open;
+- `BILLING_STAGE6_MUTATIONS_ENABLED=false` bloqueia no servidor trial, Checkout, confirmacao manual e cenarios sinteticos;
+- os controles da etapa 5 nao aparecem na interface e seus endpoints deixam de ser expostos.
+
 ## Asaas
 
 - API Key e token do Webhook sao exclusivamente server-side;

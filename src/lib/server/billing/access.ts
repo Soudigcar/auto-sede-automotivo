@@ -39,10 +39,16 @@ export type BillingAccessDecision = {
   enforced: boolean;
   reason: BillingAccessReason;
   subscriptionId: string | null;
+  subscriptionStatus: BillingSubscriptionStatus | null;
+  accessEnforcementMode: 'observe' | 'enforce' | null;
+  observedAllowed: boolean;
+  observedReason: BillingAccessReason;
 };
 
 export function billingEnforcementEnabled(environment: NodeJS.ProcessEnv = process.env) {
-  return String(environment.BILLING_ENFORCEMENT_ENABLED || '').trim().toLowerCase() === 'true';
+  const enabled = (value: unknown) => String(value || '').trim().toLowerCase() === 'true';
+  return enabled(environment.BILLING_ENFORCEMENT_ENABLED)
+    && enabled(environment.BILLING_STAGE6_ENFORCEMENT_ENABLED);
 }
 
 function validFutureDate(value: string | null | undefined, nowMs: number) {
@@ -59,59 +65,85 @@ export function evaluateBillingAccess(input: {
   now?: Date;
 }): BillingAccessDecision {
   if (input.role === 'master') {
-    return { allowed: true, enforced: false, reason: 'master_bypass', subscriptionId: null };
+    return {
+      allowed: true,
+      enforced: false,
+      reason: 'master_bypass',
+      subscriptionId: null,
+      subscriptionStatus: null,
+      accessEnforcementMode: null,
+      observedAllowed: true,
+      observedReason: 'master_bypass'
+    };
   }
 
   if (!input.operationalStore) {
-    return { allowed: false, enforced: false, reason: 'store_unavailable', subscriptionId: null };
-  }
-
-  if (!input.enforcementEnabled) {
-    return { allowed: true, enforced: false, reason: 'global_observation_mode', subscriptionId: null };
+    return {
+      allowed: false,
+      enforced: false,
+      reason: 'store_unavailable',
+      subscriptionId: null,
+      subscriptionStatus: null,
+      accessEnforcementMode: null,
+      observedAllowed: false,
+      observedReason: 'store_unavailable'
+    };
   }
 
   const subscription = input.subscription || null;
-  if (!subscription) {
-    return { allowed: false, enforced: true, reason: 'subscription_required', subscriptionId: null };
+  const nowMs = (input.now || new Date()).getTime();
+  let observedAllowed = false;
+  let observedReason: BillingAccessReason = 'subscription_required';
+
+  if (subscription?.status === 'active') {
+    observedAllowed = true;
+    observedReason = 'subscription_active';
+  } else if (subscription?.status === 'trialing') {
+    observedAllowed = validFutureDate(subscription.trial_ends_at, nowMs);
+    observedReason = observedAllowed ? 'trial_active' : 'trial_expired';
+  } else if (subscription?.status === 'past_due') {
+    observedAllowed = validFutureDate(subscription.grace_ends_at, nowMs);
+    observedReason = observedAllowed ? 'past_due_grace' : 'payment_required';
+  } else if (subscription?.status === 'pending_checkout') {
+    observedReason = 'checkout_required';
+  } else if (subscription?.status === 'suspended') {
+    observedReason = 'subscription_suspended';
+  } else if (subscription?.status === 'cancelled') {
+    observedReason = 'subscription_cancelled';
   }
 
-  if (subscription.access_enforcement_mode !== 'enforce') {
+  const observation = {
+    subscriptionId: subscription?.id || null,
+    subscriptionStatus: subscription?.status || null,
+    accessEnforcementMode: subscription?.access_enforcement_mode || null,
+    observedAllowed,
+    observedReason
+  } as const;
+
+  if (!input.enforcementEnabled) {
+    return {
+      allowed: true,
+      enforced: false,
+      reason: 'global_observation_mode',
+      ...observation
+    };
+  }
+
+  if (subscription?.access_enforcement_mode !== 'enforce') {
     return {
       allowed: true,
       enforced: false,
       reason: 'subscription_observation_mode',
-      subscriptionId: subscription.id
+      ...observation
     };
   }
 
-  const nowMs = (input.now || new Date()).getTime();
-  const base = { enforced: true, subscriptionId: subscription.id } as const;
-
-  if (subscription.status === 'active') {
-    return { ...base, allowed: true, reason: 'subscription_active' };
-  }
-
-  if (subscription.status === 'trialing') {
-    return validFutureDate(subscription.trial_ends_at, nowMs)
-      ? { ...base, allowed: true, reason: 'trial_active' }
-      : { ...base, allowed: false, reason: 'trial_expired' };
-  }
-
-  if (subscription.status === 'past_due') {
-    return validFutureDate(subscription.grace_ends_at, nowMs)
-      ? { ...base, allowed: true, reason: 'past_due_grace' }
-      : { ...base, allowed: false, reason: 'payment_required' };
-  }
-
-  if (subscription.status === 'pending_checkout') {
-    return { ...base, allowed: false, reason: 'checkout_required' };
-  }
-
-  if (subscription.status === 'suspended') {
-    return { ...base, allowed: false, reason: 'subscription_suspended' };
-  }
-
-  return { ...base, allowed: false, reason: 'subscription_cancelled' };
+  return {
+    allowed: observedAllowed,
+    enforced: true,
+    reason: observedReason,
+    ...observation
+  };
 }
 
 function missingBillingSchema(error: any) {
@@ -137,7 +169,7 @@ export async function resolveStoreBillingAccess(supabase: any, input: {
     now: input.now
   });
 
-  if (input.role === 'master' || !input.operationalStore || !enforcementEnabled) {
+  if (input.role === 'master' || !input.operationalStore) {
     return earlyDecision;
   }
 
@@ -151,15 +183,21 @@ export async function resolveStoreBillingAccess(supabase: any, input: {
     .maybeSingle();
 
   if (error) {
-    if (missingBillingSchema(error)) {
-      return {
-        allowed: true,
-        enforced: false,
-        reason: 'billing_infrastructure_unavailable',
-        subscriptionId: null
-      };
+    if (!missingBillingSchema(error)) {
+      console.error('[billing.entitlement] consulta indisponivel; acesso preservado', {
+        code: String(error?.code || 'unknown')
+      });
     }
-    throw error;
+    return {
+      allowed: true,
+      enforced: false,
+      reason: 'billing_infrastructure_unavailable',
+      subscriptionId: null,
+      subscriptionStatus: null,
+      accessEnforcementMode: null,
+      observedAllowed: true,
+      observedReason: 'billing_infrastructure_unavailable'
+    };
   }
 
   return evaluateBillingAccess({

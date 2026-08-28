@@ -24,6 +24,7 @@ export type BillingRuntimeSafety = {
   previewEnvironment: boolean;
   credentialsConfigured: boolean;
   readsEnabled: boolean;
+  mutationsEnabled: boolean;
   trialStartEnabled: boolean;
   reason: 'ready' | 'preview_only' | 'target_not_configured' | 'target_mismatch' | 'credentials_missing';
 };
@@ -53,6 +54,8 @@ export function readBillingRuntimeSafety(
   else if (!credentialsConfigured) reason = 'credentials_missing';
 
   const readsEnabled = reason === 'ready';
+  const mutationsEnabled = readsEnabled
+    && explicitTrue(environment.BILLING_STAGE6_MUTATIONS_ENABLED);
   return {
     environmentName: String(environment.BILLING_RUNTIME_ENVIRONMENT_NAME || 'saas-dev').trim().slice(0, 80),
     vercelEnvironment,
@@ -62,8 +65,8 @@ export function readBillingRuntimeSafety(
     previewEnvironment,
     credentialsConfigured,
     readsEnabled,
-    trialStartEnabled: readsEnabled && explicitTrue(environment.BILLING_TRIAL_START_ENABLED),
+    mutationsEnabled,
+    trialStartEnabled: mutationsEnabled && explicitTrue(environment.BILLING_TRIAL_START_ENABLED),
     reason
   };
 }
-

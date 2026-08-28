@@ -214,7 +214,7 @@ test('API, repositorio, webhook e UI preservam os limites da etapa 3', () => {
   assert.match(webhookRoute, /\['processed', 'ignored'\]\.includes/);
   assert.match(webhookRoute, /processStoredAsaasWebhookEvent/);
   assert.match(webhookRoute, /syntheticStoreIds: asaasSandbox\.syntheticStoreIds/);
-  assert.match(billingUi, /Gerar Checkout Sandbox/);
-  assert.match(billingUi, /Nenhuma cobrança real é permitida/);
+  assert.doesNotMatch(billingUi, /Gerar Checkout Sandbox/);
+  assert.match(billingUi, /somente para leitura/);
   assert.doesNotMatch(repository, /access_enforcement_mode:\s*'enforce'/);
 });
