@@ -11,6 +11,8 @@ const pipelinePage = readFileSync('src/app/loja/[slug]/pipeline/page.tsx', 'utf8
 const pipelineRoute = readFileSync('src/app/api/store/portal/pipeline/route.ts', 'utf8');
 const pipelineWhatsappRoute = readFileSync('src/app/api/store/portal/pipeline/whatsapp/route.ts', 'utf8');
 const whatsappPage = readFileSync('src/app/loja/[slug]/whatsapp/page.tsx', 'utf8');
+const profilePictureHook = readFileSync('src/hooks/useStoreWhatsappProfilePictures.ts', 'utf8');
+const contactAvatar = readFileSync('src/components/WhatsappContactAvatar.tsx', 'utf8');
 const domSync = readFileSync('src/components/StorePipelineDomSync.tsx', 'utf8');
 const addLead = readFileSync('src/components/PipelineAddLeadWithStock.tsx', 'utf8');
 
@@ -98,11 +100,19 @@ test('unlinked WhatsApp conversations are created only for an authorized lead an
   assert.match(pipelineWhatsappRoute, /Este telefone já está vinculado a outro lead da loja/);
 });
 
-test('pipeline exposes cached contact photos without changing data or calling Evolution', () => {
+test('Kanban and List reuse the authenticated durable profile-picture proxy for every authorized role', () => {
   assert.match(pipelineRoute, /\.from\('whatsapp_contacts'\)/);
-  assert.match(pipelineRoute, /profile_picture_url: profilePictureUrl\(contact\)/);
+  assert.match(pipelineRoute, /whatsapp_contact_id: contact\?\.id \|\| null/);
+  assert.match(pipelineRoute, /whatsapp_provider: whatsappProvider\(contact\)/);
+  assert.doesNotMatch(pipelineRoute, /profile_picture_url:/);
   assert.doesNotMatch(pipelineRoute, /getEvolutionProfilePictureUrl/);
-  assert.match(pipelinePage, /alt=\{`Foto de \$\{name\}`\}/);
+  assert.match(pipelinePage, /useStoreWhatsappProfilePictures/);
+  assert.match(pipelinePage, /<LeadCard[\s\S]*?profilePictures=\{profilePictures\}/);
+  assert.match(pipelinePage, /<PipelineLeadList[\s\S]*?profilePictures=\{profilePictures\}/);
+  assert.match(pipelinePage, /<PipelineLeadAvatar lead=\{lead\} profilePictures=\{profilePictures\} \/>/);
+  assert.match(pipelinePage, /new IntersectionObserver/);
+  assert.match(profilePictureHook, /ensureProfilePicture/);
+  assert.match(contactAvatar, /alt=\{`Foto de \$\{name\}`\}/);
 });
 
 test('scheduled cards fit vehicle interest and appointment date in the existing metadata line', () => {
