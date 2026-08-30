@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
-import type { FollowUpConfigV2, FollowUpMode, FollowUpScenarioKey } from '@/lib/server/autocar/smartFollowUpV2';
+import {
+  FOLLOW_UP_V2_LIVE_AUTOMATIC_SCENARIOS,
+  type FollowUpConfigV2,
+  type FollowUpMode
+} from '@/lib/server/autocar/smartFollowUpV2';
 import { looksLikeNonLeadAutomation } from '@/lib/server/autocar/followUpV2ContextualReopening';
 
-export const FOLLOW_UP_COPILOT_ELIGIBLE_SCENARIOS = [
-  'silent_lead',
-  'simulation_pending',
-  'vehicle_interest'
-] as const satisfies readonly FollowUpScenarioKey[];
+export const FOLLOW_UP_COPILOT_ELIGIBLE_SCENARIOS = FOLLOW_UP_V2_LIVE_AUTOMATIC_SCENARIOS;
 
 export type FollowUpCopilotCandidate = {
   conversation_id: string;

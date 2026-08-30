@@ -78,7 +78,7 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     const text = humanError(error);
-    const status = /AUTOPILOT|inválid|não habilitou|não autorizado|canário/i.test(text) ? 400 : 500;
+    const status = /AUTOPILOT|inválid|não habilitou|não autorizado|canário|etapa|sequência|jornada|janela|máximo|duração|intervalo|precisa/i.test(text) ? 400 : 500;
     return NextResponse.json({ error: text }, { status });
   }
 }

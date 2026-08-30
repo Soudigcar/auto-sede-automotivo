@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   clampStoreFollowUpSettings,
   defaultFollowUpConfigV2,
+  followUpStepLabel,
   validateFollowUpConfigV2,
   type FollowUpConfigV2,
   type FollowUpScenario,
@@ -281,40 +282,56 @@ export async function saveStoreFollowUpV2(
       cancelOnSale: true,
       cancelOnHumanTakeover: true,
       cancelOnClosedConversation: true
-    }
+    },
+    scenarios: input.scenarios.map((scenario) => {
+      const authoritative = master.scenarios.find((item) => item.key === scenario.key);
+      return {
+        ...scenario,
+        title: authoritative?.title || scenario.title,
+        description: authoritative?.description || scenario.description,
+        steps: scenario.steps.map((step) => ({
+          ...step,
+          label: followUpStepLabel(scenario.key, step.delayMinutes)
+        }))
+      };
+    })
   };
+  assertConfig(requested);
   const effectiveSettings = clampStoreFollowUpSettings(master.global, requested.global);
   if (requested.global.enabled && !master.global.enabled) throw new Error('O Master ainda não habilitou Smart Follow-up.');
   if (requested.global.mode === 'autopilot' && master.global.mode !== 'autopilot') {
     throw new Error('O Master ainda não liberou AUTOPILOT como teto do Smart Follow-up.');
   }
   const before = await readStoreFollowUpV2(client, storeId);
-  const { data: current, error: currentError } = await client.from('ai_follow_up_store_settings').select('version').eq('store_id', storeId).maybeSingle();
-  if (currentError) throw currentError;
-  const saved = await client.from('ai_follow_up_store_settings').upsert({
-    store_id: storeId,
-    enabled: Boolean(master.global.enabled && requested.global.enabled),
-    mode: effectiveSettings.mode,
-    allowed_start: effectiveSettings.allowedStart,
-    allowed_end: effectiveSettings.allowedEnd,
-    max_per_lead_per_day: effectiveSettings.maxPerLeadPerDay,
-    max_per_sequence: effectiveSettings.maxPerSequence,
-    max_sequence_days: effectiveSettings.maxSequenceDays,
-    min_interval_minutes: effectiveSettings.minIntervalMinutes,
-    version: Number(current?.version || 0) + 1,
-    updated_by_profile_id: actorProfileId,
-    updated_at: new Date().toISOString()
-  }, { onConflict: 'store_id' });
-  if (saved.error) throw saved.error;
-  const storeScenarios = requested.scenarios.map((scenario) => {
+  const effectiveScenarios = requested.scenarios.map((scenario) => {
     const ceiling = master.scenarios.find((row) => row.key === scenario.key);
-    return { ...scenario, enabled: Boolean(ceiling?.enabled && scenario.enabled) };
+    return {
+      ...scenario,
+      enabled: Boolean(ceiling?.enabled && scenario.enabled),
+      steps: scenario.steps.slice(0, Math.max(1, effectiveSettings.maxPerSequence))
+    };
   });
-  await saveScenarioSet(client, 'store', storeId, storeScenarios, actorProfileId);
+  assertConfig({ version: 2, global: effectiveSettings, scenarios: effectiveScenarios });
+
+  const transaction = await client.rpc('save_autocar_follow_up_store_config_v2', {
+    p_store_id: storeId,
+    p_settings: {
+      enabled: requested.global.enabled,
+      mode: requested.global.mode,
+      allowed_start: requested.global.allowedStart,
+      allowed_end: requested.global.allowedEnd,
+      max_per_lead_per_day: requested.global.maxPerLeadPerDay,
+      max_per_sequence: requested.global.maxPerSequence,
+      max_sequence_days: requested.global.maxSequenceDays,
+      min_interval_minutes: requested.global.minIntervalMinutes
+    },
+    p_scenarios: requested.scenarios,
+    p_previous_value: before.requested,
+    p_new_value: requested,
+    p_actor_profile_id: actorProfileId
+  });
+  if (transaction.error) throw transaction.error;
+
   const after = await readStoreFollowUpV2(client, storeId);
-  const audit = await client.from('ai_follow_up_config_audit').insert({
-    scope: 'store', record_key: storeId, previous_value: before.requested, new_value: after.requested, actor_profile_id: actorProfileId
-  });
-  if (audit.error) throw audit.error;
   return after;
 }

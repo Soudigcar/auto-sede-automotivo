@@ -8,6 +8,20 @@ export type FollowUpScenarioKey =
   | 'no_show'
   | 'callback_requested';
 
+export const FOLLOW_UP_V2_LIVE_AUTOMATIC_SCENARIOS = [
+  'silent_lead',
+  'simulation_pending',
+  'vehicle_interest'
+] as const satisfies readonly FollowUpScenarioKey[];
+
+export type FollowUpScenarioRollout = 'live' | 'preparation';
+
+export function followUpScenarioRollout(key: FollowUpScenarioKey): FollowUpScenarioRollout {
+  return (FOLLOW_UP_V2_LIVE_AUTOMATIC_SCENARIOS as readonly FollowUpScenarioKey[]).includes(key)
+    ? 'live'
+    : 'preparation';
+}
+
 export type FollowUpStep = {
   id: string;
   delayMinutes: number;
@@ -141,6 +155,64 @@ function asTime(value: string) {
   return hour * 60 + minute;
 }
 
+export function followUpStepLabel(key: FollowUpScenarioKey, delayMinutes: number) {
+  const absolute = Math.max(1, Math.abs(Math.round(delayMinutes)));
+  const amount = absolute % 1440 === 0
+    ? absolute / 1440
+    : absolute % 60 === 0
+      ? absolute / 60
+      : absolute;
+  const unit = absolute % 1440 === 0
+    ? amount === 1 ? 'dia' : 'dias'
+    : absolute % 60 === 0
+      ? amount === 1 ? 'hora' : 'horas'
+      : amount === 1 ? 'minuto' : 'minutos';
+  const direction = key === 'visit_confirmation'
+    ? 'antes'
+    : ['post_visit', 'no_show'].includes(key)
+      ? 'depois'
+      : '';
+  return `${amount} ${unit}${direction ? ` ${direction}` : ''}`;
+}
+
+export function followUpStepDescription(key: FollowUpScenarioKey, delayMinutes: number) {
+  const timing = followUpStepLabel(key, delayMinutes);
+  if (key === 'visit_confirmation') return `Enviar ${timing} da visita agendada.`;
+  if (key === 'post_visit') return `Enviar ${timing} que o CRM confirmar o comparecimento.`;
+  if (key === 'no_show') return `Enviar ${timing} que o CRM comprovar a ausência.`;
+  if (key === 'simulation_pending') return `Enviar ${timing} depois da última mensagem elegível sobre a simulação.`;
+  if (key === 'vehicle_interest') return `Enviar ${timing} depois da última mensagem elegível sobre o veículo.`;
+  return `Enviar ${timing} depois da última mensagem elegível da loja ou da AUTOCAR.`;
+}
+
+export function validateFollowUpScenarioSteps(scenario: FollowUpScenario) {
+  const errors: string[] = [];
+  const ids = new Set<string>();
+  let previousDelay: number | null = null;
+
+  for (const step of scenario.steps) {
+    if (ids.has(step.id)) errors.push('Existem etapas duplicadas.');
+    ids.add(step.id);
+    if (!Number.isFinite(step.delayMinutes) || step.delayMinutes === 0) {
+      errors.push('Todas as etapas precisam ter um tempo válido maior que zero.');
+      continue;
+    }
+    if (scenario.key === 'visit_confirmation' && step.delayMinutes >= 0) {
+      errors.push('A confirmação de visita precisa ocorrer antes do horário agendado.');
+    }
+    if (scenario.key !== 'visit_confirmation' && step.delayMinutes <= 0) {
+      errors.push('Esta jornada precisa ocorrer depois do evento de referência.');
+    }
+    if (previousDelay !== null && step.delayMinutes <= previousDelay) {
+      errors.push(scenario.key === 'visit_confirmation'
+        ? 'As confirmações precisam seguir a ordem cronológica: primeiro a mais distante, depois a mais próxima da visita.'
+        : 'Cada etapa precisa acontecer depois da etapa anterior.');
+    }
+    previousDelay = step.delayMinutes;
+  }
+  return Array.from(new Set(errors));
+}
+
 export function validateFollowUpConfigV2(config: FollowUpConfigV2) {
   const errors: string[] = [];
   const start = asTime(config.global.allowedStart);
@@ -157,6 +229,10 @@ export function validateFollowUpConfigV2(config: FollowUpConfigV2) {
     const enabledSteps = scenario.steps.filter((step) => step.enabled);
     if (scenario.enabled && scenario.key !== 'callback_requested' && !enabledSteps.length) errors.push(`${scenario.title}: habilite ao menos uma etapa.`);
     if (enabledSteps.length > config.global.maxPerSequence) errors.push(`${scenario.title}: etapas excedem o limite global por sequência.`);
+    if (scenario.attributionWindowMinutes < 15 || scenario.attributionWindowMinutes > 10080) {
+      errors.push(`${scenario.title}: a janela de atribuição deve ficar entre 15 minutos e 7 dias.`);
+    }
+    errors.push(...validateFollowUpScenarioSteps(scenario).map((error) => `${scenario.title}: ${error}`));
   }
   return { ok: errors.length === 0, errors };
 }
