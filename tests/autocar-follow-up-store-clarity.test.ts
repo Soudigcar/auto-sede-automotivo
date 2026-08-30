@@ -64,6 +64,8 @@ describe('Smart Follow-up da loja com configuração clara e segura', () => {
     }
     assert.match(storeComponent, /beforeunload/);
     assert.match(storeComponent, /Descartar alterações/);
+    assert.match(storeComponent, /Tudo salvo/);
+    assert.match(storeComponent, /A4 ELEGÍVEL AO AUTOPILOT · NÃO ATIVO/);
   });
 
   it('mostra rollout real, descrições completas e performance real por jornada', () => {
@@ -72,6 +74,9 @@ describe('Smart Follow-up da loja com configuração clara e segura', () => {
     assert.match(storeComponent, /followUpStepDescription/);
     assert.match(storeComponent, /performance\?\.scenarios\?\.\[scenario\.key\]/);
     assert.match(storeComponent, /nenhum número é simulado/);
+    assert.match(storeComponent, /Esta etapa está desativada e não será enviada/);
+    assert.match(storeComponent, /toggleStep/);
+    assert.match(storeComponent, /Master bloqueou/);
     assert.doesNotMatch(storeComponent, /Respostas<\/p><strong>0/);
   });
 

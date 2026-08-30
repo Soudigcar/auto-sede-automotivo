@@ -133,7 +133,7 @@ function SettingsComparison({
   draftPreview: FollowUpSettings;
   dirty: boolean;
 }) {
-  return <div className="premium-card p-5">
+  return <div className="premium-card min-w-0 p-5">
     <div className="flex items-center gap-2"><ShieldCheck size={17} className="text-emerald-600"/><h3 className="text-lg font-black">Loja × Master × efetivo</h3></div>
     <p className="mt-2 text-xs font-bold leading-5 text-zinc-500">O valor efetivo é o que o sistema usa agora. Ele nunca ultrapassa o teto de segurança definido pelo Master.</p>
     <div className="mt-4 overflow-x-auto rounded-2xl border border-zinc-200">
@@ -283,6 +283,17 @@ export function StoreAutocarFollowUpV2({ storeName, canManage }: { storeName: st
     }));
   }
 
+  function toggleStep(key: FollowUpScenarioKey, stepId: string) {
+    if (!canManage) return;
+    setRequested((current) => ({
+      ...current,
+      scenarios: current.scenarios.map((scenario) => scenario.key === key ? {
+        ...scenario,
+        steps: scenario.steps.map((step) => step.id === stepId ? { ...step, enabled: !step.enabled } : step)
+      } : scenario)
+    }));
+  }
+
   function discardDraft() {
     setRequested(cloneConfig(savedRequested));
     setMessage('Alterações não salvas foram descartadas.');
@@ -322,7 +333,7 @@ export function StoreAutocarFollowUpV2({ storeName, canManage }: { storeName: st
     <section className="premium-card p-5 md:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div><div className="flex items-center gap-2 text-red-600"><Workflow size={18}/><span className="premium-eyebrow">Smart Follow-up</span></div><h2 className="mt-2 text-2xl font-black text-zinc-950">Configuração da {storeName}</h2><p className="mt-2 max-w-3xl text-xs font-bold leading-5 text-zinc-500">As regras gerais limitam todas as jornadas. O tempo de cada etapa é contado a partir do evento indicado nela — não é somado à etapa anterior.</p></div>
-        <div className="flex flex-wrap gap-2"><span className={`rounded-full px-3 py-2 text-[10px] font-black uppercase ${canaryActive ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>{canaryActive ? 'AUTOPILOT CANÁRIO · SAFE CORE' : autopilotCanaryAllowed ? 'A4 · AUTOPILOT DISPONÍVEL' : 'COPILOT · AUTOPILOT BLOQUEADO'}</span>{canManage ? <button type="button" onClick={() => void save()} disabled={saving || loading || !dirty || !validation.ok} className="premium-button-primary"><Save size={14}/>{saving ? 'Salvando...' : 'Salvar Follow-up'}</button> : null}</div>
+        <div className="flex flex-wrap gap-2"><span className={`rounded-full px-3 py-2 text-[10px] font-black uppercase ${canaryActive ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>{canaryActive ? 'AUTOPILOT CANÁRIO · ATIVO' : autopilotCanaryAllowed ? 'A4 ELEGÍVEL AO AUTOPILOT · NÃO ATIVO' : 'COPILOT · AUTOPILOT BLOQUEADO'}</span>{canManage ? <button type="button" onClick={() => void save()} disabled={saving || loading || !dirty || !validation.ok} className="premium-button-primary disabled:cursor-not-allowed disabled:opacity-50"><Save size={14}/>{saving ? 'Salvando...' : dirty ? 'Salvar Follow-up' : 'Tudo salvo'}</button> : null}</div>
       </div>
       {!canManage ? <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">Seu perfil pode visualizar esta área, mas não pode alterar a configuração.</div> : null}
       {dirty ? <div className="mt-4 flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-xs font-bold text-amber-950 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-2"><AlertTriangle size={16} className="mt-0.5 shrink-0"/><div><strong className="block font-black">Existem alterações não salvas</strong><span className="mt-1 block leading-5">Os campos editados são apenas uma prévia. O sistema continua usando “Efetivo agora” até você salvar.</span></div></div><button type="button" onClick={discardDraft} disabled={saving} className="premium-button-secondary shrink-0"><RotateCcw size={14}/>Descartar alterações</button></div> : !loading ? <div className="mt-4 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-900"><CheckCircle2 size={15}/>Não há alterações pendentes. Os campos exibem o que está salvo.</div> : null}
@@ -330,8 +341,8 @@ export function StoreAutocarFollowUpV2({ storeName, canManage }: { storeName: st
       {message ? <div className="mt-4 flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs font-bold text-zinc-700">{loading || saving ? <Loader2 size={14} className="animate-spin"/> : null}{message}</div> : null}
     </section>
 
-    <section className="grid gap-5 xl:grid-cols-[0.88fr_1.12fr]">
-      <div className="premium-card p-5">
+    <section className="grid gap-5 xl:grid-cols-[minmax(360px,2fr)_minmax(0,3fr)]">
+      <div className="premium-card min-w-0 p-5">
         <div className="flex items-center gap-2"><SlidersHorizontal size={17} className="text-red-600"/><h3 className="text-lg font-black">Regras gerais da loja</h3></div>
         <p className="mt-2 text-xs font-bold leading-5 text-zinc-500">Estas regras são limites globais. Colocar “30 min” em uma etapa não reduz o intervalo mínimo nem ignora o horário permitido.</p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -366,17 +377,20 @@ export function StoreAutocarFollowUpV2({ storeName, canManage }: { storeName: st
         return <div key={scenario.key} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm font-black">{scenario.title}</strong><RolloutBadge scenario={scenario} effective={effectiveActive} global={effective.global}/><span className={`rounded-full px-3 py-1.5 text-[9px] font-black uppercase ${masterScenario?.enabled ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>{masterScenario?.enabled ? 'Liberada pelo Master' : 'Bloqueada pelo Master'}</span></div><p className="mt-2 text-[11px] font-bold leading-5 text-zinc-500">{scenario.description}</p><p className="mt-2 text-[10px] font-black text-zinc-700">Efetivo agora: {effectiveActive ? 'ATIVA' : 'INATIVA'}{dirty ? ` · Após salvar: ${previewActive ? 'ATIVA' : 'INATIVA'}` : ''}</p>{rollout === 'preparation' ? <p className="mt-1 text-[10px] font-bold leading-4 text-violet-700">Esta jornada pode ser configurada, mas o executor atual ainda não a processa e não envia mensagens.</p> : null}</div>
-            <div className="flex shrink-0 gap-2"><button disabled={!canManage || loading || (!masterScenario?.enabled && !scenario.enabled)} type="button" onClick={() => toggleScenario(scenario.key)} className="premium-button-secondary">{scenario.enabled ? 'Desativar' : 'Ativar'}</button><button type="button" onClick={() => setPerformanceKey(performanceOpen ? null : scenario.key)} className="premium-button-secondary"><BarChart3 size={14}/>Performance real</button></div>
+            <div className="flex shrink-0 gap-2"><button disabled={!canManage || loading || (!masterScenario?.enabled && !scenario.enabled)} type="button" onClick={() => toggleScenario(scenario.key)} className="premium-button-secondary disabled:cursor-not-allowed disabled:opacity-50">{scenario.enabled ? 'Desativar' : masterScenario?.enabled ? 'Ativar' : 'Master bloqueou'}</button><button type="button" onClick={() => setPerformanceKey(performanceOpen ? null : scenario.key)} className="premium-button-secondary"><BarChart3 size={14}/>Performance real</button></div>
           </div>
           {scenario.steps.length ? <div className="mt-3 space-y-2">{scenario.steps.map((step, index) => {
             const timing = timingParts(step.delayMinutes);
-            return <div key={step.id} className="rounded-xl border border-zinc-200 bg-white p-3">
-              <div className="grid gap-2 sm:grid-cols-[105px_1fr_130px]">
-                <div className="self-center text-[10px] font-black text-zinc-500"><Clock3 size={11} className="mr-1 inline"/>Etapa {index + 1}</div>
+            return <div key={step.id} className={`rounded-xl border p-3 ${step.enabled ? 'border-zinc-200 bg-white' : 'border-dashed border-zinc-300 bg-zinc-100'}`}>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-[10px] font-black text-zinc-500"><Clock3 size={11} className="mr-1 inline"/>Etapa {index + 1}</div>
+                <button type="button" aria-pressed={step.enabled} disabled={!canManage || loading} onClick={() => toggleStep(scenario.key, step.id)} className={`rounded-full px-3 py-1 text-[9px] font-black uppercase disabled:cursor-not-allowed disabled:opacity-50 ${step.enabled ? 'bg-emerald-100 text-emerald-800' : 'bg-zinc-300 text-zinc-700'}`}>{step.enabled ? 'Etapa ativa' : 'Etapa desativada'}</button>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-[1fr_130px]">
                 <input aria-label={`${scenario.title}, etapa ${index + 1}, tempo`} disabled={!canManage || loading} type="number" min={1} value={timing.amount} onChange={(event) => changeStep(scenario.key, step.id, Number(event.target.value), timing.unit)} className="premium-input text-xs"/>
                 <select aria-label={`${scenario.title}, etapa ${index + 1}, unidade`} disabled={!canManage || loading} value={timing.unit} onChange={(event) => changeStep(scenario.key, step.id, timing.amount, event.target.value as DelayUnit)} className="premium-input text-xs"><option value="minutes">minutos</option><option value="hours">horas</option><option value="days">dias</option></select>
               </div>
-              <p className="mt-2 text-[10px] font-black leading-4 text-zinc-700">{followUpStepDescription(scenario.key, step.delayMinutes)}</p>
+              <p className="mt-2 text-[10px] font-black leading-4 text-zinc-700">{step.enabled ? followUpStepDescription(scenario.key, step.delayMinutes) : <>Esta etapa está desativada e não será enviada. <span className="font-bold text-zinc-500">Programação guardada: {followUpStepDescription(scenario.key, step.delayMinutes)}</span></>}</p>
             </div>;
           })}</div> : <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-[10px] font-bold text-sky-800">Não usa atraso configurado: respeita exatamente a data e a hora que o cliente pediu.</div>}
           {timingErrors.length ? <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-[10px] font-bold text-red-900">{timingErrors.join(' ')}</div> : null}
