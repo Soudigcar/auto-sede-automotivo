@@ -1,5 +1,5 @@
 const PRODUCTION_PROJECT_REF = 'wufikrdgyxrsszlbpfmv';
-const PRODUCTION_WEBHOOK_HOST = 'www.autocontroleautomotivo.com.br';
+const PRODUCTION_WEBHOOK_HOST = 'sistemaautomotivo.autosede.com.br';
 
 export type BackfillEnvironment = 'development' | 'production';
 

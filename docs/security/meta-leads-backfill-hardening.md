@@ -25,7 +25,7 @@ Esta correção substitui a implementação não versionada de `meta-leads-backf
 | `META_LEADS_BACKFILL_KEY` | segredo exclusivo de DEV | segredo exclusivo de Production |
 | `META_APP_SECRET` | segredo do aplicativo de teste | segredo do aplicativo real |
 | `META_LEADS_BACKFILL_WEBHOOK_URL` | URL do Preview/DEV | URL oficial |
-| `META_LEADS_BACKFILL_ALLOWED_HOST` | host exato do Preview/DEV | `www.autocontroleautomotivo.com.br` |
+| `META_LEADS_BACKFILL_ALLOWED_HOST` | host exato do Preview/DEV | `sistemaautomotivo.autosede.com.br` |
 | `META_PAGE_ACCESS_TOKEN` | opcional; preferido ao legado no banco | opcional; preferido ao legado no banco |
 
 ## Sequência segura de implantação

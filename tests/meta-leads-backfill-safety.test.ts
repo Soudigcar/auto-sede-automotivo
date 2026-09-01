@@ -32,8 +32,8 @@ function baseValues(projectRef = devRef) {
 test('development backfill cannot target the production webhook', () => {
   const values = {
     ...baseValues(),
-    META_LEADS_BACKFILL_WEBHOOK_URL: 'https://www.autocontroleautomotivo.com.br/api/webhooks/meta-leads',
-    META_LEADS_BACKFILL_ALLOWED_HOST: 'www.autocontroleautomotivo.com.br'
+    META_LEADS_BACKFILL_WEBHOOK_URL: 'https://sistemaautomotivo.autosede.com.br/api/webhooks/meta-leads',
+    META_LEADS_BACKFILL_ALLOWED_HOST: 'sistemaautomotivo.autosede.com.br'
   };
   assert.throws(() => resolveBackfillConfig(environment(values)), /environment_mismatch:development/);
 });
@@ -42,14 +42,24 @@ test('production mode is accepted only on the production Supabase project and ho
   const production = {
     ...baseValues(productionRef),
     META_LEADS_BACKFILL_ENV: 'production',
-    META_LEADS_BACKFILL_WEBHOOK_URL: 'https://www.autocontroleautomotivo.com.br/api/webhooks/meta-leads',
-    META_LEADS_BACKFILL_ALLOWED_HOST: 'www.autocontroleautomotivo.com.br'
+    META_LEADS_BACKFILL_WEBHOOK_URL: 'https://sistemaautomotivo.autosede.com.br/api/webhooks/meta-leads',
+    META_LEADS_BACKFILL_ALLOWED_HOST: 'sistemaautomotivo.autosede.com.br'
   };
   assert.equal(resolveBackfillConfig(environment(production)).environment, 'production');
   assert.throws(
     () => resolveBackfillConfig(environment({ ...production, SUPABASE_URL: `https://${devRef}.supabase.co` })),
     /environment_mismatch:production/
   );
+});
+
+test('production rejects a host that is not attached to the official Vercel project', () => {
+  const values = {
+    ...baseValues(productionRef),
+    META_LEADS_BACKFILL_ENV: 'production',
+    META_LEADS_BACKFILL_WEBHOOK_URL: 'https://www.autocontroleautomotivo.com.br/api/webhooks/meta-leads',
+    META_LEADS_BACKFILL_ALLOWED_HOST: 'www.autocontroleautomotivo.com.br'
+  };
+  assert.throws(() => resolveBackfillConfig(environment(values)), /environment_mismatch:production/);
 });
 
 test('webhook host allowlist is exact and HTTPS-only', () => {
