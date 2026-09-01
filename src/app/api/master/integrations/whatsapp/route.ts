@@ -1,10 +1,33 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import {
+  hasMetaWhatsappAccessToken,
+  isEvolutionWhatsappNumber,
+  isMissingWhatsappVaultRpc
+} from '@/lib/server/whatsappMetaCredentials';
 
 export const runtime = 'nodejs';
 
-const defaultVerifyToken = '';
 const defaultGraphVersion = 'v20.0';
+const safeNumberSelect = [
+  'id',
+  'store_id',
+  'label',
+  'phone_number',
+  'phone_number_id',
+  'waba_id',
+  'graph_version',
+  'routing_mode',
+  'is_active',
+  'status',
+  'last_webhook_at',
+  'last_error',
+  'settings',
+  'created_by',
+  'created_at',
+  'updated_at',
+  'stores(id, store_name, slug)'
+].join(', ');
 
 function cleanText(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -60,11 +83,16 @@ async function getMasterProfile(supabase: any, token: string) {
   return profile;
 }
 
-function publicNumber(instance: any) {
-  const { access_token: _accessToken, ...safe } = instance || {};
+function publicNumber(instance: any, hasAccessToken = Boolean(instance?.has_access_token)) {
+  const {
+    access_token: _accessToken,
+    verify_token: _verifyToken,
+    access_token_secret_id: _secretId,
+    ...safe
+  } = instance || {};
   return {
     ...safe,
-    has_access_token: Boolean(instance?.access_token)
+    has_access_token: hasAccessToken
   };
 }
 
@@ -91,7 +119,7 @@ export async function GET(request: Request) {
         .order('store_name', { ascending: true }),
       supabase
         .from('whatsapp_numbers')
-        .select('*, stores(id, store_name, slug)')
+        .select(safeNumberSelect)
         .neq('status', 'archived')
         .order('created_at', { ascending: false })
     ]);
@@ -104,13 +132,23 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: numbersResponse.error.message }, { status: 400 });
     }
 
+    const numberRows = (numbersResponse.data || []).filter(
+      (number: any) => !isEvolutionWhatsappNumber(number)
+    );
+    const tokenStates = await Promise.all(
+      numberRows.map((number: any) => hasMetaWhatsappAccessToken(supabase, number))
+    );
+
     return NextResponse.json({
       success: true,
       stores: storesResponse.data || [],
-      numbers: (numbersResponse.data || []).map(publicNumber),
+      numbers: numberRows.map((number: any, index: number) => publicNumber(number, tokenStates[index])),
       defaults: {
-        verify_token: defaultVerifyToken,
         graph_version: defaultGraphVersion
+      },
+      webhook_security: {
+        verify_token_configured: Boolean(cleanText(process.env.WHATSAPP_VERIFY_TOKEN)),
+        app_secret_configured: Boolean(cleanText(process.env.WHATSAPP_APP_SECRET || process.env.META_APP_SECRET))
       }
     });
   } catch (error: any) {
@@ -147,6 +185,24 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Informe o ID do número.' }, { status: 400 });
       }
 
+      const { data: currentNumber, error: currentNumberError } = await supabase
+        .from('whatsapp_numbers')
+        .select('id, phone_number_id, settings')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (currentNumberError) {
+        return NextResponse.json({ error: currentNumberError.message }, { status: 400 });
+      }
+
+      if (!currentNumber) {
+        return NextResponse.json({ error: 'Número WhatsApp não encontrado.' }, { status: 404 });
+      }
+
+      if (isEvolutionWhatsappNumber(currentNumber)) {
+        return NextResponse.json({ error: 'Integrações Evolution não podem ser alteradas pela configuração Meta.' }, { status: 409 });
+      }
+
       const { error } = await supabase
         .from('whatsapp_numbers')
         .update({
@@ -177,47 +233,40 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Informe o Access Token para ativar o número.' }, { status: 400 });
     }
 
-    const payload: any = {
-      label,
-      store_id: cleanText(body.store_id) || null,
-      phone_number: cleanText(body.phone_number) || null,
-      phone_number_id: phoneNumberId,
-      waba_id: onlyDigits(body.waba_id) || null,
-      verify_token: cleanText(body.verify_token) || defaultVerifyToken,
-      graph_version: cleanText(body.graph_version) || defaultGraphVersion,
-      routing_mode: cleanText(body.routing_mode) || 'store_pipeline',
-      is_active: isActive,
-      status: isActive ? 'connected' : 'pending',
-      settings: {
-        auto_create_lead: body.auto_create_lead !== false,
-        auto_route_to_store: body.auto_route_to_store !== false
-      },
-      created_by: masterProfile.id,
-      updated_at: new Date().toISOString()
+    const rpcPayload = {
+      p_id: id || null,
+      p_store_id: cleanText(body.store_id) || null,
+      p_label: label,
+      p_phone_number: cleanText(body.phone_number) || null,
+      p_phone_number_id: phoneNumberId,
+      p_waba_id: onlyDigits(body.waba_id) || null,
+      p_graph_version: cleanText(body.graph_version) || defaultGraphVersion,
+      p_routing_mode: cleanText(body.routing_mode) || 'store_pipeline',
+      p_is_active: isActive,
+      p_auto_create_lead: body.auto_create_lead !== false,
+      p_auto_route_to_store: body.auto_route_to_store !== false,
+      p_created_by: masterProfile.id,
+      p_access_token: accessToken || null
     };
 
-    if (accessToken) {
-      payload.access_token = accessToken;
+    const { data: secureData, error: secureError } = await supabase
+      .rpc('save_whatsapp_meta_number', rpcPayload);
+
+    if (!secureError) {
+      return NextResponse.json({
+        success: true,
+        number: publicNumber(secureData, Boolean(secureData?.has_access_token))
+      });
     }
 
-    let query;
-
-    if (id) {
-      query = supabase.from('whatsapp_numbers').update(payload).eq('id', id).select('*').single();
-    } else {
-      query = supabase.from('whatsapp_numbers').insert(payload).select('*').single();
+    if (isMissingWhatsappVaultRpc(secureError)) {
+      return NextResponse.json(
+        { error: 'O armazenamento seguro do WhatsApp ainda não está disponível neste ambiente.' },
+        { status: 503 }
+      );
     }
 
-    const { data, error } = await query;
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    return NextResponse.json({
-      success: true,
-      number: publicNumber(data)
-    });
+    return NextResponse.json({ error: 'Não foi possível salvar a credencial segura do WhatsApp.' }, { status: 400 });
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || 'Erro ao salvar WhatsApp Oficial.' },

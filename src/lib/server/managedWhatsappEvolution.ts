@@ -359,7 +359,7 @@ export async function adoptMasterPilotEvolutionIntegration(
   if (row.crm_number_id) {
     const { data, error } = await context.supabase
       .from('whatsapp_numbers')
-      .select('*')
+      .select('id, settings')
       .eq('id', row.crm_number_id)
       .single();
 
