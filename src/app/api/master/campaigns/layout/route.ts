@@ -118,7 +118,7 @@ export async function POST(request: Request) {
       campaignState = { ...campaign, ...publishedCampaign };
     }
 
-    return NextResponse.json({ success: true, action, campaign: { ...campaignState, editor_draft: savedLayout.editor_draft, published_layout: savedLayout.published_layout, layout_version: savedLayout.layout_version, draft_updated_at: savedLayout.draft_updated_at, published_at: savedLayout.published_at || campaignState.published_at || null, published_by: savedLayout.published_by }, public_path: `/campanha/${campaign.slug}` });
+    return NextResponse.json({ success: true, action, campaign: { ...campaignState, editor_draft: savedLayout.editor_draft, published_layout: savedLayout.published_layout, layout_version: savedLayout.layout_version, draft_updated_at: savedLayout.draft_updated_at, published_at: savedLayout.published_at || campaignState.published_at || null, published_by: savedLayout.published_by }, public_path: `/campanha/simulador?campanha=${encodeURIComponent(campaign.slug)}` });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Erro ao salvar o layout.' }, { status: 500 });
   }

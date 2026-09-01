@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
 import { Building2, CalendarDays, CarFront, CheckCircle2, MapPin, Store } from 'lucide-react';
 import { MetaPixelTracker } from '@/components/MetaPixelTracker';
 import { CampaignFinanceSimulatorModal, CampaignSimulatorCard } from '@/components/campaigns/CampaignFinanceSimulator';
@@ -22,9 +21,8 @@ function dateLabel(start?: string, end?: string) {
   return first && last && first !== last ? `${first} a ${last}` : first || last || 'Data a confirmar';
 }
 
-export function EventCampaignLanding() {
-  const params = useParams();
-  const slug = String(params?.slug || '');
+export function EventCampaignLanding({ campaignSlug = '' }: { campaignSlug?: string }) {
+  const slug = campaignSlug;
   const [campaign, setCampaign] = useState<any>(null);
   const [eventInfo, setEventInfo] = useState<any>(null);
   const [stores, setStores] = useState<any[]>([]);
@@ -38,7 +36,8 @@ export function EventCampaignLanding() {
   useEffect(() => {
     setLoading(true);
     setSimulatorOpen(false);
-    fetch(`/api/site-vehicles?slug=${encodeURIComponent(slug)}`, { cache: 'no-store' })
+    const query = slug ? `?slug=${encodeURIComponent(slug)}` : '?current=1';
+    fetch(`/api/site-vehicles${query}`, { cache: 'no-store' })
       .then(async (response) => ({ response, result: await response.json() }))
       .then(({ response, result }) => {
         if (!response.ok) throw new Error(result.error || 'Campanha indisponível.');
@@ -55,9 +54,10 @@ export function EventCampaignLanding() {
   }, [slug]);
 
   useEffect(() => {
-    if (!campaign || campaign.published_layout || !slug || autoOpenedSlugRef.current === slug) return;
+    const resolvedSlug = String(campaign?.slug || slug);
+    if (!campaign || campaign.published_layout || !resolvedSlug || autoOpenedSlugRef.current === resolvedSlug) return;
 
-    autoOpenedSlugRef.current = slug;
+    autoOpenedSlugRef.current = resolvedSlug;
     setSimulatorVehicleId('');
     const timer = window.setTimeout(() => setSimulatorOpen(true), 250);
 
@@ -65,6 +65,7 @@ export function EventCampaignLanding() {
   }, [campaign, slug]);
 
   const primary = campaign?.primary_color || '#DC2626';
+  const trackingSlug = String(campaign?.slug || slug);
   const secondary = campaign?.secondary_color || '#071020';
   const benefits = Array.isArray(campaign?.benefits) ? campaign.benefits : [];
   const heroImage = campaign?.hero_image_url || '';
@@ -80,7 +81,7 @@ export function EventCampaignLanding() {
   if (!campaign) return <main className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-center text-white">{message || 'Evento indisponível.'}</main>;
 
   if (campaign.published_layout) {
-    return <PublishedCampaignVisualLanding campaign={campaign} eventInfo={eventInfo} vehicles={vehicles} stores={stores} slug={slug} />;
+    return <PublishedCampaignVisualLanding campaign={campaign} eventInfo={eventInfo} vehicles={vehicles} stores={stores} slug={trackingSlug} />;
   }
 
   return (
@@ -88,7 +89,7 @@ export function EventCampaignLanding() {
       <MetaPixelTracker context={{
         campaignId: campaign.id,
         campaignName: campaign.name,
-        campaignSlug: slug,
+        campaignSlug: trackingSlug,
         eventId: eventInfo?.id,
         eventName: eventInfo?.event_name
       }} />
@@ -206,7 +207,7 @@ export function EventCampaignLanding() {
         {campaign.terms_text ? <p className="mx-auto mt-3 max-w-4xl leading-relaxed">{campaign.terms_text}</p> : null}
       </footer>
 
-      <CampaignFinanceSimulatorModal campaign={campaign} eventInfo={eventInfo} vehicles={vehicles} open={simulatorOpen} onClose={() => setSimulatorOpen(false)} initialVehicleId={simulatorVehicleId} mode="live" primaryColor={primary} slug={slug} />
+      <CampaignFinanceSimulatorModal campaign={campaign} eventInfo={eventInfo} vehicles={vehicles} open={simulatorOpen} onClose={() => setSimulatorOpen(false)} initialVehicleId={simulatorVehicleId} mode="live" primaryColor={primary} slug={trackingSlug} />
     </main>
   );
 }

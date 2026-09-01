@@ -994,7 +994,7 @@ export function CampaignVisualEditorLauncher() {
               <button type="button" onClick={redo} disabled={!future.length} className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 disabled:opacity-30" aria-label="Refazer"><Redo2 size={18} /></button>
               <button type="button" onClick={() => setClientMode(true)} className="hidden min-h-11 items-center gap-2 rounded-xl border border-indigo-400/40 bg-indigo-500/15 px-4 text-xs font-black text-indigo-100 sm:inline-flex"><Maximize2 size={16} /> Modo cliente</button>
               <button type="button" onClick={saveDraft} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-xs font-black text-white"><Save size={16} /> Salvar rascunho</button>
-              {selectedCampaign?.slug ? <a href={`/campanha/${selectedCampaign.slug}`} target="_blank" rel="noreferrer" className="hidden min-h-11 items-center gap-2 rounded-xl border border-white/15 px-4 text-xs font-black lg:inline-flex">Landing atual <ExternalLink size={15} /></a> : null}
+              {selectedCampaign?.slug ? <a href={`/campanha/simulador?campanha=${encodeURIComponent(selectedCampaign.slug)}`} target="_blank" rel="noreferrer" className="hidden min-h-11 items-center gap-2 rounded-xl border border-white/15 px-4 text-xs font-black lg:inline-flex">Landing atual <ExternalLink size={15} /></a> : null}
               <button type="button" onClick={() => setOpen(false)} className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10" aria-label="Fechar"><X size={19} /></button>
             </div>
           </header>
