@@ -30,10 +30,12 @@ O ref temporário deve ser declarado de forma idêntica em
 9. executar `verify_read_only.sql` e exigir 7/7 RLS, 0 grants de cliente,
    4 migrations e 0 assinatura/pagamento/webhook antes do E2E;
 10. criar exclusivamente um Vercel Preview ligado à branch temporária;
-11. testar autenticação do webhook, duplicidade, concorrência, eventos fora de
-    ordem e transições financeiras em `observe` usando Asaas Sandbox;
-12. executar o rollback forward em transação de prova, sem persistir a remoção;
-13. remover os overrides temporários do Preview, excluir a branch Supabase e
+11. aplicar `seed_webhook_rehearsal.sql`, restrito à segunda loja sintética;
+12. executar `rehearse-stage15c-webhooks` como Master sintético e comprovar
+    autenticação do webhook, duplicidade, concorrência, eventos fora de ordem e
+    transições financeiras em `observe` usando Asaas Sandbox;
+13. executar o rollback forward em transação de prova, sem persistir a remoção;
+14. remover os overrides temporários do Preview, excluir a branch Supabase e
     confirmar novamente os três projetos e suas branches.
 
 ## Flags obrigatórias

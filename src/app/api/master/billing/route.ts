@@ -11,6 +11,7 @@ import {
 } from '@/lib/server/billing/repository';
 import { cleanText, getAdminClient, requireMaster } from '@/lib/server/masterApi';
 import {
+  deliverAsaasSandboxTestWebhook,
   readAsaasSandboxSafety,
   readAsaasServerConfiguration
 } from '@/lib/server/billing/asaas';
@@ -24,6 +25,9 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const BILLING_STAGE12_DEV_PROJECT_REF = 'hfzmzfhuhukmxkxbkxay';
+const BILLING_STAGE15C_WEBHOOK_REQUEST_ID = '150c0000-0000-4000-8000-000000000602';
+const BILLING_STAGE15C_FAILURE_SUBSCRIPTION_ID = '150c0000-0000-4000-8000-000000000202';
+const BILLING_STAGE15C_FAILURE_PAYMENT_ID = '150c0000-0000-4000-8000-000000000302';
 
 function registrationPreviewAllowed(safety: ReturnType<typeof readBillingRuntimeSafety>) {
   const legacySaasDev = safety.readsEnabled
@@ -156,7 +160,8 @@ export async function POST(request: Request) {
       'start-trial',
       'create-sandbox-checkout',
       'confirm-sandbox-payment',
-      'activate-stage13-sandbox'
+      'activate-stage13-sandbox',
+      'rehearse-stage15c-webhooks'
     ].includes(action)) {
       return NextResponse.json({ error: 'Acao de billing invalida.' }, { status: 400 });
     }
@@ -270,9 +275,155 @@ export async function POST(request: Request) {
       });
     }
 
+    if (action === 'rehearse-stage15c-webhooks') {
+      const configuration = readAsaasServerConfiguration();
+      const asaasSandbox = readAsaasSandboxSafety();
+      const stage15cSafety = readBillingStage15cSafety();
+      const requestId = uuid(body.request_id);
+      if (
+        !stage15cSafety.enabled
+        || !asaasSandbox.enabled
+        || !asaasSandbox.failureTestEnabled
+        || configuration.environment !== 'sandbox'
+        || !configuration.webhookConfigured
+        || requestId !== BILLING_STAGE15C_WEBHOOK_REQUEST_ID
+      ) {
+        return NextResponse.json({
+          error: 'O ensaio de webhooks 15C permanece bloqueado neste ambiente.',
+          code: 'billing_stage15c_webhook_rehearsal_disabled'
+        }, { status: 403 });
+      }
+      if (storeId !== asaasSandbox.failureSyntheticStoreId) {
+        return NextResponse.json({
+          error: 'O ensaio de webhooks 15C esta restrito a loja sintetica de falhas.',
+          code: 'billing_stage15c_store_forbidden'
+        }, { status: 403 });
+      }
+
+      const [storeResult, subscriptionResult, paymentResult] = await Promise.all([
+        context.supabase
+          .from('stores')
+          .select('id,store_name,status,registration_source')
+          .eq('id', storeId)
+          .maybeSingle(),
+        context.supabase
+          .from('store_billing_subscriptions')
+          .select('id,store_id,status,access_enforcement_mode,provider_customer_id,provider_subscription_id,external_reference')
+          .eq('id', BILLING_STAGE15C_FAILURE_SUBSCRIPTION_ID)
+          .eq('store_id', storeId)
+          .maybeSingle(),
+        context.supabase
+          .from('billing_payments')
+          .select('id,subscription_id,store_id,provider_payment_id,provider_status,amount_cents,due_at')
+          .eq('id', BILLING_STAGE15C_FAILURE_PAYMENT_ID)
+          .eq('store_id', storeId)
+          .maybeSingle()
+      ]);
+      if (storeResult.error) throw storeResult.error;
+      if (subscriptionResult.error) throw subscriptionResult.error;
+      if (paymentResult.error) throw paymentResult.error;
+      const store = storeResult.data;
+      const subscription = subscriptionResult.data;
+      const payment = paymentResult.data;
+      if (
+        store?.store_name !== 'Loja DEV Billing Falhas'
+        || store?.status !== 'active'
+        || store?.registration_source !== 'billing_stage5_seed'
+        || !subscription
+        || subscription.access_enforcement_mode !== 'observe'
+        || !['trialing', 'active', 'past_due'].includes(subscription.status)
+        || !String(subscription.provider_customer_id || '').startsWith('cus_stage15c_')
+        || !String(subscription.provider_subscription_id || '').startsWith('sub_stage15c_')
+        || !String(subscription.external_reference || '').startsWith(`store:${storeId}:subscription:`)
+        || !payment
+        || payment.subscription_id !== subscription.id
+        || Number(payment.amount_cents) !== 149700
+        || !String(payment.provider_payment_id || '').startsWith('pay_stage15c_')
+      ) {
+        return NextResponse.json({
+          error: 'A fixture financeira 15C nao corresponde ao estado sintetico selado.',
+          code: 'billing_stage15c_webhook_fixture_required'
+        }, { status: 422 });
+      }
+
+      const compactRequestId = requestId.replace(/-/g, '');
+      const webhookBody = (suffix: string, event: string, status: string) => ({
+        id: `evt_stage5_15c_${compactRequestId}_${suffix}`,
+        event,
+        dateCreated: new Date().toISOString(),
+        payment: {
+          object: 'payment',
+          id: payment.provider_payment_id,
+          status,
+          value: 1497,
+          dueDate: String(payment.due_at || '').slice(0, 10),
+          billingType: 'CREDIT_CARD',
+          customer: subscription.provider_customer_id,
+          subscription: subscription.provider_subscription_id,
+          externalReference: subscription.external_reference
+        }
+      });
+      const deliver = (payload: ReturnType<typeof webhookBody>) =>
+        deliverAsaasSandboxTestWebhook(configuration, asaasSandbox, payload);
+
+      const confirmed = webhookBody('confirmed_concurrent', 'PAYMENT_CONFIRMED', 'CONFIRMED');
+      const confirmedResults = await Promise.all([deliver(confirmed), deliver(confirmed)]);
+      const requested = webhookBody(
+        'chargeback_requested_concurrent',
+        'PAYMENT_CHARGEBACK_REQUESTED',
+        'CHARGEBACK_REQUESTED'
+      );
+      const requestedResults = await Promise.all([deliver(requested), deliver(requested)]);
+      const disputeResult = await deliver(webhookBody(
+        'chargeback_dispute',
+        'PAYMENT_CHARGEBACK_DISPUTE',
+        'CHARGEBACK_DISPUTE'
+      ));
+      const staleResult = await deliver(webhookBody(
+        'confirmed_out_of_order',
+        'PAYMENT_CONFIRMED',
+        'CONFIRMED'
+      ));
+
+      const [finalSubscriptionResult, finalPaymentResult] = await Promise.all([
+        context.supabase
+          .from('store_billing_subscriptions')
+          .select('status,access_enforcement_mode')
+          .eq('id', subscription.id)
+          .maybeSingle(),
+        context.supabase
+          .from('billing_payments')
+          .select('provider_status,chargeback_at')
+          .eq('id', payment.id)
+          .maybeSingle()
+      ]);
+      if (finalSubscriptionResult.error) throw finalSubscriptionResult.error;
+      if (finalPaymentResult.error) throw finalPaymentResult.error;
+      if (
+        finalSubscriptionResult.data?.status !== 'past_due'
+        || finalSubscriptionResult.data?.access_enforcement_mode !== 'observe'
+        || finalPaymentResult.data?.provider_status !== 'CHARGEBACK_DISPUTE'
+        || !finalPaymentResult.data?.chargeback_at
+      ) {
+        throw new Error('O ensaio 15C nao preservou a perda terminal em modo observe.');
+      }
+
+      return NextResponse.json({
+        success: true,
+        environment: 'sandbox',
+        access_enforcement_mode: 'observe',
+        concurrent_confirmation_duplicate_observed: confirmedResults.some((item) => item.duplicate),
+        concurrent_chargeback_duplicate_observed: requestedResults.some((item) => item.duplicate),
+        chargeback_processing_status: disputeResult.processing_status,
+        out_of_order_processing_status: staleResult.processing_status,
+        final_subscription_status: finalSubscriptionResult.data.status,
+        final_payment_status: finalPaymentResult.data.provider_status
+      });
+    }
+
     if (!context.safety.mutationsEnabled) {
       return NextResponse.json({
-        error: 'As mutacoes gerais de billing permanecem bloqueadas; somente o ensaio sintetico isolado da etapa 13 pode ser executado.',
+        error: 'As mutacoes gerais de billing permanecem bloqueadas; somente os ensaios sinteticos explicitamente autorizados podem ser executados.',
         code: 'billing_general_mutations_read_only'
       }, { status: 403 });
     }

@@ -24,7 +24,7 @@
     },
     {
       "path": "src/app/api/master/billing/route.ts",
-      "sha256": "42ebf0175ed4be529af4ad217b4f9a84a6efc59d22156bf055d9cc355ea9f031"
+      "sha256": "a4dd610770c9726e1c6f9f76795e198d440fd95a115f50fd66e535349a802197"
     },
     {
       "path": "src/app/api/master/billing/readiness/route.ts",
@@ -47,16 +47,20 @@
       "sha256": "9161e3cbb6ea7ff675fde9e3f0d3a205dc33bd83eeb58dfbaf03ff1748da4212"
     },
     {
+      "path": "supabase/production_ready/billing_stage15c/seed_webhook_rehearsal.sql",
+      "sha256": "73db6066958ac0c39039fbde13e63387c51e49af4333061f49b45cac33828272"
+    },
+    {
       "path": "supabase/production_ready/billing_stage15c/verify_read_only.sql",
       "sha256": "4405954e041db4d4614d3d9851495f836a80964ef760e8c9604b88f0fe9cde81"
     },
     {
       "path": "supabase/production_ready/billing_stage15c/README.md",
-      "sha256": "fc308e1695dd5b4ee7ac1a8590890dfe6303a5bfda86e4f6f0fd2a0710a5ceaf"
+      "sha256": "efafdb406a1c3b00a3dda89e3a9f383b7840c500d6d35a571aeaa1d578413d51"
     },
     {
       "path": "tests/billing-stage-fifteen-c.test.ts",
-      "sha256": "f4befcb10a4f9c1a09980b751e79cf9dc00ba3821f0e25d4c3addd8644310b52"
+      "sha256": "252c8511864522556f90d509b995540e7b07b39d8eb9a4f3668b3536b4e345ea"
     }
   ]
 }

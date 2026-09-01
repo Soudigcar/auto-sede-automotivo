@@ -12,6 +12,7 @@ import {
 const packageRoot = 'supabase/production_ready/billing_stage15c';
 const fixtures = readFileSync(`${packageRoot}/fixtures_before_migrations.sql`, 'utf8');
 const seed = readFileSync(`${packageRoot}/seed_after_migrations.sql`, 'utf8');
+const webhookSeed = readFileSync(`${packageRoot}/seed_webhook_rehearsal.sql`, 'utf8');
 const verify = readFileSync(`${packageRoot}/verify_read_only.sql`, 'utf8');
 const runbook = readFileSync(`${packageRoot}/README.md`, 'utf8');
 const webhookRoute = readFileSync('src/app/api/webhooks/asaas/route.ts', 'utf8');
@@ -124,6 +125,28 @@ test('seed posterior exige quatro migrations e preserva zero trial, pagamento e 
   assert.doesNotMatch(seed, /insert into public\.store_billing_subscriptions/i);
   assert.doesNotMatch(seed, /insert into public\.billing_payments/i);
   assert.doesNotMatch(seed, /insert into public\.billing_webhook_events/i);
+});
+
+test('fixture financeira e executor de webhooks ficam restritos ao E2E 15C', () => {
+  assert.match(webhookSeed, /billing_stage15b_webhook_atomicity/);
+  assert.match(webhookSeed, /150c0000-0000-4000-8000-000000000102/);
+  assert.match(webhookSeed, /pay_stage15c_failure_synthetic/);
+  assert.match(webhookSeed, /access_enforcement_mode[\s\S]*'observe'/);
+  assert.match(webhookSeed, /amount_cents[\s\S]*149700/);
+  assert.doesNotMatch(webhookSeed, /\b(?:anon|authenticated)\b/i);
+
+  const action = masterRoute.indexOf("if (action === 'rehearse-stage15c-webhooks')");
+  const generalMutationGuard = masterRoute.indexOf(
+    'if (!context.safety.mutationsEnabled)',
+    action
+  );
+  assert.ok(action > 0 && action < generalMutationGuard);
+  assert.match(masterRoute, /readBillingStage15cSafety\(\)/);
+  assert.match(masterRoute, /asaasSandbox\.failureSyntheticStoreId/);
+  assert.match(masterRoute, /Promise\.all\(\[deliver\(confirmed\), deliver\(confirmed\)\]\)/);
+  assert.match(masterRoute, /PAYMENT_CHARGEBACK_DISPUTE/);
+  assert.match(masterRoute, /confirmed_out_of_order/);
+  assert.match(masterRoute, /finalPaymentResult\.data\?\.provider_status !== 'CHARGEBACK_DISPUTE'/);
 });
 
 test('verificacao 15C e estritamente read-only e cobre RLS, grants, historico e locks', () => {
