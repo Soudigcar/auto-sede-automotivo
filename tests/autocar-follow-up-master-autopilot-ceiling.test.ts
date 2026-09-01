@@ -54,6 +54,20 @@ describe('Smart Follow-up Master AUTOPILOT ceiling', () => {
     assert.doesNotMatch(cron, /runA4FollowUpAutopilot\(/);
   });
 
+  it('revalida o teto Master imediatamente antes do claim LIVE e antes da Evolution', () => {
+    const executor = fs.readFileSync(path.join(root, 'src/lib/server/autocar/followUpV2Autopilot.ts'), 'utf8');
+    assert.match(executor, /readMasterAutopilotCeiling/);
+    assert.match(executor, /stage: 'before_live_claim'/);
+    assert.match(executor, /stage: 'before_evolution_send'/);
+    assert.match(executor, /blocked_by: 'master_autopilot_ceiling'/);
+    const beforeClaim = executor.indexOf("stage: 'before_live_claim'");
+    const liveClaim = executor.indexOf('createLiveTextSendClaim');
+    const beforeEvolution = executor.indexOf("stage: 'before_evolution_send'");
+    const evolutionSend = executor.indexOf('sendEvolutionText');
+    assert.ok(beforeClaim >= 0 && liveClaim > beforeClaim);
+    assert.ok(beforeEvolution >= 0 && evolutionSend > beforeEvolution);
+  });
+
   it('não adiciona migration para o teto Master', () => {
     const helper = fs.readFileSync(path.join(root, 'src/lib/server/autocar/followUpV2MasterCeiling.ts'), 'utf8');
     assert.match(helper, /master_autopilot_allowed/);

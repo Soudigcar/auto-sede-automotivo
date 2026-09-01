@@ -5,6 +5,7 @@ import {
   FOLLOW_UP_V2_AUTOPILOT_CANARY_STORE_ID,
   readStoreFollowUpV2
 } from '@/lib/server/autocar/followUpV2ConfigStore';
+import { readMasterAutopilotCeiling } from '@/lib/server/autocar/followUpV2MasterCeiling';
 import { evaluateFollowUpCopilotCandidate, withinFollowUpAllowedWindow } from '@/lib/server/autocar/followUpV2CopilotQueue';
 import { generateContextualFollowUpReopening, looksLikeNonLeadAutomation } from '@/lib/server/autocar/followUpV2ContextualReopening';
 
@@ -400,10 +401,32 @@ async function sendClaimedExecution(productionSupabase: any, autocar: any, confi
   const revalidated = await immediateRevalidation(productionSupabase, autocar, config, candidate, text);
   if (!revalidated.allowed) return blockExecution(autocar, execution.id, String(revalidated.reason || 'Revalidação final bloqueou o envio.'));
   const bundle: any = revalidated.bundle;
+
+  const ceilingBeforeLiveClaim = await readMasterAutopilotCeiling(autocar, FOLLOW_UP_AUTOPILOT_CANARY_STORE_ID);
+  if (!ceilingBeforeLiveClaim.allowed) {
+    return blockExecution(autocar, execution.id, ceilingBeforeLiveClaim.reason, {
+      master_autopilot_ceiling: ceilingBeforeLiveClaim,
+      stage: 'before_live_claim'
+    });
+  }
+
   const liveClaim = await createLiveTextSendClaim(autocar, execution, bundle, candidate, text);
   if (!liveClaim?.id) return blockExecution(autocar, execution.id, 'Claim LIVE do Follow-up não pôde ser criado.');
 
   try {
+    const ceilingBeforeEvolution = await readMasterAutopilotCeiling(autocar, FOLLOW_UP_AUTOPILOT_CANARY_STORE_ID);
+    if (!ceilingBeforeEvolution.allowed) {
+      await completeLiveTextSendClaim(autocar, liveClaim.id, {
+        external_execution: false,
+        blocked_by: 'master_autopilot_ceiling',
+        master_autopilot_ceiling: ceilingBeforeEvolution
+      }, 'failed').catch(() => null);
+      return blockExecution(autocar, execution.id, ceilingBeforeEvolution.reason, {
+        master_autopilot_ceiling: ceilingBeforeEvolution,
+        stage: 'before_evolution_send'
+      });
+    }
+
     const evolutionResult = await sendEvolutionText(String(bundle.integration.instance_name), String(revalidated.recipient), text);
     const providerMessageId = String(evolutionResult?.key?.id || evolutionResult?.message?.key?.id || evolutionResult?.id || '').trim();
     const sentAt = new Date().toISOString();
