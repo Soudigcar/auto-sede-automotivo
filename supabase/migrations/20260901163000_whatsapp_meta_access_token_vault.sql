@@ -219,6 +219,17 @@ begin
     v_secret_id := v_row.access_token_secret_id;
     v_secret_name := format('whatsapp_meta_access_token_%s', v_row.id);
 
+    if v_secret_id is not null
+       and not exists (select 1 from vault.secrets where id = v_secret_id) then
+      v_secret_id := null;
+    end if;
+
+    if v_secret_id is null then
+      select id into v_secret_id
+      from vault.secrets
+      where name = v_secret_name;
+    end if;
+
     if v_secret_id is null then
       v_secret_id := vault.create_secret(
         v_token,
@@ -236,11 +247,10 @@ begin
       );
     end if;
 
-    -- Cópia temporária para rollback durante a fase dual. Uma migration futura,
-    -- após observação e rotação, deve zerar access_token.
+    -- Novos tokens são gravados somente no Vault. O plaintext legado existente
+    -- permanece intocado durante a fase dual para permitir rollback controlado.
     update public.whatsapp_numbers
     set access_token_secret_id = v_secret_id,
-        access_token = v_token,
         updated_at = now()
     where id = v_row.id
     returning * into v_row;
@@ -267,6 +277,7 @@ as $$
 declare
   v_row public.whatsapp_numbers%rowtype;
   v_secret_id uuid;
+  v_secret_name text;
 begin
   select * into v_row
   from public.whatsapp_numbers
@@ -280,19 +291,41 @@ begin
     return false;
   end if;
 
-  if v_row.access_token_secret_id is null then
+  v_secret_id := v_row.access_token_secret_id;
+  v_secret_name := format('whatsapp_meta_access_token_%s', v_row.id);
+
+  if v_secret_id is not null
+     and not exists (select 1 from vault.secrets where id = v_secret_id) then
+    v_secret_id := null;
+  end if;
+
+  if v_secret_id is null then
+    select id into v_secret_id
+    from vault.secrets
+    where name = v_secret_name;
+  end if;
+
+  if v_secret_id is null then
     v_secret_id := vault.create_secret(
       v_row.access_token,
-      format('whatsapp_meta_access_token_%s', v_row.id),
+      v_secret_name,
       'Meta Cloud access token for whatsapp_numbers ' || v_row.id::text,
       null
     );
-
-    update public.whatsapp_numbers
-    set access_token_secret_id = v_secret_id,
-        updated_at = now()
-    where id = v_row.id;
+  else
+    perform vault.update_secret(
+      v_secret_id,
+      v_row.access_token,
+      v_secret_name,
+      'Meta Cloud access token for whatsapp_numbers ' || v_row.id::text,
+      null
+    );
   end if;
+
+  update public.whatsapp_numbers
+  set access_token_secret_id = v_secret_id,
+      updated_at = now()
+  where id = v_row.id;
 
   return true;
 end;

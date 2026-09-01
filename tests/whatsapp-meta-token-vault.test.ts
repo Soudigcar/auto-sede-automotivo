@@ -123,6 +123,8 @@ test('migration is additive, transactional, RPC-restricted and does not migrate 
   assert.match(migration, /revoke all on function[\s\S]*from public, anon, authenticated/);
   assert.doesNotMatch(migration, /select\s+public\.migrate_whatsapp_access_token_to_vault\s*\(/i);
   assert.doesNotMatch(migration, /update\s+public\.whatsapp_numbers\s+set\s+access_token\s*=\s*null/i);
+  assert.doesNotMatch(migration, /set\s+access_token_secret_id\s*=\s*v_secret_id,\s*access_token\s*=\s*v_token/i);
+  assert.match(migration, /from vault\.secrets\s+where name = v_secret_name/i);
 });
 
 test('API responses and inbound lookups exclude Meta secrets', () => {
@@ -133,6 +135,14 @@ test('API responses and inbound lookups exclude Meta secrets', () => {
   assert.match(metaWebhook, /\.select\('id, store_id, label, phone_number_id, is_active, settings, stores/);
   assert.doesNotMatch(masterPage, /form\.verify_token|number\.verify_token|defaultVerifyToken/);
   assert.match(masterPage, /segredos do ambiente Vercel/i);
+  assert.doesNotMatch(masterRoute, /legacyPayload|\.update\(\{[\s\S]{0,200}access_token/);
+  assert.match(masterRoute, /armazenamento seguro do WhatsApp ainda não está disponível/i);
+});
+
+test('Master Meta management excludes and refuses Evolution records', () => {
+  assert.match(masterRoute, /filter\([\s\S]{0,120}!isEvolutionWhatsappNumber\(number\)/);
+  assert.match(masterRoute, /if \(isEvolutionWhatsappNumber\(currentNumber\)\)/);
+  assert.match(masterRoute, /Integrações Evolution não podem ser alteradas pela configuração Meta/);
 });
 
 test('Meta send routes resolve the token server-side while Evolution routes stay isolated', () => {

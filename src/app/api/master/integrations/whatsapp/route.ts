@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import {
   hasMetaWhatsappAccessToken,
+  isEvolutionWhatsappNumber,
   isMissingWhatsappVaultRpc
 } from '@/lib/server/whatsappMetaCredentials';
 
@@ -131,7 +132,9 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: numbersResponse.error.message }, { status: 400 });
     }
 
-    const numberRows = numbersResponse.data || [];
+    const numberRows = (numbersResponse.data || []).filter(
+      (number: any) => !isEvolutionWhatsappNumber(number)
+    );
     const tokenStates = await Promise.all(
       numberRows.map((number: any) => hasMetaWhatsappAccessToken(supabase, number))
     );
@@ -180,6 +183,24 @@ export async function POST(request: Request) {
 
       if (!id) {
         return NextResponse.json({ error: 'Informe o ID do número.' }, { status: 400 });
+      }
+
+      const { data: currentNumber, error: currentNumberError } = await supabase
+        .from('whatsapp_numbers')
+        .select('id, phone_number_id, settings')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (currentNumberError) {
+        return NextResponse.json({ error: currentNumberError.message }, { status: 400 });
+      }
+
+      if (!currentNumber) {
+        return NextResponse.json({ error: 'Número WhatsApp não encontrado.' }, { status: 404 });
+      }
+
+      if (isEvolutionWhatsappNumber(currentNumber)) {
+        return NextResponse.json({ error: 'Integrações Evolution não podem ser alteradas pela configuração Meta.' }, { status: 409 });
       }
 
       const { error } = await supabase
@@ -238,55 +259,14 @@ export async function POST(request: Request) {
       });
     }
 
-    if (!isMissingWhatsappVaultRpc(secureError)) {
-      return NextResponse.json({ error: 'Não foi possível salvar a credencial segura do WhatsApp.' }, { status: 400 });
+    if (isMissingWhatsappVaultRpc(secureError)) {
+      return NextResponse.json(
+        { error: 'O armazenamento seguro do WhatsApp ainda não está disponível neste ambiente.' },
+        { status: 503 }
+      );
     }
 
-    // Compatibilidade temporária quando o código chega antes da migration.
-    const legacyPayload: any = {
-      label,
-      store_id: cleanText(body.store_id) || null,
-      phone_number: cleanText(body.phone_number) || null,
-      phone_number_id: phoneNumberId,
-      waba_id: onlyDigits(body.waba_id) || null,
-      verify_token: 'server_env',
-      graph_version: cleanText(body.graph_version) || defaultGraphVersion,
-      routing_mode: cleanText(body.routing_mode) || 'store_pipeline',
-      is_active: isActive,
-      status: isActive ? 'connected' : 'pending',
-      settings: {
-        provider: 'meta_cloud',
-        auto_create_lead: body.auto_create_lead !== false,
-        auto_route_to_store: body.auto_route_to_store !== false
-      },
-      created_by: masterProfile.id,
-      updated_at: new Date().toISOString()
-    };
-
-    if (accessToken) {
-      legacyPayload.access_token = accessToken;
-    }
-
-    let query;
-
-    if (id) {
-      query = supabase.from('whatsapp_numbers').update(legacyPayload).eq('id', id).select(safeNumberSelect).single();
-    } else {
-      query = supabase.from('whatsapp_numbers').insert(legacyPayload).select(safeNumberSelect).single();
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    const hasAccessToken = await hasMetaWhatsappAccessToken(supabase, data as any);
-
-    return NextResponse.json({
-      success: true,
-      number: publicNumber(data, hasAccessToken)
-    });
+    return NextResponse.json({ error: 'Não foi possível salvar a credencial segura do WhatsApp.' }, { status: 400 });
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || 'Erro ao salvar WhatsApp Oficial.' },
