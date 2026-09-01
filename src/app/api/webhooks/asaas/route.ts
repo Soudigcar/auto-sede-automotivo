@@ -12,7 +12,10 @@ import {
   missingBillingFoundation,
   processStoredAsaasWebhookEvent
 } from '@/lib/server/billing/repository';
-import { readBillingRuntimeSafety } from '@/lib/server/billing/runtime';
+import {
+  readBillingRuntimeSafety,
+  readBillingStage15cSafety
+} from '@/lib/server/billing/runtime';
 import { publicError, readJsonBody } from '@/lib/server/requestSecurity';
 
 export const runtime = 'nodejs';
@@ -23,7 +26,14 @@ const MAX_ASAAS_WEBHOOK_BYTES = 256 * 1024;
 export async function POST(request: Request) {
   const configuration = readAsaasServerConfiguration();
   const billingSafety = readBillingRuntimeSafety();
+  const stage15cSafety = readBillingStage15cSafety();
   const asaasSandbox = readAsaasSandboxSafety();
+  if (stage15cSafety.requested && !stage15cSafety.enabled) {
+    return NextResponse.json({
+      error: 'Webhook Asaas Sandbox bloqueado pelo gate da homologacao 15C.',
+      code: stage15cSafety.reason
+    }, { status: 503 });
+  }
   if (!billingSafety.readsEnabled || !asaasSandbox.enabled || configuration.environment !== 'sandbox') {
     return NextResponse.json({ error: 'Webhook Asaas Sandbox indisponivel fora do Preview isolado.' }, { status: 503 });
   }

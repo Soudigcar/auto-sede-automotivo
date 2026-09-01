@@ -1,0 +1,62 @@
+{
+  "stage": "15C",
+  "mode": "isolated_e2e",
+  "parent_project_ref": "wufikrdgyxrsszlbpfmv",
+  "temporary_branch_name": "billing-stage15c-temp",
+  "with_data": false,
+  "production_forbidden": true,
+  "delete_temporary_branch_at_end": true,
+  "blocked_project_refs": [
+    "wufikrdgyxrsszlbpfmv",
+    "hfzmzfhuhukmxkxbkxay",
+    "icmwdggbvijexjgrvsbl",
+    "azszzdotbrczlhrmhrlw"
+  ],
+  "required_git_branch": "feature/billing-foundation-asaas",
+  "sealed_stage15b_manifest": {
+    "path": "supabase/production_ready/billing_stage15b/manifest.json",
+    "sha256": "68b8333522219ada37e9aae1ce35b77e237f289b182506703a895e9775670819"
+  },
+  "sealed_artifacts": [
+    {
+      "path": "src/lib/server/billing/runtime.ts",
+      "sha256": "70d39ce479523615c296a5ae11961915314f1d6f1b665d8dc79a6e8d5fc95a53"
+    },
+    {
+      "path": "src/app/api/master/billing/route.ts",
+      "sha256": "42ebf0175ed4be529af4ad217b4f9a84a6efc59d22156bf055d9cc355ea9f031"
+    },
+    {
+      "path": "src/app/api/master/billing/readiness/route.ts",
+      "sha256": "8553b07bf3e8f433bcf10ac643477a10f293b15b533071b8ad17f4be15397c28"
+    },
+    {
+      "path": "src/app/api/webhooks/asaas/route.ts",
+      "sha256": "5ab1386b137869495aa43c454c7acf360501f87f8d07daa4d985548d2449b476"
+    },
+    {
+      "path": "docs/env-setup.md",
+      "sha256": "dd1ecdad038ea39e1634a9b3b97e749e334b7b0ba44a5fc04577170c2aa0a20c"
+    },
+    {
+      "path": "supabase/production_ready/billing_stage15c/fixtures_before_migrations.sql",
+      "sha256": "54e32e1b3f86210bbdb53b5cd41f7f52a667277c2d9832a701e499647e10b865"
+    },
+    {
+      "path": "supabase/production_ready/billing_stage15c/seed_after_migrations.sql",
+      "sha256": "9161e3cbb6ea7ff675fde9e3f0d3a205dc33bd83eeb58dfbaf03ff1748da4212"
+    },
+    {
+      "path": "supabase/production_ready/billing_stage15c/verify_read_only.sql",
+      "sha256": "4405954e041db4d4614d3d9851495f836a80964ef760e8c9604b88f0fe9cde81"
+    },
+    {
+      "path": "supabase/production_ready/billing_stage15c/README.md",
+      "sha256": "fc308e1695dd5b4ee7ac1a8590890dfe6303a5bfda86e4f6f0fd2a0710a5ceaf"
+    },
+    {
+      "path": "tests/billing-stage-fifteen-c.test.ts",
+      "sha256": "f4befcb10a4f9c1a09980b751e79cf9dc00ba3821f0e25d4c3addd8644310b52"
+    }
+  ]
+}

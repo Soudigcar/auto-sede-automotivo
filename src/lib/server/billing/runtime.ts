@@ -1,7 +1,20 @@
 const SUPABASE_PROJECT_REF_PATTERN = /^[a-z0-9]{20}$/;
 
+export const BILLING_STAGE15C_ENVIRONMENT_NAME = 'billing-stage15c-temp';
+export const BILLING_STAGE15C_GIT_BRANCH = 'feature/billing-foundation-asaas';
+export const BILLING_STAGE15C_BLOCKED_PROJECT_REFS = new Set([
+  'wufikrdgyxrsszlbpfmv',
+  'hfzmzfhuhukmxkxbkxay',
+  'icmwdggbvijexjgrvsbl',
+  'azszzdotbrczlhrmhrlw'
+]);
+
 function explicitTrue(value: unknown) {
   return String(value || '').trim().toLowerCase() === 'true';
+}
+
+function explicitFalse(value: unknown) {
+  return String(value || '').trim().toLowerCase() === 'false';
 }
 
 export function supabaseProjectRef(value: unknown) {
@@ -177,6 +190,87 @@ export function readBillingRuntimeSafety(
     stage13ActivationEnabled,
     trialStartEnabled: (mutationsEnabled || stage13ActivationEnabled)
       && explicitTrue(environment.BILLING_TRIAL_START_ENABLED),
+    reason
+  };
+}
+
+export type BillingStage15cSafety = {
+  requested: boolean;
+  enabled: boolean;
+  declaredProjectRef: string;
+  environmentName: string;
+  gitBranch: string;
+  blockedProjectRef: boolean;
+  reason:
+    | 'ready'
+    | 'disabled'
+    | 'not_preview'
+    | 'wrong_git_branch'
+    | 'wrong_environment_name'
+    | 'target_not_configured'
+    | 'target_mismatch'
+    | 'protected_target'
+    | 'reads_not_ready'
+    | 'unsafe_flags';
+};
+
+/**
+ * Gate adicional e temporario da homologacao 15C.
+ *
+ * O ref nao fica gravado no codigo porque a branch Supabase e descartavel. Em
+ * compensacao, ele precisa aparecer de forma identica na URL real, na allowlist
+ * normal de Preview e na allowlist exclusiva da 15C. Os quatro ambientes
+ * permanentes conhecidos sao sempre recusados.
+ */
+export function readBillingStage15cSafety(
+  environment: NodeJS.ProcessEnv = process.env
+): BillingStage15cSafety {
+  const requested = explicitTrue(environment.BILLING_STAGE15C_ENABLED);
+  const runtimeSafety = readBillingRuntimeSafety(environment);
+  const declaredProjectRef = String(
+    environment.BILLING_STAGE15C_SUPABASE_PROJECT_REF || ''
+  ).trim().toLowerCase();
+  const environmentName = String(environment.BILLING_PREVIEW_ENVIRONMENT_NAME || '').trim();
+  const gitBranch = String(environment.VERCEL_GIT_COMMIT_REF || '').trim();
+  const blockedProjectRef = BILLING_STAGE15C_BLOCKED_PROJECT_REFS.has(declaredProjectRef)
+    || BILLING_STAGE15C_BLOCKED_PROJECT_REFS.has(runtimeSafety.actualProjectRef)
+    || BILLING_STAGE15C_BLOCKED_PROJECT_REFS.has(runtimeSafety.allowedProjectRef);
+
+  let reason: BillingStage15cSafety['reason'] = 'ready';
+  if (!requested) reason = 'disabled';
+  else if (runtimeSafety.deploymentEnvironment !== 'preview') reason = 'not_preview';
+  else if (gitBranch !== BILLING_STAGE15C_GIT_BRANCH) reason = 'wrong_git_branch';
+  else if (environmentName !== BILLING_STAGE15C_ENVIRONMENT_NAME) {
+    reason = 'wrong_environment_name';
+  } else if (!SUPABASE_PROJECT_REF_PATTERN.test(declaredProjectRef)) {
+    reason = 'target_not_configured';
+  } else if (
+    runtimeSafety.actualProjectRef !== declaredProjectRef
+    || runtimeSafety.allowedProjectRef !== declaredProjectRef
+  ) {
+    reason = 'target_mismatch';
+  } else if (blockedProjectRef) reason = 'protected_target';
+  else if (!runtimeSafety.readsEnabled) reason = 'reads_not_ready';
+  else if (
+    !explicitTrue(environment.BILLING_PREVIEW_READS_ENABLED)
+    || !explicitFalse(environment.BILLING_PREVIEW_MUTATIONS_ENABLED)
+    || !explicitFalse(environment.BILLING_PREVIEW_ENFORCEMENT_ENABLED)
+    || !explicitFalse(environment.BILLING_PREVIEW_REGISTRATION_WRITES_ENABLED)
+    || !explicitFalse(environment.BILLING_ENFORCEMENT_ENABLED)
+    || !explicitFalse(environment.BILLING_PRODUCTION_READS_ENABLED)
+    || !explicitFalse(environment.BILLING_PRODUCTION_MUTATIONS_ENABLED)
+    || !explicitFalse(environment.BILLING_PRODUCTION_ENFORCEMENT_ENABLED)
+  ) {
+    reason = 'unsafe_flags';
+  }
+
+  return {
+    requested,
+    enabled: reason === 'ready',
+    declaredProjectRef,
+    environmentName,
+    gitBranch,
+    blockedProjectRef,
     reason
   };
 }

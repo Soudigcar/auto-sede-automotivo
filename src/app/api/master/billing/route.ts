@@ -14,13 +14,25 @@ import {
   readAsaasSandboxSafety,
   readAsaasServerConfiguration
 } from '@/lib/server/billing/asaas';
-import { readBillingRuntimeSafety } from '@/lib/server/billing/runtime';
+import {
+  readBillingRuntimeSafety,
+  readBillingStage15cSafety
+} from '@/lib/server/billing/runtime';
 import { safeErrorMessage } from '@/lib/safeErrorMessage';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const BILLING_STAGE12_DEV_PROJECT_REF = 'hfzmzfhuhukmxkxbkxay';
+
+function registrationPreviewAllowed(safety: ReturnType<typeof readBillingRuntimeSafety>) {
+  const legacySaasDev = safety.readsEnabled
+    && safety.previewEnvironment
+    && safety.environmentName === 'saas-dev'
+    && safety.actualProjectRef === BILLING_STAGE12_DEV_PROJECT_REF
+    && safety.allowedProjectRef === BILLING_STAGE12_DEV_PROJECT_REF;
+  return legacySaasDev || readBillingStage15cSafety().enabled;
+}
 
 function uuid(value: unknown) {
   const text = cleanText(value, 80);
@@ -54,11 +66,7 @@ export async function GET(request: Request) {
     const overview = await readMasterBillingOverview(context.supabase);
     const asaas = readAsaasServerConfiguration();
     const asaasSandbox = readAsaasSandboxSafety();
-    const registrationSimulationEnabled = context.safety.readsEnabled
-      && context.safety.previewEnvironment
-      && context.safety.environmentName === 'saas-dev'
-      && context.safety.actualProjectRef === BILLING_STAGE12_DEV_PROJECT_REF
-      && context.safety.allowedProjectRef === BILLING_STAGE12_DEV_PROJECT_REF;
+    const registrationSimulationEnabled = registrationPreviewAllowed(context.safety);
     const registrationPersistenceEnabled = registrationSimulationEnabled
       && context.safety.registrationWritesEnabled;
     const stage13ActivationEnabled = registrationSimulationEnabled
@@ -166,9 +174,7 @@ export async function POST(request: Request) {
         !context.safety.stage13ActivationEnabled
         || !context.safety.trialStartEnabled
         || !context.safety.previewEnvironment
-        || context.safety.environmentName !== 'saas-dev'
-        || context.safety.actualProjectRef !== BILLING_STAGE12_DEV_PROJECT_REF
-        || context.safety.allowedProjectRef !== BILLING_STAGE12_DEV_PROJECT_REF
+        || !registrationPreviewAllowed(context.safety)
         || !asaasSandbox.stage13ActivationEnabled
       ) {
         return NextResponse.json({

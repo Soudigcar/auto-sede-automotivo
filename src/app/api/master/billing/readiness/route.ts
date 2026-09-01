@@ -3,7 +3,10 @@ import {
   evaluateBillingRegistrationReadiness
 } from '@/lib/billingRegistrationReadiness';
 import { readAsaasSandboxSafety } from '@/lib/server/billing/asaas';
-import { readBillingRuntimeSafety } from '@/lib/server/billing/runtime';
+import {
+  readBillingRuntimeSafety,
+  readBillingStage15cSafety
+} from '@/lib/server/billing/runtime';
 import { cleanText, getAdminClient, requireMaster } from '@/lib/server/masterApi';
 import { safeErrorMessage } from '@/lib/safeErrorMessage';
 
@@ -17,11 +20,12 @@ const BILLING_STAGE12_DEV_PROJECT_REF = 'hfzmzfhuhukmxkxbkxay';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function stageTwelvePreviewAllowed(safety: ReturnType<typeof readBillingRuntimeSafety>) {
-  return safety.readsEnabled
+  const legacySaasDev = safety.readsEnabled
     && safety.previewEnvironment
     && safety.environmentName === 'saas-dev'
     && safety.actualProjectRef === BILLING_STAGE12_DEV_PROJECT_REF
     && safety.allowedProjectRef === BILLING_STAGE12_DEV_PROJECT_REF;
+  return legacySaasDev || readBillingStage15cSafety().enabled;
 }
 
 function expectedSyntheticStore(
@@ -64,7 +68,7 @@ export async function POST(request: Request) {
     const safety = readBillingRuntimeSafety();
     if (!stageTwelvePreviewAllowed(safety)) {
       return NextResponse.json({
-        error: 'O cadastro financeiro funciona somente no Preview isolado do saas-dev.',
+        error: 'O cadastro financeiro funciona somente em um Preview isolado autorizado.',
         code: 'billing_stage12_environment_forbidden'
       }, { status: 403 });
     }
@@ -222,7 +226,7 @@ export async function POST(request: Request) {
     if (missingMigration) {
       return NextResponse.json({
         error: 'A estrutura cadastral da etapa 12 ainda não está instalada neste ambiente.',
-        migration_required: BILLING_STAGE12_REGISTRATION_MIGRATION
+        migration_required: 'billing_stage15b_registration_profiles'
       }, { status: 503 });
     }
     return NextResponse.json({

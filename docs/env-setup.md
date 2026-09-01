@@ -28,6 +28,9 @@ BILLING_PREVIEW_MUTATIONS_ENABLED=false
 BILLING_PREVIEW_ENFORCEMENT_ENABLED=false
 BILLING_PREVIEW_REGISTRATION_WRITES_ENABLED=false
 BILLING_PREVIEW_STAGE13_ACTIVATION_ENABLED=false
+# Homologacao 15C: somente em um Preview ligado a branch Supabase descartavel.
+BILLING_STAGE15C_ENABLED=false
+BILLING_STAGE15C_SUPABASE_PROJECT_REF=
 # Production: mantenha todas desligadas ate uma autorizacao posterior especifica.
 BILLING_PRODUCTION_ALLOWED_SUPABASE_PROJECT_REF=
 BILLING_PRODUCTION_ENVIRONMENT_NAME=production
@@ -69,6 +72,15 @@ Antes de ativar um webhook, configure o mesmo verify token no provedor e na Verc
 As configurações `BILLING_PREVIEW_*` e `BILLING_PRODUCTION_*` são independentes. Cada ambiente precisa de sua própria allowlist, nome, chave de leitura, chave de mutação e chave de enforcement. Variáveis antigas (`BILLING_ALLOWED_SUPABASE_PROJECT_REF` e `BILLING_STAGE6_*`) não liberam a etapa 9. A leitura falha fechada quando a chave do ambiente está desligada, o project ref não coincide ou faltam credenciais server-side. Production nasce com leitura, mutação e enforcement desligados.
 
 `BILLING_PREVIEW_REGISTRATION_WRITES_ENABLED=true` libera somente a RPC cadastral da etapa 12, exclusivamente no Preview conectado ao `saas-dev` e para o seed `Loja DEV Billing Falhas`. Essa chave não habilita `BILLING_PREVIEW_MUTATIONS_ENABLED`, trial, Checkout, confirmação de pagamento, Asaas ou enforcement. Production ignora essa chave.
+
+`BILLING_STAGE15C_ENABLED=true` é uma trava temporária adicional. Ela exige
+`VERCEL_ENV=preview`, branch Git `feature/billing-foundation-asaas`, nome lógico
+`billing-stage15c-temp` e o mesmo ref descartável em
+`NEXT_PUBLIC_SUPABASE_URL`, `BILLING_PREVIEW_ALLOWED_SUPABASE_PROJECT_REF` e
+`BILLING_STAGE15C_SUPABASE_PROJECT_REF`. Os refs do AutoSede Production,
+`saas-dev`, AUTOCAR Production e `autocar-dev` são recusados. Todas as flags de
+enforcement, mutações gerais, persistência cadastral e Production precisam
+estar explicitamente `false`.
 
 `BILLING_PREVIEW_STAGE13_ACTIVATION_ENABLED=true` libera somente a ação combinada da terceira loja sintética da etapa 13. Ela exige `BILLING_PREVIEW_MUTATIONS_ENABLED=false`, `BILLING_PREVIEW_ENFORCEMENT_ENABLED=false`, `BILLING_TRIAL_START_ENABLED=true`, Asaas Sandbox válido e o UUID exato em `BILLING_ASAAS_STAGE13_SYNTHETIC_STORE_ID`. A ação inicia um único trial e cria ou reutiliza o Checkout; confirmação de pagamento e enforcement continuam bloqueados. Production ignora essa chave.
 
