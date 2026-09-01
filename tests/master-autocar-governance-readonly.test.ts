@@ -13,6 +13,8 @@ test('aba Lojas do Master AUTOCAR e somente leitura e preserva governanca dupla'
   assert.match(source, /Esta aba é somente leitura/);
   assert.match(source, /Para alterar permissões, use exclusivamente/);
   assert.match(source, /Master → Loja/);
+  assert.match(source, /data\?\.environment && data\.environment !== 'autocar-production'/);
+  assert.match(source, /Ambiente deste Preview: AUTOCAR DEV — estes estados não representam Production\./);
 
   assert.match(source, /AUTOCAR Master/);
   assert.match(source, /AUTOPILOT permitido/);
