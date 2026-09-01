@@ -103,7 +103,7 @@ async function ensureCrmNumber(supabase: any, integration: any) {
   if (integration.crm_number_id) {
     const { data, error } = await supabase
       .from('whatsapp_numbers')
-      .select('*')
+      .select('id, label')
       .eq('id', integration.crm_number_id)
       .maybeSingle();
 
@@ -143,7 +143,7 @@ async function ensureCrmNumber(supabase: any, integration: any) {
         scope: integration.scope
       }
     }, { onConflict: 'phone_number_id' })
-    .select('*')
+    .select('id, label')
     .single();
 
   if (numberError) throw numberError;

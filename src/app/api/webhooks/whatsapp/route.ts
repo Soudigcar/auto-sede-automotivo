@@ -61,7 +61,7 @@ function getMessageBody(message: any) {
   return `[Mensagem ${message.type || 'desconhecida'} recebida]`;
 }
 
-async function verifyToken(supabase: any, requestedToken: string) {
+async function verifyToken(requestedToken: string) {
   if (!requestedToken) return false;
   const configured = text(process.env.WHATSAPP_VERIFY_TOKEN);
   const configuredHash = createHash('sha256').update(configured).digest('hex');
@@ -207,7 +207,7 @@ async function processInboundMessage(supabase: any, value: any, message: any) {
 
   const { data: numberConfig, error: numberError } = await supabase
     .from('whatsapp_numbers')
-    .select('*, stores(id, store_name, slug, event_id)')
+    .select('id, store_id, label, phone_number_id, is_active, settings, stores(id, store_name, slug, event_id)')
     .eq('phone_number_id', phoneNumberId)
     .maybeSingle();
 
@@ -351,7 +351,7 @@ export async function GET(request: Request) {
     const requestedToken = url.searchParams.get('hub.verify_token') || '';
     const challenge = url.searchParams.get('hub.challenge') || '';
 
-    if (mode === 'subscribe' && await verifyToken(supabase, requestedToken)) {
+    if (mode === 'subscribe' && await verifyToken(requestedToken)) {
       return new Response(challenge, {
         status: 200,
         headers: { 'Content-Type': 'text/plain' }
