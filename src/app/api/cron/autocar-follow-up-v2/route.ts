@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { safeEqual } from '@/lib/server/requestSecurity';
 import { createAdminClient } from '@/lib/server/storeTeam';
-import { runA4FollowUpAutopilot } from '@/lib/server/autocar/followUpV2Autopilot';
+import { FOLLOW_UP_AUTOPILOT_CANARY_STORE_ID } from '@/lib/server/autocar/followUpV2Autopilot';
+import { runGovernedA4FollowUpAutopilot } from '@/lib/server/autocar/followUpV2AutopilotGoverned';
+import { readMasterAutopilotCeiling } from '@/lib/server/autocar/followUpV2MasterCeiling';
 import { evaluateAutocarExternalExecutionGate, getAutocarRuntimeClient } from '@/lib/server/autocar/runtimeEnvironment';
 
 export const runtime = 'nodejs';
@@ -12,6 +14,8 @@ async function preflightGate() {
   const external = await evaluateAutocarExternalExecutionGate();
   if (!external.allowed) return { allowed: false, reason: external.reason };
   const autocar = getAutocarRuntimeClient();
+  const ceiling = await readMasterAutopilotCeiling(autocar, FOLLOW_UP_AUTOPILOT_CANARY_STORE_ID);
+  if (!ceiling.allowed) return { allowed: false, reason: ceiling.reason };
   const { data, error } = await autocar.from('ai_global_capability_policies')
     .select('effect,reason,is_active,version')
     .eq('capability', 'create_follow_up')
@@ -23,7 +27,7 @@ async function preflightGate() {
   if (data?.effect !== 'allow') {
     return { allowed: false, reason: String(data?.reason || 'Capability create_follow_up permanece bloqueada.') };
   }
-  return { allowed: true, reason: 'SAFE CORE e capability liberados para o canário.' };
+  return { allowed: true, reason: 'SAFE CORE, teto Master e capability liberados para o canário.' };
 }
 
 export async function GET(request: Request) {
@@ -41,7 +45,7 @@ export async function GET(request: Request) {
     if (!gate.allowed) {
       return NextResponse.json({ success: true, skipped: true, sent: 0, reason: gate.reason });
     }
-    const result = await runA4FollowUpAutopilot({
+    const result = await runGovernedA4FollowUpAutopilot({
       productionSupabase: createAdminClient(),
       maxSends: 3
     });
