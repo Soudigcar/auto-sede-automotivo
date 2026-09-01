@@ -46,7 +46,7 @@ export function CampaignLandingAdminForm({
             </button>
           ) : null}
           {form.id && form.slug ? (
-            <a href={`/campanha/${form.slug}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 px-4 py-3 text-xs font-black">
+            <a href={`/campanha/simulador?campanha=${encodeURIComponent(form.slug)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 px-4 py-3 text-xs font-black">
               Ver página <ExternalLink size={15} />
             </a>
           ) : null}

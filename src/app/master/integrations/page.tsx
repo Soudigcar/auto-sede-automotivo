@@ -105,7 +105,7 @@ export default function MasterIntegrationsPage() {
     [landings, pixelForm.test_campaign_id]
   );
 
-  const selectedLandingHref = selectedLanding?.slug ? `/campanha/${selectedLanding.slug}` : '';
+  const selectedLandingHref = selectedLanding?.slug ? `/campanha/simulador?campanha=${encodeURIComponent(selectedLanding.slug)}` : '';
 
   async function getAuthToken() {
     const { data } = await supabase.auth.getSession();

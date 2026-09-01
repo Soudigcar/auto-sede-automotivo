@@ -81,6 +81,7 @@ export async function persistCampaignDraftAssets(
 }
 
 export function publicCampaignUrl(slug: string) {
-  if (typeof window === 'undefined') return `/campanha/${slug}`;
-  return `${window.location.origin}/campanha/${slug}`;
+  const path = `/campanha/simulador?campanha=${encodeURIComponent(slug)}`;
+  if (typeof window === 'undefined') return path;
+  return `${window.location.origin}${path}`;
 }

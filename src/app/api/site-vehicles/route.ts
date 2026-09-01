@@ -34,16 +34,19 @@ function getAdminClient() {
 
 export async function GET(request: Request) {
   try {
-    const slug = new URL(request.url).searchParams.get('slug');
-    if (!slug) return NextResponse.json({ error: 'Slug obrigatório.' }, { status: 400 });
+    const slug = new URL(request.url).searchParams.get('slug')?.trim() || '';
 
     const supabase = getAdminClient();
-    const { data: campaign, error: campaignError } = await supabase
+    let campaignQuery = supabase
       .from('site_campaigns')
       .select(publicCampaignFields)
-      .eq('slug', slug)
-      .eq('is_active', true)
-      .maybeSingle();
+      .eq('is_active', true);
+
+    campaignQuery = slug
+      ? campaignQuery.eq('slug', slug)
+      : campaignQuery.order('published_at', { ascending: false, nullsFirst: false }).limit(1);
+
+    const { data: campaign, error: campaignError } = await campaignQuery.maybeSingle();
 
     if (campaignError || !campaign) {
       return NextResponse.json({ error: 'Campanha não encontrada.' }, { status: 404 });
