@@ -18,6 +18,10 @@ test('Meta Pixel is global and landing selection is test-only', () => {
   assert.match(pixelPublic, /scope: 'global'/);
   assert.match(integrations, /Landing para teste \(não vincula o Pixel\)/);
   assert.match(integrations, /Pixel funciona globalmente em todas as landings/);
+  assert.match(integrations, /campanha_id=\$\{encodeURIComponent\(selectedLanding\.id\)\}/);
+  assert.match(integrations, /landing\.display_name \|\| landing\.event_name/);
+  assert.match(pixelMaster, /\.eq\('status', 'active'\)/);
+  assert.match(pixelMaster, /event\.end_date >= today/);
 });
 
 test('pixel events carry stable campaign and event context', () => {
