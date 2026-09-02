@@ -7,10 +7,12 @@ import {
   FOLLOW_UP_V2_AUTOPILOT_LOCKED,
   followUpAutopilotCanaryAllowed,
   readMasterFollowUpV2,
-  readStoreFollowUpV2,
-  saveMasterFollowUpV2,
-  saveStoreFollowUpV2
+  saveMasterFollowUpV2
 } from '@/lib/server/autocar/followUpV2ConfigStore';
+import {
+  readGovernedStoreFollowUpV2,
+  saveGovernedStoreFollowUpV2
+} from '@/lib/server/autocar/followUpV2MasterCeiling';
 import { readFollowUpV2Performance } from '@/lib/server/autocar/followUpV2Performance';
 import type { FollowUpConfigV2 } from '@/lib/server/autocar/smartFollowUpV2';
 
@@ -61,7 +63,7 @@ export async function GET(request: Request) {
     if (!store.data) return NextResponse.json({ error: 'Loja não encontrada.' }, { status: 404 });
     await ensureAutocarDevStore(getAutocarDevClient(), store.data);
     const [storeConfig, performance] = await Promise.all([
-      readStoreFollowUpV2(client, storeId),
+      readGovernedStoreFollowUpV2(client, storeId),
       readFollowUpV2Performance({ autocar: client, crm: auth.crm, storeId, periodDays: performanceDays })
     ]);
     return NextResponse.json({
@@ -69,6 +71,7 @@ export async function GET(request: Request) {
       autopilot_locked: FOLLOW_UP_V2_AUTOPILOT_LOCKED,
       autopilot_canary_allowed: followUpAutopilotCanaryAllowed(storeId),
       autopilot_canary_store_id: FOLLOW_UP_V2_AUTOPILOT_CANARY_STORE_ID,
+      autopilot_ceiling: storeConfig.autopilot_ceiling,
       master,
       store: storeConfig,
       performance
@@ -106,11 +109,13 @@ export async function POST(request: Request) {
       if (store.error) throw store.error;
       if (!store.data) return NextResponse.json({ error: 'Loja não encontrada.' }, { status: 404 });
       await ensureAutocarDevStore(getAutocarDevClient(), store.data);
-      const saved = await saveStoreFollowUpV2(client, storeId, config, auth.master.id);
+      const saved = await saveGovernedStoreFollowUpV2(client, storeId, config, auth.master.id);
       return NextResponse.json({
         success: true,
         autopilot_locked: FOLLOW_UP_V2_AUTOPILOT_LOCKED,
         autopilot_canary_allowed: followUpAutopilotCanaryAllowed(storeId),
+        autopilot_canary_store_id: FOLLOW_UP_V2_AUTOPILOT_CANARY_STORE_ID,
+        autopilot_ceiling: saved.autopilot_ceiling,
         store: saved
       });
     }
@@ -118,7 +123,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Ação de Follow-up inválida.' }, { status: 400 });
   } catch (error: any) {
     const text = message(error);
-    const status = /AUTOPILOT|inválid|não habilitou|não autorizado|canário/i.test(text) ? 400 : 500;
+    const status = /AUTOPILOT|inválid|não habilitou|não autorizado|canário|Master não permitiu/i.test(text) ? 400 : 500;
     return NextResponse.json({ error: text }, { status });
   }
 }
