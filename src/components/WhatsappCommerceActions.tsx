@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { CalendarDays, Loader2, UsersRound, X } from 'lucide-react';
+import { CalendarDays, Loader2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import WhatsappCommerceActionsBase from '@/components/WhatsappCommerceActionsBase';
 
@@ -14,13 +14,182 @@ type WhatsappCommerceActionsProps = {
   compact?: boolean;
 };
 
+type ResponsibleEntry = {
+  conversationId: string;
+  leadId: string;
+  normalizedName: string;
+  phoneDigits: string;
+  label: string;
+};
+
+type ResponsibleContext = {
+  selectedLabel: string;
+  entries: ResponsibleEntry[];
+};
+
 const legacyAppointmentSuccess = 'Agendamento criado: tarefa adicionada ao calendário.';
+const loadingResponsibleContext: ResponsibleContext = {
+  selectedLabel: 'carregando...',
+  entries: []
+};
+
+function cleanText(value: unknown) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizedText(value: unknown) {
+  return cleanText(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function phoneDigits(value: unknown) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function conversationName(conversation: any) {
+  return cleanText(
+    conversation?.contact?.profile_name ||
+    conversation?.lead?.customer_name ||
+    conversation?.base_lead?.name ||
+    ''
+  );
+}
+
+function conversationPhone(conversation: any) {
+  return cleanText(
+    conversation?.contact?.phone ||
+    conversation?.lead?.customer_phone ||
+    conversation?.base_lead?.phone ||
+    ''
+  );
+}
+
+function conversationLeadId(conversation: any) {
+  return cleanText(conversation?.lead?.id || conversation?.lead_id || '');
+}
+
+function responsibleName(responsibles: Record<string, any>, leadId: string) {
+  if (!leadId) return '';
+  if (!Object.prototype.hasOwnProperty.call(responsibles, leadId)) {
+    return 'indisponível';
+  }
+
+  const responsible = responsibles[leadId];
+  if (!responsible) return 'Carteira geral da loja';
+  if (responsible.unavailable) return 'indisponível';
+  return cleanText(responsible.full_name) || 'indisponível';
+}
+
+function directSpanTexts(element: Element) {
+  return Array.from(element.children)
+    .filter((child) => child.tagName === 'SPAN')
+    .map((child) => cleanText(child.textContent));
+}
+
+function upsertDecoration(target: Element, kind: string, label: string, className: string) {
+  const selector = `[data-lead-responsible-decoration="${kind}"]`;
+  let decoration = target.querySelector<HTMLElement>(selector);
+  const text = kind === 'header' ? `• Responsável: ${label}` : `Responsável: ${label}`;
+
+  if (!decoration) {
+    decoration = document.createElement('span');
+    decoration.dataset.leadResponsibleDecoration = kind;
+    decoration.className = className;
+    target.appendChild(decoration);
+  }
+
+  if (decoration.textContent !== text) decoration.textContent = text;
+  decoration.title = text.replace(/^•\s*/, '');
+}
+
+function findConversationQueue(root: HTMLElement) {
+  return Array.from(root.querySelectorAll('aside')).find((item) =>
+    cleanText(item.textContent).includes('Fila de atendimento')
+  ) as HTMLElement | undefined;
+}
+
+function decorateHeader(actionBar: HTMLElement, label: string) {
+  const form = actionBar.closest('form');
+  const conversationPanel = form?.parentElement;
+  const conversationHeader = conversationPanel?.firstElementChild;
+  const headerButton = conversationHeader?.querySelector('button[aria-expanded]');
+  if (!headerButton) return;
+
+  if (!label) {
+    headerButton.querySelector<HTMLElement>('[data-lead-responsible-decoration="header"]')?.remove();
+    return;
+  }
+
+  const metadataRow = Array.from(headerButton.querySelectorAll('div')).find((item) => {
+    const texts = directSpanTexts(item);
+    return texts.filter((text) => text === '•').length >= 2;
+  });
+  if (!metadataRow) return;
+
+  upsertDecoration(
+    metadataRow,
+    'header',
+    label,
+    'inline-flex items-center gap-1 font-black text-violet-700'
+  );
+}
+
+function matchesConversationCard(button: HTMLButtonElement, entry: ResponsibleEntry) {
+  const title = normalizedText(button.querySelector('h3')?.textContent);
+  if (!title || title !== entry.normalizedName) return false;
+  if (!entry.phoneDigits) return true;
+  return phoneDigits(button.textContent).includes(entry.phoneDigits);
+}
+
+function decorateConversationCards(root: HTMLElement, entries: ResponsibleEntry[]) {
+  const queue = findConversationQueue(root);
+  const list = queue?.children.item(1);
+  if (!list) return;
+
+  const buttons = Array.from(list.children).filter(
+    (child): child is HTMLButtonElement => child instanceof HTMLButtonElement
+  );
+
+  for (const button of buttons) {
+    const entry = entries.find((candidate) => matchesConversationCard(button, candidate));
+    if (!entry) {
+      button.querySelector<HTMLElement>('[data-lead-responsible-decoration="card"]')?.remove();
+      continue;
+    }
+
+    const badgeRow = Array.from(button.querySelectorAll('div')).find((item) => {
+      const texts = directSpanTexts(item).map((text) => text.toLowerCase());
+      return texts.includes('whatsapp') && texts.includes('lead');
+    });
+    if (!badgeRow) continue;
+
+    upsertDecoration(
+      badgeRow,
+      'card',
+      entry.label,
+      'inline-flex max-w-full items-center rounded-full bg-violet-50 px-2.5 py-1 text-[9px] font-black text-violet-700'
+    );
+  }
+}
+
+function removeResponsibleDecorations(root: HTMLElement) {
+  root.querySelectorAll<HTMLElement>('[data-lead-responsible-decoration]').forEach((item) => item.remove());
+}
+
+function decorateResponsibleContext(actionBar: HTMLElement, context: ResponsibleContext) {
+  const root = actionBar.closest('main') as HTMLElement | null;
+  if (!root) return;
+  decorateHeader(actionBar, context.selectedLabel);
+  decorateConversationCards(root, context.entries);
+}
 
 export default function WhatsappCommerceActions(props: WhatsappCommerceActionsProps) {
   const supabase = createClient();
-  const requestRef = useRef(0);
-  const [responsibleName, setResponsibleName] = useState('');
-  const [responsibleState, setResponsibleState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
+  const actionBarRef = useRef<HTMLDivElement>(null);
+  const responsibleRequestRef = useRef(0);
+  const [responsibleContext, setResponsibleContext] = useState<ResponsibleContext>(loadingResponsibleContext);
   const [visitOpen, setVisitOpen] = useState(false);
   const [visitDate, setVisitDate] = useState('');
   const [visitTime, setVisitTime] = useState('');
@@ -32,46 +201,77 @@ export default function WhatsappCommerceActions(props: WhatsappCommerceActionsPr
     return data.session?.access_token || '';
   }
 
-  async function loadResponsible() {
-    const requestId = ++requestRef.current;
-
-    if (!props.leadId) {
-      setResponsibleName('');
-      setResponsibleState('idle');
-      return;
-    }
-
-    setResponsibleName('');
-    setResponsibleState('loading');
+  async function loadResponsibleContext() {
+    const requestId = ++responsibleRequestRef.current;
+    setResponsibleContext(loadingResponsibleContext);
 
     try {
       const token = await accessToken();
       if (!token) throw new Error('Sessão não encontrada.');
 
-      const query = new URLSearchParams({
-        slug: props.slug,
-        lead_id: props.leadId
-      });
-      const response = await fetch(`/api/store/lead-responsible?${query.toString()}`, {
+      const listQuery = new URLSearchParams({ slug: props.slug });
+      const listResponse = await fetch(`/api/store-whatsapp?${listQuery.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: 'no-store'
       });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Não foi possível carregar o responsável.');
-      if (requestId !== requestRef.current) return;
+      const listResult = await listResponse.json().catch(() => ({}));
+      if (!listResponse.ok) throw new Error(listResult.error || 'Não foi possível carregar as conversas.');
 
-      setResponsibleName(String(result.responsible?.full_name || '').trim());
-      setResponsibleState('loaded');
+      const conversations = Array.isArray(listResult.conversations) ? listResult.conversations : [];
+      const leadIds = Array.from(new Set([
+        props.leadId,
+        ...conversations.map(conversationLeadId)
+      ].filter(Boolean)));
+
+      if (!leadIds.length) {
+        if (requestId === responsibleRequestRef.current) {
+          setResponsibleContext({ selectedLabel: '', entries: [] });
+        }
+        return;
+      }
+
+      const responsibleQuery = new URLSearchParams({
+        slug: props.slug,
+        lead_ids: leadIds.join(',')
+      });
+      const responsibleResponse = await fetch(`/api/store/lead-responsible?${responsibleQuery.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store'
+      });
+      const responsibleResult = await responsibleResponse.json().catch(() => ({}));
+      if (!responsibleResponse.ok) {
+        throw new Error(responsibleResult.error || 'Não foi possível carregar os responsáveis.');
+      }
+      if (requestId !== responsibleRequestRef.current) return;
+
+      const responsibles = responsibleResult.responsibles || {};
+      setResponsibleContext({
+        selectedLabel: props.leadId ? responsibleName(responsibles, props.leadId) : '',
+        entries: conversations
+          .map((conversation: any) => {
+            const leadId = conversationLeadId(conversation);
+            return {
+              conversationId: cleanText(conversation.id),
+              leadId,
+              normalizedName: normalizedText(conversationName(conversation)),
+              phoneDigits: phoneDigits(conversationPhone(conversation)),
+              label: responsibleName(responsibles, leadId)
+            };
+          })
+          .filter((entry: ResponsibleEntry) => Boolean(entry.leadId && entry.normalizedName))
+      });
     } catch {
-      if (requestId !== requestRef.current) return;
-      setResponsibleName('');
-      setResponsibleState('error');
+      if (requestId !== responsibleRequestRef.current) return;
+      setResponsibleContext({
+        selectedLabel: props.leadId ? 'indisponível' : '',
+        entries: []
+      });
     }
   }
 
-  async function refreshWithResponsible() {
+  async function refreshWithResponsibleContext() {
     await props.onRefresh();
-    await loadResponsible();
+    await loadResponsibleContext();
   }
 
   function handleStatus(message: string) {
@@ -113,7 +313,7 @@ export default function WhatsappCommerceActions(props: WhatsappCommerceActionsPr
       if (!response.ok) throw new Error(result.error || 'Não foi possível agendar a visita.');
       setVisitOpen(false);
       props.onStatus('Agendamento salvo. Lead movido para Agendado.');
-      await refreshWithResponsible();
+      await refreshWithResponsibleContext();
     } catch (error: any) {
       props.onStatus(error?.message || 'Erro ao agendar visita.');
     } finally {
@@ -122,36 +322,43 @@ export default function WhatsappCommerceActions(props: WhatsappCommerceActionsPr
   }
 
   useEffect(() => {
-    void loadResponsible();
+    void loadResponsibleContext();
     return () => {
-      requestRef.current += 1;
+      responsibleRequestRef.current += 1;
     };
-  }, [props.leadId, props.slug]);
+  }, [props.conversationId, props.leadId, props.slug]);
+
+  useEffect(() => {
+    const actionBar = actionBarRef.current;
+    const root = actionBar?.closest('main') as HTMLElement | null;
+    if (!actionBar || !root) return;
+
+    let frame = 0;
+    const apply = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        decorateResponsibleContext(actionBar, responsibleContext);
+      });
+    };
+
+    apply();
+    const observer = new MutationObserver(apply);
+    observer.observe(root, { childList: true, subtree: true });
+
+    return () => {
+      observer.disconnect();
+      window.cancelAnimationFrame(frame);
+      removeResponsibleDecorations(root);
+    };
+  }, [props.conversationId, responsibleContext]);
 
   useEffect(() => {
     setVisitOpen(false);
     setVisitSaving(false);
   }, [props.conversationId]);
 
-  const responsibleLabel = responsibleState === 'error'
-    ? 'Responsável: indisponível'
-    : responsibleState === 'loaded'
-      ? `Responsável: ${responsibleName || 'Carteira geral da loja'}`
-      : 'Responsável: carregando...';
-
   return (
-    <>
-      {props.leadId ? (
-        <span
-          className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-2.5 font-black text-zinc-600 ${props.compact ? 'h-11 max-w-[210px] text-[10px]' : 'h-9 max-w-[230px] text-[9px]'}`}
-          aria-label={responsibleLabel}
-          title={responsibleLabel}
-        >
-          <UsersRound size={14} className="shrink-0 text-red-500" />
-          <span className="truncate">{responsibleLabel}</span>
-        </span>
-      ) : null}
-
+    <div ref={actionBarRef} className="contents">
       {props.leadId ? (
         <button
           type="button"
@@ -166,7 +373,7 @@ export default function WhatsappCommerceActions(props: WhatsappCommerceActionsPr
 
       <WhatsappCommerceActionsBase
         {...props}
-        onRefresh={refreshWithResponsible}
+        onRefresh={refreshWithResponsibleContext}
         onStatus={handleStatus}
       />
 
@@ -240,6 +447,6 @@ export default function WhatsappCommerceActions(props: WhatsappCommerceActionsPr
           </div>
         </div>
       ) : null}
-    </>
+    </div>
   );
 }

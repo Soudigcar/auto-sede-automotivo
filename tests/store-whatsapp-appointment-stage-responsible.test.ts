@@ -50,35 +50,78 @@ test('tarefas comuns permanecem no fluxo existente sem mudança automática de e
   assert.match(taskRoute, /to_status: lead\.status \|\| null/);
 });
 
-test('responsável é consultado por assigned_user_id com autorização e isolamento da loja', () => {
+test('responsáveis são resolvidos em lote por assigned_user_id com autorização e isolamento da loja', () => {
   assert.match(responsibleRoute, /authorizeStorePortal\(request, slug\)/);
+  assert.match(responsibleRoute, /singleLeadId/);
+  assert.match(responsibleRoute, /batchLeadIds/);
+  assert.match(responsibleRoute, /requestedLeadIds/);
+  assert.match(responsibleRoute, /slice\(0, 100\)/);
   assert.match(responsibleRoute, /select\('id, assigned_store_id, assigned_user_id'\)/);
+  assert.match(responsibleRoute, /\.in\('id', requestedLeadIds\)/);
   assert.match(responsibleRoute, /canAccessStoreLead\(context\.profile, context\.role, lead\)/);
-  assert.match(responsibleRoute, /eq\('id', lead\.assigned_user_id\)/);
-  assert.match(responsibleRoute, /eq\('store_id', context\.store\.id\)/);
-  assert.match(responsibleRoute, /select\('full_name, role'\)/);
+  assert.match(responsibleRoute, /accessibleLeads\.map/);
+  assert.match(responsibleRoute, /lead\.assigned_user_id/);
+  assert.match(responsibleRoute, /select\('id, full_name, role'\)/);
+  assert.match(responsibleRoute, /\.in\('id', responsibleUserIds\)/);
+  assert.match(responsibleRoute, /\.eq\('store_id', context\.store\.id\)/);
+  assert.match(responsibleRoute, /responsible: responsibles\[singleLeadId\] \?\? null/);
   assert.doesNotMatch(responsibleRoute, /\.(?:insert|update|delete|rpc)\(/);
+  assert.doesNotMatch(responsibleRoute, /email|phone|photo_url/);
   assert.match(responsibleRoute, /Cache-Control': 'private, no-store, max-age=0'/);
 });
 
-test('Inbox mostra nome do responsável e fallback sem ampliar os dados retornados', () => {
-  assert.match(wrapper, /\/api\/store\/lead-responsible/);
-  assert.doesNotMatch(wrapper, /\/api\/store\/lead-transfer/);
-  assert.match(wrapper, /Responsável: indisponível/);
-  assert.match(wrapper, /Responsável: carregando\.\.\./);
-  assert.match(wrapper, /Carteira geral da loja/);
-  assert.match(wrapper, /aria-label=\{responsibleLabel\}/);
-  assert.match(wrapper, /<UsersRound/);
-  assert.match(wrapper, /requestId !== requestRef\.current/);
-  assert.match(wrapper, /<WhatsappCommerceActionsBase/);
-  assert.match(wrapper, /aria-label="Agendar visita à loja"/);
-  assert.match(wrapper, /task_type: 'confirm_visit'/);
-  assert.match(wrapper, /a visita aparecerá uma única vez no calendário/);
-  assert.doesNotMatch(responsibleRoute, /email|phone|photo_url/);
+test('responsável não é mais renderizado como chip dentro da barra de digitação', () => {
+  const renderStart = wrapper.indexOf('  return (\n    <div ref={actionBarRef} className="contents">');
+  const visitModal = wrapper.indexOf('      {visitOpen ? (', renderStart);
+  assert.notEqual(renderStart, -1);
+  assert.notEqual(visitModal, -1);
+  const composerActions = wrapper.slice(renderStart, visitModal);
+
+  assert.doesNotMatch(wrapper, /UsersRound/);
+  assert.doesNotMatch(wrapper, /responsibleLabel/);
+  assert.doesNotMatch(composerActions, /Responsável:/);
+  assert.doesNotMatch(composerActions, /data-lead-responsible-decoration/);
+  assert.match(composerActions, /<WhatsappCommerceActionsBase/);
+  assert.match(composerActions, /aria-label="Agendar visita à loja"/);
 });
 
-test('mensagem do fluxo legado é normalizada para confirmar a movimentação para Agendado', () => {
-  assert.match(wrapper, /Agendamento criado: tarefa adicionada ao calendário\./);
+test('wrapper carrega somente conversas permitidas e consulta responsáveis em lote', () => {
+  assert.match(wrapper, /\/api\/store-whatsapp\?\$\{listQuery\.toString\(\)\}/);
+  assert.match(wrapper, /leadIds\.join\(','\)/);
+  assert.match(wrapper, /\/api\/store\/lead-responsible\?\$\{responsibleQuery\.toString\(\)\}/);
+  assert.match(wrapper, /Object\.prototype\.hasOwnProperty\.call\(responsibles, leadId\)/);
+  assert.match(wrapper, /Carteira geral da loja/);
+  assert.match(wrapper, /return 'indisponível'/);
+  assert.match(wrapper, /requestId !== responsibleRequestRef\.current/);
+});
+
+test('responsável é inserido no cabeçalho ao lado da origem, loja e etapa', () => {
+  assert.match(wrapper, /actionBar\.closest\('form'\)/);
+  assert.match(wrapper, /conversationPanel\?\.firstElementChild/);
+  assert.match(wrapper, /button\[aria-expanded\]/);
+  assert.match(wrapper, /texts\.filter\(\(text\) => text === '•'\)\.length >= 2/);
+  assert.match(wrapper, /kind === 'header' \? `• Responsável: \$\{label\}`/);
+  assert.match(wrapper, /data-lead-responsible-decoration/);
+  assert.match(wrapper, /font-black text-violet-700/);
+});
+
+test('responsável é inserido nas abas de conversa sem usar HTML não sanitizado', () => {
+  assert.match(wrapper, /Fila de atendimento/);
+  assert.match(wrapper, /button\.querySelector\('h3'\)/);
+  assert.match(wrapper, /phoneDigits\(button\.textContent\)\.includes\(entry\.phoneDigits\)/);
+  assert.match(wrapper, /texts\.includes\('whatsapp'\) && texts\.includes\('lead'\)/);
+  assert.match(wrapper, /'card'/);
+  assert.match(wrapper, /`Responsável: \$\{label\}`/);
+  assert.match(wrapper, /decoration\.textContent = text/);
+  assert.doesNotMatch(wrapper, /innerHTML/);
+  assert.match(wrapper, /new MutationObserver\(apply\)/);
+  assert.match(wrapper, /removeResponsibleDecorations\(root\)/);
+});
+
+test('visita continua usando o fluxo seguro e atualiza a apresentação após refresh', () => {
+  assert.match(wrapper, /task_type: 'confirm_visit'/);
   assert.match(wrapper, /Agendamento salvo\. Lead movido para Agendado\./);
-  assert.match(wrapper, /onRefresh=\{refreshWithResponsible\}/);
+  assert.match(wrapper, /a visita aparecerá uma única vez no calendário/);
+  assert.match(wrapper, /await refreshWithResponsibleContext\(\)/);
+  assert.match(wrapper, /onRefresh=\{refreshWithResponsibleContext\}/);
 });
