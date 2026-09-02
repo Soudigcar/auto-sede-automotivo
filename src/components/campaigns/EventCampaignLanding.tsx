@@ -21,7 +21,8 @@ function dateLabel(start?: string, end?: string) {
   return first && last && first !== last ? `${first} a ${last}` : first || last || 'Data a confirmar';
 }
 
-export function EventCampaignLanding({ campaignSlug = '' }: { campaignSlug?: string }) {
+export function EventCampaignLanding({ campaignId = '', campaignSlug = '' }: { campaignId?: string; campaignSlug?: string }) {
+  const id = campaignId;
   const slug = campaignSlug;
   const [campaign, setCampaign] = useState<any>(null);
   const [eventInfo, setEventInfo] = useState<any>(null);
@@ -36,7 +37,11 @@ export function EventCampaignLanding({ campaignSlug = '' }: { campaignSlug?: str
   useEffect(() => {
     setLoading(true);
     setSimulatorOpen(false);
-    const query = slug ? `?slug=${encodeURIComponent(slug)}` : '?current=1';
+    const query = id
+      ? `?campaign_id=${encodeURIComponent(id)}`
+      : slug
+        ? `?slug=${encodeURIComponent(slug)}`
+        : '?current=1';
     fetch(`/api/site-vehicles${query}`, { cache: 'no-store' })
       .then(async (response) => ({ response, result: await response.json() }))
       .then(({ response, result }) => {
@@ -51,7 +56,7 @@ export function EventCampaignLanding({ campaignSlug = '' }: { campaignSlug?: str
         setMessage(error?.message || 'Campanha indisponível.');
         setLoading(false);
       });
-  }, [slug]);
+  }, [id, slug]);
 
   useEffect(() => {
     const resolvedSlug = String(campaign?.slug || slug);

@@ -106,7 +106,7 @@ function normalizeIntegration(integration: any) {
 }
 
 async function listPublishedLandings(supabase: any) {
-  const { data, error } = await supabase
+  const { data: campaigns, error } = await supabase
     .from('site_campaigns')
     .select('id, name, slug, title, is_active, published_at, event_id')
     .eq('is_active', true)
@@ -114,7 +114,40 @@ async function listPublishedLandings(supabase: any) {
     .order('published_at', { ascending: false });
 
   if (error) throw error;
-  return data || [];
+
+  const eventIds = Array.from(
+    new Set((campaigns || []).map((campaign: any) => campaign.event_id).filter(Boolean))
+  );
+
+  if (eventIds.length < 1) return [];
+
+  const { data: events, error: eventsError } = await supabase
+    .from('events')
+    .select('id, event_name, status, start_date, end_date')
+    .in('id', eventIds)
+    .eq('status', 'active');
+
+  if (eventsError) throw eventsError;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const currentEvents = new Map(
+    (events || [])
+      .filter((event: any) => !event.end_date || event.end_date >= today)
+      .map((event: any) => [event.id, event])
+  );
+
+  return (campaigns || []).flatMap((campaign: any) => {
+    const event = currentEvents.get(campaign.event_id) as any;
+    if (!event) return [];
+
+    return [{
+      ...campaign,
+      event_name: event.event_name,
+      event_start_date: event.start_date,
+      event_end_date: event.end_date,
+      display_name: event.event_name || campaign.title || campaign.name
+    }];
+  });
 }
 
 async function getOrCreateIntegration(supabase: any) {
@@ -230,13 +263,27 @@ export async function POST(request: Request) {
     if (testCampaignId) {
       const { data, error } = await supabase
         .from('site_campaigns')
-        .select('id, name, slug, title, is_active, published_at')
+        .select('id, name, slug, title, is_active, published_at, event_id')
         .eq('id', testCampaignId)
         .maybeSingle();
 
       if (error || !data || !data.is_active || !data.published_at || !data.slug) {
         return NextResponse.json(
           { error: 'A landing selecionada não está ativa ou publicada.' },
+          { status: 400 }
+        );
+      }
+
+      const { data: event, error: eventError } = await supabase
+        .from('events')
+        .select('id, status, end_date')
+        .eq('id', data.event_id)
+        .maybeSingle();
+
+      const today = new Date().toISOString().slice(0, 10);
+      if (eventError || !event || event.status !== 'active' || (event.end_date && event.end_date < today)) {
+        return NextResponse.json(
+          { error: 'A landing selecionada pertence a um evento inativo ou encerrado.' },
           { status: 400 }
         );
       }

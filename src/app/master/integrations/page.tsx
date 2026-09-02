@@ -53,6 +53,8 @@ type LandingOption = {
   name: string;
   slug: string;
   title?: string;
+  event_name?: string;
+  display_name?: string;
 };
 
 function parsePixelIds(value: string) {
@@ -105,7 +107,9 @@ export default function MasterIntegrationsPage() {
     [landings, pixelForm.test_campaign_id]
   );
 
-  const selectedLandingHref = selectedLanding?.slug ? `/campanha/simulador?campanha=${encodeURIComponent(selectedLanding.slug)}` : '';
+  const selectedLandingHref = selectedLanding?.id
+    ? `/campanha/simulador?campanha_id=${encodeURIComponent(selectedLanding.id)}`
+    : '';
 
   async function getAuthToken() {
     const { data } = await supabase.auth.getSession();
@@ -473,7 +477,7 @@ export default function MasterIntegrationsPage() {
                   <select className="premium-input" value={pixelForm.test_campaign_id} onChange={(event) => setPixelForm({ ...pixelForm, test_campaign_id: event.target.value })}>
                     <option value="">Selecione uma landing ativa e publicada</option>
                     {landings.map((landing) => (
-                      <option key={landing.id} value={landing.id}>{landing.name}</option>
+                      <option key={landing.id} value={landing.id}>{landing.display_name || landing.event_name || landing.title || landing.name}</option>
                     ))}
                   </select>
                   <span className="text-xs font-bold text-zinc-400">

@@ -32,27 +32,63 @@ function getAdminClient() {
   return createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
+function isCurrentEvent(event: any) {
+  if (!event || event.status !== 'active') return false;
+  const today = new Date().toISOString().slice(0, 10);
+  return !event.end_date || event.end_date >= today;
+}
+
 export async function GET(request: Request) {
   try {
-    const slug = new URL(request.url).searchParams.get('slug')?.trim() || '';
+    const searchParams = new URL(request.url).searchParams;
+    const slug = searchParams.get('slug')?.trim() || '';
+    const campaignId = searchParams.get('campaign_id')?.trim() || '';
+
+    if (campaignId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(campaignId)) {
+      return NextResponse.json({ error: 'Identificador de campanha inválido.' }, { status: 400 });
+    }
 
     const supabase = getAdminClient();
     let campaignQuery = supabase
       .from('site_campaigns')
       .select(publicCampaignFields)
-      .eq('is_active', true);
+      .eq('is_active', true)
+      .not('published_at', 'is', null);
 
-    campaignQuery = slug
-      ? campaignQuery.eq('slug', slug)
-      : campaignQuery.order('published_at', { ascending: false, nullsFirst: false }).limit(1);
+    if (campaignId) {
+      campaignQuery = campaignQuery.eq('id', campaignId).limit(1);
+    } else if (slug) {
+      campaignQuery = campaignQuery.eq('slug', slug).limit(1);
+    } else {
+      campaignQuery = campaignQuery.order('published_at', { ascending: false, nullsFirst: false }).limit(25);
+    }
 
-    const { data: campaign, error: campaignError } = await campaignQuery.maybeSingle();
+    const { data: campaignCandidates, error: campaignError } = await campaignQuery;
 
-    if (campaignError || !campaign) {
+    if (campaignError || !campaignCandidates?.length) {
       return NextResponse.json({ error: 'Campanha não encontrada.' }, { status: 404 });
     }
 
-    const campaignRecord = campaign as any;
+    const eventIds = Array.from(
+      new Set(campaignCandidates.map((campaign: any) => campaign.event_id).filter(Boolean))
+    );
+    const { data: candidateEvents, error: candidateEventsError } = eventIds.length
+      ? await supabase.from('events').select('*').in('id', eventIds)
+      : { data: [], error: null };
+
+    if (candidateEventsError) {
+      return NextResponse.json({ error: candidateEventsError.message }, { status: 500 });
+    }
+
+    const eventMap = new Map((candidateEvents || []).map((event: any) => [event.id, event]));
+    const campaignRecord = campaignCandidates.find((campaign: any) => {
+      if (!campaign.event_id) return true;
+      return isCurrentEvent(eventMap.get(campaign.event_id));
+    }) as any;
+
+    if (!campaignRecord) {
+      return NextResponse.json({ error: 'Esta campanha pertence a um evento inativo ou encerrado.' }, { status: 404 });
+    }
 
     const { data: visualLayout, error: layoutError } = await supabase
       .from('site_campaign_layouts')
@@ -84,8 +120,12 @@ export async function GET(request: Request) {
       return NextResponse.json({ campaign: publicCampaign, event: null, stores: [], vehicles: legacyVehicles || [] });
     }
 
-    const [eventResult, participationResult, assignmentResult] = await Promise.all([
-      supabase.from('events').select('*').eq('id', campaignRecord.event_id).maybeSingle(),
+    const eventRecord = eventMap.get(campaignRecord.event_id) as any;
+    if (!isCurrentEvent(eventRecord)) {
+      return NextResponse.json({ error: 'Esta campanha pertence a um evento inativo ou encerrado.' }, { status: 404 });
+    }
+
+    const [participationResult, assignmentResult] = await Promise.all([
       supabase.from('store_event_participations').select('store_id,status').eq('event_id', campaignRecord.event_id).eq('status', 'active'),
       supabase
         .from('event_vehicle_assignments')
@@ -95,7 +135,7 @@ export async function GET(request: Request) {
         .eq('show_on_landing', true)
     ]);
 
-    const firstError = eventResult.error || participationResult.error || assignmentResult.error;
+    const firstError = participationResult.error || assignmentResult.error;
     if (firstError) return NextResponse.json({ error: firstError.message }, { status: 500 });
 
     const storeIds = Array.from(new Set((participationResult.data || []).map((item) => item.store_id)));
@@ -147,7 +187,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       campaign: publicCampaign,
-      event: eventResult.data || null,
+      event: eventRecord,
       stores: storeResult.data || [],
       vehicles
     });
