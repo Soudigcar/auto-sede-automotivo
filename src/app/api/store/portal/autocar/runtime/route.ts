@@ -111,7 +111,7 @@ function completedReplayResponse(input: {
     success: true,
     shadow_mode: true,
     no_external_execution: true,
-    protected_resume: Boolean(input.audit.protected_resume),
+    protected_resume: input.audit.protected_resume === true,
     idempotent_replay: true,
     request_id: input.requestId,
     audit_id: String(input.audit.id || ''),
