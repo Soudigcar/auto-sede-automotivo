@@ -18,9 +18,20 @@ test('slugs antigos redirecionam permanentemente e preservam parametros de campa
 
 test('rota permanente aceita campanha explicita e tambem um destino atual padrao', () => {
   assert.match(permanentRoute, /resolvedSearchParams\.campanha/);
+  assert.match(permanentRoute, /resolvedSearchParams\.campanha_id/);
+  assert.match(permanentRoute, /campaignId=\{campaignId \|\| ''\}/);
   assert.match(permanentRoute, /campaignSlug=\{campaignSlug \|\| ''\}/);
-  assert.match(landing, /slug \? `\?slug=\$\{encodeURIComponent\(slug\)\}` : '\?current=1'/);
-  assert.match(publicCampaignApi, /order\('published_at', \{ ascending: false, nullsFirst: false \}\)\.limit\(1\)/);
+  assert.match(landing, /`\?campaign_id=\$\{encodeURIComponent\(id\)\}`/);
+  assert.match(landing, /`\?slug=\$\{encodeURIComponent\(slug\)\}`/);
+  assert.match(publicCampaignApi, /\.not\('published_at', 'is', null\)/);
+  assert.match(publicCampaignApi, /order\('published_at', \{ ascending: false, nullsFirst: false \}\)\.limit\(25\)/);
+});
+
+test('campanha selecionada usa id estavel e rejeita evento inativo ou encerrado', () => {
+  assert.match(publicCampaignApi, /searchParams\.get\('campaign_id'\)/);
+  assert.match(publicCampaignApi, /event\.status !== 'active'/);
+  assert.match(publicCampaignApi, /event\.end_date >= today/);
+  assert.match(publicCampaignApi, /Esta campanha pertence a um evento inativo ou encerrado\./);
 });
 
 test('pixel e leads usam o slug real resolvido, nunca o nome fixo simulador', () => {
