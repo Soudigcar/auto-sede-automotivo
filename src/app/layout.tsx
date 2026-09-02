@@ -27,6 +27,7 @@ import { PrivacyConsentCenter } from '@/components/PrivacyConsentCenter';
 import { PwaInstallManager } from '@/components/PwaInstallManager';
 import { PwaUpdateAnalytics } from '@/components/PwaUpdateAnalytics';
 import { BrowserErrorObserver } from '@/components/BrowserErrorObserver';
+import { PreviewRootErrorDiagnostic } from '@/components/PreviewErrorDiagnostics';
 import { resolvePwaAppVersion } from '@/lib/server/pwaAppVersion';
 
 export const metadata: Metadata = {
@@ -66,6 +67,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="pt-BR" data-app-version={appVersion} suppressHydrationWarning>
       <body suppressHydrationWarning>
+        <PreviewRootErrorDiagnostic
+          enabled={process.env.VERCEL_ENV === 'preview'
+            && process.env.VERCEL_GIT_COMMIT_REF === 'fix/frontend-error-observability-recovery'}
+        />
         <AuthGate>{children}</AuthGate>
         <PipelineAddLeadWithStock />
         <PipelineSaleConfirmation />
