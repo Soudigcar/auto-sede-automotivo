@@ -98,13 +98,14 @@ describe('Smart Follow-up V2 AUTOPILOT canary', () => {
     assert.doesNotMatch(source, /\/api\/whatsapp\/messages\/send|markAutocarHumanActive|sendWhatsApp/i);
   });
 
-  it('cron é protegido, Production-only e varre somente o executor A4', () => {
+  it('cron é protegido, Production-only e varre somente o executor A4 governado', () => {
     const route = fs.readFileSync(path.join(process.cwd(), 'src/app/api/cron/autocar-follow-up-v2/route.ts'), 'utf8');
     const vercel = fs.readFileSync(path.join(process.cwd(), 'vercel.json'), 'utf8');
     assert.match(route, /CRON_SECRET/);
     assert.match(route, /safeEqual/);
     assert.match(route, /VERCEL_ENV !== 'production'/);
-    assert.match(route, /runA4FollowUpAutopilot/);
+    assert.match(route, /runGovernedA4FollowUpAutopilot/);
+    assert.doesNotMatch(route, /runA4FollowUpAutopilot\(/);
     assert.match(vercel, /\/api\/cron\/autocar-follow-up-v2/);
     assert.match(vercel, /\*\/5 \* \* \* \*/);
   });

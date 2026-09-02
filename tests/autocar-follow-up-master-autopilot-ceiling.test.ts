@@ -61,9 +61,9 @@ describe('Smart Follow-up Master AUTOPILOT ceiling', () => {
     assert.match(executor, /stage: 'before_evolution_send'/);
     assert.match(executor, /blocked_by: 'master_autopilot_ceiling'/);
     const beforeClaim = executor.indexOf("stage: 'before_live_claim'");
-    const liveClaim = executor.indexOf('createLiveTextSendClaim');
+    const liveClaim = executor.indexOf('const liveClaim = await createLiveTextSendClaim(');
     const beforeEvolution = executor.indexOf("stage: 'before_evolution_send'");
-    const evolutionSend = executor.indexOf('sendEvolutionText');
+    const evolutionSend = executor.indexOf('const evolutionResult = await sendEvolutionText(');
     assert.ok(beforeClaim >= 0 && liveClaim > beforeClaim);
     assert.ok(beforeEvolution >= 0 && evolutionSend > beforeEvolution);
   });
