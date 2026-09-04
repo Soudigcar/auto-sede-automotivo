@@ -91,7 +91,7 @@ function directSpanTexts(element: Element) {
 function upsertDecoration(target: Element, kind: string, label: string, className: string) {
   const selector = `[data-lead-responsible-decoration="${kind}"]`;
   let decoration = target.querySelector<HTMLElement>(selector);
-  const text = kind === 'header' ? `• Responsável: ${label}` : `Responsável: ${label}`;
+  const text = kind === 'header' ? `• Responsável: ${label}` : label;
 
   if (!decoration) {
     decoration = document.createElement('span');
@@ -101,7 +101,8 @@ function upsertDecoration(target: Element, kind: string, label: string, classNam
   }
 
   if (decoration.textContent !== text) decoration.textContent = text;
-  decoration.title = text.replace(/^•\s*/, '');
+  decoration.title = kind === 'header' ? `Responsável: ${label}` : label;
+  return decoration;
 }
 
 function findConversationQueue(root: HTMLElement) {
@@ -165,12 +166,30 @@ function decorateConversationCards(root: HTMLElement, entries: ResponsibleEntry[
     });
     if (!badgeRow) continue;
 
-    upsertDecoration(
+    const badgeRowElement = badgeRow as HTMLElement;
+    badgeRowElement.style.flexWrap = 'nowrap';
+    badgeRowElement.style.overflow = 'hidden';
+
+    const decoration = upsertDecoration(
       badgeRow,
       'card',
       entry.label,
-      'inline-flex max-w-full items-center rounded-full bg-violet-50 px-2.5 py-1 text-[9px] font-black text-violet-700'
+      'inline-flex min-w-0 items-center rounded-full bg-violet-50 px-2.5 py-1 text-[9px] font-black text-violet-700'
     );
+
+    for (const child of Array.from(badgeRowElement.children)) {
+      if (!(child instanceof HTMLElement)) continue;
+      child.style.whiteSpace = 'nowrap';
+      if (child === decoration) {
+        child.style.minWidth = '0';
+        child.style.maxWidth = '110px';
+        child.style.flexShrink = '1';
+        child.style.overflow = 'hidden';
+        child.style.textOverflow = 'ellipsis';
+      } else {
+        child.style.flexShrink = '0';
+      }
+    }
   }
 }
 
