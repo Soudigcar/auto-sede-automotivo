@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { usePathname } from 'next/navigation';
+import { createClient } from '@/lib/supabase';
 
 type PipelineLead = {
   id: string;
@@ -18,6 +19,10 @@ type PipelineSummary = {
 
 function isPipeline(pathname: string) {
   return /^\/loja\/[^/]+\/pipeline\/?$/.test(pathname);
+}
+
+function slugFrom(pathname: string) {
+  return pathname.match(/^\/loja\/([^/]+)\/pipeline\/?$/)?.[1] || '';
 }
 
 function responsibleId(lead: PipelineLead) {
@@ -50,19 +55,41 @@ function updateHistoricalAttendanceKpi(summary: PipelineSummary | null, selected
 export function StorePipelineHistoricalAttendanceKpi() {
   const pathname = usePathname() || '';
   const active = isPipeline(pathname);
+  const slug = slugFrom(pathname);
+  const supabase = useMemo(() => createClient(), []);
   const summaryRef = useRef<PipelineSummary | null>(null);
   const selectedResponsibleRef = useRef('all');
-  const [, forceRender] = useState(0);
 
   useEffect(() => {
-    if (!active) return;
+    if (!active || !slug) return;
 
+    let cancelled = false;
     let frame = 0;
+    let retryTimer = 0;
+
     const apply = () => {
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         updateHistoricalAttendanceKpi(summaryRef.current, selectedResponsibleRef.current);
       });
+    };
+
+    const loadInitialSummary = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token;
+        if (!token || cancelled) return;
+        const response = await fetch(`/api/store/portal/pipeline?slug=${encodeURIComponent(slug)}&offset=0&limit=200`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store'
+        });
+        if (!response.ok || cancelled) return;
+        const payload = await response.json() as PipelineSummary;
+        if (payload?.leads) summaryRef.current = payload;
+        apply();
+      } catch {
+        // The native Pipeline remains functional if this read-only KPI enrichment fails.
+      }
     };
 
     const onPipelineData = (event: Event) => {
@@ -76,23 +103,25 @@ export function StorePipelineHistoricalAttendanceKpi() {
       apply();
     };
 
-    const observer = new MutationObserver(apply);
-    observer.observe(document.body, { childList: true, subtree: true });
+    const observer = new MutationObserver(() => {
+      apply();
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     window.addEventListener('pipeline-data-updated', onPipelineData as EventListener);
     window.addEventListener('pipeline-responsible-change', onResponsibleChange as EventListener);
-    apply();
+
+    void loadInitialSummary();
+    retryTimer = window.setTimeout(() => void loadInitialSummary(), 1200);
 
     return () => {
+      cancelled = true;
       observer.disconnect();
       window.cancelAnimationFrame(frame);
+      window.clearTimeout(retryTimer);
       window.removeEventListener('pipeline-data-updated', onPipelineData as EventListener);
       window.removeEventListener('pipeline-responsible-change', onResponsibleChange as EventListener);
     };
-  }, [active]);
-
-  useEffect(() => {
-    forceRender((current) => current + 1);
-  }, [pathname]);
+  }, [active, slug, supabase]);
 
   return null;
 }
