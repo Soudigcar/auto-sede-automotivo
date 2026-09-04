@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { cleanText } from '@/lib/server/storeTeam';
 import { authorizeStorePortal, canAccessStoreLead } from '@/lib/server/storePortal';
 import { checkStoreAvailability } from '@/lib/server/storeAvailability';
+import { getStoreScheduleConflictWarning } from '@/lib/storeScheduleWarnings';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,19 +41,18 @@ async function loadLead(context: any, leadId: string) {
   return data;
 }
 
-async function assertScheduleAvailable(context: any, leadId: string, startsAt: Date, responsibleUserId?: string | null) {
-  const availability = await checkStoreAvailability({
-    supabase: context.supabase,
-    storeId: context.store.id,
-    startsAt,
-    durationMinutes: 60,
-    excludeLeadId: leadId,
-    responsibleUserId: responsibleUserId || null
-  });
-  if (!availability.available) {
-    const conflict = availability.conflicts[0];
-    const detail = conflict?.title ? ` Conflito: ${conflict.title}.` : '';
-    throw new Error(`Horário ocupado no calendário deste responsável. Escolha outro horário.${detail}`);
+async function readScheduleWarning(context: any, leadId: string, startsAt: Date) {
+  try {
+    const availability = await checkStoreAvailability({
+      supabase: context.supabase,
+      storeId: context.store.id,
+      startsAt,
+      durationMinutes: 60,
+      excludeLeadId: leadId
+    });
+    return getStoreScheduleConflictWarning(!availability.available);
+  } catch {
+    return null;
   }
 }
 
@@ -140,7 +140,7 @@ export async function POST(request: Request) {
       const appointmentType = cleanText(body.appointment_type, 30) as (typeof appointmentTypes)[number];
       if (!appointmentTypes.includes(appointmentType)) throw new Error('Selecione Agendamento ou Visita.');
       const startsAt = parseSchedule(body.date, body.time);
-      await assertScheduleAvailable(context, lead.id, startsAt, lead.assigned_user_id);
+      const warning = await readScheduleWarning(context, lead.id, startsAt);
       const notes = cleanText(body.notes, 3000) || null;
       const actorName = context.profile.full_name || context.profile.email || 'Usuário da loja';
       const label = appointmentType === 'visit' ? 'Visita agendada' : 'Agendamento criado';
@@ -162,9 +162,15 @@ export async function POST(request: Request) {
       if (error) throw error;
       await recordMovement(context, lead, fromStatus, 'scheduled', label, {
         scheduled_at: startsAt.toISOString(),
-        appointment_type: appointmentType
+        appointment_type: appointmentType,
+        schedule_conflict_warning: Boolean(warning)
       });
-      return NextResponse.json({ success: true, message: `${label}. Lead movido para Agendado.`, lead: data });
+      return NextResponse.json({
+        success: true,
+        message: warning ? `${label}. Lead movido para Agendado. ${warning}` : `${label}. Lead movido para Agendado.`,
+        warning,
+        lead: data
+      });
     }
 
     if (action === 'move') {
