@@ -27,6 +27,21 @@ export async function checkStoreAvailability(input: {
   const endsAt = new Date(startsAt.getTime() + duration * 60 * 1000);
   if (!validDate(startsAt) || !validDate(endsAt)) throw new Error('Data ou horário inválido para consulta de disponibilidade.');
 
+  // When availability belongs to a lead, scope conflicts to that lead's responsible
+  // user. Different sellers in the same store may therefore use the same time slot.
+  // Leads without a responsible keep the previous store-wide lock as a safe fallback.
+  let responsibleUserId: string | null = null;
+  if (input.excludeLeadId) {
+    const { data: targetLead, error: targetLeadError } = await input.supabase
+      .from('leads')
+      .select('assigned_user_id')
+      .eq('id', input.excludeLeadId)
+      .eq('assigned_store_id', input.storeId)
+      .maybeSingle();
+    if (targetLeadError) throw targetLeadError;
+    responsibleUserId = targetLead?.assigned_user_id || null;
+  }
+
   // Search backwards far enough to catch an event that began before the requested slot
   // but still overlaps it. Current lead appointments are treated as one-hour windows.
   const searchStart = new Date(startsAt.getTime() - 8 * 60 * 60 * 1000);
@@ -38,6 +53,7 @@ export async function checkStoreAvailability(input: {
     .not('scheduled_at', 'is', null)
     .gte('scheduled_at', searchStart.toISOString())
     .lt('scheduled_at', endsAt.toISOString());
+  if (responsibleUserId) leadQuery = leadQuery.eq('assigned_user_id', responsibleUserId);
   if (input.excludeLeadId) leadQuery = leadQuery.neq('id', input.excludeLeadId);
 
   let taskQuery = input.supabase
@@ -46,6 +62,7 @@ export async function checkStoreAvailability(input: {
     .eq('store_id', input.storeId)
     .gte('starts_at', searchStart.toISOString())
     .lt('starts_at', endsAt.toISOString());
+  if (responsibleUserId) taskQuery = taskQuery.eq('created_by', responsibleUserId);
   if (input.excludeTaskId) taskQuery = taskQuery.neq('id', input.excludeTaskId);
 
   const [leadResult, taskResult] = await Promise.all([leadQuery, taskQuery]);
