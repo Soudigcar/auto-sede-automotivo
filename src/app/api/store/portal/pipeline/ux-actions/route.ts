@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { cleanText } from '@/lib/server/storeTeam';
 import { authorizeStorePortal, canAccessStoreLead } from '@/lib/server/storePortal';
+import { checkStoreAvailability } from '@/lib/server/storeAvailability';
+import { getStoreScheduleConflictWarning } from '@/lib/storeScheduleWarnings';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,18 +41,19 @@ async function loadLead(context: any, leadId: string) {
   return data;
 }
 
-async function assertScheduleAvailable(context: any, leadId: string, startsAt: Date) {
-  const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000);
-  const [leadConflict, taskConflict] = await Promise.all([
-    context.supabase.from('leads').select('id').eq('assigned_store_id', context.store.id).neq('id', leadId)
-      .not('scheduled_at', 'is', null).gte('scheduled_at', startsAt.toISOString()).lt('scheduled_at', endsAt.toISOString()).limit(1),
-    context.supabase.from('store_calendar_tasks').select('id,status').eq('store_id', context.store.id)
-      .gte('starts_at', startsAt.toISOString()).lt('starts_at', endsAt.toISOString()).limit(20)
-  ]);
-  if (leadConflict.error) throw leadConflict.error;
-  if (taskConflict.error) throw taskConflict.error;
-  const activeTaskConflict = (taskConflict.data || []).some((item: any) => !['completed', 'cancelled', 'done'].includes(String(item.status || '').toLowerCase()));
-  if ((leadConflict.data || []).length || activeTaskConflict) throw new Error('Horário ocupado no calendário. Escolha outro horário.');
+async function readScheduleWarning(context: any, leadId: string, startsAt: Date) {
+  try {
+    const availability = await checkStoreAvailability({
+      supabase: context.supabase,
+      storeId: context.store.id,
+      startsAt,
+      durationMinutes: 60,
+      excludeLeadId: leadId
+    });
+    return getStoreScheduleConflictWarning(!availability.available);
+  } catch {
+    return null;
+  }
 }
 
 async function recordMovement(context: any, lead: any, fromStatus: string, toStatus: string, label: string, metadata: Record<string, any> = {}) {
@@ -137,7 +140,7 @@ export async function POST(request: Request) {
       const appointmentType = cleanText(body.appointment_type, 30) as (typeof appointmentTypes)[number];
       if (!appointmentTypes.includes(appointmentType)) throw new Error('Selecione Agendamento ou Visita.');
       const startsAt = parseSchedule(body.date, body.time);
-      await assertScheduleAvailable(context, lead.id, startsAt);
+      const warning = await readScheduleWarning(context, lead.id, startsAt);
       const notes = cleanText(body.notes, 3000) || null;
       const actorName = context.profile.full_name || context.profile.email || 'Usuário da loja';
       const label = appointmentType === 'visit' ? 'Visita agendada' : 'Agendamento criado';
@@ -159,9 +162,15 @@ export async function POST(request: Request) {
       if (error) throw error;
       await recordMovement(context, lead, fromStatus, 'scheduled', label, {
         scheduled_at: startsAt.toISOString(),
-        appointment_type: appointmentType
+        appointment_type: appointmentType,
+        schedule_conflict_warning: Boolean(warning)
       });
-      return NextResponse.json({ success: true, message: `${label}. Lead movido para Agendado.`, lead: data });
+      return NextResponse.json({
+        success: true,
+        message: warning ? `${label}. Lead movido para Agendado. ${warning}` : `${label}. Lead movido para Agendado.`,
+        warning,
+        lead: data
+      });
     }
 
     if (action === 'move') {

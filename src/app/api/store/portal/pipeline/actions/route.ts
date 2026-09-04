@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { cleanText } from '@/lib/server/storeTeam';
 import { authorizeStorePortal, canAccessStoreLead } from '@/lib/server/storePortal';
 import { checkStoreAvailability } from '@/lib/server/storeAvailability';
+import { getStoreScheduleConflictWarning } from '@/lib/storeScheduleWarnings';
 
 export const runtime = 'nodejs';
 
@@ -114,25 +115,18 @@ function parseSchedule(dateValue: unknown, timeValue: unknown) {
   return parsed;
 }
 
-async function assertScheduleAvailable(
-  supabase: any,
-  storeId: string,
-  leadId: string,
-  startsAt: Date,
-  responsibleUserId?: string | null
-) {
-  const availability = await checkStoreAvailability({
-    supabase,
-    storeId,
-    startsAt,
-    durationMinutes: 60,
-    excludeLeadId: leadId,
-    responsibleUserId: responsibleUserId || null
-  });
-  if (!availability.available) {
-    const conflict = availability.conflicts[0];
-    const detail = conflict?.title ? ` Conflito: ${conflict.title}.` : '';
-    throw new Error(`Horário ocupado no calendário deste responsável. Escolha outro horário.${detail}`);
+async function readScheduleWarning(supabase: any, storeId: string, leadId: string, startsAt: Date) {
+  try {
+    const availability = await checkStoreAvailability({
+      supabase,
+      storeId,
+      startsAt,
+      durationMinutes: 60,
+      excludeLeadId: leadId
+    });
+    return getStoreScheduleConflictWarning(!availability.available);
+  } catch {
+    return null;
   }
 }
 
@@ -272,14 +266,19 @@ export async function POST(request: Request) {
 
     if (command === 'schedule') {
       const startsAt = parseSchedule(body.date, body.time);
-      await assertScheduleAvailable(context.supabase, context.store.id, lead.id, startsAt, lead.assigned_user_id);
+      const warning = await readScheduleWarning(context.supabase, context.store.id, lead.id, startsAt);
       if (currentStatus !== 'scheduled') ensureTransition(currentStatus, 'scheduled');
       const appointmentNotes = cleanText(body.notes, 3000) || null;
       const updated = await updateLead(context.supabase, context, lead, command, {
         status: 'scheduled', scheduled_at: startsAt.toISOString(), appointment_notes: appointmentNotes,
         appointment_cancelled_at: null, appointment_cancelled_reason: null, lost_reason: null
-      }, appointmentNotes, { scheduled_at: startsAt.toISOString() });
-      return NextResponse.json({ success: true, message: 'Agendamento salvo.', lead: updated });
+      }, appointmentNotes, { scheduled_at: startsAt.toISOString(), schedule_conflict_warning: Boolean(warning) });
+      return NextResponse.json({
+        success: true,
+        message: warning ? `Agendamento salvo. ${warning}` : 'Agendamento salvo.',
+        warning,
+        lead: updated
+      });
     }
 
     if (command === 'cancel_schedule') {
