@@ -4,7 +4,8 @@ import test from 'node:test';
 
 const pipelineRoute = readFileSync('src/app/api/store/portal/pipeline/route.ts', 'utf8');
 const dashboardRoute = readFileSync('src/app/api/store/portal/dashboard/route.ts', 'utf8');
-const pipelineKpi = readFileSync('src/components/StorePipelineHistoricalAttendanceKpi.tsx', 'utf8');
+const pipelineCockpit = readFileSync('src/components/StorePipelineCockpitUx.tsx', 'utf8');
+const pipelinePage = readFileSync('src/app/loja/[slug]/pipeline/page.tsx', 'utf8');
 const storeLayout = readFileSync('src/app/loja/[slug]/layout.tsx', 'utf8');
 const storePortal = readFileSync('src/lib/server/storePortal.ts', 'utf8');
 
@@ -33,12 +34,6 @@ test('dashboard counts attendance as a historical milestone across current and l
   assert.doesNotMatch(dashboardRoute, /showed_up: statusCount\('showed_up'\)/);
 });
 
-test('dashboard retains confirmed sales for the SDR, seller or prospecting user that participated', () => {
-  assert.match(dashboardRoute, /function applyDashboardLeadScope/);
-  assert.match(dashboardRoute, /assigned_user_id\.eq\.\$\{userId\},and\(status\.eq\.sale_confirmed,\$\{participantField\}\.eq\.\$\{userId\}\)/);
-  assert.match(dashboardRoute, /vendas confirmadas com sua participação/);
-});
-
 test('pipeline exposes the same historical attendance milestone without changing current stage status', () => {
   assert.match(pipelineRoute, /from\('lead_activity_logs'\)/);
   assert.match(pipelineRoute, /or\('activity_type\.eq\.showed_up_marked,to_status\.eq\.showed_up'\)/);
@@ -46,20 +41,32 @@ test('pipeline exposes the same historical attendance milestone without changing
   assert.doesNotMatch(pipelineRoute, /status:\s*'showed_up'/);
 });
 
-test('pipeline KPI bridge loads the secure pipeline summary even if it misses the first update event', () => {
-  assert.match(storeLayout, /<StorePipelineHistoricalAttendanceKpi \/>/);
-  assert.match(pipelineKpi, /createClient/);
-  assert.match(pipelineKpi, /getSession\(\)/);
-  assert.match(pipelineKpi, /\/api\/store\/portal\/pipeline\?slug=/);
-  assert.match(pipelineKpi, /cache: 'no-store'/);
-  assert.match(pipelineKpi, /void loadInitialSummary\(\)/);
-  assert.match(pipelineKpi, /setTimeout\(\(\) => void loadInitialSummary\(\), 1200\)/);
+test('cockpit uses historical attendance for KPI while stage columns remain current-state', () => {
+  assert.match(pipelineCockpit, /has_showed_up\?: boolean/);
+  assert.match(pipelineCockpit, /visibleLeads\.filter\(\(lead\) => lead\.has_showed_up === true\)\.length/);
+  assert.match(pipelineCockpit, /lead\.status === stage\.systemKey/);
+  assert.doesNotMatch(storeLayout, /StorePipelineHistoricalAttendanceKpi/);
 });
 
-test('pipeline KPI bridge uses historical attendance only for the Compareceram KPI', () => {
-  assert.match(pipelineKpi, /lead\.has_showed_up === true/);
-  assert.match(pipelineKpi, /pipeline-kpi-label/);
-  assert.match(pipelineKpi, /=== 'Compareceram'/);
-  assert.match(pipelineKpi, /pipeline-responsible-change/);
-  assert.doesNotMatch(pipelineKpi, /pipeline-native-stage-column/);
+test('responsible filter keeps active leads by current owner and confirmed sales by any commercial participant', () => {
+  assert.match(pipelineCockpit, /function matchesResponsible/);
+  assert.match(pipelineCockpit, /lead\.status === 'sale_confirmed'/);
+  assert.match(pipelineCockpit, /lead\.assigned_user_id, lead\.seller_user_id, lead\.pre_sales_user_id, lead\.captured_by_user_id/);
+  assert.match(pipelineCockpit, /return lead\.assigned_user_id === selectedResponsible/);
+  assert.match(pipelinePage, /function matchesSelectedResponsible/);
+  assert.match(pipelinePage, /lead\.status === 'sale_confirmed'/);
+  assert.match(pipelinePage, /lead\.assigned_user_id, lead\.seller_user_id, lead\.pre_sales_user_id, lead\.captured_by_user_id/);
+  assert.match(pipelinePage, /return lead\.assigned_user_id === selectedResponsible/);
+  assert.match(pipelinePage, /leads\.filter\(\(lead\) => matchesSelectedResponsible\(lead, selectedResponsible\)\)/);
+});
+
+test('historical confirmed sales are visible but non-operable for non-current owners', () => {
+  assert.match(pipelinePage, /function canOperateLead/);
+  assert.match(pipelinePage, /lead\.can_operate !== false/);
+  assert.match(pipelinePage, /historicalSaleReadonlyMessage/);
+  assert.match(pipelinePage, /if \(!requireOperable\(lead\)\)/);
+  assert.match(pipelinePage, /draggable=\{!readOnly\}/);
+  assert.match(pipelinePage, /Venda histórica · somente leitura/);
+  assert.match(pipelinePage, /visibleLeads\.filter\(\(\{ lead \}\) => canOperateLead\(lead\)\)/);
+  assert.match(pipelinePage, /disabled=\{busy \|\| readOnly\}/);
 });
