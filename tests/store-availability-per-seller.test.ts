@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const availability = readFileSync('src/lib/server/storeAvailability.ts', 'utf8');
 const pipelineRoute = readFileSync('src/app/api/store/portal/pipeline/actions/route.ts', 'utf8');
+const pipelineUxRoute = readFileSync('src/app/api/store/portal/pipeline/ux-actions/route.ts', 'utf8');
 const taskRoute = readFileSync('src/app/api/store/lead-task/route.ts', 'utf8');
 
 test('agendamento comercial informa o responsável do lead para a disponibilidade', () => {
@@ -12,6 +13,20 @@ test('agendamento comercial informa o responsável do lead para a disponibilidad
   assert.match(
     pipelineRoute,
     /assertScheduleAvailable\(context\.supabase, context\.store\.id, lead\.id, startsAt, lead\.assigned_user_id\)/
+  );
+});
+
+test('ux-actions usa o helper compartilhado e informa o responsável do lead', () => {
+  assert.match(pipelineUxRoute, /import \{ checkStoreAvailability \} from '@\/lib\/server\/storeAvailability'/);
+  assert.match(pipelineUxRoute, /responsibleUserId\?: string \| null/);
+  assert.match(pipelineUxRoute, /responsibleUserId: responsibleUserId \|\| null/);
+  assert.match(
+    pipelineUxRoute,
+    /assertScheduleAvailable\(context, lead\.id, startsAt, lead\.assigned_user_id\)/
+  );
+  assert.doesNotMatch(
+    pipelineUxRoute,
+    /context\.supabase\.from\('leads'\)\.select\('id'\)\.eq\('assigned_store_id', context\.store\.id\)/
   );
 });
 
@@ -32,4 +47,5 @@ test('sem responsável explícito a trava global da loja permanece como fallback
 
 test('mensagem de conflito identifica que a ocupação é do responsável', () => {
   assert.match(pipelineRoute, /Horário ocupado no calendário deste responsável/);
+  assert.match(pipelineUxRoute, /Horário ocupado no calendário deste responsável/);
 });
