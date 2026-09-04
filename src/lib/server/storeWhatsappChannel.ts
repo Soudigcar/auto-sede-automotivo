@@ -12,19 +12,43 @@ export function whatsappProvider(number: any) {
 
 export function resolveEvolutionAvailability(integration: any, liveState?: any) {
   if (!integration) {
-    return { connected: false, status: 'disconnected', source: 'missing_integration' } as const;
+    return {
+      connected: false,
+      status: 'disconnected',
+      last_known_status: 'disconnected',
+      temporarily_unavailable: false,
+      source: 'missing_integration'
+    } as const;
   }
 
   if (liveState && !liveState.live_error) {
     const status = evolutionConnectionStatus(liveState.status);
-    return { connected: status === 'connected', status, source: 'evolution_live' } as const;
+    return {
+      connected: status === 'connected',
+      status,
+      last_known_status: status,
+      temporarily_unavailable: false,
+      source: 'evolution_live'
+    } as const;
   }
 
   const storedStatus = evolutionConnectionStatus(integration.status);
+  if (storedStatus === 'connected') {
+    return {
+      connected: true,
+      status: 'temporarily_unavailable',
+      last_known_status: 'connected',
+      temporarily_unavailable: true,
+      source: 'stored_degraded'
+    } as const;
+  }
+
   return {
     connected: false,
-    status: storedStatus === 'connected' ? 'disconnected' : storedStatus,
-    source: 'stored_fail_closed'
+    status: storedStatus,
+    last_known_status: storedStatus,
+    temporarily_unavailable: Boolean(liveState?.live_error),
+    source: liveState?.live_error ? 'stored_unverified' : 'stored_status'
   } as const;
 }
 
@@ -32,7 +56,13 @@ export function publicWhatsappNumber(number: any, integration: any, liveState?: 
   const provider = whatsappProvider(number);
   const availability = provider === 'evolution'
     ? resolveEvolutionAvailability(integration, liveState)
-    : { connected: Boolean(number.is_active), status: number.status, source: 'meta_cloud' };
+    : {
+        connected: Boolean(number.is_active),
+        status: number.status,
+        last_known_status: number.status,
+        temporarily_unavailable: false,
+        source: 'meta_cloud'
+      };
 
   return {
     id: number.id,
@@ -43,6 +73,8 @@ export function publicWhatsappNumber(number: any, integration: any, liveState?: 
     is_active: number.is_active,
     provider,
     integration_status: availability.status,
+    integration_last_known_status: availability.last_known_status,
+    integration_temporarily_unavailable: availability.temporarily_unavailable,
     integration_status_source: availability.source,
     integration_live_error: provider === 'evolution'
       ? cleanText(liveState?.live_error, 300) || null

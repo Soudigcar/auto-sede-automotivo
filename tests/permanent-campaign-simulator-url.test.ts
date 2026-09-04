@@ -24,7 +24,7 @@ test('rota permanente aceita campanha explicita e tambem um destino atual padrao
   assert.match(landing, /`\?campaign_id=\$\{encodeURIComponent\(id\)\}`/);
   assert.match(landing, /`\?slug=\$\{encodeURIComponent\(slug\)\}`/);
   assert.match(publicCampaignApi, /\.not\('published_at', 'is', null\)/);
-  assert.match(publicCampaignApi, /order\('published_at', \{ ascending: false, nullsFirst: false \}\)\.limit\(25\)/);
+  assert.match(publicCampaignApi, /order\('published_at', \{ ascending: false, nullsFirst: false \}\)\.limit\(100\)/);
 });
 
 test('campanha selecionada usa id estavel e rejeita evento inativo ou encerrado', () => {

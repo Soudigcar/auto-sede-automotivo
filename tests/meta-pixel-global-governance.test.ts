@@ -55,5 +55,6 @@ test('published landing slug is immutable and Preview writes are closed', () => 
   assert.match(campaigns, /VERCEL_ENV === 'preview'/);
   assert.match(campaignsAdmin, /VERCEL_ENV === 'preview'/);
   assert.match(campaignForm, /Endereço protegido após a publicação/);
-  assert.match(campaignForm, /disabled=\{Boolean\(form\.published_at\)\}/);
+  assert.match(campaignForm, /const published = Boolean\(form\.published_at \|\| form\.published_layout\)/);
+  assert.match(campaignForm, /disabled=\{published\}/);
 });
