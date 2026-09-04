@@ -31,6 +31,7 @@ type PipelineLead = {
   pre_sales_user_id?: string | null;
   captured_by_user_id?: string | null;
   status?: string | null;
+  has_showed_up?: boolean;
   created_at?: string | null;
   first_viewed_at?: string | null;
   first_phone_viewed_at?: string | null;
@@ -92,8 +93,13 @@ function slugFrom(pathname: string) {
   return pathname.match(/^\/loja\/([^/]+)\/pipeline\/?$/)?.[1] || '';
 }
 
-function responsibleId(lead: PipelineLead) {
-  return lead.assigned_user_id || lead.seller_user_id || lead.pre_sales_user_id || lead.captured_by_user_id || '';
+function matchesResponsible(lead: PipelineLead, selectedResponsible: string) {
+  if (selectedResponsible === 'all') return true;
+  if (lead.status === 'sale_confirmed') {
+    return [lead.assigned_user_id, lead.seller_user_id, lead.pre_sales_user_id, lead.captured_by_user_id]
+      .some((userId) => userId === selectedResponsible);
+  }
+  return lead.assigned_user_id === selectedResponsible;
 }
 
 function percentage(value: number, total: number) {
@@ -463,7 +469,7 @@ export function StorePipelineCockpitUx() {
         board.style.gridTemplateColumns = `repeat(${visibleCount}, minmax(208px, 1fr))`;
         board.style.minWidth = `${Math.max(visibleCount * 218, 880)}px`;
 
-        const filteredLeads = leadList.filter((lead) => selectedResponsible === 'all' || responsibleId(lead) === selectedResponsible);
+        const filteredLeads = leadList.filter((lead) => matchesResponsible(lead, selectedResponsible));
         const filteredIds = new Set(filteredLeads.map((lead) => lead.id));
         const staleAssignments: string[] = [];
 
@@ -551,12 +557,12 @@ export function StorePipelineCockpitUx() {
 
   if (!active) return null;
 
-  const visibleLeads = (summary?.leads || []).filter((lead) => selectedResponsible === 'all' || responsibleId(lead) === selectedResponsible);
+  const visibleLeads = (summary?.leads || []).filter((lead) => matchesResponsible(lead, selectedResponsible));
   const total = visibleLeads.length;
   const newLeads = visibleLeads.filter((lead) => lead.status === 'new_lead').length;
   const inService = visibleLeads.filter((lead) => lead.status === 'in_service').length;
   const scheduled = visibleLeads.filter((lead) => lead.status === 'scheduled').length;
-  const showedUp = visibleLeads.filter((lead) => lead.status === 'showed_up').length;
+  const showedUp = visibleLeads.filter((lead) => lead.has_showed_up === true).length;
   const closed = visibleLeads.filter((lead) => lead.status === 'sale_confirmed').length;
   const response = medianResponseMinutes(visibleLeads);
 

@@ -81,6 +81,9 @@ type PipelineLead = {
   seller_user_id?: string | null;
   pre_sales_user_id?: string | null;
   captured_by_user_id?: string | null;
+  access_mode?: string | null;
+  can_operate?: boolean;
+  has_showed_up?: boolean;
   [key: string]: any;
 };
 
@@ -139,6 +142,7 @@ const defaultStageOptions: PipelineStageOption[] = [
 ];
 
 const maxBulkTransferLeads = 200;
+const historicalSaleReadonlyMessage = 'Venda histórica: disponível somente para consulta porque você não é o responsável operacional atual.';
 
 function viewModeStorageKey(slug: string, profileId: string) {
   return `auto-controle-pipeline-view:${slug}:${profileId}`;
@@ -146,6 +150,19 @@ function viewModeStorageKey(slug: string, profileId: string) {
 
 function leadResponsibleId(lead: PipelineLead) {
   return lead.assigned_user_id || lead.seller_user_id || lead.pre_sales_user_id || lead.captured_by_user_id || '';
+}
+
+function matchesSelectedResponsible(lead: PipelineLead, selectedResponsible: string) {
+  if (selectedResponsible === 'all') return true;
+  if (lead.status === 'sale_confirmed') {
+    return [lead.assigned_user_id, lead.seller_user_id, lead.pre_sales_user_id, lead.captured_by_user_id]
+      .some((userId) => userId === selectedResponsible);
+  }
+  return lead.assigned_user_id === selectedResponsible;
+}
+
+function canOperateLead(lead: PipelineLead) {
+  return lead.can_operate !== false;
 }
 
 function formatDateTime(value: unknown) {
@@ -258,6 +275,12 @@ export default function StoreSlugPipelinePage() {
   const [bulkTransferPayload, setBulkTransferPayload] = useState<TransferPayload | null>(null);
   const [bulkTargetUserId, setBulkTargetUserId] = useState('__unselected__');
 
+  function requireOperable(lead: PipelineLead) {
+    if (canOperateLead(lead)) return true;
+    setMessage(historicalSaleReadonlyMessage);
+    return false;
+  }
+
   async function token() {
     const { data } = await supabase.auth.getSession();
     return data.session?.access_token || '';
@@ -330,6 +353,7 @@ export default function StoreSlugPipelinePage() {
   }
 
   async function runCommand(command: string, lead: PipelineLead, extra: Record<string, any> = {}, loadingMessage = 'Atualizando lead...') {
+    if (!requireOperable(lead)) throw new Error(historicalSaleReadonlyMessage);
     setBusy(true);
     setMessage(loadingMessage);
     try {
@@ -439,9 +463,7 @@ export default function StoreSlugPipelinePage() {
     return () => window.removeEventListener('pipeline-stage-options-updated', onStageOptions as EventListener);
   }, []);
 
-  const scopedLeads = useMemo(() => selectedResponsible === 'all'
-    ? leads
-    : leads.filter((lead) => leadResponsibleId(lead) === selectedResponsible), [leads, selectedResponsible]);
+  const scopedLeads = useMemo(() => leads.filter((lead) => matchesSelectedResponsible(lead, selectedResponsible)), [leads, selectedResponsible]);
 
   const profilePictureConversations = useMemo(() => scopedLeads
     .map(pipelinePictureConversation)
@@ -456,7 +478,7 @@ export default function StoreSlugPipelinePage() {
   });
 
   useEffect(() => {
-    const allowedIds = new Set(scopedLeads.map((lead) => lead.id));
+    const allowedIds = new Set(scopedLeads.filter(canOperateLead).map((lead) => lead.id));
     setSelectedLeadIds((current) => {
       const next = current.filter((leadId) => allowedIds.has(leadId));
       return next.length === current.length ? current : next;
@@ -473,6 +495,7 @@ export default function StoreSlugPipelinePage() {
   })), [scopedLeads]);
 
   async function revealPhone(lead: PipelineLead) {
+    if (!requireOperable(lead)) return '';
     try {
       const result = await request('/api/store/portal/pipeline/actions', {
         method: 'POST',
@@ -489,6 +512,7 @@ export default function StoreSlugPipelinePage() {
   }
 
   async function openWhatsapp(lead: PipelineLead) {
+    if (!requireOperable(lead)) return;
     if (!lead.has_phone) {
       setMessage('Este lead não possui telefone cadastrado.');
       return;
@@ -511,6 +535,7 @@ export default function StoreSlugPipelinePage() {
   }
 
   function openSchedule(lead: PipelineLead) {
+    if (!requireOperable(lead)) return;
     setScheduleLead(lead);
     setScheduleDate(toInputDate(lead.scheduled_at));
     setScheduleTime(toInputTime(lead.scheduled_at));
@@ -544,6 +569,7 @@ export default function StoreSlugPipelinePage() {
   }
 
   async function openEditor(lead: PipelineLead) {
+    if (!requireOperable(lead)) return;
     setEditingLead(lead);
     setEditName(lead.customer_name || '');
     setEditPhone(lead.customer_phone || lead.customer_phone_masked || '');
@@ -596,6 +622,7 @@ export default function StoreSlugPipelinePage() {
   }
 
   function openTask(lead: PipelineLead) {
+    if (!requireOperable(lead)) return;
     const slot = defaultTaskSlot();
     setTaskLead(lead);
     setTaskType('call_back');
@@ -606,6 +633,7 @@ export default function StoreSlugPipelinePage() {
 
   async function saveTask() {
     if (!taskLead) return;
+    if (!requireOperable(taskLead)) return;
     setBusy(true);
     setMessage('Salvando tarefa...');
     try {
@@ -623,6 +651,7 @@ export default function StoreSlugPipelinePage() {
   }
 
   async function openTransfer(lead: PipelineLead) {
+    if (!requireOperable(lead)) return;
     setTransferLead(lead);
     setTransferPayload(null);
     setTargetUserId('');
@@ -639,6 +668,7 @@ export default function StoreSlugPipelinePage() {
 
   async function saveTransfer() {
     if (!transferLead) return;
+    if (!requireOperable(transferLead)) return;
     setBusy(true);
     setMessage('Transferindo lead...');
     try {
@@ -657,8 +687,12 @@ export default function StoreSlugPipelinePage() {
   }
 
   async function openBulkTransfer(leadIds: string[]) {
-    const uniqueLeadIds = Array.from(new Set(leadIds)).slice(0, maxBulkTransferLeads);
-    if (!uniqueLeadIds.length) return;
+    const operableIds = new Set(leads.filter(canOperateLead).map((lead) => lead.id));
+    const uniqueLeadIds = Array.from(new Set(leadIds)).filter((leadId) => operableIds.has(leadId)).slice(0, maxBulkTransferLeads);
+    if (!uniqueLeadIds.length) {
+      setMessage(historicalSaleReadonlyMessage);
+      return;
+    }
 
     setSelectedLeadIds(uniqueLeadIds);
     setBulkTransferOpen(true);
@@ -701,6 +735,7 @@ export default function StoreSlugPipelinePage() {
   }
 
   async function reopenLead(lead: PipelineLead) {
+    if (!requireOperable(lead)) return;
     if (lead.status === 'sale_confirmed') {
       const confirmed = window.confirm('Cancelar esta venda e devolver o lead para Compareceu?');
       if (!confirmed) return;
@@ -728,6 +763,7 @@ export default function StoreSlugPipelinePage() {
   }
 
   async function moveLead(lead: PipelineLead, target: string) {
+    if (!requireOperable(lead)) return;
     if (lead.status === target) return;
     if (target === 'scheduled') return openSchedule(lead);
     if (target === 'appointment_cancelled') {
@@ -761,6 +797,7 @@ export default function StoreSlugPipelinePage() {
   }
 
   function changeListStage(lead: PipelineLead, stageId: string) {
+    if (!requireOperable(lead)) return;
     const stage = stageOptions.find((item) => item.id === stageId);
     if (!stage) return;
     if (!stage.system) {
@@ -821,16 +858,16 @@ export default function StoreSlugPipelinePage() {
                             columnKey={column.key}
                             tone={column.tone}
                             dragging={draggedLeadId === lead.id}
-                            onDragStart={(event) => { event.dataTransfer.setData('text/plain', lead.id); setDraggedLeadId(lead.id); }}
+                            onDragStart={(event) => { if (!canOperateLead(lead)) return; event.dataTransfer.setData('text/plain', lead.id); setDraggedLeadId(lead.id); }}
                             onDragEnd={() => { setDraggedLeadId(null); setDragOverColumn(null); }}
                             onOpen={() => void openEditor(lead)}
                             onReveal={() => void revealPhone(lead)}
                             onWhatsapp={() => void openWhatsapp(lead)}
                             onSchedule={() => openSchedule(lead)}
                             onMove={(target) => void moveLead(lead, target)}
-                            onCancel={() => { setCancelLead(lead); setCancelReason(''); }}
-                            onSale={() => setSaleLead(lead)}
-                            onLost={() => { setLostLead(lead); setLostReason(lead.lost_reason || ''); }}
+                            onCancel={() => { if (!requireOperable(lead)) return; setCancelLead(lead); setCancelReason(''); }}
+                            onSale={() => { if (!requireOperable(lead)) return; setSaleLead(lead); }}
+                            onLost={() => { if (!requireOperable(lead)) return; setLostLead(lead); setLostReason(lead.lost_reason || ''); }}
                             onReopen={() => void reopenLead(lead)}
                             onTask={() => openTask(lead)}
                             onTransfer={() => void openTransfer(lead)}
@@ -860,9 +897,9 @@ export default function StoreSlugPipelinePage() {
               onWhatsapp={(lead) => void openWhatsapp(lead)}
               onSchedule={openSchedule}
               onStageChange={changeListStage}
-              onCancel={(lead) => { setCancelLead(lead); setCancelReason(''); }}
-              onSale={setSaleLead}
-              onLost={(lead) => { setLostLead(lead); setLostReason(lead.lost_reason || ''); }}
+              onCancel={(lead) => { if (!requireOperable(lead)) return; setCancelLead(lead); setCancelReason(''); }}
+              onSale={(lead) => { if (!requireOperable(lead)) return; setSaleLead(lead); }}
+              onLost={(lead) => { if (!requireOperable(lead)) return; setLostLead(lead); setLostReason(lead.lost_reason || ''); }}
               onReopen={(lead) => void reopenLead(lead)}
               onTask={openTask}
               onTransfer={(lead) => void openTransfer(lead)}
@@ -1046,7 +1083,7 @@ function PipelineLeadList({ leads, profilePictures, team, stages, assignments, b
   });
   const selectedSet = new Set(selectedLeadIds);
   const teamById = new Map(team.map((member) => [member.id, member]));
-  const selectableLeadIds = visibleLeads.map(({ lead }) => lead.id).slice(0, maxBulkTransferLeads);
+  const selectableLeadIds = visibleLeads.filter(({ lead }) => canOperateLead(lead)).map(({ lead }) => lead.id).slice(0, maxBulkTransferLeads);
   const allSelectableSelected = selectableLeadIds.length > 0 && selectableLeadIds.every((leadId) => selectedSet.has(leadId));
 
   function toggleAllVisible() {
@@ -1060,6 +1097,8 @@ function PipelineLeadList({ leads, profilePictures, team, stages, assignments, b
   }
 
   function toggleLead(leadId: string) {
+    const lead = leads.find((item) => item.id === leadId);
+    if (!lead || !canOperateLead(lead)) return;
     if (selectedSet.has(leadId)) {
       onSelectionChange(selectedLeadIds.filter((selectedId) => selectedId !== leadId));
       return;
@@ -1098,6 +1137,7 @@ function PipelineLeadList({ leads, profilePictures, team, stages, assignments, b
             {visibleLeads.map(({ lead, stageId }) => {
               const responsibleId = leadResponsibleId(lead);
               const responsibleMember = responsibleId ? teamById.get(responsibleId) || null : null;
+              const readOnly = !canOperateLead(lead);
               return (
                 <LeadListRow
                   key={lead.id}
@@ -1108,7 +1148,7 @@ function PipelineLeadList({ leads, profilePictures, team, stages, assignments, b
                   stages={visibleStages}
                   stageId={stageId}
                   busy={busy}
-                  canSelect={canBulkTransfer}
+                  canSelect={canBulkTransfer && !readOnly}
                   selected={selectedSet.has(lead.id)}
                   onSelectedChange={() => toggleLead(lead.id)}
                   onOpen={() => onOpen(lead)}
@@ -1160,20 +1200,21 @@ function LeadListRow({ lead, profilePictures, responsibleName, responsibleRole, 
   const name = lead.customer_name || 'Cliente sem nome';
   const phone = lead.customer_phone || lead.customer_phone_masked || 'Sem telefone';
   const stage = stages.find((item) => item.id === stageId) || stages.find((item) => item.systemKey === lead.status);
-  const canSchedule = ['in_service', 'scheduled', 'appointment_cancelled', 'no_show'].includes(lead.status);
+  const readOnly = !canOperateLead(lead);
+  const canSchedule = !readOnly && ['in_service', 'scheduled', 'appointment_cancelled', 'no_show'].includes(lead.status);
   const scheduled = lead.scheduled_at ? compactSchedule(lead.scheduled_at) : '—';
 
   return (
-    <article data-pipeline-list-row="true" data-selected={selected ? 'true' : 'false'} className={`border-b border-zinc-100 px-4 py-2.5 last:border-b-0 ${selected ? 'bg-red-50/70' : 'hover:bg-zinc-50/80'}`}>
+    <article data-pipeline-list-row="true" data-lead-id={lead.id} data-read-only={readOnly ? 'true' : 'false'} data-selected={selected ? 'true' : 'false'} className={`border-b border-zinc-100 px-4 py-2.5 last:border-b-0 ${selected ? 'bg-red-50/70' : readOnly ? 'bg-amber-50/40' : 'hover:bg-zinc-50/80'}`}>
       <div className={`grid ${canSelect ? 'grid-cols-[32px_minmax(230px,1.35fr)_minmax(150px,0.8fr)_130px_minmax(180px,1fr)_190px_145px_170px]' : 'grid-cols-[minmax(230px,1.35fr)_minmax(150px,0.8fr)_130px_minmax(180px,1fr)_190px_145px_170px]'} items-center gap-3`}>
         {canSelect ? <input type="checkbox" className="h-4 w-4 justify-self-center accent-red-600" checked={selected} onChange={onSelectedChange} disabled={busy} aria-label={`Selecionar ${name} para transferência`} /> : null}
         <div className="flex min-w-0 items-center gap-2.5">
-          <button type="button" onClick={onOpen} className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-zinc-100 text-[10px] font-black text-zinc-600" aria-label={`Abrir ${name}`}>
+          <button type="button" onClick={readOnly ? undefined : onOpen} disabled={readOnly} className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-zinc-100 text-[10px] font-black text-zinc-600 disabled:cursor-default" aria-label={readOnly ? `${name} · venda histórica somente leitura` : `Abrir ${name}`}>
             <PipelineLeadAvatar lead={lead} profilePictures={profilePictures} />
           </button>
           <div className="min-w-0">
-            <button type="button" onClick={onOpen} className="block max-w-full truncate text-left text-[11px] font-black text-zinc-950 hover:text-red-600">{name}</button>
-            <button type="button" onClick={onReveal} className="mt-0.5 block max-w-full truncate text-left text-[9px] font-bold text-zinc-500 hover:text-red-600" title="Visualizar telefone completo">{phone}</button>
+            <button type="button" onClick={readOnly ? undefined : onOpen} disabled={readOnly} className="block max-w-full truncate text-left text-[11px] font-black text-zinc-950 hover:text-red-600 disabled:cursor-default disabled:hover:text-zinc-950">{name}</button>
+            {readOnly ? <span className="mt-0.5 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[7px] font-black uppercase text-amber-800">Venda histórica · somente leitura</span> : <button type="button" onClick={onReveal} className="mt-0.5 block max-w-full truncate text-left text-[9px] font-bold text-zinc-500 hover:text-red-600" title="Visualizar telefone completo">{phone}</button>}
           </div>
         </div>
         <div className="flex min-w-0 items-center gap-2" title={`${responsibleName} · ${responsibleRole}`}>
@@ -1190,7 +1231,7 @@ function LeadListRow({ lead, profilePictures, responsibleName, responsibleRole, 
         </div>
         <label className="relative flex min-w-0 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-2.5 py-2" style={{ borderLeftColor: stage?.color || '#71717a', borderLeftWidth: 4 }}>
           <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: stage?.color || '#71717a' }} />
-          <select className="min-w-0 flex-1 bg-transparent text-[9px] font-black text-zinc-700 outline-none" value={stageId} onChange={(event) => onStageChange(event.target.value)} disabled={busy} aria-label={`Alterar etapa de ${name}`}>
+          <select className="min-w-0 flex-1 bg-transparent text-[9px] font-black text-zinc-700 outline-none" value={stageId} onChange={(event) => onStageChange(event.target.value)} disabled={busy || readOnly} aria-label={`Alterar etapa de ${name}`}>
             {stages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
         </label>
@@ -1199,13 +1240,13 @@ function LeadListRow({ lead, profilePictures, responsibleName, responsibleRole, 
           <p className="mt-0.5 truncate text-[8px] font-bold text-zinc-400">{lead.appointment_notes || (lead.status === 'scheduled' ? 'Visita agendada' : 'Sem agendamento')}</p>
         </div>
         <div className="grid grid-cols-4 gap-1.5">
-          <CompactIconAction label="WhatsApp" tone="green" icon={<WhatsappMark size={13} />} disabled={!lead.has_phone} disabledTitle="Lead sem telefone cadastrado" onClick={onWhatsapp} />
-          <CompactIconAction label="Tarefa" icon={<ListTodo size={12} />} onClick={onTask} />
-          <CompactIconAction label={lead.status === 'scheduled' ? 'Reagendar' : 'Agendar'} tone="amber" icon={<CalendarDays size={12} />} disabled={!canSchedule} disabledTitle="Disponível após iniciar o atendimento" onClick={onSchedule} />
-          <CompactIconAction label={moreOpen ? 'Fechar ações' : 'Mais ações'} icon={<Plus size={13} className={moreOpen ? 'rotate-45 transition' : 'transition'} />} expanded={moreOpen} onClick={() => setMoreOpen((current) => !current)} />
+          <CompactIconAction label="WhatsApp" tone="green" icon={<WhatsappMark size={13} />} disabled={readOnly || !lead.has_phone} disabledTitle={readOnly ? historicalSaleReadonlyMessage : 'Lead sem telefone cadastrado'} onClick={onWhatsapp} />
+          <CompactIconAction label="Tarefa" icon={<ListTodo size={12} />} disabled={readOnly} disabledTitle={historicalSaleReadonlyMessage} onClick={onTask} />
+          <CompactIconAction label={lead.status === 'scheduled' ? 'Reagendar' : 'Agendar'} tone="amber" icon={<CalendarDays size={12} />} disabled={!canSchedule} disabledTitle={readOnly ? historicalSaleReadonlyMessage : 'Disponível após iniciar o atendimento'} onClick={onSchedule} />
+          <CompactIconAction label={readOnly ? 'Venda histórica' : moreOpen ? 'Fechar ações' : 'Mais ações'} icon={<Plus size={13} className={moreOpen ? 'rotate-45 transition' : 'transition'} />} disabled={readOnly} disabledTitle={historicalSaleReadonlyMessage} expanded={moreOpen} onClick={() => setMoreOpen((current) => !current)} />
         </div>
       </div>
-      {moreOpen ? (
+      {!readOnly && moreOpen ? (
         <div className="mt-2 flex flex-wrap justify-end gap-1.5 rounded-xl bg-zinc-50 p-2">
           <CompactMenuAction label="Editar" icon={<Edit3 size={11} />} onClick={onOpen} />
           <CompactMenuAction label="Transferir" icon={<ArrowRightLeft size={11} />} onClick={onTransfer} />
@@ -1245,7 +1286,8 @@ function LeadCard({ lead, profilePictures, columnKey, tone, dragging, onDragStar
   const phone = lead.customer_phone || lead.customer_phone_masked || 'Sem telefone';
   const name = lead.customer_name || 'Cliente sem nome';
   const schedule = compactSchedule(lead.scheduled_at);
-  const canSchedule = ['in_service', 'scheduled', 'appointment_cancelled', 'no_show'].includes(columnKey);
+  const readOnly = !canOperateLead(lead);
+  const canSchedule = !readOnly && ['in_service', 'scheduled', 'appointment_cancelled', 'no_show'].includes(columnKey);
   const stop = (event: any, action: () => void) => { event.stopPropagation(); action(); };
   const runMoreAction = (event: any, action: () => void) => stop(event, () => {
     setMoreOpen(false);
@@ -1256,16 +1298,17 @@ function LeadCard({ lead, profilePictures, columnKey, tone, dragging, onDragStar
     <div
       data-lead-id={lead.id}
       data-pipeline-card-v2="true"
+      data-read-only={readOnly ? 'true' : 'false'}
       role="button"
-      tabIndex={0}
-      draggable
-      onClick={onOpen}
+      tabIndex={readOnly ? -1 : 0}
+      draggable={!readOnly}
+      onClick={readOnly ? undefined : onOpen}
       onKeyDown={(event) => {
-        if (event.target === event.currentTarget && event.key === 'Enter') onOpen();
+        if (!readOnly && event.target === event.currentTarget && event.key === 'Enter') onOpen();
       }}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      className={`cursor-pointer rounded-xl border border-zinc-100 bg-white p-1.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${dragging ? 'opacity-50 ring-2 ring-red-300' : ''}`}
+      onDragStart={readOnly ? undefined : onDragStart}
+      onDragEnd={readOnly ? undefined : onDragEnd}
+      className={`${readOnly ? 'cursor-default border-amber-200 bg-amber-50/40' : 'cursor-pointer border-zinc-100 bg-white hover:-translate-y-0.5 hover:shadow-md'} rounded-xl border p-1.5 shadow-sm transition ${dragging ? 'opacity-50 ring-2 ring-red-300' : ''}`}
     >
       <div className="flex min-h-9 items-start gap-1.5">
         <div className={`relative flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg text-[9px] font-black ${styles.badge}`}>
@@ -1273,14 +1316,14 @@ function LeadCard({ lead, profilePictures, columnKey, tone, dragging, onDragStar
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-[10px] font-black leading-3 text-zinc-950">{name}</h3>
-          <button
+          {readOnly ? <span className="mt-0.5 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[7px] font-black uppercase text-amber-800">Venda histórica · somente leitura</span> : <button
             type="button"
             onClick={(event) => stop(event, onReveal)}
             className="mt-0.5 block max-w-full truncate text-left text-[9px] font-bold leading-3 text-zinc-500 hover:text-red-600"
             title="Visualizar telefone completo"
           >
             {phone}
-          </button>
+          </button>}
           {columnKey === 'scheduled' ? (
             <p className="flex min-w-0 items-center gap-1 text-[8px] font-black uppercase leading-3 text-zinc-400" title={`${lead.interested_vehicle || 'Veículo não informado'} · ${schedule}`}>
               <span className="min-w-0 flex-1 truncate">{lead.interested_vehicle || 'Veículo não informado'}</span>
@@ -1297,13 +1340,15 @@ function LeadCard({ lead, profilePictures, columnKey, tone, dragging, onDragStar
           label="WhatsApp"
           tone="green"
           icon={<WhatsappMark size={13} />}
-          disabled={!lead.has_phone}
-          disabledTitle="Lead sem telefone cadastrado"
+          disabled={readOnly || !lead.has_phone}
+          disabledTitle={readOnly ? historicalSaleReadonlyMessage : 'Lead sem telefone cadastrado'}
           onClick={(event) => stop(event, onWhatsapp)}
         />
         <CompactIconAction
           label="Tarefa"
           icon={<ListTodo size={12} />}
+          disabled={readOnly}
+          disabledTitle={historicalSaleReadonlyMessage}
           onClick={(event) => stop(event, onTask)}
         />
         <CompactIconAction
@@ -1311,18 +1356,20 @@ function LeadCard({ lead, profilePictures, columnKey, tone, dragging, onDragStar
           tone="amber"
           icon={<CalendarDays size={12} />}
           disabled={!canSchedule}
-          disabledTitle="Disponível após iniciar o atendimento"
+          disabledTitle={readOnly ? historicalSaleReadonlyMessage : 'Disponível após iniciar o atendimento'}
           onClick={(event) => stop(event, onSchedule)}
         />
         <CompactIconAction
-          label={moreOpen ? 'Fechar ações' : 'Mais ações'}
+          label={readOnly ? 'Venda histórica' : moreOpen ? 'Fechar ações' : 'Mais ações'}
           icon={<Plus size={13} className={moreOpen ? 'rotate-45 transition' : 'transition'} />}
+          disabled={readOnly}
+          disabledTitle={historicalSaleReadonlyMessage}
           expanded={moreOpen}
           onClick={(event) => stop(event, () => setMoreOpen((current) => !current))}
         />
       </div>
 
-      {moreOpen ? (
+      {!readOnly && moreOpen ? (
         <div
           className="mt-1.5 grid grid-cols-2 gap-1 rounded-lg border border-zinc-100 bg-zinc-50 p-1.5"
           onClick={(event) => event.stopPropagation()}

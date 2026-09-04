@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { calculateResponseTimes, responseByLeadId } from '@/lib/commercialMetrics';
 import { cleanText } from '@/lib/server/storeTeam';
-import { applyStoreLeadScope, authorizeStorePortal, storeVisibleLeadOrigin } from '@/lib/server/storePortal';
+import { authorizeStorePortal, storeVisibleLeadOrigin } from '@/lib/server/storePortal';
 import { whatsappCustomerDisplayName } from '@/lib/server/whatsappCustomerIdentity';
 
 export const runtime = 'nodejs';
@@ -23,6 +23,36 @@ function whatsappProvider(contact: any) {
   const provider = cleanText(metadata.provider, 40).toLowerCase();
   if (provider) return provider;
   return cleanText(metadata.remote_jid, 180) ? 'evolution' : null;
+}
+
+function historicalParticipantField(role: string) {
+  if (role === 'pre_sales') return 'pre_sales_user_id';
+  if (role === 'seller') return 'seller_user_id';
+  if (role === 'prospector') return 'captured_by_user_id';
+  return null;
+}
+
+function applyPipelineLeadScope(query: any, profile: any, role: string) {
+  if (role === 'master' || role === 'store') return query;
+  const userId = cleanText(profile?.id, 80);
+  if (!userId) return query.eq('id', '__unauthorized__');
+  const participantField = historicalParticipantField(role);
+  if (!participantField) return query.eq('assigned_user_id', userId);
+  return query.or(`assigned_user_id.eq.${userId},and(status.eq.sale_confirmed,${participantField}.eq.${userId})`);
+}
+
+function pipelineLeadAccessMode(lead: any, profile: any, role: string) {
+  if (role === 'master' || role === 'store') return 'current_owner';
+  const userId = cleanText(profile?.id, 80);
+  if (userId && String(lead?.assigned_user_id || '') === userId) return 'current_owner';
+  const participantField = historicalParticipantField(role);
+  if (
+    userId &&
+    participantField &&
+    lead?.status === 'sale_confirmed' &&
+    String(lead?.[participantField] || '') === userId
+  ) return 'historical_sale';
+  return 'unauthorized';
 }
 
 export async function GET(request: Request) {
@@ -47,11 +77,30 @@ export async function GET(request: Request) {
       .order('created_at', { ascending: false })
       .range(offset, offset + pageSize - 1);
 
-    query = applyStoreLeadScope(query, context.profile, context.role);
+    query = applyPipelineLeadScope(query, context.profile, context.role);
     const { data, error, count } = await query;
     if (error) throw error;
 
     const loadedLeadIds = (data || []).map((lead: any) => lead.id).filter(Boolean);
+    const showedUpLeadIds = new Set<string>(
+      (data || [])
+        .filter((lead: any) => lead.status === 'showed_up')
+        .map((lead: any) => String(lead.id))
+    );
+
+    if (loadedLeadIds.length) {
+      const showedUpEventsResult = await context.supabase
+        .from('lead_activity_logs')
+        .select('lead_id')
+        .eq('store_id', context.store.id)
+        .or('activity_type.eq.showed_up_marked,to_status.eq.showed_up')
+        .in('lead_id', loadedLeadIds);
+      if (showedUpEventsResult.error) throw showedUpEventsResult.error;
+      for (const event of showedUpEventsResult.data || []) {
+        if (event?.lead_id) showedUpLeadIds.add(String(event.lead_id));
+      }
+    }
+
     let conversationRows: any[] = [];
     let messageRows: any[] = [];
     let contactRows: any[] = [];
@@ -133,9 +182,13 @@ export async function GET(request: Request) {
       const conversation = conversationByLeadId.get(lead.id) || null;
       const contact = conversation?.contact_id ? contactById.get(conversation.contact_id) : null;
       const response = responseMeasurements.get(String(lead.id));
+      const accessMode = pipelineLeadAccessMode(lead, context.profile, context.role);
 
       return {
         ...lead,
+        access_mode: accessMode,
+        can_operate: accessMode === 'current_owner',
+        has_showed_up: showedUpLeadIds.has(String(lead.id)),
         customer_name: conversation
           ? whatsappCustomerDisplayName(
               [contact?.profile_name, lead.customer_name],
@@ -172,7 +225,7 @@ export async function GET(request: Request) {
               .select('id', { count: 'exact', head: true })
               .eq('assigned_store_id', context.store.id)
               .eq('status', status);
-            statusQuery = applyStoreLeadScope(statusQuery, context.profile, context.role!);
+            statusQuery = applyPipelineLeadScope(statusQuery, context.profile, context.role!);
             const { count: statusCount, error: statusError } = await statusQuery;
             if (statusError) throw statusError;
             return statusCount || 0;
@@ -229,6 +282,10 @@ export async function GET(request: Request) {
       }];
     }
 
+    const scopeLabel = context.role === 'master' || context.role === 'store'
+      ? context.scopeLabel
+      : 'Leads sob sua responsabilidade atual e vendas confirmadas com sua participação';
+
     return NextResponse.json({
       store: context.store,
       profile: {
@@ -236,7 +293,7 @@ export async function GET(request: Request) {
         full_name: context.profile.full_name || context.profile.email || 'Usuário',
         role: context.role
       },
-      scope_label: context.scopeLabel,
+      scope_label: scopeLabel,
       capabilities: {
         can_delete: context.role === 'master' || context.role === 'store',
         can_transfer: true,
