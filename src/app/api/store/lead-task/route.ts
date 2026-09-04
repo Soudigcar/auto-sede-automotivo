@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
 import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
 import { checkStoreAvailability } from '@/lib/server/storeAvailability';
+import { getStoreScheduleConflictWarning } from '@/lib/storeScheduleWarnings';
 import { POST as runSecurePipelineAction } from '@/app/api/store/portal/pipeline/actions/route';
 import { isStoreLeadAppointmentType } from '@/lib/storeLeadAppointments';
 
@@ -18,10 +19,15 @@ function canAccessLead(profile: any, lead: any) {
   return Boolean(role && canAccessStoreLead(profile, role, lead));
 }
 
-function formatConflictDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'horário já ocupado';
-  return date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+async function readConflictWarning(supabase: any, storeId: string, startsAt: Date, excludeLeadId?: string | null) {
+  try {
+    const availability = await checkStoreAvailability({
+      supabase, storeId, startsAt, durationMinutes: 30, excludeLeadId: excludeLeadId || null
+    });
+    return getStoreScheduleConflictWarning(!availability.available);
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(request: Request) {
@@ -75,19 +81,19 @@ export async function POST(request: Request) {
           notes: appointmentNotes
         })
       });
-      return runSecurePipelineAction(secureRequest);
-    }
-
-    const availability = await checkStoreAvailability({
-      supabase, storeId: store.id, startsAt, durationMinutes: 30, excludeLeadId: lead.id
-    });
-    if (!availability.available) {
-      const conflict = availability.conflicts[0];
+      const secureResponse = await runSecurePipelineAction(secureRequest);
+      const payload = await secureResponse.json().catch(() => ({}));
+      if (!secureResponse.ok) return NextResponse.json(payload, { status: secureResponse.status });
+      const warning = payload.warning || null;
       return NextResponse.json({
-        error: `Horário ocupado por “${conflict?.title || 'Outro compromisso'}” em ${formatConflictDate(conflict?.starts_at || availability.starts_at)}. Escolha outro horário.`
-      }, { status: 409 });
+        ...payload,
+        task: { title: warning ? `${label}. ${warning}` : label, task_type: taskType, starts_at: startsAt.toISOString() },
+        warning,
+        message: payload.message || (warning ? `${label} salvo. ${warning}` : `${label} salvo.`)
+      });
     }
 
+    const warning = await readConflictWarning(supabase, store.id, startsAt, lead.id);
     const endsAt = new Date(startsAt.getTime() + 30 * 60 * 1000);
     const label = taskLabels[taskType];
     const title = `${label} — ${lead.customer_name || 'Cliente'}`;
@@ -115,7 +121,12 @@ export async function POST(request: Request) {
     }).eq('id', lead.id);
     if (trackingError) throw trackingError;
 
-    return NextResponse.json({ success: true, task });
+    return NextResponse.json({
+      success: true,
+      task,
+      warning,
+      message: warning ? `Tarefa salva. ${warning}` : 'Tarefa salva.'
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Erro ao criar tarefa.' }, { status: 500 });
   }
