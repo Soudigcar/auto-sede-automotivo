@@ -33,6 +33,18 @@ function urls(value: unknown) {
 
 const eventFields = 'id,event_name,slug,start_date,end_date,state,city,location,status,sponsor_bank,created_at,updated_at';
 
+function publicIdentity(campaign: any, event: any) {
+  const storedSlug = String(campaign?.slug || '');
+  const eventSlug = String(event?.slug || '');
+  const publicSlug = eventSlug || storedSlug;
+  return {
+    stored_slug: storedSlug,
+    public_slug: publicSlug,
+    legacy_slug: publicSlug && storedSlug && publicSlug !== storedSlug ? storedSlug : null,
+    slug: publicSlug
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const supabase = getAdminClient();
@@ -72,15 +84,17 @@ export async function GET(request: Request) {
 
     const campaigns = (campaignResult.data || []).map((campaign) => {
       const visualLayout = layoutMap[campaign.id] || null;
+      const event = campaign.event_id ? eventMap[campaign.event_id] || null : null;
       return {
         ...campaign,
+        ...publicIdentity(campaign, event),
         editor_draft: visualLayout?.editor_draft || null,
         published_layout: visualLayout?.published_layout || null,
         layout_version: visualLayout?.layout_version || 2,
         draft_updated_at: visualLayout?.draft_updated_at || null,
         published_at: visualLayout?.published_at || campaign.published_at || null,
         published_by: visualLayout?.published_by || null,
-        event: campaign.event_id ? eventMap[campaign.event_id] || null : null,
+        event,
         store_count: participations.filter((item) => item.event_id === campaign.event_id && item.status === 'active').length,
         vehicle_count: assignments.filter((item) => item.event_id === campaign.event_id && item.status === 'active' && item.show_on_landing).length
       };
@@ -116,7 +130,7 @@ export async function POST(request: Request) {
 
     const requestedSlug = slugify(cleanText(body.slug, 180) || event.slug || event.event_name);
     const currentResult = id
-      ? await supabase.from('site_campaigns').select('id,slug,published_at').eq('id', id).maybeSingle()
+      ? await supabase.from('site_campaigns').select('id,event_id,slug,published_at').eq('id', id).maybeSingle()
       : { data: null, error: null };
     if (currentResult.error) return NextResponse.json({ error: currentResult.error.message }, { status: 500 });
     if (id && !currentResult.data) return NextResponse.json({ error: 'Landing não encontrada.' }, { status: 404 });
@@ -127,6 +141,12 @@ export async function POST(request: Request) {
     if (layoutResult.error) return NextResponse.json({ error: layoutResult.error.message }, { status: 500 });
 
     const slugProtected = Boolean(currentResult.data?.published_at || layoutResult.data?.published_at);
+    if (slugProtected && currentResult.data?.event_id && currentResult.data.event_id !== eventId) {
+      return NextResponse.json({
+        error: 'Uma landing já publicada não pode ser vinculada a outro evento. Crie uma nova landing para o novo evento.',
+        event_protected: true
+      }, { status: 409 });
+    }
     const stableSlug = slugProtected && currentResult.data?.slug ? currentResult.data.slug : requestedSlug;
 
     let duplicateQuery = supabase.from('site_campaigns').select('id,name').eq('event_id', eventId);
@@ -162,6 +182,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         error: 'O Preview está em modo somente leitura para preservar as landings reais.',
         preview_read_only: true,
+        event_protected: slugProtected,
         slug_protected: slugProtected,
         stable_slug: stableSlug
       }, { status: 409 });
@@ -182,10 +203,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      campaign: result.data,
+      campaign: { ...result.data, ...publicIdentity(result.data, event) },
+      event_protected: slugProtected,
       slug_protected: slugProtected,
       slug_warning: slugProtected && requestedSlug !== stableSlug
-        ? 'O endereço publicado foi preservado para não interromper anúncios, Pixel e links antigos.'
+        ? 'O endereço publicado foi preservado como alias histórico para não interromper anúncios, Pixel e links antigos.'
         : null
     });
   } catch (error: any) {
