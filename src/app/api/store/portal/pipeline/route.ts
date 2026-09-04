@@ -82,6 +82,25 @@ export async function GET(request: Request) {
     if (error) throw error;
 
     const loadedLeadIds = (data || []).map((lead: any) => lead.id).filter(Boolean);
+    const showedUpLeadIds = new Set<string>(
+      (data || [])
+        .filter((lead: any) => lead.status === 'showed_up')
+        .map((lead: any) => String(lead.id))
+    );
+
+    if (loadedLeadIds.length) {
+      const showedUpEventsResult = await context.supabase
+        .from('lead_activity_logs')
+        .select('lead_id')
+        .eq('store_id', context.store.id)
+        .or('activity_type.eq.showed_up_marked,to_status.eq.showed_up')
+        .in('lead_id', loadedLeadIds);
+      if (showedUpEventsResult.error) throw showedUpEventsResult.error;
+      for (const event of showedUpEventsResult.data || []) {
+        if (event?.lead_id) showedUpLeadIds.add(String(event.lead_id));
+      }
+    }
+
     let conversationRows: any[] = [];
     let messageRows: any[] = [];
     let contactRows: any[] = [];
@@ -169,6 +188,7 @@ export async function GET(request: Request) {
         ...lead,
         access_mode: accessMode,
         can_operate: accessMode === 'current_owner',
+        has_showed_up: showedUpLeadIds.has(String(lead.id)),
         customer_name: conversation
           ? whatsappCustomerDisplayName(
               [contact?.profile_name, lead.customer_name],
