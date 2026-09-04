@@ -114,18 +114,25 @@ function parseSchedule(dateValue: unknown, timeValue: unknown) {
   return parsed;
 }
 
-async function assertScheduleAvailable(supabase: any, storeId: string, leadId: string, startsAt: Date) {
+async function assertScheduleAvailable(
+  supabase: any,
+  storeId: string,
+  leadId: string,
+  startsAt: Date,
+  responsibleUserId?: string | null
+) {
   const availability = await checkStoreAvailability({
     supabase,
     storeId,
     startsAt,
     durationMinutes: 60,
-    excludeLeadId: leadId
+    excludeLeadId: leadId,
+    responsibleUserId: responsibleUserId || null
   });
   if (!availability.available) {
     const conflict = availability.conflicts[0];
     const detail = conflict?.title ? ` Conflito: ${conflict.title}.` : '';
-    throw new Error(`Horário ocupado no calendário. Escolha outro horário.${detail}`);
+    throw new Error(`Horário ocupado no calendário deste responsável. Escolha outro horário.${detail}`);
   }
 }
 
@@ -265,7 +272,7 @@ export async function POST(request: Request) {
 
     if (command === 'schedule') {
       const startsAt = parseSchedule(body.date, body.time);
-      await assertScheduleAvailable(context.supabase, context.store.id, lead.id, startsAt);
+      await assertScheduleAvailable(context.supabase, context.store.id, lead.id, startsAt, lead.assigned_user_id);
       if (currentStatus !== 'scheduled') ensureTransition(currentStatus, 'scheduled');
       const appointmentNotes = cleanText(body.notes, 3000) || null;
       const updated = await updateLead(context.supabase, context, lead, command, {
