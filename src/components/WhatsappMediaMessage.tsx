@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Download, FileText, Image as ImageIcon, Loader2, RefreshCw, Video, Volume2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import { WhatsappEditedMessage } from '@/components/WhatsappEditedMessage';
 import { WhatsappLocationMessage } from '@/components/WhatsappLocationMessage';
 import { apiErrorMessage } from '@/lib/client/apiErrorMessage';
 
@@ -81,6 +82,7 @@ export function WhatsappMediaMessage({ message, outbound = false, compact = fals
   }, [message?.id, supported]);
 
   if (type === 'location') return <WhatsappLocationMessage message={message} outbound={outbound} compact={compact} />;
+  if (type === 'secretencrypted') return <WhatsappEditedMessage message={message} outbound={outbound} compact={compact} />;
 
   if (!supported) {
     return <p className={`whitespace-pre-wrap font-semibold ${compact ? 'text-[13px] leading-snug' : 'text-sm leading-relaxed'}`}>{message?.body || '[Mensagem sem texto]'}</p>;
@@ -112,20 +114,20 @@ export function WhatsappMediaMessage({ message, outbound = false, compact = fals
   }
 
   return (
-    <div className={compact ? "space-y-1.5" : "space-y-2"}>
+    <div className={compact ? 'space-y-1.5' : 'space-y-2'}>
       {type === 'image' ? (
         <a href={mediaUrl} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl">
-          <img src={mediaUrl} alt={body && !isPlaceholder ? body : 'Imagem recebida no WhatsApp'} className={compact ? "max-h-[280px] w-auto max-w-[320px] rounded-lg object-contain" : "max-h-[420px] w-auto max-w-full rounded-xl object-contain"} />
+          <img src={mediaUrl} alt={body && !isPlaceholder ? body : 'Imagem recebida no WhatsApp'} className={compact ? 'max-h-[280px] w-auto max-w-[320px] rounded-lg object-contain' : 'max-h-[420px] w-auto max-w-full rounded-xl object-contain'} />
         </a>
       ) : null}
 
       {type === 'video' ? (
-        <video src={mediaUrl} controls preload="metadata" className={compact ? "max-h-[280px] w-full min-w-[210px] max-w-[360px] rounded-lg bg-black" : "max-h-[420px] w-full min-w-[240px] max-w-[520px] rounded-xl bg-black"} />
+        <video src={mediaUrl} controls preload="metadata" className={compact ? 'max-h-[280px] w-full min-w-[210px] max-w-[360px] rounded-lg bg-black' : 'max-h-[420px] w-full min-w-[240px] max-w-[520px] rounded-xl bg-black'} />
       ) : null}
 
       {type === 'audio' ? (
         <div className={`rounded-xl ${compact ? 'p-1' : 'p-2'} ${outbound ? 'bg-white/10' : 'bg-zinc-50'}`}>
-          <audio src={mediaUrl} controls preload="metadata" className={compact ? "h-8 w-[260px] min-w-0 max-w-[58vw]" : "h-10 w-full min-w-[250px] max-w-[420px]"} />
+          <audio src={mediaUrl} controls preload="metadata" className={compact ? 'h-8 w-[260px] min-w-0 max-w-[58vw]' : 'h-10 w-full min-w-[250px] max-w-[420px]'} />
         </div>
       ) : null}
 
