@@ -24,6 +24,18 @@ function safeRate(value: unknown) {
   return Number.isFinite(rate) ? Math.max(rate, 0) : 1.89;
 }
 
+function publicIdentity(campaign: any, event: any) {
+  const storedSlug = String(campaign?.slug || '');
+  const eventSlug = String(event?.slug || '');
+  const publicSlug = eventSlug || storedSlug;
+  return {
+    stored_slug: storedSlug,
+    public_slug: publicSlug,
+    legacy_slug: publicSlug && storedSlug && publicSlug !== storedSlug ? storedSlug : null,
+    slug: publicSlug
+  };
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = getAdminClient();
@@ -51,7 +63,7 @@ export async function POST(request: Request) {
     if (!event) return NextResponse.json({ error: 'Evento não encontrado.' }, { status: 404 });
 
     const currentResult = id
-      ? await supabase.from('site_campaigns').select('id,is_active,slug,published_at').eq('id', id).maybeSingle()
+      ? await supabase.from('site_campaigns').select('id,event_id,is_active,slug,published_at').eq('id', id).maybeSingle()
       : { data: null, error: null };
     if (currentResult.error) return NextResponse.json({ error: currentResult.error.message }, { status: 500 });
     const currentCampaign = currentResult.data;
@@ -67,6 +79,12 @@ export async function POST(request: Request) {
 
     const requestedSlug = slugify(cleanText(body.slug, 180) || event.slug || event.event_name);
     const slugProtected = Boolean(currentCampaign?.published_at || publishedLayoutResult.data?.published_at);
+    if (slugProtected && currentCampaign?.event_id && currentCampaign.event_id !== eventId) {
+      return NextResponse.json({
+        error: 'Uma landing já publicada não pode ser vinculada a outro evento. Use “Nova landing” para o novo evento.',
+        event_protected: true
+      }, { status: 409 });
+    }
     const stableSlug = slugProtected && currentCampaign?.slug ? currentCampaign.slug : requestedSlug;
 
     let duplicateQuery = supabase.from('site_campaigns').select('id,name').eq('event_id', eventId);
@@ -90,6 +108,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         error: 'O Preview está em modo somente leitura para preservar as landings reais.',
         preview_read_only: true,
+        event_protected: slugProtected,
         slug_protected: slugProtected,
         stable_slug: stableSlug
       }, { status: 409 });
@@ -147,12 +166,14 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
+      event_protected: slugProtected,
       slug_protected: slugProtected,
       slug_warning: slugProtected && requestedSlug !== stableSlug
-        ? 'O endereço publicado foi preservado para não interromper anúncios, Pixel e links antigos.'
+        ? 'O endereço antigo foi preservado como alias histórico para não interromper anúncios, Pixel e links compartilhados.'
         : null,
       campaign: {
         ...result.data,
+        ...publicIdentity(result.data, event),
         editor_draft: layout?.editor_draft || null,
         published_layout: layout?.published_layout || null,
         layout_version: layout?.layout_version || 2,
