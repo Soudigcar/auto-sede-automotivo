@@ -128,6 +128,29 @@ function evolutionOperation(path: string) {
     .join('/');
 }
 
+function diagnosticValue(value: unknown) {
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  const normalized = String(value).trim();
+  if (!normalized) return undefined;
+  return normalized.replace(/https?:\/\/\S+/gi, '[url]').slice(0, 80);
+}
+
+export function evolutionTransportDiagnostic(error: unknown) {
+  const root = error && typeof error === 'object' ? error as Record<string, unknown> : {};
+  const cause = root.cause && typeof root.cause === 'object'
+    ? root.cause as Record<string, unknown>
+    : {};
+
+  return {
+    error_type: error instanceof Error ? error.name || 'unknown' : 'unknown',
+    error_code: diagnosticValue(root.code),
+    cause_type: diagnosticValue(cause.name),
+    cause_code: diagnosticValue(cause.code),
+    cause_errno: diagnosticValue(cause.errno),
+    cause_syscall: diagnosticValue(cause.syscall)
+  };
+}
+
 export function evolutionErrorMessage(result: unknown, status: number) {
   const messages = [...new Set(providerMessages(result))]
     .filter((message) => !/^Bad Request$/i.test(message));
@@ -136,14 +159,18 @@ export function evolutionErrorMessage(result: unknown, status: number) {
 
 function evolutionTransportError(error: unknown, path: string) {
   const operation = evolutionOperation(path);
-  const name = error instanceof Error ? error.name : '';
-  const timeout = name === 'TimeoutError' || name === 'AbortError';
+  const diagnostic = evolutionTransportDiagnostic(error);
+  const timeout = diagnostic.error_type === 'TimeoutError' || diagnostic.error_type === 'AbortError';
   const status = timeout ? 504 : 503;
   const message = timeout
     ? 'A Evolution API não respondeu dentro do tempo limite.'
     : 'Não foi possível conectar à Evolution API.';
 
-  console.error('[Evolution API] transport failure', { operation, status, error_type: name || 'unknown' });
+  console.error('[Evolution API] transport failure', {
+    operation,
+    status,
+    ...diagnostic
+  });
   return new EvolutionApiError(message, status, operation);
 }
 
