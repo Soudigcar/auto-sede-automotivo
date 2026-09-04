@@ -1,6 +1,6 @@
 'use client';
 
-import { ExternalLink, Palette, Save } from 'lucide-react';
+import { CheckCircle2, ExternalLink, LockKeyhole, Palette, Save, XCircle } from 'lucide-react';
 
 function eventPeriod(event: any) {
   const date = (value?: string) => value
@@ -32,6 +32,12 @@ export function CampaignLandingAdminForm({
   onOpenEditor,
   onSave
 }: Props) {
+  const published = Boolean(form.published_at || form.published_layout);
+  const eventReady = selectedEvent?.status === 'active';
+  const storesReady = Number(form.store_count || 0) > 0;
+  const vehiclesReady = Number(form.vehicle_count || 0) > 0;
+  const publicationReady = Boolean(form.id && eventReady && storesReady && vehiclesReady);
+
   return (
     <section className="rounded-[30px] border border-zinc-200 bg-white p-5 shadow-sm sm:p-7">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -57,10 +63,41 @@ export function CampaignLandingAdminForm({
         Título, descrição, botões, cores, logomarcas, fundos e posicionamento são controlados somente pelo editor visual. Salvar esta tela não modifica o design publicado.
       </div>
 
+      {form.id ? (
+        <div className={`mt-4 rounded-2xl border p-4 ${publicationReady ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-zinc-600">Prontidão para publicar</p>
+              <strong className={`mt-1 block text-sm ${publicationReady ? 'text-emerald-900' : 'text-amber-900'}`}>
+                {publicationReady ? 'Landing pronta para publicação' : 'Publicação bloqueada até concluir os itens abaixo'}
+              </strong>
+            </div>
+            {publicationReady ? <CheckCircle2 className="text-emerald-600" size={24} /> : <XCircle className="text-amber-600" size={24} />}
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            <div className={`rounded-xl bg-white p-3 text-xs font-black ${eventReady ? 'text-emerald-700' : 'text-red-700'}`}>
+              {eventReady ? '✓' : '✕'} Evento {eventReady ? 'ativo' : 'inativo'}
+            </div>
+            <div className={`rounded-xl bg-white p-3 text-xs font-black ${storesReady ? 'text-emerald-700' : 'text-red-700'}`}>
+              {storesReady ? '✓' : '✕'} {Number(form.store_count || 0)} loja(s) ativa(s)
+            </div>
+            <div className={`rounded-xl bg-white p-3 text-xs font-black ${vehiclesReady ? 'text-emerald-700' : 'text-red-700'}`}>
+              {vehiclesReady ? '✓' : '✕'} {Number(form.vehicle_count || 0)} veículo(s) visível(is)
+            </div>
+          </div>
+          {!publicationReady ? <p className="mt-3 text-xs font-semibold text-amber-800">O editor continua disponível para você montar e salvar o rascunho. O botão Publicar só terá efeito quando evento, loja e estoque estiverem prontos.</p> : null}
+        </div>
+      ) : null}
+
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         <label className="text-xs font-black text-zinc-600 md:col-span-2">
           Evento vinculado
-          <select className="premium-input mt-2" value={form.event_id} onChange={(event) => onSelectEvent(event.target.value)}>
+          <select
+            className="premium-input mt-2 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+            value={form.event_id}
+            disabled={published}
+            onChange={(event) => onSelectEvent(event.target.value)}
+          >
             <option value="">Selecione o evento</option>
             {events.map((event) => (
               <option key={event.id} value={event.id} disabled={usedEventIds.has(event.id)}>
@@ -69,6 +106,9 @@ export function CampaignLandingAdminForm({
               </option>
             ))}
           </select>
+          {published ? (
+            <span className="mt-2 flex items-center gap-1 text-[10px] font-bold text-zinc-500"><LockKeyhole size={11} /> Evento protegido após a primeira publicação. Para outro evento, use “Nova landing”.</span>
+          ) : null}
         </label>
 
         {selectedEvent ? (
@@ -87,12 +127,14 @@ export function CampaignLandingAdminForm({
           <input
             className="premium-input mt-2 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
             value={form.slug}
-            disabled={Boolean(form.published_at)}
+            disabled={published}
             onChange={(event) => setForm({ ...form, slug: event.target.value })}
           />
           <span className="mt-2 block text-[10px] font-bold text-zinc-400">
-            {form.published_at
-              ? 'Endereço protegido após a publicação para preservar anúncios, Pixel e links compartilhados.'
+            {published
+              ? form.legacy_slug
+                ? `Endereço oficial atual: ${form.slug}. O endereço antigo “${form.legacy_slug}” permanece como alias de compatibilidade.`
+                : 'Endereço protegido após a publicação para preservar anúncios, Pixel e links compartilhados.'
               : 'O endereço ficará protegido depois que a landing for publicada.'}
           </span>
         </label>

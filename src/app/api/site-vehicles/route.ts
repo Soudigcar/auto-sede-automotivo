@@ -63,7 +63,28 @@ export async function GET(request: Request) {
       campaignQuery = campaignQuery.order('published_at', { ascending: false, nullsFirst: false }).limit(25);
     }
 
-    const { data: campaignCandidates, error: campaignError } = await campaignQuery;
+    let { data: campaignCandidates, error: campaignError } = await campaignQuery;
+
+    if (!campaignError && !campaignCandidates?.length && slug && !campaignId) {
+      const { data: eventAlias, error: eventAliasError } = await supabase
+        .from('events')
+        .select('id')
+        .eq('slug', slug)
+        .neq('status', 'deleted')
+        .maybeSingle();
+      if (eventAliasError) return NextResponse.json({ error: eventAliasError.message }, { status: 500 });
+      if (eventAlias?.id) {
+        const aliasResult = await supabase
+          .from('site_campaigns')
+          .select(publicCampaignFields)
+          .eq('event_id', eventAlias.id)
+          .eq('is_active', true)
+          .not('published_at', 'is', null)
+          .limit(1);
+        campaignCandidates = aliasResult.data;
+        campaignError = aliasResult.error;
+      }
+    }
 
     if (campaignError || !campaignCandidates?.length) {
       return NextResponse.json({ error: 'Campanha não encontrada.' }, { status: 404 });
@@ -98,8 +119,12 @@ export async function GET(request: Request) {
 
     if (layoutError) return NextResponse.json({ error: layoutError.message }, { status: 500 });
 
+    const linkedEvent = campaignRecord.event_id ? eventMap.get(campaignRecord.event_id) as any : null;
+    const canonicalSlug = linkedEvent?.slug || campaignRecord.slug;
     const publicCampaign = {
       ...campaignRecord,
+      slug: canonicalSlug,
+      legacy_slug: canonicalSlug !== campaignRecord.slug ? campaignRecord.slug : null,
       published_layout: visualLayout?.published_layout || null,
       layout_version: visualLayout?.layout_version || 2,
       published_at: visualLayout?.published_at || campaignRecord.published_at || null
