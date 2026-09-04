@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
 import { asStorePortalRole, canAccessStoreLead } from '@/lib/server/storePortal';
 import { checkStoreAvailability } from '@/lib/server/storeAvailability';
+import { POST as runSecurePipelineAction } from '@/app/api/store/portal/pipeline/actions/route';
+import { isStoreLeadAppointmentType } from '@/lib/storeLeadAppointments';
 
 export const runtime = 'nodejs';
 
@@ -50,9 +52,31 @@ export async function POST(request: Request) {
     if (leadError) throw leadError;
     if (!lead || !canAccessLead(profile, lead)) return NextResponse.json({ error: 'Lead não encontrado na carteira deste usuário.' }, { status: 404 });
 
-    const { data: store, error: storeError } = await supabase.from('stores').select('id, store_name').eq('id', lead.assigned_store_id).maybeSingle();
+    const { data: store, error: storeError } = await supabase.from('stores').select('id, store_name, slug').eq('id', lead.assigned_store_id).maybeSingle();
     if (storeError) throw storeError;
     if (!store) return NextResponse.json({ error: 'Loja do lead não encontrada.' }, { status: 404 });
+
+    if (isStoreLeadAppointmentType(taskType)) {
+      if (!store.slug) return NextResponse.json({ error: 'Loja sem identificador para o fluxo seguro de agendamento.' }, { status: 409 });
+      const label = taskLabels[taskType];
+      const appointmentNotes = description ? `${label}: ${description}` : label;
+      const secureRequest = new Request(new URL('/api/store/portal/pipeline/actions', request.url), {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          command: 'schedule',
+          slug: store.slug,
+          lead_id: lead.id,
+          date,
+          time,
+          notes: appointmentNotes
+        })
+      });
+      return runSecurePipelineAction(secureRequest);
+    }
 
     const availability = await checkStoreAvailability({
       supabase, storeId: store.id, startsAt, durationMinutes: 30, excludeLeadId: lead.id
