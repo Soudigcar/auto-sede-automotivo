@@ -137,8 +137,7 @@ export async function POST(request: Request) {
         account_state: 'transfer_required',
         store_name: store.store_name,
         role: link.role,
-        role_label: storeTeamRoleLabels[link.role as keyof typeof storeTeamRoleLabels],
-        full_name: existingProfile.full_name
+        role_label: storeTeamRoleLabels[link.role as keyof typeof storeTeamRoleLabels]
       });
     }
 
@@ -161,7 +160,7 @@ export async function POST(request: Request) {
         return NextResponse.json({
           success: true,
           preview_mode: true,
-          message: `Preview validado: a conta seria transferida para ${store.store_name}. Nenhum vínculo ou dado foi alterado.`,
+          message: `Preview de segurança validado: a conta seria transferida para ${store.store_name}. Nenhum vínculo, senha ou dado foi alterado.`,
           store_slug: store.slug,
           login_path: '/login'
         });
@@ -230,6 +229,16 @@ export async function POST(request: Request) {
     if (passwordError) return NextResponse.json({ error: passwordError }, { status: 400 });
     if (password !== passwordConfirmation) {
       return NextResponse.json({ error: 'A confirmação da senha não confere.' }, { status: 400 });
+    }
+
+    if (process.env.VERCEL_ENV === 'preview') {
+      return NextResponse.json({
+        success: true,
+        preview_mode: true,
+        message: `Preview de segurança validado para ${fullName}. Nenhuma conta foi criada, o convite não foi consumido e nenhum dado foi alterado.`,
+        role_label: storeTeamRoleLabels[link.role as keyof typeof storeTeamRoleLabels],
+        store_name: store.store_name
+      });
     }
 
     const currentUsage = Number(link.usage_count || 0);
