@@ -82,6 +82,9 @@ export async function POST(request: Request) {
         })
       });
       const secureResponse = await runSecurePipelineAction(secureRequest);
+      if (!secureResponse) {
+        return NextResponse.json({ error: 'Não foi possível concluir o agendamento seguro.' }, { status: 500 });
+      }
       const payload = await secureResponse.json().catch(() => ({}));
       if (!secureResponse.ok) return NextResponse.json(payload, { status: secureResponse.status });
       const warning = payload.warning || null;
