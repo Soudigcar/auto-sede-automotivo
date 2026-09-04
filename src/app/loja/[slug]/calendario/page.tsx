@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { getStorePortalContext } from '@/lib/storePortalClient';
+import { getStoreScheduleConflictWarning } from '@/lib/storeScheduleWarnings';
 
 type ResponsibleInfo = {
   name: string;
@@ -255,24 +256,28 @@ export default function StoreCalendarPage() {
   const futureEvents = events.filter((event) => new Date(event.starts_at).getTime() >= Date.now());
   const monthDays = buildMonthDays(monthDate);
 
-  async function hasConflict(start: Date, end: Date) {
-    if (!store?.id || !slug) return true;
+  async function readConflictWarning(start: Date, end: Date) {
+    if (!store?.id || !slug) return null;
     const { data } = await supabase.auth.getSession();
     const accessToken = data.session?.access_token || '';
-    if (!accessToken) return true;
+    if (!accessToken) return null;
     const durationMinutes = Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000));
     const query = new URLSearchParams({
       slug,
       starts_at: start.toISOString(),
       duration_minutes: String(durationMinutes)
     });
-    const response = await fetch(`/api/store/calendar/availability?${query.toString()}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      cache: 'no-store'
-    });
-    if (!response.ok) return true;
-    const result = await response.json().catch(() => ({}));
-    return !result.available;
+    try {
+      const response = await fetch(`/api/store/calendar/availability?${query.toString()}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store'
+      });
+      if (!response.ok) return null;
+      const result = await response.json().catch(() => ({}));
+      return getStoreScheduleConflictWarning(result.available === false);
+    } catch {
+      return null;
+    }
   }
 
   async function createTask() {
@@ -300,12 +305,7 @@ export default function StoreCalendarPage() {
       return;
     }
 
-    const occupied = await hasConflict(start, end);
-
-    if (occupied) {
-      setMessage('Horário ocupado. Escolha outro horário no calendário.');
-      return;
-    }
+    const warning = await readConflictWarning(start, end);
 
     const { error } = await supabase.from('store_calendar_tasks').insert({
       store_id: store.id,
@@ -324,7 +324,7 @@ export default function StoreCalendarPage() {
 
     setTaskTitle('');
     setTaskDescription('');
-    setMessage('Tarefa registrada no calendário.');
+    setMessage(warning ? `Tarefa registrada no calendário. ${warning}` : 'Tarefa registrada no calendário.');
     await loadCalendar();
   }
 
@@ -441,7 +441,7 @@ export default function StoreCalendarPage() {
             <div className="grid gap-5">
               <div className="premium-card p-6">
                 <h2 className="text-2xl font-black text-zinc-950">Nova tarefa futura</h2>
-                <p className="mt-1 text-sm text-zinc-500">A mesma validação central usada pela AUTOCAR bloqueia horários ocupados por lead ou tarefa.</p>
+                <p className="mt-1 text-sm text-zinc-500">Conflitos de horário geram apenas um aviso. É permitido registrar vários compromissos no mesmo horário.</p>
 
                 <div className="mt-5 grid gap-3">
                   <input className="rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-red-500" placeholder="Título da tarefa" value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} />
@@ -574,8 +574,8 @@ function Appointment3DModal({ event, onClose }: { event: CalendarEvent; onClose:
               </div>
 
               <div className="mt-6 grid gap-3">
-                <span className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm font-bold text-cyan-50">Horário bloqueado no calendário</span>
-                <span className="rounded-2xl border border-red-300/20 bg-red-400/10 px-4 py-3 text-sm font-bold text-red-50">Não permite outro agendamento no mesmo horário</span>
+                <span className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm font-bold text-cyan-50">Horário compartilhável no calendário</span>
+                <span className="rounded-2xl border border-red-300/20 bg-red-400/10 px-4 py-3 text-sm font-bold text-red-50">Conflitos geram aviso, sem impedir novos compromissos</span>
               </div>
             </div>
           </div>

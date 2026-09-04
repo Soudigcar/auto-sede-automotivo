@@ -32,10 +32,55 @@ function getAdminClient() {
   return createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
-function isCurrentEvent(event: any) {
+function todayInBrazil() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function isCurrentEvent(event: any, today = todayInBrazil()) {
   if (!event || event.status !== 'active') return false;
-  const today = new Date().toISOString().slice(0, 10);
-  return !event.end_date || event.end_date >= today;
+  return (!event.start_date || event.start_date <= today) && (!event.end_date || event.end_date >= today);
+}
+
+function isFutureEvent(event: any, today = todayInBrazil()) {
+  return Boolean(event && event.status === 'active' && event.start_date && event.start_date > today);
+}
+
+function isAvailableEvent(event: any, today = todayInBrazil()) {
+  return isCurrentEvent(event, today) || isFutureEvent(event, today);
+}
+
+function selectDefaultCampaign(candidates: any[], eventMap: Map<any, any>, today = todayInBrazil()) {
+  const ongoing = candidates
+    .filter((campaign: any) => campaign.event_id && isCurrentEvent(eventMap.get(campaign.event_id), today))
+    .sort((a: any, b: any) => {
+      const eventA = eventMap.get(a.event_id) as any;
+      const eventB = eventMap.get(b.event_id) as any;
+      const startCompare = String(eventB?.start_date || '').localeCompare(String(eventA?.start_date || ''));
+      if (startCompare !== 0) return startCompare;
+      return String(b.published_at || '').localeCompare(String(a.published_at || ''));
+    });
+
+  if (ongoing.length) return ongoing[0];
+
+  const upcoming = candidates
+    .filter((campaign: any) => campaign.event_id && isFutureEvent(eventMap.get(campaign.event_id), today))
+    .sort((a: any, b: any) => {
+      const eventA = eventMap.get(a.event_id) as any;
+      const eventB = eventMap.get(b.event_id) as any;
+      const startCompare = String(eventA?.start_date || '').localeCompare(String(eventB?.start_date || ''));
+      if (startCompare !== 0) return startCompare;
+      return String(b.published_at || '').localeCompare(String(a.published_at || ''));
+    });
+
+  if (upcoming.length) return upcoming[0];
+  return candidates.find((campaign: any) => !campaign.event_id) || null;
 }
 
 export async function GET(request: Request) {
@@ -43,6 +88,7 @@ export async function GET(request: Request) {
     const searchParams = new URL(request.url).searchParams;
     const slug = searchParams.get('slug')?.trim() || '';
     const campaignId = searchParams.get('campaign_id')?.trim() || '';
+    const hasExplicitCampaign = Boolean(campaignId || slug);
 
     if (campaignId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(campaignId)) {
       return NextResponse.json({ error: 'Identificador de campanha inválido.' }, { status: 400 });
@@ -60,7 +106,7 @@ export async function GET(request: Request) {
     } else if (slug) {
       campaignQuery = campaignQuery.eq('slug', slug).limit(1);
     } else {
-      campaignQuery = campaignQuery.order('published_at', { ascending: false, nullsFirst: false }).limit(25);
+      campaignQuery = campaignQuery.order('published_at', { ascending: false, nullsFirst: false }).limit(100);
     }
 
     let { data: campaignCandidates, error: campaignError } = await campaignQuery;
@@ -102,10 +148,13 @@ export async function GET(request: Request) {
     }
 
     const eventMap = new Map((candidateEvents || []).map((event: any) => [event.id, event]));
-    const campaignRecord = campaignCandidates.find((campaign: any) => {
-      if (!campaign.event_id) return true;
-      return isCurrentEvent(eventMap.get(campaign.event_id));
-    }) as any;
+    const today = todayInBrazil();
+    const campaignRecord = (hasExplicitCampaign
+      ? campaignCandidates.find((campaign: any) => {
+          if (!campaign.event_id) return true;
+          return isAvailableEvent(eventMap.get(campaign.event_id), today);
+        })
+      : selectDefaultCampaign(campaignCandidates, eventMap, today)) as any;
 
     if (!campaignRecord) {
       return NextResponse.json({ error: 'Esta campanha pertence a um evento inativo ou encerrado.' }, { status: 404 });
@@ -146,7 +195,7 @@ export async function GET(request: Request) {
     }
 
     const eventRecord = eventMap.get(campaignRecord.event_id) as any;
-    if (!isCurrentEvent(eventRecord)) {
+    if (!isAvailableEvent(eventRecord, today)) {
       return NextResponse.json({ error: 'Esta campanha pertence a um evento inativo ou encerrado.' }, { status: 404 });
     }
 
