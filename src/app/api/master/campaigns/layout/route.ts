@@ -41,7 +41,7 @@ export async function GET(request: Request) {
     if (!id) return NextResponse.json({ error: 'Landing obrigatória.' }, { status: 400 });
 
     const [{ data: campaign, error: campaignError }, { data: layout, error: layoutError }] = await Promise.all([
-      supabase.from('site_campaigns').select('id,slug,is_active,published_at').eq('id', id).maybeSingle(),
+      supabase.from('site_campaigns').select('id,slug,event_id,is_active,published_at').eq('id', id).maybeSingle(),
       supabase.from('site_campaign_layouts').select('campaign_id,editor_draft,published_layout,layout_version,draft_updated_at,published_at,published_by').eq('campaign_id', id).maybeSingle()
     ]);
 
@@ -49,7 +49,13 @@ export async function GET(request: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!campaign) return NextResponse.json({ error: 'Landing não encontrada.' }, { status: 404 });
 
-    return NextResponse.json({ campaign: { ...campaign, editor_draft: layout?.editor_draft || null, published_layout: layout?.published_layout || null, layout_version: layout?.layout_version || LAYOUT_VERSION, draft_updated_at: layout?.draft_updated_at || null, published_at: layout?.published_at || campaign.published_at || null, published_by: layout?.published_by || null } }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+    let publicSlug = campaign.slug;
+    if (campaign.event_id) {
+      const { data: event } = await supabase.from('events').select('slug').eq('id', campaign.event_id).maybeSingle();
+      publicSlug = event?.slug || publicSlug;
+    }
+
+    return NextResponse.json({ campaign: { ...campaign, stored_slug: campaign.slug, slug: publicSlug, editor_draft: layout?.editor_draft || null, published_layout: layout?.published_layout || null, layout_version: layout?.layout_version || LAYOUT_VERSION, draft_updated_at: layout?.draft_updated_at || null, published_at: layout?.published_at || campaign.published_at || null, published_by: layout?.published_by || null } }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Erro ao carregar o layout.' }, { status: 500 });
   }
@@ -75,6 +81,13 @@ export async function POST(request: Request) {
 
     const now = new Date().toISOString();
     let layout = receivedLayout;
+    let publicSlug = campaign.slug;
+
+    if (campaign.event_id) {
+      const { data: linkedEvent, error: linkedEventError } = await supabase.from('events').select('id,status,slug').eq('id', campaign.event_id).maybeSingle();
+      if (linkedEventError) return NextResponse.json({ error: linkedEventError.message }, { status: 500 });
+      publicSlug = linkedEvent?.slug || publicSlug;
+    }
 
     if (action === 'publish') {
       const terms = cleanText(campaign.terms_text, 5000) || layoutTerms(receivedLayout) || DEFAULT_CAMPAIGN_TERMS;
@@ -82,7 +95,7 @@ export async function POST(request: Request) {
 
       if (campaign.event_id) {
         const [eventResult, participationResult, assignmentResult] = await Promise.all([
-          supabase.from('events').select('id,status').eq('id', campaign.event_id).maybeSingle(),
+          supabase.from('events').select('id,status,slug').eq('id', campaign.event_id).maybeSingle(),
           supabase.from('store_event_participations').select('store_id').eq('event_id', campaign.event_id).eq('status', 'active').limit(1),
           supabase.from('event_vehicle_assignments').select('vehicle_id').eq('event_id', campaign.event_id).eq('status', 'active').eq('show_on_landing', true).limit(1)
         ]);
@@ -91,6 +104,7 @@ export async function POST(request: Request) {
         if (!eventResult.data || eventResult.data.status !== 'active') return NextResponse.json({ error: 'Ative o evento antes de publicar a landing page.' }, { status: 409 });
         if (!participationResult.data?.length) return NextResponse.json({ error: 'Vincule ao menos uma loja ativa ao evento antes de publicar.' }, { status: 409 });
         if (!assignmentResult.data?.length) return NextResponse.json({ error: 'A landing precisa ter ao menos um veículo ativo e visível antes de publicar.' }, { status: 409 });
+        publicSlug = eventResult.data.slug || publicSlug;
       }
     }
 
@@ -118,7 +132,7 @@ export async function POST(request: Request) {
       campaignState = { ...campaign, ...publishedCampaign };
     }
 
-    return NextResponse.json({ success: true, action, campaign: { ...campaignState, editor_draft: savedLayout.editor_draft, published_layout: savedLayout.published_layout, layout_version: savedLayout.layout_version, draft_updated_at: savedLayout.draft_updated_at, published_at: savedLayout.published_at || campaignState.published_at || null, published_by: savedLayout.published_by }, public_path: `/campanha/simulador?campanha=${encodeURIComponent(campaign.slug)}` });
+    return NextResponse.json({ success: true, action, campaign: { ...campaignState, stored_slug: campaignState.slug, slug: publicSlug, editor_draft: savedLayout.editor_draft, published_layout: savedLayout.published_layout, layout_version: savedLayout.layout_version, draft_updated_at: savedLayout.draft_updated_at, published_at: savedLayout.published_at || campaignState.published_at || null, published_by: savedLayout.published_by }, public_path: `/campanha/simulador?campanha=${encodeURIComponent(publicSlug)}` });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Erro ao salvar o layout.' }, { status: 500 });
   }
