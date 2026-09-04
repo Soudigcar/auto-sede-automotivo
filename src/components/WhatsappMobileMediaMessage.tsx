@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, FileText, Loader2, Pause, Play, RefreshCw, Video } from 'lucide-react';
+import { Download, FileText, Loader2, Pause, Play, RefreshCw } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import { WhatsappEditedMessage } from '@/components/WhatsappEditedMessage';
 import { WhatsappLocationMessage } from '@/components/WhatsappLocationMessage';
 import { apiErrorMessage } from '@/lib/client/apiErrorMessage';
 
@@ -89,16 +90,7 @@ function MobileAudioPlayer({ src, outbound }: { src: string; outbound: boolean }
       <audio ref={audioRef} src={src} preload="metadata" className="hidden" />
       <button type="button" onClick={() => void toggle()} className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${outbound ? 'bg-white/20 text-white' : 'bg-red-50 text-red-600'}`} aria-label={playing ? 'Pausar áudio' : 'Reproduzir áudio'}>{playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}</button>
       <div className="min-w-0 flex-1">
-        <input
-          aria-label="Posição do áudio"
-          type="range"
-          min={0}
-          max={progressMax}
-          step={0.1}
-          value={Math.min(current, progressMax)}
-          onChange={(event) => seek(Number(event.target.value))}
-          className="h-1 w-full cursor-pointer accent-current"
-        />
+        <input aria-label="Posição do áudio" type="range" min={0} max={progressMax} step={0.1} value={Math.min(current, progressMax)} onChange={(event) => seek(Number(event.target.value))} className="h-1 w-full cursor-pointer accent-current" />
         <div className={`mt-1 flex items-center justify-between text-[9px] font-bold ${outbound ? 'text-white/70' : 'text-zinc-400'}`}><span>{formatDuration(current)}</span><span>{formatDuration(duration)}</span></div>
       </div>
       <button type="button" onClick={cycleRate} className={`shrink-0 rounded-lg px-1.5 py-1 text-[9px] font-black ${outbound ? 'bg-white/15 text-white' : 'bg-zinc-100 text-zinc-600'}`} aria-label="Alterar velocidade do áudio">{rate}x</button>
@@ -157,6 +149,7 @@ export function WhatsappMobileMediaMessage({ message, outbound = false }: Props)
   }, [message?.id, supported]);
 
   if (type === 'location') return <WhatsappLocationMessage message={message} outbound={outbound} compact />;
+  if (type === 'secretencrypted') return <WhatsappEditedMessage message={message} outbound={outbound} compact />;
 
   if (!supported) return <p className="whitespace-pre-wrap break-words text-[15px] font-medium leading-[1.35]">{body || '[Mensagem sem texto]'}</p>;
 
