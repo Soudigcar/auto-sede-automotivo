@@ -117,7 +117,7 @@ export function CampaignVisualEditorLauncher() {
   function patchBox(key: 'header' | 'logo' | 'simulator', patch: Partial<Box>) {
     const base = manualBase(draft, device);
     const baseLayout = base.devices[device];
-    const next = { ...base, devices: { ...base.devices, [device]: { ...baseLayout, [key]: { ...baseLayout[key], ...patch } } };
+    const next = { ...base, devices: { ...base.devices, [device]: { ...baseLayout, [key]: { ...baseLayout[key], ...patch } } } };
     updateState(device === 'desktop' ? applyDesktopPolicy(next) : next);
     if (device !== 'desktop' && responsiveSettings(draft).linked[device]) setMessage(`${deviceNames[device]} convertido para MANUAL.`);
   }
@@ -125,7 +125,7 @@ export function CampaignVisualEditorLauncher() {
   function patchContentBox(key: ContentKey, patch: Partial<Box>) {
     const base = manualBase(draft, device);
     const baseLayout = base.devices[device];
-    const next = { ...base, devices: { ...base.devices, [device]: { ...baseLayout, content: { ...baseLayout.content, [key]: { ...baseLayout.content[key], ...patch } } } };
+    const next = { ...base, devices: { ...base.devices, [device]: { ...baseLayout, content: { ...baseLayout.content, [key]: { ...baseLayout.content[key], ...patch } } } } };
     updateState(device === 'desktop' ? applyDesktopPolicy(next) : next);
     if (device !== 'desktop' && responsiveSettings(draft).linked[device]) setMessage(`${deviceNames[device]} convertido para MANUAL.`);
   }
@@ -257,7 +257,7 @@ export function CampaignVisualEditorLauncher() {
         const patch = drag.kind === 'resize'
           ? { width: clamp(origin.width + deltaX, minimum, 100 - origin.x) }
           : { x: clamp(origin.x + deltaX, 0, 100 - origin.width), y: clamp(origin.y + deltaY, 0, 98) };
-        return stamp({ ...current, devices: { ...current.devices, [drag.device]: { ...currentLayout, [key]: { ...box, ...patch } } } });
+        return stamp({ ...current, devices: { ...current.devices, [drag.device]: { ...currentLayout, [key]: { ...box, ...patch } } });
       });
       setDirty(true);
     };
