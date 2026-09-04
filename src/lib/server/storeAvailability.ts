@@ -21,11 +21,16 @@ export async function checkStoreAvailability(input: {
   durationMinutes?: number;
   excludeLeadId?: string | null;
   excludeTaskId?: string | null;
+  responsibleUserId?: string | null;
 }) {
   const duration = Math.max(15, Math.min(480, Number(input.durationMinutes || 60)));
   const startsAt = input.startsAt;
   const endsAt = new Date(startsAt.getTime() + duration * 60 * 1000);
   if (!validDate(startsAt) || !validDate(endsAt)) throw new Error('Data ou horário inválido para consulta de disponibilidade.');
+
+  // Appointment flows may scope availability to the lead's responsible user.
+  // Without an explicit responsible user, the existing store-wide lock remains unchanged.
+  const responsibleUserId = input.responsibleUserId || null;
 
   // Search backwards far enough to catch an event that began before the requested slot
   // but still overlaps it. Current lead appointments are treated as one-hour windows.
@@ -38,6 +43,7 @@ export async function checkStoreAvailability(input: {
     .not('scheduled_at', 'is', null)
     .gte('scheduled_at', searchStart.toISOString())
     .lt('scheduled_at', endsAt.toISOString());
+  if (responsibleUserId) leadQuery = leadQuery.eq('assigned_user_id', responsibleUserId);
   if (input.excludeLeadId) leadQuery = leadQuery.neq('id', input.excludeLeadId);
 
   let taskQuery = input.supabase
@@ -46,6 +52,7 @@ export async function checkStoreAvailability(input: {
     .eq('store_id', input.storeId)
     .gte('starts_at', searchStart.toISOString())
     .lt('starts_at', endsAt.toISOString());
+  if (responsibleUserId) taskQuery = taskQuery.eq('created_by', responsibleUserId);
   if (input.excludeTaskId) taskQuery = taskQuery.neq('id', input.excludeTaskId);
 
   const [leadResult, taskResult] = await Promise.all([leadQuery, taskQuery]);
