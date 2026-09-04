@@ -46,8 +46,17 @@ test('pipeline exposes the same historical attendance milestone without changing
   assert.doesNotMatch(pipelineRoute, /status:\s*'showed_up'/);
 });
 
-test('pipeline cockpit bridge uses historical attendance only for the Compareceram KPI', () => {
+test('pipeline KPI bridge loads the secure pipeline summary even if it misses the first update event', () => {
   assert.match(storeLayout, /<StorePipelineHistoricalAttendanceKpi \/>/);
+  assert.match(pipelineKpi, /createClient/);
+  assert.match(pipelineKpi, /getSession\(\)/);
+  assert.match(pipelineKpi, /\/api\/store\/portal\/pipeline\?slug=/);
+  assert.match(pipelineKpi, /cache: 'no-store'/);
+  assert.match(pipelineKpi, /void loadInitialSummary\(\)/);
+  assert.match(pipelineKpi, /setTimeout\(\(\) => void loadInitialSummary\(\), 1200\)/);
+});
+
+test('pipeline KPI bridge uses historical attendance only for the Compareceram KPI', () => {
   assert.match(pipelineKpi, /lead\.has_showed_up === true/);
   assert.match(pipelineKpi, /pipeline-kpi-label/);
   assert.match(pipelineKpi, /=== 'Compareceram'/);
