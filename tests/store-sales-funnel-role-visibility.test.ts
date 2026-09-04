@@ -22,9 +22,9 @@ test('global operational and WhatsApp authorization remains current-owner only',
   assert.doesNotMatch(storePortal, /historical_sale/);
 });
 
-test('dashboard counts attendance as a historical milestone instead of only the current lead status', () => {
+test('dashboard counts attendance as a historical milestone across current and legacy audit formats', () => {
   assert.match(dashboardRoute, /from\('lead_activity_logs'\)/);
-  assert.match(dashboardRoute, /eq\('activity_type', 'showed_up_marked'\)/);
+  assert.match(dashboardRoute, /or\('activity_type\.eq\.showed_up_marked,to_status\.eq\.showed_up'\)/);
   assert.match(dashboardRoute, /const showedUpLeadIds = new Set<string>/);
   assert.match(dashboardRoute, /if \(event\?\.lead_id\) showedUpLeadIds\.add/);
   assert.match(dashboardRoute, /showed_up: showedUpLeadIds\.size/);
