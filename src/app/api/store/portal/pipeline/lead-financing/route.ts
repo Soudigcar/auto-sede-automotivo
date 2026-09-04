@@ -10,28 +10,8 @@ const expireRoles = new Set(['master','store']);
 const terminal = new Set(['completed','cancelled','expired']);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const fields = 'id,store_id,lead_id,interested_vehicle_id,vehicle_name_snapshot,status,outcome,requested_without_down_payment,requested_down_payment_value,requested_installment_count,requested_installment_value,requested_financed_amount,financing_bank,banks_consulted_count,preapproved_count,approval_indicator_percent,approval_indicator_source,approved_amount,approved_installment_count,approved_installment_value,result_source,result_reference,sanitized_notes,requested_at,submitted_at,result_received_at,communicated_at,scheduling_started_at,completed_at,cancelled_at,expired_at,version,created_at,updated_at';
-const FINANCING_HOMOLOGATION_BRANCH='feature/financing-simulation-lifecycle-v1-current-main';
-const FINANCING_HOMOLOGATION_SUPABASE_REF='hfzmzfhuhukmxkxbkxay';
 
-function supabaseProjectRef(value:unknown){
-  try {
-    const host=new URL(String(value || '')).hostname.toLowerCase();
-    const match=host.match(/^([a-z0-9]+)\.supabase\.co$/);
-    return match?.[1] || '';
-  } catch { return ''; }
-}
-
-function homologationGate(){
-  const environment=String(process.env.VERCEL_ENV || process.env.NEXT_PUBLIC_VERCEL_ENV || '');
-  const branch=String(process.env.VERCEL_GIT_COMMIT_REF || '');
-  const projectRef=supabaseProjectRef(process.env.NEXT_PUBLIC_SUPABASE_URL);
-  const isPreview=environment==='preview';
-  const branchMatch=branch===FINANCING_HOMOLOGATION_BRANCH;
-  const projectMatch=projectRef===FINANCING_HOMOLOGATION_SUPABASE_REF;
-  return {isPreview,branchMatch,projectMatch,allowed:isPreview&&branchMatch&&projectMatch};
-}
-
-function previewWriteBlocked(){ const gate=homologationGate(); return gate.isPreview&&!gate.allowed; }
+function previewBlocked() { return process.env.VERCEL_ENV === 'preview' || process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview'; }
 function schemaPending() { return NextResponse.json({error:'A migration do Financiamento V1 ainda não foi aplicada neste ambiente.',code:'FINANCING_SCHEMA_PENDING'},{status:503}); }
 
 async function leadFor(context:any,leadId:string) {
@@ -83,12 +63,7 @@ function rpcError(error:any) {
 
 export async function GET(request:Request) {
   try {
-    const url=new URL(request.url);
-    if(url.searchParams.get('homologation_probe')==='1'){
-      const gate=homologationGate();
-      return NextResponse.json({environment:gate.isPreview?'preview':'other',branch_match:gate.branchMatch,saas_dev_match:gate.projectMatch,write_gate_allowed:gate.allowed});
-    }
-    const slug=cleanText(url.searchParams.get('slug'),120); const leadId=cleanText(url.searchParams.get('lead_id'),80);
+    const url=new URL(request.url); const slug=cleanText(url.searchParams.get('slug'),120); const leadId=cleanText(url.searchParams.get('lead_id'),80);
     if (!slug || !leadId) return NextResponse.json({error:'Informe a loja e o lead.'},{status:400});
     const context=await authorizeStorePortal(request,slug); if ('error' in context) return context.error;
     if (!manageRoles.has(context.role)) return NextResponse.json({error:'Seu perfil não possui acesso aos dados de financiamento.'},{status:403});
@@ -102,7 +77,7 @@ export async function GET(request:Request) {
 
 export async function POST(request:Request) {
   try {
-    if (previewWriteBlocked()) return NextResponse.json({error:'Este Preview não está autorizado a gravar no ambiente de homologação.',code:'FINANCING_PREVIEW_READ_ONLY'},{status:403});
+    if (previewBlocked()) return NextResponse.json({error:'Este Preview é somente leitura.',code:'FINANCING_PREVIEW_READ_ONLY'},{status:403});
     const body=await request.json(); const slug=cleanText(body.slug,120); const leadId=cleanText(body.lead_id,80);
     const simulationId=cleanText(body.simulation_id,80) || null; const command=cleanText(body.command,80); const requestId=cleanText(body.request_id,80);
     const expectedVersion=body.expected_version==null || body.expected_version==='' ? null : Number(body.expected_version);
