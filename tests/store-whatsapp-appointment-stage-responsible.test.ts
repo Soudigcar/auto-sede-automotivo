@@ -28,7 +28,7 @@ test('rota do Inbox delega Test-Drive e visita ao fluxo seguro antes de criar ta
   const appointmentBranch = section(
     taskRoute,
     '    if (isStoreLeadAppointmentType(taskType)) {',
-    '\n\n    const availability = await checkStoreAvailability'
+    '\n\n    const warning = await readConflictWarning'
   );
   const branchIndex = taskRoute.indexOf('if (isStoreLeadAppointmentType(taskType))');
   const insertIndex = taskRoute.indexOf(".from('store_calendar_tasks').insert");
@@ -38,13 +38,14 @@ test('rota do Inbox delega Test-Drive e visita ao fluxo seguro antes de criar ta
   assert.match(appointmentBranch, /slug: store\.slug/);
   assert.match(appointmentBranch, /lead_id: lead\.id/);
   assert.match(appointmentBranch, /notes: appointmentNotes/);
-  assert.match(appointmentBranch, /return runSecurePipelineAction\(secureRequest\)/);
+  assert.match(appointmentBranch, /const secureResponse = await runSecurePipelineAction\(secureRequest\)/);
+  assert.match(appointmentBranch, /const warning = payload\.warning \|\| null/);
   assert.doesNotMatch(appointmentBranch, /store_calendar_tasks|\.insert\(/);
   assert.ok(branchIndex > -1 && insertIndex > -1 && branchIndex < insertIndex);
 });
 
 test('tarefas comuns permanecem no fluxo existente sem mudança automática de etapa', () => {
-  assert.match(taskRoute, /const availability = await checkStoreAvailability/);
+  assert.match(taskRoute, /const warning = await readConflictWarning\(supabase, store\.id, startsAt, lead\.id\)/);
   assert.match(taskRoute, /from\('store_calendar_tasks'\)\.insert/);
   assert.match(taskRoute, /last_activity_type: 'task_created'/);
   assert.match(taskRoute, /to_status: lead\.status \|\| null/);

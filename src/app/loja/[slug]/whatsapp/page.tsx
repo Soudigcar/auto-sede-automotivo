@@ -127,14 +127,26 @@ function isEvolutionConversation(conversation: any) {
   return conversation?.number?.provider === 'evolution';
 }
 
+function channelTemporarilyUnavailable(conversation: any) {
+  if (!isEvolutionConversation(conversation)) return false;
+  const number = conversation?.number || {};
+  return String(number.integration_status || '').toLowerCase() === 'temporarily_unavailable' || (
+    number.integration_temporarily_unavailable === true &&
+    String(number.integration_last_known_status || '').toLowerCase() === 'connected'
+  );
+}
+
 function channelConnected(conversation: any) {
-  if (isEvolutionConversation(conversation)) return conversation?.number?.integration_status === 'connected';
+  if (isEvolutionConversation(conversation)) {
+    return conversation?.number?.integration_status === 'connected' || channelTemporarilyUnavailable(conversation);
+  }
   return Boolean(conversation?.number?.is_active);
 }
 
 function channelStatus(conversation: any) {
   if (isEvolutionConversation(conversation)) {
     const status = String(conversation?.number?.integration_status || '').toLowerCase();
+    if (channelTemporarilyUnavailable(conversation)) return 'Evolution temporariamente indisponível';
     if (status === 'connected') return 'Evolution conectada';
     if (status === 'qrcode') return 'Aguardando QR Code';
     if (status === 'connecting') return 'Evolution conectando';
@@ -607,7 +619,7 @@ export default function StoreWhatsappPage() {
                               <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold text-zinc-400"><span>{selectedConversation.lead?.origin || selectedConversation.base_lead?.source || 'WhatsApp'}</span><span>•</span><span>{store?.store_name || 'Loja'}</span><span>•</span><span>{pipelineLeadId(selectedConversation) ? leadStatusLabel(pipelineStageValue(selectedConversation)) : 'Sem etapa na Pipeline'}</span></div>
                             </div>
                           </button>
-                          <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${channelConnected(selectedConversation) ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`} aria-label={channelStatus(selectedConversation)} title={channelStatus(selectedConversation)}><MessageCircle size={18} /></span>
+                          <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${channelTemporarilyUnavailable(selectedConversation) ? 'bg-amber-50 text-amber-700' : channelConnected(selectedConversation) ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`} aria-label={channelStatus(selectedConversation)} title={channelStatus(selectedConversation)}><MessageCircle size={18} /></span>
                         </div>
 
                         <div className="flex items-center gap-1 overflow-x-auto border-t border-zinc-100 pt-1.5">
@@ -690,7 +702,7 @@ export default function StoreWhatsappPage() {
                             </div>
                           </div>
                           <div className="flex shrink-0 flex-col items-stretch gap-1 lg:items-end">
-                            {!channelConnected(selectedConversation) ? <p className="max-w-[280px] text-right text-[9px] font-bold leading-4 text-amber-700">Envio temporariamente bloqueado: {channelStatus(selectedConversation)}. Aguarde a reconexão ou avise o Gestor.</p> : null}
+                            {channelTemporarilyUnavailable(selectedConversation) ? <p className="max-w-[320px] text-right text-[9px] font-bold leading-4 text-amber-700">Evolution temporariamente indisponível para verificação. O último estado conhecido era conectado; o envio fará uma única tentativa, sem reenvio automático.</p> : !channelConnected(selectedConversation) ? <p className="max-w-[280px] text-right text-[9px] font-bold leading-4 text-red-700">Envio bloqueado: {channelStatus(selectedConversation)}. Aguarde a reconexão ou avise o Gestor.</p> : null}
                             <button className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-xs font-black text-white shadow-md shadow-red-600/15 transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50" type="submit" disabled={sending || !messageText.trim() || !channelConnected(selectedConversation)}><Send size={16} /> {sending ? 'Enviando...' : 'Enviar'}</button>
                           </div>
                         </div>

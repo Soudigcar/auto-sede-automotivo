@@ -104,6 +104,8 @@ test('estado live conectado prevalece sobre status Evolution antigo connecting',
   assert.deepEqual(availability, {
     connected: true,
     status: 'connected',
+    last_known_status: 'connected',
+    temporarily_unavailable: false,
     source: 'evolution_live'
   });
 });
@@ -116,16 +118,18 @@ test('estado live desconectado prevalece sobre status antigo connected', () => {
   assert.equal(availability.status, 'disconnected');
 });
 
-test('falha ao consultar Evolution permanece fail-closed', () => {
+test('falha ao consultar Evolution preserva último conectado como indisponibilidade temporária', () => {
   const integration = { status: 'connected', instance_name: 'a4-instance' };
   const availability = resolveEvolutionAvailability(integration, {
     status: 'connected',
     live_error: 'timeout'
   });
 
-  assert.equal(availability.connected, false);
-  assert.equal(availability.status, 'disconnected');
-  assert.equal(availability.source, 'stored_fail_closed');
+  assert.equal(availability.connected, true);
+  assert.equal(availability.status, 'temporarily_unavailable');
+  assert.equal(availability.last_known_status, 'connected');
+  assert.equal(availability.temporarily_unavailable, true);
+  assert.equal(availability.source, 'stored_degraded');
 });
 
 test('payload público usa estado live sem expor credenciais da integração', () => {

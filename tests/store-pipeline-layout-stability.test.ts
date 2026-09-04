@@ -32,7 +32,8 @@ test('each user can switch between Kanban and List without changing pipeline dat
 
 test('list mode reuses scoped leads, protected stage transitions and the existing actions', () => {
   assert.match(pipelineRoute, /'assigned_user_id', 'seller_user_id', 'pre_sales_user_id', 'captured_by_user_id'/);
-  assert.match(pipelinePage, /leads\.filter\(\(lead\) => leadResponsibleId\(lead\) === selectedResponsible\)/);
+  assert.match(pipelinePage, /function matchesSelectedResponsible\(lead: PipelineLead, selectedResponsible: string\)/);
+  assert.match(pipelinePage, /leads\.filter\(\(lead\) => matchesSelectedResponsible\(lead, selectedResponsible\)\)/);
   assert.match(pipelinePage, /onStageChange=\{changeListStage\}/);
   assert.match(pipelinePage, /pipeline-assign-custom-stage/);
   assert.match(pipelinePage, /pipeline-clear-custom-assignment/);
@@ -84,7 +85,8 @@ test('compact cards use the WhatsApp brand mark and open the linked CRM conversa
   assert.match(pipelinePage, /whatsapp_conversation_id/);
   assert.match(pipelinePage, /request\('\/api\/store\/portal\/pipeline\/whatsapp'/);
   assert.match(pipelinePage, /router\.push\(`\/loja\/\$\{encodeURIComponent\(slug\)\}\/whatsapp\?conversation_id=/);
-  assert.match(pipelinePage, /disabled=\{!lead\.has_phone\}/);
+  assert.match(pipelinePage, /disabled=\{readOnly \|\| !lead\.has_phone\}/);
+  assert.match(pipelinePage, /const readOnly = !canOperateLead\(lead\)/);
   assert.doesNotMatch(pipelinePage, /disabled=\{!lead\.whatsapp_conversation_id\}/);
   assert.doesNotMatch(pipelinePage, /popup\.location\.href = `https:\/\/wa\.me/);
   assert.match(whatsappPage, /searchParams\.get\('conversation_id'\)/);
