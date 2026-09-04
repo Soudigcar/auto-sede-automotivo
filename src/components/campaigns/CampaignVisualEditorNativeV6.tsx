@@ -257,7 +257,7 @@ export function CampaignVisualEditorLauncher() {
         const patch = drag.kind === 'resize'
           ? { width: clamp(origin.width + deltaX, minimum, 100 - origin.x) }
           : { x: clamp(origin.x + deltaX, 0, 100 - origin.width), y: clamp(origin.y + deltaY, 0, 98) };
-        return stamp({ ...current, devices: { ...current.devices, [drag.device]: { ...currentLayout, [key]: { ...box, ...patch } } });
+        return stamp({ ...current, devices: { ...current.devices, [drag.device]: { ...currentLayout, [key]: { ...box, ...patch } } } });
       });
       setDirty(true);
     };
