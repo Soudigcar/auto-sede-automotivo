@@ -66,7 +66,7 @@ export async function GET(request: Request) {
         ? context.supabase.from('users').select('id,full_name,email,role').eq('store_id', context.store.id).eq('status', 'active').in('role', ['pre_sales', 'seller', 'prospector']).order('full_name')
         : Promise.resolve({ data: [{ id: context.profile.id, full_name: context.profile.full_name, email: context.profile.email, role: context.role }], error: null }),
       leadIds.length
-        ? context.supabase.from('lead_activity_logs').select('lead_id').eq('store_id', context.store.id).eq('activity_type', 'showed_up_marked').in('lead_id', leadIds)
+        ? context.supabase.from('lead_activity_logs').select('lead_id').eq('store_id', context.store.id).or('activity_type.eq.showed_up_marked,to_status.eq.showed_up').in('lead_id', leadIds)
         : Promise.resolve({ data: [], error: null })
     ]);
     const relationError = salesResult.error || conversationsResult.error || teamResult.error || showedUpEventsResult.error;
