@@ -100,18 +100,23 @@ test('responsável é inserido no cabeçalho ao lado da origem, loja e etapa', (
   assert.match(wrapper, /conversationPanel\?\.firstElementChild/);
   assert.match(wrapper, /button\[aria-expanded\]/);
   assert.match(wrapper, /texts\.filter\(\(text\) => text === '•'\)\.length >= 2/);
-  assert.match(wrapper, /kind === 'header' \? `• Responsável: \$\{label\}`/);
+  assert.match(wrapper, /kind === 'header' \? `• Responsável: \$\{label\}` : label/);
   assert.match(wrapper, /data-lead-responsible-decoration/);
   assert.match(wrapper, /font-black text-violet-700/);
 });
 
-test('responsável é inserido nas abas de conversa sem usar HTML não sanitizado', () => {
+test('nome do responsável permanece na mesma linha dos chips da conversa', () => {
   assert.match(wrapper, /Fila de atendimento/);
   assert.match(wrapper, /button\.querySelector\('h3'\)/);
   assert.match(wrapper, /phoneDigits\(button\.textContent\)\.includes\(entry\.phoneDigits\)/);
   assert.match(wrapper, /texts\.includes\('whatsapp'\) && texts\.includes\('lead'\)/);
   assert.match(wrapper, /'card'/);
-  assert.match(wrapper, /`Responsável: \$\{label\}`/);
+  assert.match(wrapper, /kind === 'header' \? `• Responsável: \$\{label\}` : label/);
+  assert.match(wrapper, /badgeRowElement\.style\.flexWrap = 'nowrap'/);
+  assert.match(wrapper, /badgeRowElement\.style\.overflow = 'hidden'/);
+  assert.match(wrapper, /child\.style\.maxWidth = '110px'/);
+  assert.match(wrapper, /child\.style\.textOverflow = 'ellipsis'/);
+  assert.match(wrapper, /child\.style\.whiteSpace = 'nowrap'/);
   assert.match(wrapper, /decoration\.textContent = text/);
   assert.doesNotMatch(wrapper, /innerHTML/);
   assert.match(wrapper, /new MutationObserver\(apply\)/);
