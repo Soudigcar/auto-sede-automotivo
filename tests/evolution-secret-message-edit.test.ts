@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  decryptEvolutionMessageEdit,
   evolutionSecretMessageEditTarget,
   foldEvolutionMessageEdits
 } from '../src/lib/server/evolutionSecretMessageEdit.ts';
+
+function bytes(value: string) {
+  return [...Buffer.from(value, 'base64')];
+}
 
 function fixture() {
   const original = {
@@ -17,7 +22,10 @@ function fixture() {
     sent_at: '2026-09-04T18:00:42.000Z',
     raw_payload: {
       key: { id: 'TARGET123', remoteJid: '5561999999999@s.whatsapp.net', fromMe: false },
-      message: { messageContextInfo: { messageSecret: Array(32).fill(7) }, conversation: 'Texto antes da edição' }
+      message: {
+        messageContextInfo: { messageSecret: bytes('AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=') },
+        conversation: 'Texto antes da edição'
+      }
     }
   };
 
@@ -36,8 +44,8 @@ function fixture() {
       message: {
         secretEncryptedMessage: {
           targetMessageKey: { id: 'TARGET123', remoteJid: '5561999999999@s.whatsapp.net', fromMe: true },
-          encIv: Array(12).fill(1),
-          encPayload: Array(40).fill(2),
+          encIv: bytes('AAECAwQFBgcICQoL'),
+          encPayload: bytes('le8kL+C4DCWVMKOeiKewiLCro+AEvCncN7juIcW8ZQKY'),
           secretEncType: 2
         }
       }
@@ -47,20 +55,38 @@ function fixture() {
   return { original, edit };
 }
 
+test('decrypts MESSAGE_EDIT with the original message secret', () => {
+  const { original, edit } = fixture();
+  assert.deepEqual(decryptEvolutionMessageEdit(edit, original), {
+    body: 'Texto corrigido',
+    messageType: 'text'
+  });
+});
+
 test('recognizes MESSAGE_EDIT and links it to the provider message id', () => {
   const { edit } = fixture();
   assert.equal(evolutionSecretMessageEditTarget(edit.raw_payload), 'TARGET123');
 });
 
-test('hides the encrypted envelope and keeps the original message on authentication failure', () => {
+test('folds the encrypted envelope into the original message', () => {
   const { original, edit } = fixture();
   const folded = foldEvolutionMessageEdits([original, edit]);
   assert.equal(folded.length, 1);
   assert.equal(folded[0].id, original.id);
+  assert.equal(folded[0].body, 'Texto corrigido');
+  assert.equal(folded[0].edited, true);
+  assert.equal(folded[0].edit_content_unavailable, false);
+  assert.equal(folded[0].edited_at, edit.sent_at);
+});
+
+test('fails closed and keeps the known original content when authentication fails', () => {
+  const { original, edit } = fixture();
+  edit.raw_payload.message.secretEncryptedMessage.encPayload[0] ^= 1;
+  const folded = foldEvolutionMessageEdits([original, edit]);
+  assert.equal(folded.length, 1);
   assert.equal(folded[0].body, original.body);
   assert.equal(folded[0].edited, true);
   assert.equal(folded[0].edit_content_unavailable, true);
-  assert.equal(folded[0].edited_at, edit.sent_at);
 });
 
 test('does not treat other secret envelope types as message edits', () => {
