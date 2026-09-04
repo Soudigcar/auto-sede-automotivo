@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { calculateConversion, calculateResponseTimes } from '@/lib/commercialMetrics';
-import { authorizeStorePortal, applyStoreLeadScope } from '@/lib/server/storePortal';
+import { authorizeStorePortal } from '@/lib/server/storePortal';
 import { cleanText } from '@/lib/server/storeTeam';
 
 export const runtime = 'nodejs';
@@ -14,6 +14,22 @@ function responsibleId(lead: any) {
 
 function roleLabel(role: string) {
   return ({ store: 'Gestor da loja', pre_sales: 'Pré-vendas', seller: 'Vendedor', prospector: 'Prospectador' } as Record<string, string>)[role] || 'Responsável';
+}
+
+function historicalParticipantField(role: string) {
+  if (role === 'pre_sales') return 'pre_sales_user_id';
+  if (role === 'seller') return 'seller_user_id';
+  if (role === 'prospector') return 'captured_by_user_id';
+  return null;
+}
+
+function applyDashboardLeadScope(query: any, profile: any, role: string) {
+  if (role === 'master' || role === 'store') return query;
+  const userId = cleanText(profile?.id, 80);
+  if (!userId) return query.eq('id', '__unauthorized__');
+  const participantField = historicalParticipantField(role);
+  if (!participantField) return query.eq('assigned_user_id', userId);
+  return query.or(`assigned_user_id.eq.${userId},and(status.eq.sale_confirmed,${participantField}.eq.${userId})`);
 }
 
 export async function GET(request: Request) {
@@ -32,14 +48,14 @@ export async function GET(request: Request) {
       .eq('assigned_store_id', context.store.id)
       .neq('status', 'deleted')
       .order('created_at', { ascending: false });
-    leadsQuery = applyStoreLeadScope(leadsQuery, context.profile, context.role);
+    leadsQuery = applyDashboardLeadScope(leadsQuery, context.profile, context.role);
 
     const { data: leadsData, error: leadsError } = await leadsQuery;
     if (leadsError) throw leadsError;
     const leads = leadsData || [];
     const leadIds = leads.map((lead: any) => lead.id).filter(Boolean);
 
-    const [salesResult, conversationsResult, teamResult] = await Promise.all([
+    const [salesResult, conversationsResult, teamResult, showedUpEventsResult] = await Promise.all([
       leadIds.length
         ? context.supabase.from('sales').select('id,lead_id,status,confirmed_at,created_at').eq('store_id', context.store.id).in('lead_id', leadIds)
         : Promise.resolve({ data: [], error: null }),
@@ -48,9 +64,12 @@ export async function GET(request: Request) {
         : Promise.resolve({ data: [], error: null }),
       (context.role === 'master' || context.role === 'store')
         ? context.supabase.from('users').select('id,full_name,email,role').eq('store_id', context.store.id).eq('status', 'active').in('role', ['pre_sales', 'seller', 'prospector']).order('full_name')
-        : Promise.resolve({ data: [{ id: context.profile.id, full_name: context.profile.full_name, email: context.profile.email, role: context.role }], error: null })
+        : Promise.resolve({ data: [{ id: context.profile.id, full_name: context.profile.full_name, email: context.profile.email, role: context.role }], error: null }),
+      leadIds.length
+        ? context.supabase.from('lead_activity_logs').select('lead_id').eq('store_id', context.store.id).eq('activity_type', 'showed_up_marked').in('lead_id', leadIds)
+        : Promise.resolve({ data: [], error: null })
     ]);
-    const relationError = salesResult.error || conversationsResult.error || teamResult.error;
+    const relationError = salesResult.error || conversationsResult.error || teamResult.error || showedUpEventsResult.error;
     if (relationError) throw relationError;
 
     const conversations = conversationsResult.data || [];
@@ -85,16 +104,27 @@ export async function GET(request: Request) {
     });
 
     const statusCount = (status: string) => leads.filter((lead: any) => lead.status === status).length;
+    const showedUpLeadIds = new Set<string>(
+      leads.filter((lead: any) => lead.status === 'showed_up').map((lead: any) => String(lead.id))
+    );
+    for (const event of showedUpEventsResult.data || []) {
+      if (event?.lead_id) showedUpLeadIds.add(String(event.lead_id));
+    }
+
     const upcomingAppointments = leads
       .filter((lead: any) => lead.scheduled_at && new Date(lead.scheduled_at).getTime() >= Date.now() - 3_600_000)
       .sort((left: any, right: any) => new Date(left.scheduled_at).getTime() - new Date(right.scheduled_at).getTime())
       .slice(0, 5);
 
+    const scopeLabel = context.role === 'master' || context.role === 'store'
+      ? context.scopeLabel
+      : 'Leads sob sua responsabilidade atual e vendas confirmadas com sua participação';
+
     return NextResponse.json({
       generated_at: new Date().toISOString(),
       store: context.store,
       profile: { id: context.profile.id, full_name: context.profile.full_name || context.profile.email || 'Usuário', role: context.role },
-      scope_label: context.scopeLabel,
+      scope_label: scopeLabel,
       metrics: {
         total: leads.length,
         active: leads.filter((lead: any) => !FINAL_STATUSES.has(String(lead.status))).length,
@@ -103,7 +133,7 @@ export async function GET(request: Request) {
         scheduled: statusCount('scheduled'),
         appointment_cancelled: statusCount('appointment_cancelled'),
         no_show: statusCount('no_show'),
-        showed_up: statusCount('showed_up'),
+        showed_up: showedUpLeadIds.size,
         sold: conversion.converted_leads,
         lost: statusCount('lost'),
         conversion_rate: conversion.conversion_rate,
