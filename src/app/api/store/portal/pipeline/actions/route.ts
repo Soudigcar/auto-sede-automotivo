@@ -361,7 +361,7 @@ export async function POST(request: Request) {
           note_type: 'service', content: newObservation
         });
       }
-      return NextResponse.json({ success: true, message: 'Informações cadastrais atualizadas.', lead: updated });
+      return NextResponse.json({ success: true, message: 'Informações do lead salvas.', lead: updated });
     }
 
     if (command === 'delete_lead') {
