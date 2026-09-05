@@ -2,13 +2,56 @@ import { cleanText } from '@/lib/server/storeTeam';
 
 export type WhatsappCloudIntegrationStatus = 'draft' | 'testing' | 'ready' | 'disabled' | 'error';
 
+export const WHATSAPP_CLOUD_PREVIEW_BRANCH = 'feature/whatsapp-api-store-v1-isolated';
+export const WHATSAPP_CLOUD_PREVIEW_PROJECT_REF = 'ggvwuqomwbxhtlxaocau';
+const WHATSAPP_CLOUD_PREVIEW_SUPABASE_HOST = `${WHATSAPP_CLOUD_PREVIEW_PROJECT_REF}.supabase.co`;
+
+type WhatsappCloudPreviewWriteScopeInput = {
+  vercelEnv?: string | null;
+  gitRef?: string | null;
+  previewEnabled?: string | null;
+  supabaseUrl?: string | null;
+};
+
+export function evaluateWhatsappCloudPreviewWriteScope(input: WhatsappCloudPreviewWriteScopeInput) {
+  const vercelEnv = String(input.vercelEnv || '').trim().toLowerCase();
+  const gitRef = String(input.gitRef || '').trim();
+  const previewEnabled = String(input.previewEnabled || '').trim().toLowerCase() === 'true';
+  const supabaseUrl = String(input.supabaseUrl || '').trim();
+
+  if (vercelEnv !== 'preview') {
+    return { allowed: false, reason: 'WhatsApp Cloud API V1 aceita escrita somente em Vercel Preview.' } as const;
+  }
+
+  if (gitRef !== WHATSAPP_CLOUD_PREVIEW_BRANCH) {
+    return { allowed: false, reason: 'WhatsApp Cloud API V1 está bloqueada fora da branch isolada autorizada.' } as const;
+  }
+
+  if (!previewEnabled) {
+    return { allowed: false, reason: 'WhatsApp Cloud API V1 não está habilitada neste Preview isolado.' } as const;
+  }
+
+  let hostname = '';
+  try {
+    hostname = new URL(supabaseUrl).hostname.toLowerCase();
+  } catch {}
+
+  if (hostname !== WHATSAPP_CLOUD_PREVIEW_SUPABASE_HOST) {
+    return { allowed: false, reason: 'WhatsApp Cloud API V1 está bloqueada fora do Supabase temporário autorizado.' } as const;
+  }
+
+  return { allowed: true, reason: 'Preview isolado autorizado.' } as const;
+}
+
 export function assertWhatsappCloudPreviewWriteEnabled() {
-  if (process.env.VERCEL_ENV === 'production') {
-    throw new Error('WhatsApp Cloud API V1 está bloqueada em Production.');
-  }
-  if (String(process.env.WHATSAPP_CLOUD_PREVIEW_ENABLED || '').toLowerCase() !== 'true') {
-    throw new Error('WhatsApp Cloud API V1 não está habilitada neste Preview isolado.');
-  }
+  const scope = evaluateWhatsappCloudPreviewWriteScope({
+    vercelEnv: process.env.VERCEL_ENV,
+    gitRef: process.env.VERCEL_GIT_COMMIT_REF,
+    previewEnabled: process.env.WHATSAPP_CLOUD_PREVIEW_ENABLED,
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL
+  });
+
+  if (!scope.allowed) throw new Error(scope.reason);
 }
 
 export function publicWhatsappCloudIntegration(row: any) {
