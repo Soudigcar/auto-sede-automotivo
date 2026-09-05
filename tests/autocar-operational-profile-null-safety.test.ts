@@ -34,7 +34,7 @@ test('normaliza campos textuais nulos do Perfil Operacional antes da renderizaç
 test('normalização também é segura quando o perfil inteiro está ausente', () => {
   const normalized = normalizeAutocarOperationalProfileClient(undefined);
 
-  assert.equal(normalized.timezone, '');
+  assert.equal(normalized.timezone, 'America/Sao_Paulo');
   assert.equal(normalized.address_text, '');
   assert.equal(normalized.maps_url, '');
   assert.equal(normalized.waze_url, '');
