@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarClock, LocateFixed, Loader2, MapPin, Plus, Save, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import {
+  normalizeAutocarOperationalProfileClient,
+  safeClientTrim
+} from '@/lib/autocar/operationalProfileClient';
 
 const days = [
   ['monday', 'Segunda'],
@@ -61,12 +65,25 @@ function sourceLabel(value: string) {
 
 function hasUsableCoordinates(profile: Profile) {
   if (profile.latitude == null || profile.longitude == null ||
-      String(profile.latitude).trim() === '' || String(profile.longitude).trim() === '') return false;
+      safeClientTrim(profile.latitude) === '' || safeClientTrim(profile.longitude) === '') return false;
   const latitude = Number(profile.latitude);
   const longitude = Number(profile.longitude);
   return Number.isFinite(latitude) && Number.isFinite(longitude) &&
     latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180 &&
     !(latitude === 0 && longitude === 0);
+}
+
+function normalizeProfile(source: Record<string, unknown> | null | undefined): Profile {
+  const normalized = normalizeAutocarOperationalProfileClient(source);
+  return {
+    ...emptyProfile(),
+    ...normalized,
+    weekly_hours: {
+      ...emptyProfile().weekly_hours,
+      ...((source?.weekly_hours && typeof source.weekly_hours === 'object') ? source.weekly_hours as Profile['weekly_hours'] : {})
+    },
+    special_hours: Array.isArray(source?.special_hours) ? source.special_hours as SpecialHour[] : []
+  } as Profile;
 }
 
 export function AutocarOperationalProfile({ slug, canManage }: { slug: string; canManage: boolean }) {
@@ -99,22 +116,14 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
         throw new Error(result.error || 'Não foi possível carregar o Perfil Operacional.');
       }
       const source = result.profile || result.defaults || {};
-      const nextProfile = {
-        ...emptyProfile(),
-        ...source,
-        weekly_hours: {
-          ...emptyProfile().weekly_hours,
-          ...(source.weekly_hours || {})
-        },
-        special_hours: source.special_hours || []
-      } as Profile;
+      const nextProfile = normalizeProfile(source);
       setProfile(nextProfile);
-      mapsUrlRef.current = nextProfile.maps_url || '';
+      mapsUrlRef.current = nextProfile.maps_url;
       setProfileSource(String(result.profile_source || ''));
       setMessage('');
       setMapsMessage('');
       setMapsError(false);
-      if (canManage && nextProfile.maps_url && !hasUsableCoordinates(nextProfile)) {
+      if (canManage && safeClientTrim(nextProfile.maps_url) && !hasUsableCoordinates(nextProfile)) {
         void resolveMapsLocation(nextProfile.maps_url, true);
       }
     } catch (error: any) {
@@ -126,8 +135,8 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
 
   useEffect(() => { void load(); }, [slug]);
 
-  async function resolveMapsLocation(mapsUrl: string, automatic = false) {
-    const normalizedUrl = mapsUrl.trim();
+  async function resolveMapsLocation(mapsUrl: unknown, automatic = false) {
+    const normalizedUrl = safeClientTrim(mapsUrl);
     if (!normalizedUrl || resolvingMaps) return;
     setResolvingMaps(true);
     setMapsError(false);
@@ -145,9 +154,9 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Não foi possível identificar a localização.');
 
-      if (mapsUrlRef.current.trim() !== normalizedUrl) return;
+      if (safeClientTrim(mapsUrlRef.current) !== normalizedUrl) return;
       setProfile((current) => {
-        if (current.maps_url.trim() !== normalizedUrl) return current;
+        if (safeClientTrim(current.maps_url) !== normalizedUrl) return current;
         return {
           ...current,
           latitude: result.latitude,
@@ -235,15 +244,7 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Não foi possível salvar.');
 
-      setProfile({
-        ...emptyProfile(),
-        ...result.profile,
-        weekly_hours: {
-          ...emptyProfile().weekly_hours,
-          ...(result.profile?.weekly_hours || {})
-        },
-        special_hours: result.profile?.special_hours || []
-      });
+      setProfile(normalizeProfile(result.profile || {}));
       const nextSource = String(result.profile_source || profileSource || '');
       setProfileSource(nextSource);
       setMessage(`Perfil Operacional salvo na fonte canônica ${sourceLabel(nextSource)}.`);
@@ -279,18 +280,18 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
             <div className="rounded-2xl border border-zinc-200 p-4">
               <h3 className="flex items-center gap-2 text-sm font-black text-zinc-900"><MapPin size={17} className="text-red-600" /> Localização da loja</h3>
               <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <input className="premium-input md:col-span-2" placeholder="Nome do local / referência" value={profile.location_label || ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, location_label: event.target.value })} />
-                <input className="premium-input md:col-span-2" placeholder="Endereço completo" value={profile.address_text || ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, address_text: event.target.value })} />
-                <input className="premium-input" placeholder="Cidade" value={profile.city || ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, city: event.target.value })} />
-                <input className="premium-input" placeholder="UF" value={profile.state || ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, state: event.target.value })} />
-                <input className="premium-input" placeholder="CEP" value={profile.postal_code || ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, postal_code: event.target.value })} />
-                <input className="premium-input" placeholder="Fuso horário IANA" value={profile.timezone || ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, timezone: event.target.value })} />
+                <input className="premium-input md:col-span-2" placeholder="Nome do local / referência" value={profile.location_label} disabled={!canManage} onChange={(event) => setProfile({ ...profile, location_label: event.target.value })} />
+                <input className="premium-input md:col-span-2" placeholder="Endereço completo" value={profile.address_text} disabled={!canManage} onChange={(event) => setProfile({ ...profile, address_text: event.target.value })} />
+                <input className="premium-input" placeholder="Cidade" value={profile.city} disabled={!canManage} onChange={(event) => setProfile({ ...profile, city: event.target.value })} />
+                <input className="premium-input" placeholder="UF" value={profile.state} disabled={!canManage} onChange={(event) => setProfile({ ...profile, state: event.target.value })} />
+                <input className="premium-input" placeholder="CEP" value={profile.postal_code} disabled={!canManage} onChange={(event) => setProfile({ ...profile, postal_code: event.target.value })} />
+                <input className="premium-input" placeholder="Fuso horário IANA" value={profile.timezone} disabled={!canManage} onChange={(event) => setProfile({ ...profile, timezone: event.target.value })} />
                 <div className="flex gap-2 md:col-span-2">
                   <input
                     type="url"
                     className="premium-input min-w-0 flex-1"
                     placeholder="Cole o link compartilhado pelo Google Maps"
-                    value={profile.maps_url || ''}
+                    value={profile.maps_url}
                     disabled={!canManage}
                     onChange={(event) => {
                       const mapsUrl = event.target.value;
@@ -300,7 +301,7 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
                       setMapsError(false);
                     }}
                     onPaste={(event) => {
-                      const mapsUrl = event.clipboardData.getData('text').trim();
+                      const mapsUrl = safeClientTrim(event.clipboardData.getData('text'));
                       if (mapsUrl) window.setTimeout(() => void resolveMapsLocation(mapsUrl, true), 0);
                     }}
                     onBlur={(event) => void resolveMapsLocation(event.currentTarget.value)}
@@ -310,7 +311,7 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
                     className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
                     title="Identificar localização"
                     aria-label="Identificar localização pelo link do Google Maps"
-                    disabled={!canManage || resolvingMaps || !profile.maps_url.trim()}
+                    disabled={!canManage || resolvingMaps || !safeClientTrim(profile.maps_url)}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => void resolveMapsLocation(profile.maps_url)}
                   >
@@ -321,7 +322,7 @@ export function AutocarOperationalProfile({ slug, canManage }: { slug: string; c
                 <input className="premium-input bg-zinc-50" aria-label="Latitude automática" placeholder="Latitude automática" value={profile.latitude ?? ''} readOnly />
                 <input className="premium-input bg-zinc-50" aria-label="Longitude automática" placeholder="Longitude automática" value={profile.longitude ?? ''} readOnly />
                 <p className="md:col-span-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[10px] font-bold leading-relaxed text-zinc-600">Cole o link do local exato e o sistema preencherá as coordenadas automaticamente. Um link sem pin identificável não será salvo como localização oficial.</p>
-                <input type="url" className="premium-input md:col-span-2" placeholder="Link Waze (HTTPS)" value={profile.waze_url || ''} disabled={!canManage} onChange={(event) => setProfile({ ...profile, waze_url: event.target.value })} />
+                <input type="url" className="premium-input md:col-span-2" placeholder="Link Waze (HTTPS)" value={profile.waze_url} disabled={!canManage} onChange={(event) => setProfile({ ...profile, waze_url: event.target.value })} />
               </div>
             </div>
 
