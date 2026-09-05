@@ -5,6 +5,9 @@ import test from 'node:test';
 const autoShadow = readFileSync('src/lib/server/autocar/autoShadow.ts', 'utf8');
 const liveVisit = readFileSync('src/lib/server/autocar/liveVisitPilot.ts', 'utf8');
 const continuity = readFileSync('src/lib/server/autocar/conversationContinuity.ts', 'utf8');
+const smartFollowUp = readFileSync('src/lib/server/autocar/smartFollowUp.ts', 'utf8');
+const vehiclePresentation = readFileSync('src/lib/server/autocar/vehiclePresentationV2.ts', 'utf8');
+const followUpCron = readFileSync('src/app/api/cron/autocar-follow-up/route.ts', 'utf8');
 
 test('Booking mantém prioridade mesmo quando Vehicle State é concluído', () => {
   assert.match(autoShadow, /const bookingActive = bookingState !== 'NOT_APPLICABLE'/);
@@ -52,4 +55,27 @@ test('execução de continuidade exige geração íntegra antes de liberar opera
   assert.match(autoShadow, /continuity\?\.execution_ready === true/);
   assert.match(autoShadow, /continuity\?\.fail_closed !== true/);
   assert.match(autoShadow, /secondaryOperationAllowed && continuityExecutionSafe/);
+});
+
+test('Smart Follow-up V1 remove templates comerciais e gera copy contextual fail-closed', () => {
+  assert.match(smartFollowUp, /createAutocarStructuredResponse/);
+  assert.match(smartFollowUp, /schemaName: 'autocar_smart_follow_up_v1_generative'/);
+  assert.match(smartFollowUp, /fixed_text_fallback_disabled: true/);
+  assert.match(smartFollowUp, /generation_fail_closed/);
+  assert.doesNotMatch(smartFollowUp, /function textFor/);
+  assert.doesNotMatch(smartFollowUp, /Passando para confirmar sua visita conosco/);
+  assert.doesNotMatch(smartFollowUp, /Queria saber se você foi bem atendido na visita/);
+  assert.doesNotMatch(smartFollowUp, /Conseguiu passar na loja como combinado\?/);
+  assert.doesNotMatch(smartFollowUp, /Você pediu para eu falar com você agora/);
+  assert.match(followUpCron, /process\.env\.VERCEL_ENV !== 'preview'/);
+  assert.match(followUpCron, /external_execution: false/);
+});
+
+test('Vehicle Presentation V2 usa somente abertura generativa e falha fechado sem ela', () => {
+  assert.match(vehiclePresentation, /generatedOpening = clean\(input\.aiResponse/);
+  assert.match(vehiclePresentation, /missing_generative_opening/);
+  assert.match(vehiclePresentation, /fixed_text_fallback_disabled: true/);
+  assert.match(vehiclePresentation, /opening_message: ready \? generatedOpening : ''/);
+  assert.match(vehiclePresentation, /external_execution: false/);
+  assert.doesNotMatch(vehiclePresentation, /Separei \$\{cards\.length\} opções para você comparar/);
 });
