@@ -20,6 +20,8 @@ export function normalizeAutocarOperationalProfileClient<T extends Record<string
     normalized[field] = typeof source?.[field] === 'string' ? source[field] as string : '';
   }
 
+  if (!normalized.timezone) normalized.timezone = 'America/Sao_Paulo';
+
   return normalized;
 }
 
