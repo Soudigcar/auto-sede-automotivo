@@ -50,6 +50,7 @@ export default function AutocarConversationalCopilot() {
   const [conversationId, setConversationId] = useState('');
   const [runtime, setRuntime] = useState<RuntimeState | null>(null);
   const [runtimeLoading, setRuntimeLoading] = useState(false);
+  const [previewHomologationAvailable, setPreviewHomologationAvailable] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [loading, setLoading] = useState(false);
@@ -91,6 +92,7 @@ export default function AutocarConversationalCopilot() {
     setError('');
     setCopyStatus('');
     setRuntime(null);
+    setPreviewHomologationAvailable(false);
     if (conversationId && slug) void loadRuntime(conversationId);
   }, [conversationId, slug]);
 
@@ -106,16 +108,25 @@ export default function AutocarConversationalCopilot() {
     try {
       const token = await authToken();
       const query = new URLSearchParams({ slug, conversation_id: targetConversationId });
-      const response = await fetch(`/api/store/portal/autocar/runtime?${query.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: 'no-store'
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Não foi possível consultar o modo AUTOCAR.');
+      const [runtimeResponse, homologationResponse] = await Promise.all([
+        fetch(`/api/store/portal/autocar/runtime?${query.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store'
+        }),
+        fetch(`/api/store/portal/autocar/copilot/chat?slug=${encodeURIComponent(slug)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store'
+        })
+      ]);
+      const result = await runtimeResponse.json().catch(() => ({}));
+      const homologation = await homologationResponse.json().catch(() => ({}));
+      if (!runtimeResponse.ok) throw new Error(result.error || 'Não foi possível consultar o modo AUTOCAR.');
       setRuntime(result.runtime || null);
+      setPreviewHomologationAvailable(homologationResponse.ok && homologation.preview_homologation_available === true);
       setError('');
     } catch (err: any) {
       setRuntime(null);
+      setPreviewHomologationAvailable(false);
       setError(err?.message || 'Não foi possível consultar o modo AUTOCAR.');
     } finally {
       setRuntimeLoading(false);
@@ -125,7 +136,9 @@ export default function AutocarConversationalCopilot() {
   async function askAutocar() {
     const question = prompt.replace(/\s+/g, ' ').trim();
     if (!conversationId || !slug || loading || question.length < 3) return;
-    if (String(runtime?.effective_mode || '').toLowerCase() !== 'copilot') {
+    const effectiveMode = String(runtime?.effective_mode || '').toLowerCase();
+    const previewHomologation = previewHomologationAvailable && effectiveMode !== 'copilot';
+    if (effectiveMode !== 'copilot' && !previewHomologation) {
       setError('O Copilot conversacional só fica disponível quando o modo efetivo desta conversa é COPILOT.');
       return;
     }
@@ -144,7 +157,8 @@ export default function AutocarConversationalCopilot() {
           slug,
           conversation_id: conversationId,
           operator_prompt: question,
-          history
+          history,
+          preview_homologation: previewHomologation
         }),
         cache: 'no-store'
       });
@@ -186,7 +200,8 @@ export default function AutocarConversationalCopilot() {
   }
 
   const effectiveMode = String(runtime?.effective_mode || '').toLowerCase();
-  const copilotReady = Boolean(conversationId) && effectiveMode === 'copilot' && !runtimeLoading;
+  const previewHomologation = Boolean(conversationId) && previewHomologationAvailable && effectiveMode !== 'copilot' && !runtimeLoading;
+  const copilotReady = Boolean(conversationId) && (effectiveMode === 'copilot' || previewHomologation) && !runtimeLoading;
 
   return (
     <>
@@ -207,7 +222,7 @@ export default function AutocarConversationalCopilot() {
               <p className="mt-1 text-[10px] font-bold text-zinc-600">Conversa ativa do Inbox · assistência somente consultiva</p>
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 <span className={`rounded-full px-2 py-1 text-[8px] font-black uppercase ${copilotReady ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-200 text-zinc-600'}`}>
-                  {runtimeLoading ? 'consultando modo' : effectiveMode || 'aguardando conversa'}
+                  {runtimeLoading ? 'consultando modo' : previewHomologation ? 'copilot · homologação preview' : effectiveMode || 'aguardando conversa'}
                 </span>
                 <span className="rounded-full bg-blue-50 px-2 py-1 text-[8px] font-black uppercase text-blue-700">não envia mensagens</span>
               </div>
@@ -219,12 +234,15 @@ export default function AutocarConversationalCopilot() {
             {!conversationId ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[10px] font-bold leading-relaxed text-amber-900">Selecione uma conversa no Inbox. O Copilot acompanha a conversa aberta sem alterar o atendimento.</div>
             ) : null}
-            {conversationId && !runtimeLoading && effectiveMode !== 'copilot' ? (
+            {previewHomologation ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[10px] font-bold leading-relaxed text-amber-900">Homologação isolada de Preview: o runtime real deste ambiente permanece em <b>{(effectiveMode || 'OFF').toUpperCase()}</b>. Somente esta consulta é simulada como COPILOT e nenhuma configuração é alterada.</div>
+            ) : null}
+            {conversationId && !runtimeLoading && effectiveMode !== 'copilot' && !previewHomologation ? (
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-[10px] font-bold leading-relaxed text-zinc-700">Esta conversa está em <b>{(effectiveMode || 'OFF').toUpperCase()}</b>. O painel conversacional permanece bloqueado porque este recurso é exclusivo do COPILOT.</div>
             ) : null}
 
             {copilotReady && turns.length === 0 ? (
-              <div className="space-y-2">
+              <div className="mt-2 space-y-2">
                 <div className="rounded-xl border border-red-100 bg-red-50/50 p-3 text-[10px] font-semibold leading-relaxed text-zinc-700">Pergunte à AUTOCAR usando o histórico real do cliente, conhecimento da loja e estoque disponível. A IA apenas orienta o vendedor; nenhuma ação externa é executada.</div>
                 <div className="grid gap-2">
                   {['O que eu respondo agora?', 'O que ainda falta qualificar?', 'Qual é a melhor próxima pergunta?'].map((suggestion) => (
