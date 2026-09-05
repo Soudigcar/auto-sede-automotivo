@@ -8,6 +8,7 @@ import { evaluateAutocarOperationalShadowPolicy } from '@/lib/server/autocar/ope
 import { resolveBookingContext } from '@/lib/server/autocar/bookingContextResolver';
 import { evaluateBookingConfirmationGuard } from '@/lib/server/autocar/bookingConfirmationGuard';
 import { enhanceAutocarBookingConversation } from '@/lib/server/autocar/bookingConversation';
+import { enhanceAutocarConversationContinuity } from '@/lib/server/autocar/conversationContinuity';
 import { attemptAutocarLiveTextPilot } from '@/lib/server/autocar/liveTextPilot';
 import { attemptAutocarLivePhotoPilot } from '@/lib/server/autocar/livePhotoPilot';
 import { attemptAutocarLiveLocationPilot } from '@/lib/server/autocar/liveLocationPilot';
@@ -244,7 +245,15 @@ export async function processAutocarShadowInbound(input: {
       bookingContext
     });
 
-    const shadow = finalizeOperationalShadow(conversationalGenerated, bookingGuard);
+    const continuityGenerated = await enhanceAutocarConversationContinuity({
+      productionSupabase: input.productionSupabase,
+      storeId: input.storeId,
+      conversationId: input.conversation.id,
+      shadow: conversationalGenerated,
+      bookingGuard
+    });
+
+    const shadow = finalizeOperationalShadow(continuityGenerated, bookingGuard);
     const completedClaim = await completeAutocarShadowClaim({
       storeId: input.storeId,
       claimId: prepared.claim.id,
@@ -287,6 +296,15 @@ export async function processAutocarShadowInbound(input: {
         .maybeSingle();
       if (integrationError) throw integrationError;
 
+      const bookingState = String(shadow?.booking_guard?.state || 'NOT_APPLICABLE');
+      const bookingActive = bookingState !== 'NOT_APPLICABLE';
+      const continuity = shadow?.conversation_continuity || null;
+      const continuityExecutionSafe = !continuity || (
+        continuity?.resolution === 'accepted' &&
+        continuity?.execution_ready === true &&
+        continuity?.fail_closed !== true
+      );
+
       let vehicleState: any = {
         updated: false,
         skipped: true,
@@ -320,11 +338,13 @@ export async function processAutocarShadowInbound(input: {
       let vehicleStateReply: any = {
         generated: false,
         response: '',
-        reason: 'Vehicle State não executou alteração nem confirmação idempotente nesta mensagem.'
+        reason: bookingActive
+          ? 'Booking ativo preserva a resposta conversacional de agenda; Vehicle State permanece apenas como contexto secundário.'
+          : 'Vehicle State não executou alteração nem confirmação idempotente nesta mensagem.'
       };
       let liveTextInput = conversationalTextShadowResult(baseResult, shadow);
 
-      if (vehicleStateHandled && input.conversation.lead_id) {
+      if (vehicleStateHandled && !bookingActive && input.conversation.lead_id) {
         try {
           vehicleStateReply = await generateAutocarVehicleStatePostActionReply({
             productionSupabase: input.productionSupabase,
@@ -368,23 +388,36 @@ export async function processAutocarShadowInbound(input: {
         }
       }
 
-      const liveText = await attemptAutocarLiveTextPilot({
-        productionSupabase: input.productionSupabase,
-        storeId: input.storeId,
-        conversationId: input.conversation.id,
-        whatsappNumberId: input.conversation.whatsapp_number_id,
-        leadId: input.conversation.lead_id || null,
-        inboundMessageId: input.message.id,
-        integration: integration || {},
-        shadowResult: liveTextInput
-      });
+      const liveText = bookingState === 'READY_TO_SCHEDULE'
+        ? {
+            sent: false,
+            skipped: true,
+            reason: 'Confirmação textual será gerada somente depois da transação real de agendamento.'
+          }
+        : await attemptAutocarLiveTextPilot({
+            productionSupabase: input.productionSupabase,
+            storeId: input.storeId,
+            conversationId: input.conversation.id,
+            whatsappNumberId: input.conversation.whatsapp_number_id,
+            leadId: input.conversation.lead_id || null,
+            inboundMessageId: input.message.id,
+            integration: integration || {},
+            shadowResult: liveTextInput
+          });
+
+      const continuityOverridesVehicleState = Boolean(
+        continuityExecutionSafe &&
+        continuity?.resolution === 'accepted' &&
+        ['send_location', 'send_photos'].includes(String(continuity?.pending_action || ''))
+      );
+      const secondaryOperationAllowed = !bookingActive && (!vehicleStateHandled || continuityOverridesVehicleState);
 
       let livePhotos: any = {
         sent: false,
         skipped: true,
         reason: 'A última mensagem não exige envio de fotos.'
       };
-      if (!vehicleStateHandled && shadow?.operational_preview?.plan?.needs_photos === true) {
+      if (secondaryOperationAllowed && continuityExecutionSafe && shadow?.operational_preview?.plan?.needs_photos === true) {
         livePhotos = await attemptAutocarLivePhotoPilot({
           productionSupabase: input.productionSupabase,
           storeId: input.storeId,
@@ -395,11 +428,11 @@ export async function processAutocarShadowInbound(input: {
           integration: integration || {},
           shadowResult: baseResult
         });
-      } else if (vehicleStateHandled) {
+      } else if (vehicleStateHandled && !continuityOverridesVehicleState) {
         livePhotos = {
           sent: false,
           skipped: true,
-          reason: 'Vehicle State foi concluído nesta mensagem; V1 não combina alteração de veículo com outra execução operacional.'
+          reason: 'Vehicle State foi concluído nesta mensagem; envio secundário de fotos permanece bloqueado.'
         };
       }
 
@@ -408,7 +441,7 @@ export async function processAutocarShadowInbound(input: {
         skipped: true,
         reason: 'A última mensagem não exige envio de localização.'
       };
-      if (!vehicleStateHandled && shadow?.operational_preview?.plan?.needs_location === true) {
+      if (secondaryOperationAllowed && continuityExecutionSafe && shadow?.operational_preview?.plan?.needs_location === true) {
         liveLocation = await attemptAutocarLiveLocationPilot({
           productionSupabase: input.productionSupabase,
           storeId: input.storeId,
@@ -419,11 +452,11 @@ export async function processAutocarShadowInbound(input: {
           integration: integration || {},
           shadowResult: baseResult
         });
-      } else if (vehicleStateHandled) {
+      } else if (vehicleStateHandled && !continuityOverridesVehicleState) {
         liveLocation = {
           sent: false,
           skipped: true,
-          reason: 'Vehicle State foi concluído nesta mensagem; V1 não combina alteração de veículo com outra execução operacional.'
+          reason: 'Vehicle State foi concluído nesta mensagem; envio secundário de localização permanece bloqueado.'
         };
       }
 
@@ -431,11 +464,11 @@ export async function processAutocarShadowInbound(input: {
         sent: false,
         scheduled: false,
         skipped: true,
-        reason: vehicleStateHandled
-          ? 'Vehicle State foi concluído nesta mensagem; agendamento existente não será recriado nem reagendado.'
+        reason: bookingActive
+          ? 'Booking será avaliado pelo guard LIVE independentemente do Vehicle State.'
           : 'A última mensagem não exige execução de agendamento.'
       };
-      if (!vehicleStateHandled && shadow?.booking_guard?.state !== 'NOT_APPLICABLE') {
+      if (bookingActive) {
         liveVisit = await attemptAutocarLiveVisitPilot({
           productionSupabase: input.productionSupabase,
           storeId: input.storeId,
