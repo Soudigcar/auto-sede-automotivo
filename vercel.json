@@ -3,6 +3,9 @@
   "installCommand": "npm install --legacy-peer-deps",
   "buildCommand": "next build",
   "outputDirectory": ".next",
+  "git": {
+    "deploymentEnabled": false
+  },
   "crons": [
     {
       "path": "/api/cron/autocar-follow-up-v2",
@@ -10,7 +13,7 @@
     },
     {
       "path": "/api/cron/privacy-retention",
-      "schedule": "17 3 * * *"
+      "schedule": "17 3 * * * *"
     }
   ]
 }
