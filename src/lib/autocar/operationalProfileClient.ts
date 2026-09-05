@@ -24,5 +24,7 @@ export function normalizeAutocarOperationalProfileClient<T extends Record<string
 }
 
 export function safeClientTrim(value: unknown) {
-  return typeof value === 'string' ? value.trim() : '';
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
+  return '';
 }
