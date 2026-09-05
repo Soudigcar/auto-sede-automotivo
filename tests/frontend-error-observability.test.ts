@@ -32,7 +32,7 @@ test('browser observer and build version are wired in the root layout', () => {
 
 test('AUTOCAR menu navigation is isolated from client-side RSC transitions', () => {
   assert.match(rootLayout, /<AutocarNavigationGuard \/>/);
-  assert.match(navigationGuard, /\/loja\/\[\^\/\]\+\/autocar/);
+  assert.match(navigationGuard, /return url\.origin === window\.location\.origin && .*autocar.*\.test\(url\.pathname\)/);
   assert.match(navigationGuard, /document\.addEventListener\('click', handleClick, true\)/);
   assert.match(navigationGuard, /window\.location\.assign\(target\.href\)/);
 });
