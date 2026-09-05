@@ -26,6 +26,8 @@ import { MasterMobileNavigation } from '@/components/MasterMobileNavigation';
 import { PrivacyConsentCenter } from '@/components/PrivacyConsentCenter';
 import { PwaInstallManager } from '@/components/PwaInstallManager';
 import { PwaUpdateAnalytics } from '@/components/PwaUpdateAnalytics';
+import { BrowserErrorObserver } from '@/components/BrowserErrorObserver';
+import { AutocarNavigationGuard } from '@/components/AutocarNavigationGuard';
 import { resolvePwaAppVersion } from '@/lib/server/pwaAppVersion';
 
 export const metadata: Metadata = {
@@ -63,7 +65,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const appVersion = resolvePwaAppVersion();
 
   return (
-    <html lang="pt-BR" suppressHydrationWarning>
+    <html lang="pt-BR" data-app-version={appVersion} suppressHydrationWarning>
       <body suppressHydrationWarning>
         <AuthGate>{children}</AuthGate>
         <PipelineAddLeadWithStock />
@@ -90,6 +92,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PrivacyConsentCenter />
         <PwaInstallManager currentVersion={appVersion} />
         <PwaUpdateAnalytics />
+        <BrowserErrorObserver />
+        <AutocarNavigationGuard />
       </body>
     </html>
   );
