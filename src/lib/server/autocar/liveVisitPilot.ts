@@ -420,7 +420,7 @@ export async function attemptAutocarLiveVisitPilot(input: {
     confirmation = await generateVisitConfirmation({
       productionSupabase: input.productionSupabase,
       storeId: input.storeId,
-      conversationId: input.conversation.id,
+      conversationId: input.conversationId,
       leadId: String(input.leadId || ''),
       scheduledAt,
       transaction
