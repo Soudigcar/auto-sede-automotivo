@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type MutableRefObject, type PointerEvent, type WheelEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { LayoutTemplate, Layers3, Menu, MoveVertical, X } from 'lucide-react';
+import { CampaignLandingFloatingSimulators } from './CampaignLandingFloatingSimulators';
 import { CampaignLandingNavigation } from './CampaignLandingNavigation';
 import { CampaignLandingNavigationInspector } from './CampaignLandingNavigationInspector';
 import { CampaignLandingPageStructureInspector } from './CampaignLandingPageStructureInspector';
@@ -113,11 +114,11 @@ export function CampaignVisualEditorPreviewResponsive(props: Props) {
     </div>, document.body
   ) : null;
 
-  return <div id="editor-inicio" className="relative min-w-0 overflow-hidden bg-slate-50">
+  return <div id="editor-inicio" data-landing-canvas className="relative min-w-0 overflow-visible bg-slate-50">
     <CampaignLandingNavigation settings={draftV3.navigation} active={activeView} onNavigate={setActiveView} preview device={props.device} />
 
     {!props.clientView ? <div className="flex min-w-0 items-center justify-between gap-3 border-b border-indigo-200 bg-indigo-50 px-4 py-2.5">
-      <div className="min-w-0"><p className="text-[10px] font-black text-indigo-900">Landing estruturada por componentes</p><p className="truncate text-[9px] font-semibold text-indigo-700">Hero compacto, seções independentes e dimensões controladas por dispositivo.</p></div>
+      <div className="min-w-0"><p className="text-[10px] font-black text-indigo-900">Landing estruturada por componentes</p><p className="truncate text-[9px] font-semibold text-indigo-700">Hero compacto, seções independentes e componentes livres sobre o canvas.</p></div>
       <div className="flex shrink-0 gap-2"><button type="button" onClick={() => { setPanelMode('structure'); setPanelOpen(true); }} className="rounded-xl bg-zinc-950 px-3 py-2 text-[9px] font-black text-white"><LayoutTemplate size={13} className="inline"/> Estrutura</button><button type="button" onClick={() => { setPanelMode('sections'); setPanelOpen(true); }} className="rounded-xl bg-fuchsia-600 px-3 py-2 text-[9px] font-black text-white"><Layers3 size={13} className="inline"/> Conteúdo</button></div>
     </div> : null}
 
@@ -127,11 +128,15 @@ export function CampaignVisualEditorPreviewResponsive(props: Props) {
         {!props.clientView ? <button type="button" onPointerDown={startHeroResize} onClick={(event) => event.stopPropagation()} className="absolute bottom-0 left-1/2 z-[70] flex h-7 w-28 -translate-x-1/2 translate-y-1/2 cursor-ns-resize items-center justify-center gap-1 rounded-full border border-white/30 bg-zinc-950 text-[8px] font-black text-white shadow-xl"><MoveVertical size={12}/> ALTURA HERO</button> : null}
       </div>
       <CampaignLandingSectionsRenderer draft={draftV3} vehicles={props.vehicles} campaign={props.campaign} eventInfo={props.eventInfo} editor={!props.clientView} previewDevice={props.device} selectedSectionId={selectedSectionId} onSelectSection={chooseSection} onOpenSimulator={() => setActiveView('simulation')} view="home" />
+      <CampaignLandingFloatingSimulators draft={draftV3} device={props.device} vehicles={props.vehicles} campaign={props.campaign} eventInfo={props.eventInfo} editor={!props.clientView} selectedSectionId={selectedSectionId} onSelectSection={chooseSection} onChange={changeDraft}/>
     </> : null}
 
     {activeView === 'vehicles' ? <CampaignLandingSectionsRenderer draft={draftV3} vehicles={props.vehicles} campaign={props.campaign} eventInfo={props.eventInfo} editor={!props.clientView} previewDevice={props.device} selectedSectionId={selectedSectionId} onSelectSection={chooseSection} onOpenSimulator={() => setActiveView('simulation')} view="vehicles" /> : null}
 
-    {activeView === 'simulation' ? <CampaignLandingSectionsRenderer draft={draftV3} vehicles={props.vehicles} campaign={props.campaign} eventInfo={props.eventInfo} editor={!props.clientView} previewDevice={props.device} selectedSectionId={selectedSectionId} onSelectSection={chooseSection} onOpenSimulator={() => undefined} view="simulation" /> : null}
+    {activeView === 'simulation' ? <>
+      <CampaignLandingSectionsRenderer draft={draftV3} vehicles={props.vehicles} campaign={props.campaign} eventInfo={props.eventInfo} editor={!props.clientView} previewDevice={props.device} selectedSectionId={selectedSectionId} onSelectSection={chooseSection} onOpenSimulator={() => undefined} view="simulation" />
+      <CampaignLandingFloatingSimulators draft={draftV3} device={props.device} vehicles={props.vehicles} campaign={props.campaign} eventInfo={props.eventInfo} editor={!props.clientView} selectedSectionId={selectedSectionId} onSelectSection={chooseSection} onChange={changeDraft}/>
+    </> : null}
 
     {draftV3.footer.visible ? <footer style={{ backgroundColor: draftV3.footer.backgroundColor, color: draftV3.footer.textColor, textAlign: draftV3.footer.align, padding: `${draftV3.footer.paddingY}px 24px`, fontSize: draftV3.footer.fontSize }}><div className="mx-auto" style={{ maxWidth: draftV3.footer.maxWidth }}><p>{draftV3.footer.notice.replace('{ANO}', String(new Date().getFullYear()))}</p>{draftV3.footer.showTerms && (draftV3.footer.termsOverride || props.campaign?.terms_text) ? <p className="mt-3 opacity-70">{draftV3.footer.termsOverride || props.campaign?.terms_text}</p> : null}</div></footer> : null}
     {editorPanel}
