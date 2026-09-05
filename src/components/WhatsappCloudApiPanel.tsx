@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Braces, CheckCircle2, Flow, KeyRound, Layers3, Loader2, MessageSquareText, ShieldCheck, Workflow } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
@@ -155,6 +155,6 @@ export function WhatsappCloudApiPanel({ storeName, storeSlug }: Props) {
   );
 }
 
-function Capability({ icon, title, count, detail }: { icon: React.ReactNode; title: string; count: number; detail: string }) {
+function Capability({ icon, title, count, detail }: { icon: ReactNode; title: string; count: number; detail: string }) {
   return <div className="premium-card p-5"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2 font-black text-zinc-950">{icon}{title}</div><span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-black text-zinc-600">{count}</span></div><p className="mt-2 text-sm leading-6 text-zinc-600">{detail}</p></div>;
 }
