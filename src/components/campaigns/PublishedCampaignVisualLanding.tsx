@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MetaPixelTracker } from '@/components/MetaPixelTracker';
 import { CampaignFinanceSimulatorModal } from '@/components/campaigns/CampaignFinanceSimulator';
+import { CampaignLandingFloatingSimulators } from './CampaignLandingFloatingSimulators';
 import { CampaignLandingNavigation } from './CampaignLandingNavigation';
 import { CampaignLandingSectionsRenderer } from './CampaignLandingSectionsRenderer';
 import { upgradeLandingDraft, type LandingView } from './CampaignLandingSectionModel';
@@ -42,7 +43,7 @@ export function PublishedCampaignVisualLanding({ campaign, eventInfo, vehicles, 
     setSimulatorOpen(true);
   }
 
-  return <main id="landing-inicio" className="min-h-screen bg-slate-50 text-slate-950">
+  return <main id="landing-inicio" data-landing-canvas className="relative min-h-screen overflow-visible bg-slate-50 text-slate-950">
     <MetaPixelTracker context={{ campaignId: campaign.id, campaignName: campaign.name, campaignSlug: slug, eventId: eventInfo?.id, eventName: eventInfo?.event_name }} />
     <CampaignLandingNavigation settings={draft.navigation} active={activeView} onNavigate={setActiveView} />
 
@@ -51,11 +52,15 @@ export function PublishedCampaignVisualLanding({ campaign, eventInfo, vehicles, 
         <CampaignVisualEditorPreviewFlow draft={draft} device={device} campaign={campaign} eventInfo={eventInfo} vehicles={vehicles} stores={stores} layer="content" selectedContent="title" clientView heroRef={heroRef} heroSource={heroSource} onSelect={() => undefined} onSelectContent={() => undefined} onStartBox={() => undefined} onStartContent={() => undefined} onStartBackground={() => undefined} onWheel={() => undefined} onBackgroundDoubleClick={() => undefined} onSelectVehicle={(vehicleId) => openSimulator(vehicleId)} onFlowMeasurement={() => undefined} onOpenSimulator={() => openSimulator()} showInlineSimulator={false} />
       </div>
       <CampaignLandingSectionsRenderer draft={draft} vehicles={vehicles} campaign={campaign} eventInfo={eventInfo} previewDevice={device} onOpenSimulator={openSimulator} view="home" />
+      <CampaignLandingFloatingSimulators draft={draft} device={device} vehicles={vehicles} campaign={campaign} eventInfo={eventInfo}/>
     </> : null}
 
     {activeView === 'vehicles' ? <CampaignLandingSectionsRenderer draft={draft} vehicles={vehicles} campaign={campaign} eventInfo={eventInfo} previewDevice={device} onOpenSimulator={openSimulator} view="vehicles" /> : null}
 
-    {activeView === 'simulation' ? <CampaignLandingSectionsRenderer draft={draft} vehicles={vehicles} campaign={campaign} eventInfo={eventInfo} previewDevice={device} onOpenSimulator={openSimulator} view="simulation" /> : null}
+    {activeView === 'simulation' ? <>
+      <CampaignLandingSectionsRenderer draft={draft} vehicles={vehicles} campaign={campaign} eventInfo={eventInfo} previewDevice={device} onOpenSimulator={openSimulator} view="simulation" />
+      <CampaignLandingFloatingSimulators draft={draft} device={device} vehicles={vehicles} campaign={campaign} eventInfo={eventInfo}/>
+    </> : null}
 
     {draft.footer.visible ? <footer style={{ backgroundColor: draft.footer.backgroundColor, color: draft.footer.textColor, textAlign: draft.footer.align, padding: `${draft.footer.paddingY}px 24px`, fontSize: draft.footer.fontSize }}><div className="mx-auto" style={{ maxWidth: draft.footer.maxWidth }}><p>{draft.footer.notice.replace('{ANO}', String(new Date().getFullYear()))}</p>{draft.footer.showTerms && (draft.footer.termsOverride || campaign?.terms_text) ? <p className="mt-3 opacity-70">{draft.footer.termsOverride || campaign?.terms_text}</p> : null}</div></footer> : null}
 
