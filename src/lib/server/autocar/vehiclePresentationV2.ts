@@ -1,4 +1,4 @@
-export const AUTOCAR_VEHICLE_PRESENTATION_V2_VERSION = 'autocar-vehicle-presentation-v2-preview';
+export const AUTOCAR_VEHICLE_PRESENTATION_V2_VERSION = 'autocar-vehicle-presentation-v2-preview-generative';
 export const AUTOCAR_VEHICLE_PRESENTATION_MAX_OPTIONS = 3;
 
 type GroundedVehicle = {
@@ -76,9 +76,16 @@ export function buildAutocarVehiclePresentationV2(input: {
     };
   });
 
+  const generatedOpening = clean(input.aiResponse, 1200);
   const missingPrimaryPhoto = multiVehicleReference && cards.some((card) => !card.photo_url);
   const invalidGroundedCard = multiVehicleReference && cards.some((card) => !card.vehicle_id || !card.title || !card.description);
-  const ready = multiVehicleReference && !tooManyOptions && !missingPrimaryPhoto && !invalidGroundedCard && cards.length >= 2;
+  const missingGenerativeOpening = multiVehicleReference && !generatedOpening;
+  const ready = multiVehicleReference
+    && !tooManyOptions
+    && !missingPrimaryPhoto
+    && !invalidGroundedCard
+    && !missingGenerativeOpening
+    && cards.length >= 2;
 
   return {
     version: AUTOCAR_VEHICLE_PRESENTATION_V2_VERSION,
@@ -86,15 +93,17 @@ export function buildAutocarVehiclePresentationV2(input: {
     max_options: AUTOCAR_VEHICLE_PRESENTATION_MAX_OPTIONS,
     option_count: optionCount,
     ready,
-    opening_message: ready ? `Separei ${cards.length} opções para você comparar:` : '',
+    opening_message: ready ? generatedOpening : '',
     cards,
-    closing_message: ready ? clean(input.aiResponse, 1200) : '',
+    closing_message: '',
     regression_flags: {
       too_many_vehicle_options: tooManyOptions,
       missing_primary_photo: missingPrimaryPhoto,
-      invalid_grounded_card: invalidGroundedCard
+      invalid_grounded_card: invalidGroundedCard,
+      missing_generative_opening: missingGenerativeOpening,
+      fixed_text_fallback_disabled: true
     },
-    source: 'grounded_inventory_only',
+    source: 'grounded_inventory_plus_generative_context',
     external_execution: false
   };
 }
