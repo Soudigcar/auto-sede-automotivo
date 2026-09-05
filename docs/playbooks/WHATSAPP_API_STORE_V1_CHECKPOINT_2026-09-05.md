@@ -8,13 +8,11 @@ Playbook principal:
 
 ## Estado confirmado
 
-- `main`: `e06039a27fcd9128f1475b8c5214bf32bcb35461`
+- `main` avançou externamente durante esta frente para `c816d6ff2423532dc73e642391ff38d339037751` via merge do PR #208 (`feature/landing-v3-structured-page-builder`).
 - branch: `feature/whatsapp-api-store-v1-isolated`
-- Supabase temporário: `ggvwuqomwbxhtlxaocau`
-- Vercel Production: `dpl_2BSR7SyC7sjXXyXdG256Hz2z8EwS`, READY
-- Vercel Preview desta branch: NÃO EXISTE
-- `vercel.json` da branch continua com `git.deploymentEnabled=false`
-- nenhuma alteração em CRM Production, AUTOCAR, saas-dev, autocar-dev, Evolution/VPS ou Vercel Production
+- Supabase temporário: `ggvwuqomwbxhtlxaocau`, ACTIVE_HEALTHY, `with_data=false`
+- Vercel Production atual: `dpl_ABPQbJpb86ykyfaNH9V2nEHoPew6`, READY, commit `c816d6ff2423532dc73e642391ff38d339037751`
+- nenhuma alteração em CRM Production, AUTOCAR, saas-dev, autocar-dev, Evolution/VPS ou modos OFF/COPILOT/AUTOPILOT por esta frente
 
 ## Hardening adicional realizado
 
@@ -56,7 +54,7 @@ Cobertura adicionada:
 - bloqueia CRM Production `wufikrdgyxrsszlbpfmv`;
 - bloqueia URL ausente/malformada.
 
-IMPORTANTE: o arquivo de teste foi criado, mas este checkpoint NÃO afirma que o teste foi executado por CI. O HEAD da branch não possui status checks automáticos disponíveis neste momento.
+IMPORTANTE: o arquivo de teste foi criado, mas este checkpoint NÃO afirma que o teste foi executado por CI. O HEAD da branch não possuía status checks automáticos antes da liberação do Preview.
 
 ## TypeScript / React
 
@@ -75,13 +73,20 @@ Alteração:
 
 Objetivo: reduzir risco de typecheck no Next/React 19/TypeScript 6.
 
-## Vercel — bloqueio mantido
+## Vercel — variáveis branch-specific configuradas
 
-Arquivo:
+Confirmado via `vercel env ls preview feature/whatsapp-api-store-v1-isolated`:
 
-`vercel.json`
+- `NEXT_PUBLIC_SUPABASE_URL` — Config — Preview da branch isolada
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — Config — Preview da branch isolada
+- `SUPABASE_SERVICE_ROLE_KEY` — Secret — Preview da branch isolada
+- `WHATSAPP_CLOUD_PREVIEW_ENABLED` — Config — Preview da branch isolada
 
-Estado confirmado:
+Nenhum valor secreto é registrado neste documento.
+
+## Liberação controlada do Preview
+
+O bloqueio abaixo foi removido somente da branch isolada após a confirmação das 4 variáveis:
 
 ```json
 "git": {
@@ -89,30 +94,21 @@ Estado confirmado:
 }
 ```
 
-Não remover até existir configuração branch-specific segura das variáveis de Preview.
+Commit de remoção do bloqueio:
 
-A conexão Vercel disponível neste checkpoint ainda NÃO expõe escrita de Environment Variables por branch.
+`4176decc0707b87aec79132b48e9efa701f57d57`
 
-A documentação Vercel confirma suporte a branch-specific Preview vars e aos system vars `VERCEL_ENV` e `VERCEL_GIT_COMMIT_REF`, mas a ferramenta conectada aqui não permite gravar os overrides.
+Esse primeiro commit recebeu status Vercel `failure` com descrição `Deployment failed`, mas nenhuma implantação foi criada para o SHA (confirmado por `vercel ls -m githubCommitSha=4176decc0707b87aec79132b48e9efa701f57d57`). Portanto a falha ocorreu antes do build.
+
+Este checkpoint atualizado serve como novo commit inofensivo para testar o gatilho Git→Vercel já com `deploymentEnabled=false` removido.
 
 ## Próximo passo
 
-Configurar na Vercel, somente para Preview da branch `feature/whatsapp-api-store-v1-isolated`:
+1. verificar se o commit deste checkpoint gera Preview da branch;
+2. se gerar, confirmar branch/SHA/ambiente e build/typecheck;
+3. executar smoke UI/API somente com dados sintéticos;
+4. confirmar por consulta que somente `ggvwuqomwbxhtlxaocau` recebeu efeitos;
+5. confirmar CRM Production e Evolution sem mudanças;
+6. parar antes de PR/merge/Production.
 
-- `NEXT_PUBLIC_SUPABASE_URL` -> Supabase temporário `ggvwuqomwbxhtlxaocau`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` -> anon key do temporário
-- `SUPABASE_SERVICE_ROLE_KEY` -> service_role do temporário
-- `WHATSAPP_CLOUD_PREVIEW_ENABLED=true`
-
-Nunca inserir secrets no chat.
-
-Depois de confirmar os overrides:
-
-1. revalidar `main`, HEAD e Supabase temporário;
-2. remover `deploymentEnabled=false` somente na branch;
-3. gerar Preview;
-4. verificar build/typecheck;
-5. executar smoke UI/API com dados sintéticos;
-6. confirmar por consulta que somente `ggvwuqomwbxhtlxaocau` recebeu os efeitos;
-7. confirmar CRM Production e Evolution sem mudanças;
-8. parar antes de PR/merge/Production.
+Não autorizados nesta frente: PR, merge, `main`, CRM Production, AUTOCAR Production, `saas-dev`, `autocar-dev`, Evolution/VPS, instâncias/webhooks reais, números/QR Codes reais, dados/tokens reais, OFF/COPILOT/AUTOPILOT e Vercel Production.
