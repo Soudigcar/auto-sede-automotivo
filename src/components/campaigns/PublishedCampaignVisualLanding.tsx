@@ -1,8 +1,8 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MetaPixelTracker } from '@/components/MetaPixelTracker';
-import { CampaignFinanceSimulatorModal } from '@/components/campaigns/CampaignFinanceSimulator';
 import { CampaignLandingFloatingSimulators } from './CampaignLandingFloatingSimulators';
 import { CampaignLandingNavigation } from './CampaignLandingNavigation';
 import { CampaignLandingSectionsRenderer } from './CampaignLandingSectionsRenderer';
@@ -11,6 +11,11 @@ import { CampaignVisualEditorPreviewFlow } from './CampaignVisualEditorPreviewFl
 import type { Device } from './CampaignVisualEditorModel';
 import { safe } from './CampaignVisualEditorModel';
 import { ensureResponsive } from './CampaignVisualEditorResponsive';
+
+const CampaignFinanceSimulatorModal = dynamic(
+  () => import('@/components/campaigns/CampaignFinanceSimulator').then((module) => module.CampaignFinanceSimulatorModal),
+  { ssr: false, loading: () => null }
+);
 
 type Props = { campaign: any; eventInfo: any; vehicles: any[]; stores: any[]; slug: string };
 
@@ -26,12 +31,10 @@ export function PublishedCampaignVisualLanding({ campaign, eventInfo, vehicles, 
   const [activeView, setActiveView] = useState<LandingView>('home');
   const [simulatorOpen, setSimulatorOpen] = useState(false);
   const [simulatorVehicleId, setSimulatorVehicleId] = useState('');
-  const autoOpenedRef = useRef(false);
   const heroRef = useRef<HTMLElement | null>(null);
   const draft = useMemo(() => upgradeLandingDraft(ensureResponsive(safe(campaign?.published_layout, campaign)), campaign), [campaign]);
 
   useEffect(() => { const update = () => setDevice(currentDevice()); window.addEventListener('resize', update); update(); return () => window.removeEventListener('resize', update); }, []);
-  useEffect(() => { if (autoOpenedRef.current) return; autoOpenedRef.current = true; const timer = window.setTimeout(() => setSimulatorOpen(true), 250); return () => window.clearTimeout(timer); }, []);
 
   const mode = draft.backgroundMode[device];
   const original = device === 'mobile' ? campaign?.mobile_hero_image_url || campaign?.hero_image_url : campaign?.hero_image_url;
@@ -64,7 +67,7 @@ export function PublishedCampaignVisualLanding({ campaign, eventInfo, vehicles, 
 
     {draft.footer.visible ? <footer style={{ backgroundColor: draft.footer.backgroundColor, color: draft.footer.textColor, textAlign: draft.footer.align, padding: `${draft.footer.paddingY}px 24px`, fontSize: draft.footer.fontSize }}><div className="mx-auto" style={{ maxWidth: draft.footer.maxWidth }}><p>{draft.footer.notice.replace('{ANO}', String(new Date().getFullYear()))}</p>{draft.footer.showTerms && (draft.footer.termsOverride || campaign?.terms_text) ? <p className="mt-3 opacity-70">{draft.footer.termsOverride || campaign?.terms_text}</p> : null}</div></footer> : null}
 
-    <CampaignFinanceSimulatorModal campaign={campaign} eventInfo={eventInfo} vehicles={vehicles} open={simulatorOpen} onClose={() => setSimulatorOpen(false)} initialVehicleId={simulatorVehicleId} mode="live" primaryColor={draft.primaryColor} slug={slug} />
+    {simulatorOpen ? <CampaignFinanceSimulatorModal campaign={campaign} eventInfo={eventInfo} vehicles={vehicles} open={simulatorOpen} onClose={() => setSimulatorOpen(false)} initialVehicleId={simulatorVehicleId} mode="live" primaryColor={draft.primaryColor} slug={slug} /> : null}
     <style jsx global>{`.published-campaign-v3-hero > div > section:nth-of-type(n+2), .published-campaign-v3-hero > div > footer { display: none !important; }`}</style>
   </main>;
 }
