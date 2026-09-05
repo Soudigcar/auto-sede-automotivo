@@ -79,21 +79,40 @@ function LocationSection({ section, props }: { section: LandingSection; props: P
   const mapsUrl = mapsQuery ? `https://www.google.com/maps/search/?api=1&query=${mapsQuery}` : '';
   return <div className="mx-auto px-4 sm:px-6" style={{ maxWidth: section.maxWidth, color: section.textColor }}>
     <div className="grid gap-6 rounded-[28px] border border-white/10 bg-white/[0.06] p-5 shadow-2xl sm:p-7 lg:grid-cols-[1fr_auto] lg:items-center">
-      <div className="min-w-0">
-        <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em]"><MapPin size={14}/> Localização do evento</div>
-        <h2 className="mt-4 break-words text-2xl font-black tracking-[-0.03em] sm:text-3xl">{event?.name || props.campaign?.name || 'Evento'}</h2>
-        <p className="mt-2 break-words text-sm font-semibold leading-6 opacity-80">{address}</p>
-        {period ? <p className="mt-1 text-sm font-black opacity-90">{period}</p> : null}
-      </div>
+      <div className="min-w-0"><div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em]"><MapPin size={14}/> Localização do evento</div><h2 className="mt-4 break-words text-2xl font-black tracking-[-0.03em] sm:text-3xl">{event?.name || props.campaign?.name || 'Evento'}</h2><p className="mt-2 break-words text-sm font-semibold leading-6 opacity-80">{address}</p>{period ? <p className="mt-1 text-sm font-black opacity-90">{period}</p> : null}</div>
       {mapsUrl ? <a href={mapsUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-xs font-black text-slate-950 shadow-lg"><Navigation size={15}/> Como chegar</a> : null}
     </div>
   </div>;
 }
 
+function simulatorTransform(align: 'left' | 'center' | 'right') {
+  if (align === 'center') return 'translateX(-50%)';
+  if (align === 'right') return 'translateX(-100%)';
+  return undefined;
+}
+
+function SimulationSection({ section, props, active, onClick }: { section: LandingSection; props: Props; active: boolean; onClick: (event: React.MouseEvent<HTMLElement>) => void }) {
+  const simulatorLayout = props.previewDevice === 'mobile' ? 'mobile' : props.previewDevice === 'tablet' ? 'tablet' : props.previewDevice === 'desktop' ? 'desktop' : 'auto';
+  const device = props.previewDevice || 'desktop';
+  const placement = section.freePlacement[device];
+  const simulator = <CampaignFinanceSimulatorInline campaign={props.campaign} eventInfo={props.eventInfo} vehicles={props.vehicles} primaryColor={props.draft.primaryColor} cardRadius={props.draft.cardRadius} backgroundColor={props.draft.simulatorBackground} summaryBackgroundColor={props.draft.simulatorSummaryBackground} mode={props.editor ? 'preview' : 'live'} slug={String(props.campaign?.slug || '')} layoutMode={simulatorLayout} />;
+
+  if (section.placementMode === 'free') {
+    return <section key={section.id} data-section-id={section.id} className={`relative min-w-0 overflow-visible ${active ? 'outline outline-2 outline-fuchsia-500 outline-offset-[-2px]' : ''}`} style={{ backgroundColor: section.backgroundColor, minHeight: placement.stageHeight }} onClick={onClick}>
+      {props.editor ? <div className="pointer-events-none absolute right-3 top-3 z-[70] rounded-full bg-zinc-950 px-3 py-1.5 text-[10px] font-black text-white">SIMULADOR • LIVRE</div> : null}
+      <div className="absolute z-50 px-3 sm:px-6" style={{ left: `${placement.x}%`, top: placement.y, width: `${placement.width}%`, transform: simulatorTransform(placement.align), maxWidth: section.maxWidth }}>{simulator}</div>
+    </section>;
+  }
+
+  return <section key={section.id} data-section-id={section.id} className={`relative min-w-0 overflow-hidden px-3 sm:px-6 ${active ? 'outline outline-2 outline-fuchsia-500 outline-offset-[-2px]' : ''}`} style={{ backgroundColor: section.backgroundColor, paddingTop: section.paddingY, paddingBottom: section.paddingY, minHeight: section.minHeight || undefined }} onClick={onClick}>
+    {props.editor ? <div className="pointer-events-none absolute right-3 top-3 z-30 rounded-full bg-fuchsia-600 px-3 py-1.5 text-[10px] font-black text-white">SIMULADOR • SEÇÃO</div> : null}
+    <div className="mx-auto w-full" style={{ maxWidth: section.maxWidth }}>{simulator}</div>
+  </section>;
+}
+
 export function CampaignLandingSectionsRenderer(props: Props) {
   const view = props.view || 'home';
   const vehicleLayout = props.previewDevice === 'mobile' ? 'mobile' : props.previewDevice === 'tablet' ? 'tablet' : 'auto';
-  const simulatorLayout = props.previewDevice === 'mobile' ? 'mobile' : props.previewDevice === 'tablet' ? 'tablet' : props.previewDevice === 'desktop' ? 'desktop' : 'auto';
   const sections = props.draft.sections.filter((section) => view === 'vehicles' ? section.type === 'vehicles' : view === 'simulation' ? section.type === 'simulation' : true);
 
   return <>{sections.map((section) => {
@@ -102,24 +121,12 @@ export function CampaignLandingSectionsRenderer(props: Props) {
     const common = { backgroundColor: section.backgroundColor, paddingTop: section.paddingY, paddingBottom: section.paddingY, minHeight: section.minHeight || undefined };
     const selectSection = (event: React.MouseEvent<HTMLElement>) => { if (props.editor) { event.stopPropagation(); props.onSelectSection?.(section.id); } };
 
-    if (section.type === 'vehicles') return <section key={section.id} data-section-id={section.id} className={`relative min-w-0 overflow-hidden ${active ? 'outline outline-2 outline-fuchsia-500 outline-offset-[-2px]' : ''}`} style={common} onClick={selectSection}>
-      {props.editor ? <div className="pointer-events-none absolute right-3 top-3 z-30 rounded-full bg-fuchsia-600 px-3 py-1.5 text-[10px] font-black text-white">EDITAR ESTOQUE</div> : null}
-      <div className="mx-auto" style={{ maxWidth: section.maxWidth }}><CampaignVehicleDiscovery vehicles={props.vehicles} primaryColor={props.draft.primaryColor} onOpenSimulator={(vehicleId) => props.onOpenSimulator(vehicleId)} settings={section.vehicleSettings} embedded layoutMode={vehicleLayout} /></div>
-    </section>;
+    if (section.type === 'vehicles') return <section key={section.id} data-section-id={section.id} className={`relative min-w-0 overflow-hidden ${active ? 'outline outline-2 outline-fuchsia-500 outline-offset-[-2px]' : ''}`} style={common} onClick={selectSection}>{props.editor ? <div className="pointer-events-none absolute right-3 top-3 z-30 rounded-full bg-fuchsia-600 px-3 py-1.5 text-[10px] font-black text-white">EDITAR ESTOQUE</div> : null}<div className="mx-auto" style={{ maxWidth: section.maxWidth }}><CampaignVehicleDiscovery vehicles={props.vehicles} primaryColor={props.draft.primaryColor} onOpenSimulator={(vehicleId) => props.onOpenSimulator(vehicleId)} settings={section.vehicleSettings} embedded layoutMode={vehicleLayout} /></div></section>;
 
-    if (section.type === 'simulation') return <section key={section.id} data-section-id={section.id} className={`relative min-w-0 overflow-hidden px-3 sm:px-6 ${active ? 'outline outline-2 outline-fuchsia-500 outline-offset-[-2px]' : ''}`} style={common} onClick={selectSection}>
-      {props.editor ? <div className="pointer-events-none absolute right-3 top-3 z-30 rounded-full bg-fuchsia-600 px-3 py-1.5 text-[10px] font-black text-white">EDITAR SIMULAÇÃO</div> : null}
-      <div className="mx-auto w-full" style={{ maxWidth: section.maxWidth }}><CampaignFinanceSimulatorInline campaign={props.campaign} eventInfo={props.eventInfo} vehicles={props.vehicles} primaryColor={props.draft.primaryColor} cardRadius={props.draft.cardRadius} backgroundColor={props.draft.simulatorBackground} summaryBackgroundColor={props.draft.simulatorSummaryBackground} mode={props.editor ? 'preview' : 'live'} slug={String(props.campaign?.slug || '')} layoutMode={simulatorLayout} /></div>
-    </section>;
+    if (section.type === 'simulation') return <SimulationSection key={section.id} section={section} props={props} active={active} onClick={selectSection}/>;
 
-    if (section.type === 'location') return <section key={section.id} data-section-id={section.id} className={`relative min-w-0 overflow-hidden ${active ? 'outline outline-2 outline-fuchsia-500 outline-offset-[-2px]' : ''}`} style={common} onClick={selectSection}>
-      {props.editor ? <div className="pointer-events-none absolute right-3 top-3 z-30 rounded-full bg-fuchsia-600 px-3 py-1.5 text-[10px] font-black text-white">EDITAR LOCALIZAÇÃO</div> : null}
-      <LocationSection section={section} props={props}/>
-    </section>;
+    if (section.type === 'location') return <section key={section.id} data-section-id={section.id} className={`relative min-w-0 overflow-hidden ${active ? 'outline outline-2 outline-fuchsia-500 outline-offset-[-2px]' : ''}`} style={common} onClick={selectSection}>{props.editor ? <div className="pointer-events-none absolute right-3 top-3 z-30 rounded-full bg-fuchsia-600 px-3 py-1.5 text-[10px] font-black text-white">EDITAR LOCALIZAÇÃO</div> : null}<LocationSection section={section} props={props}/></section>;
 
-    return <section key={section.id} data-section-id={section.id} className={`relative min-w-0 overflow-hidden ${active ? 'outline outline-2 outline-fuchsia-500 outline-offset-[-2px]' : ''}`} style={common} onClick={selectSection}>
-      {props.editor ? <div className="pointer-events-none absolute right-3 top-3 z-30 rounded-full bg-fuchsia-600 px-3 py-1.5 text-[10px] font-black text-white">EDITAR SEÇÃO</div> : null}
-      <ContentSection section={section} props={props}/>
-    </section>;
+    return <section key={section.id} data-section-id={section.id} className={`relative min-w-0 overflow-hidden ${active ? 'outline outline-2 outline-fuchsia-500 outline-offset-[-2px]' : ''}`} style={common} onClick={selectSection}>{props.editor ? <div className="pointer-events-none absolute right-3 top-3 z-30 rounded-full bg-fuchsia-600 px-3 py-1.5 text-[10px] font-black text-white">EDITAR SEÇÃO</div> : null}<ContentSection section={section} props={props}/></section>;
   })}</>;
 }
