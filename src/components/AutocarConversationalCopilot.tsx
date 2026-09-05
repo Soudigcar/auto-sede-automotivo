@@ -154,16 +154,13 @@ export default function AutocarConversationalCopilot() {
 
       const answer = String(result.answer || '').trim();
       if (!answer) throw new Error('A AUTOCAR não retornou orientação para esta pergunta.');
-      setTurns((current) => [
-        ...current,
-        operatorTurn,
-        {
-          id: localTurnId(),
-          role: 'autocar',
-          text: answer,
-          suggestedReply: result.suggested_reply ? String(result.suggested_reply) : null
-        }
-      ].slice(-16));
+      const autocarTurn: ChatTurn = {
+        id: localTurnId(),
+        role: 'autocar',
+        text: answer,
+        suggestedReply: result.suggested_reply ? String(result.suggested_reply) : null
+      };
+      setTurns((current) => [...current, operatorTurn, autocarTurn].slice(-16));
       setPrompt('');
     } catch (err: any) {
       setError(err?.message || 'Erro ao consultar a AUTOCAR.');
