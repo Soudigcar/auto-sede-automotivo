@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Braces, CheckCircle2, Flow, KeyRound, Layers3, Loader2, MessageSquareText, ShieldCheck, Workflow } from 'lucide-react';
+import { Braces, CheckCircle2, KeyRound, Layers3, Loader2, MessageSquareText, ShieldCheck, Workflow } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
 type CloudIntegration = {
@@ -146,7 +146,7 @@ export function WhatsappCloudApiPanel({ storeName, storeSlug }: Props) {
         <aside className="space-y-4">
           <div className="premium-card p-5"><div className="flex items-center gap-2 font-black text-zinc-950"><CheckCircle2 size={19} className={hasAllSecrets?'text-emerald-600':'text-zinc-400'}/> Isolamento</div><p className="mt-2 text-sm leading-6 text-zinc-600">Integração habilitada: <strong>{integration?.enabled?'SIM':'NÃO'}</strong><br/>Vault completo: <strong>{hasAllSecrets?'SIM':'NÃO'}</strong><br/>Execução externa: <strong>NÃO</strong></p></div>
           <Capability icon={<MessageSquareText size={20}/>} title="Modelos de Mensagem" count={capabilities?.templates || 0} detail="Templates oficiais por WABA, ligados a um blueprint lógico do Master." />
-          <Capability icon={<Flow size={20}/>} title="WhatsApp Flows" count={capabilities?.flows || 0} detail="Flows nativos da Meta por conta da loja, com versão e status próprios." />
+          <Capability icon={<Workflow size={20}/>} title="WhatsApp Flows" count={capabilities?.flows || 0} detail="Flows nativos da Meta por conta da loja, com versão e status próprios." />
           <Capability icon={<Workflow size={20}/>} title="Jornadas internas" count={capabilities?.journeys || 0} detail="Automação CRM/AUTOCAR separada de WhatsApp Flow e bloqueada pelo SAFE CORE." />
           <div className="premium-card p-5"><div className="flex items-center gap-2 font-black text-zinc-950"><Layers3 size={19}/> Regra de transporte</div><p className="mt-2 text-sm leading-6 text-zinc-600">Evolution continua independente. A Cloud API não utiliza número de outra loja, Master ou Evolution como fallback.</p></div>
         </aside>
