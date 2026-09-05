@@ -14,8 +14,6 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
-const PREVIEW_HOMOLOGATION_BRANCH = 'feature/autocar-copilot-conversational-preview';
-
 type OperatorTurn = { role: 'operator' | 'autocar'; text: string };
 
 const responseSchema = {
@@ -29,11 +27,6 @@ const responseSchema = {
   },
   required: ['answer', 'suggested_reply', 'next_best_action', 'referenced_vehicle_ids']
 };
-
-function previewHomologationAvailable() {
-  return process.env.VERCEL_ENV === 'preview'
-    && process.env.VERCEL_GIT_COMMIT_REF === PREVIEW_HOMOLOGATION_BRANCH;
-}
 
 function openAiKey() {
   const key = String(process.env.OPENAI_API_KEY || '').trim();
@@ -73,39 +66,6 @@ function referencedVehicles(intelligence: Awaited<ReturnType<typeof buildAutocar
   return requested.map((id) => byId.get(id)).filter(Boolean);
 }
 
-async function authorizedContext(request: Request, slug: string) {
-  const context = await authorizeStorePortal(request, slug);
-  if ('error' in context) return context;
-  if (!context.permissions.includes('view_whatsapp') || !context.permissions.includes('view_autocar')) {
-    return { error: NextResponse.json({ error: 'Usuário sem permissão para usar o Copilot AUTOCAR.' }, { status: 403 }) } as const;
-  }
-  return context;
-}
-
-export async function GET(request: Request) {
-  try {
-    const url = new URL(request.url);
-    const slug = cleanText(url.searchParams.get('slug'), 120);
-    if (!slug) return NextResponse.json({ error: 'Loja obrigatória.' }, { status: 400 });
-
-    const context = await authorizedContext(request, slug);
-    if ('error' in context) return context.error;
-
-    return NextResponse.json({
-      success: true,
-      preview_homologation_available: previewHomologationAvailable(),
-      advisory_only: true,
-      no_external_execution: true
-    });
-  } catch (error: any) {
-    return NextResponse.json({
-      error: error?.message || 'Não foi possível consultar a homologação do Copilot AUTOCAR.',
-      preview_homologation_available: false,
-      no_external_execution: true
-    }, { status: 500 });
-  }
-}
-
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -113,21 +73,14 @@ export async function POST(request: Request) {
     const conversationId = cleanText(body?.conversation_id, 100);
     const operatorPrompt = cleanText(body?.operator_prompt, 1200);
     const operatorHistory = cleanHistory(body?.history);
-    const previewHomologationRequested = body?.preview_homologation === true;
     if (!slug || !conversationId || operatorPrompt.length < 3) {
       return NextResponse.json({ error: 'Loja, conversa e pergunta do operador são obrigatórias.' }, { status: 400 });
     }
 
-    const context = await authorizedContext(request, slug);
+    const context = await authorizeStorePortal(request, slug);
     if ('error' in context) return context.error;
-
-    const previewAllowed = previewHomologationAvailable();
-    if (previewHomologationRequested && !previewAllowed) {
-      return NextResponse.json({
-        error: 'A homologação COPILOT é permitida somente no Preview isolado autorizado.',
-        preview_homologation: false,
-        no_external_execution: true
-      }, { status: 403 });
+    if (!context.permissions.includes('view_whatsapp') || !context.permissions.includes('view_autocar')) {
+      return NextResponse.json({ error: 'Usuário sem permissão para usar o Copilot AUTOCAR.' }, { status: 403 });
     }
 
     const { data: conversation, error: conversationError } = await context.supabase
@@ -160,12 +113,10 @@ export async function POST(request: Request) {
       .maybeSingle();
     if (runtimeError) throw runtimeError;
     const effectiveMode = String(runtimeState?.effective_mode || 'off').trim().toLowerCase();
-    const previewHomologationActive = previewHomologationRequested && previewAllowed && effectiveMode !== 'copilot';
-    if (effectiveMode !== 'copilot' && !previewHomologationActive) {
+    if (effectiveMode !== 'copilot') {
       return NextResponse.json({
         error: `O Copilot conversacional está bloqueado porque o modo efetivo é ${effectiveMode.toUpperCase()}.`,
         effective_mode: effectiveMode,
-        preview_homologation: false,
         no_external_execution: true
       }, { status: 409 });
     }
@@ -214,9 +165,6 @@ export async function POST(request: Request) {
     const instructions = [
       intelligence.hardPolicyInstructions,
       autocarModeInstructions('copilot'),
-      previewHomologationActive
-        ? 'HOMOLOGAÇÃO PREVIEW ISOLADA: o runtime lido pode estar em outro modo, mas esta requisição deve simular exclusivamente o comportamento consultivo COPILOT. Não altere modo, runtime, dados ou estado do atendimento.'
-        : '',
       'Você é o Copilot comercial AUTOCAR e responde ao OPERADOR HUMANO da loja, nunca executa ações externas.',
       'Este endpoint é estritamente consultivo: não envie WhatsApp, não altere pipeline, não agende, não crie follow-up, não negocie desconto autonomamente e nunca diga que uma ação foi executada.',
       'Use o histórico real do cliente, dados do CRM, Método Venda Mais, Biblioteca Global, conhecimento específico da loja e estoque interno somente quando relevantes.',
@@ -227,13 +175,10 @@ export async function POST(request: Request) {
       'Preencha suggested_reply somente quando houver uma resposta útil que o operador possa revisar e enviar ao cliente; caso contrário use null.',
       'Mesmo quando suggested_reply existir, ela é apenas um rascunho: não afirme que foi enviada.',
       'Se a solicitação esbarrar em política de aprovação, deny ou handoff, explique a limitação ao operador e mantenha a resposta dentro da política.'
-    ].filter(Boolean).join(' ');
+    ].join(' ');
 
     const modelInput = JSON.stringify({
       inteligencia_autocar: serializeAutocarIntelligenceContext(intelligence),
-      homologacao_preview: previewHomologationActive,
-      runtime_lido: { effective_mode: effectiveMode, human_state: runtimeState?.human_state || null },
-      modo_de_analise: 'copilot',
       loja: { nome: context.store.store_name, cidade: context.store.city || null, estado: context.store.state || null },
       crm: {
         cliente: lead?.customer_name || baseLead?.name || null,
@@ -293,9 +238,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       conversation_id: conversation.id,
-      runtime_effective_mode: effectiveMode,
-      analysis_mode: 'copilot',
-      preview_homologation: previewHomologationActive,
+      effective_mode: effectiveMode,
       advisory_only: true,
       no_external_execution: true,
       answer: cleanText(generated?.answer, 5000),

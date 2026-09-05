@@ -27,30 +27,9 @@ test('painel chama somente endpoint consultivo e exige garantia de não execuç�
 });
 
 test('endpoint é fail-closed fora de COPILOT', () => {
-  assert.match(route, /effectiveMode !== 'copilot' && !previewHomologationActive/);
+  assert.match(route, /effectiveMode !== 'copilot'/);
   assert.match(route, /status: 409/);
   assert.match(route, /no_external_execution: true/);
-});
-
-test('homologação COPILOT só pode existir em Preview da branch autorizada', () => {
-  assert.match(route, /process\.env\.VERCEL_ENV === 'preview'/);
-  assert.match(route, /process\.env\.VERCEL_GIT_COMMIT_REF === PREVIEW_HOMOLOGATION_BRANCH/);
-  assert.match(route, /feature\/autocar-copilot-conversational-preview/);
-  assert.match(route, /preview_homologation_available/);
-  assert.match(route, /previewHomologationRequested && !previewAllowed/);
-  assert.match(route, /status: 403/);
-  assert.match(component, /preview_homologation: previewHomologation/);
-  assert.match(component, /copilot · homologação preview/);
-});
-
-test('homologação não altera runtime e mantém análise consultiva em copilot', () => {
-  assert.match(route, /runtime_lido/);
-  assert.match(route, /modo_de_analise: 'copilot'/);
-  assert.match(route, /HOMOLOGAÇÃO PREVIEW ISOLADA/);
-  assert.doesNotMatch(route, /setAutocarStoreSelectedMode/);
-  assert.doesNotMatch(route, /setAutocarStoreMode/);
-  assert.doesNotMatch(route, /\.update\(/);
-  assert.doesNotMatch(route, /\.upsert\(/);
 });
 
 test('endpoint preserva isolamento por loja, carteira e permissões', () => {
