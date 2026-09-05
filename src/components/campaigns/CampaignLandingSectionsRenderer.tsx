@@ -85,24 +85,9 @@ function LocationSection({ section, props }: { section: LandingSection; props: P
   </div>;
 }
 
-function simulatorTransform(align: 'left' | 'center' | 'right') {
-  if (align === 'center') return 'translateX(-50%)';
-  if (align === 'right') return 'translateX(-100%)';
-  return undefined;
-}
-
 function SimulationSection({ section, props, active, onClick }: { section: LandingSection; props: Props; active: boolean; onClick: (event: React.MouseEvent<HTMLElement>) => void }) {
   const simulatorLayout = props.previewDevice === 'mobile' ? 'mobile' : props.previewDevice === 'tablet' ? 'tablet' : props.previewDevice === 'desktop' ? 'desktop' : 'auto';
-  const device = props.previewDevice || 'desktop';
-  const placement = section.freePlacement[device];
   const simulator = <CampaignFinanceSimulatorInline campaign={props.campaign} eventInfo={props.eventInfo} vehicles={props.vehicles} primaryColor={props.draft.primaryColor} cardRadius={props.draft.cardRadius} backgroundColor={props.draft.simulatorBackground} summaryBackgroundColor={props.draft.simulatorSummaryBackground} mode={props.editor ? 'preview' : 'live'} slug={String(props.campaign?.slug || '')} layoutMode={simulatorLayout} />;
-
-  if (section.placementMode === 'free') {
-    return <section key={section.id} data-section-id={section.id} className={`relative min-w-0 overflow-visible ${active ? 'outline outline-2 outline-fuchsia-500 outline-offset-[-2px]' : ''}`} style={{ backgroundColor: section.backgroundColor, minHeight: placement.stageHeight }} onClick={onClick}>
-      {props.editor ? <div className="pointer-events-none absolute right-3 top-3 z-[70] rounded-full bg-zinc-950 px-3 py-1.5 text-[10px] font-black text-white">SIMULADOR • LIVRE</div> : null}
-      <div className="absolute z-50 px-3 sm:px-6" style={{ left: `${placement.x}%`, top: placement.y, width: `${placement.width}%`, transform: simulatorTransform(placement.align), maxWidth: section.maxWidth }}>{simulator}</div>
-    </section>;
-  }
 
   return <section key={section.id} data-section-id={section.id} className={`relative min-w-0 overflow-hidden px-3 sm:px-6 ${active ? 'outline outline-2 outline-fuchsia-500 outline-offset-[-2px]' : ''}`} style={{ backgroundColor: section.backgroundColor, paddingTop: section.paddingY, paddingBottom: section.paddingY, minHeight: section.minHeight || undefined }} onClick={onClick}>
     {props.editor ? <div className="pointer-events-none absolute right-3 top-3 z-30 rounded-full bg-fuchsia-600 px-3 py-1.5 text-[10px] font-black text-white">SIMULADOR • SEÇÃO</div> : null}
@@ -113,7 +98,12 @@ function SimulationSection({ section, props, active, onClick }: { section: Landi
 export function CampaignLandingSectionsRenderer(props: Props) {
   const view = props.view || 'home';
   const vehicleLayout = props.previewDevice === 'mobile' ? 'mobile' : props.previewDevice === 'tablet' ? 'tablet' : 'auto';
-  const sections = props.draft.sections.filter((section) => view === 'vehicles' ? section.type === 'vehicles' : view === 'simulation' ? section.type === 'simulation' : true);
+  const sections = props.draft.sections.filter((section) => {
+    if (section.type === 'simulation' && section.placementMode === 'free') return false;
+    if (view === 'vehicles') return section.type === 'vehicles';
+    if (view === 'simulation') return section.type === 'simulation';
+    return true;
+  });
 
   return <>{sections.map((section) => {
     if (!section.visible) return null;
