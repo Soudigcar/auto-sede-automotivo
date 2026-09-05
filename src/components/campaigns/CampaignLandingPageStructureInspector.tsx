@@ -1,9 +1,9 @@
 'use client';
 
 import type { MutableRefObject } from 'react';
-import { ArrowDown, ArrowUp, LayoutTemplate, MapPin, Maximize2, Minimize2, MoveVertical, Ruler, Sparkles } from 'lucide-react';
-import { Color, Num, Switch } from './CampaignVisualEditorControls';
-import type { LandingDraftV3, LandingSection } from './CampaignLandingSectionModel';
+import { ArrowDown, ArrowUp, Copy, LayoutTemplate, MapPin, Maximize2, Minimize2, Move, MoveVertical, Ruler, Sparkles } from 'lucide-react';
+import { Color, Num, Select, Switch } from './CampaignVisualEditorControls';
+import { cloneLandingSection, type LandingBlockAlign, type LandingDraftV3, type LandingSection } from './CampaignLandingSectionModel';
 import type { Device } from './CampaignVisualEditorModel';
 
 const heroPresets: Record<Device, Record<'compact' | 'normal' | 'wide', number>> = {
@@ -37,28 +37,15 @@ export function CampaignLandingPageStructureInspector(props: Props) {
 
   function patchHeroHeight(heroHeight: number) {
     const safeHeight = Math.max(420, Math.min(2200, Math.round(heroHeight)));
-    props.onChange({
-      ...props.draft,
-      devices: {
-        ...props.draft.devices,
-        [props.device]: { ...layout, heroHeight: safeHeight }
-      }
-    });
+    props.onChange({ ...props.draft, devices: { ...props.draft.devices, [props.device]: { ...layout, heroHeight: safeHeight } } });
   }
 
   function fitHeroToContent() {
     const hero = props.heroRef.current;
-    if (!hero) {
-      patchHeroHeight(heroPresets[props.device].compact);
-      return;
-    }
+    if (!hero) { patchHeroHeight(heroPresets[props.device].compact); return; }
     const heroRect = hero.getBoundingClientRect();
-    if (!heroRect.height) {
-      patchHeroHeight(heroPresets[props.device].compact);
-      return;
-    }
-    const nodes = Array.from(hero.querySelectorAll<HTMLElement>('[data-editor-element]'))
-      .filter((node) => node.dataset.editorElement !== 'simulator');
+    if (!heroRect.height) { patchHeroHeight(heroPresets[props.device].compact); return; }
+    const nodes = Array.from(hero.querySelectorAll<HTMLElement>('[data-editor-element]')).filter((node) => node.dataset.editorElement !== 'simulator');
     let required = props.device === 'desktop' ? 520 : props.device === 'tablet' ? 620 : 720;
     for (const node of nodes) {
       const rect = node.getBoundingClientRect();
@@ -77,6 +64,11 @@ export function CampaignLandingPageStructureInspector(props: Props) {
     props.onChange({ ...props.draft, sections });
   }
 
+  function patchFreePlacement(patch: Record<string, unknown>) {
+    if (!selected) return;
+    patchSection({ freePlacement: { ...selected.freePlacement, [props.device]: { ...selected.freePlacement[props.device], ...patch } } });
+  }
+
   function moveSection(delta: number) {
     if (!selected || selectedIndex < 0) return;
     const target = selectedIndex + delta;
@@ -87,41 +79,52 @@ export function CampaignLandingPageStructureInspector(props: Props) {
     props.onSelectSection(selected.id);
   }
 
+  function duplicateSelected() {
+    if (!selected) return;
+    const copy = cloneLandingSection(selected);
+    const sections = [...props.draft.sections];
+    sections.splice(selectedIndex + 1, 0, copy);
+    props.onChange({ ...props.draft, sections });
+    props.onSelectSection(copy.id);
+  }
+
+  const free = selected?.freePlacement?.[props.device];
+
   return <div className="space-y-5">
     <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
-      <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white"><LayoutTemplate size={17}/></div>
-        <div><strong className="text-sm text-indigo-950">Estrutura da página</strong><p className="mt-1 text-[10px] font-semibold leading-4 text-indigo-700">Menu → Hero → Vantagens → Veículos → Simulador → Localização → Rodapé. Cada faixa tem tamanho próprio.</p></div>
-      </div>
+      <div className="flex items-start gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white"><LayoutTemplate size={17}/></div><div><strong className="text-sm text-indigo-950">Estrutura da página</strong><p className="mt-1 text-[10px] font-semibold leading-4 text-indigo-700">Hero e componentes independentes. O Simulador pode funcionar como seção normal ou componente livre.</p></div></div>
     </div>
 
     <div className="rounded-2xl border bg-white p-4">
       <div className="flex items-center justify-between"><div><p className="text-[9px] font-black uppercase tracking-[.15em] text-zinc-400">Hero / capa</p><strong className="text-sm">{deviceLabels[props.device]}</strong></div><Ruler size={17} className="text-zinc-400"/></div>
-      <p className="mt-2 text-[10px] font-semibold leading-4 text-zinc-500">O Hero não precisa mais reservar espaço para o simulador. Ajuste a altura ao conteúdo ou use um tamanho fixo.</p>
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <button type="button" onClick={() => patchHeroHeight(heroPresets[props.device].compact)} className="rounded-xl border bg-white px-2 py-3 text-[9px] font-black"><Minimize2 size={13} className="mx-auto mb-1"/> Compacto</button>
-        <button type="button" onClick={() => patchHeroHeight(heroPresets[props.device].normal)} className="rounded-xl border bg-white px-2 py-3 text-[9px] font-black"><MoveVertical size={13} className="mx-auto mb-1"/> Normal</button>
-        <button type="button" onClick={() => patchHeroHeight(heroPresets[props.device].wide)} className="rounded-xl border bg-white px-2 py-3 text-[9px] font-black"><Maximize2 size={13} className="mx-auto mb-1"/> Amplo</button>
-      </div>
+      <p className="mt-2 text-[10px] font-semibold leading-4 text-zinc-500">O Hero não reserva espaço obrigatório para o Simulador.</p>
+      <div className="mt-3 grid grid-cols-3 gap-2"><button type="button" onClick={() => patchHeroHeight(heroPresets[props.device].compact)} className="rounded-xl border bg-white px-2 py-3 text-[9px] font-black"><Minimize2 size={13} className="mx-auto mb-1"/> Compacto</button><button type="button" onClick={() => patchHeroHeight(heroPresets[props.device].normal)} className="rounded-xl border bg-white px-2 py-3 text-[9px] font-black"><MoveVertical size={13} className="mx-auto mb-1"/> Normal</button><button type="button" onClick={() => patchHeroHeight(heroPresets[props.device].wide)} className="rounded-xl border bg-white px-2 py-3 text-[9px] font-black"><Maximize2 size={13} className="mx-auto mb-1"/> Amplo</button></div>
       <button type="button" onClick={fitHeroToContent} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-950 px-3 py-3 text-[10px] font-black text-white"><Sparkles size={14}/> Ajustar ao conteúdo</button>
       <Num label="Altura personalizada" value={layout.heroHeight} min={420} max={2200} suffix="px" onChange={patchHeroHeight}/>
-      <div className="mt-3 rounded-xl bg-amber-50 p-3 text-[10px] font-semibold leading-4 text-amber-800">Você também pode arrastar a alça na borda inferior do Hero diretamente no canvas.</div>
     </div>
 
     <div className="rounded-2xl border bg-white p-4">
-      <div className="flex items-center justify-between"><div><p className="text-[9px] font-black uppercase tracking-[.15em] text-zinc-400">Ordem das seções</p><strong className="text-sm">Componentes da Landing</strong></div><MapPin size={17} className="text-zinc-400"/></div>
-      <div className="mt-3 space-y-2">{props.draft.sections.map((section, index) => <button key={section.id} type="button" onClick={() => props.onSelectSection(section.id)} className={`flex w-full items-center justify-between rounded-xl border px-3 py-3 text-left ${selected?.id === section.id ? 'border-fuchsia-500 bg-fuchsia-50' : 'bg-white'}`}><span className="text-[10px] font-black">{index + 1}. {sectionLabel(section)}</span><span className="text-[8px] font-black uppercase text-zinc-400">{section.type}</span></button>)}</div>
+      <div className="flex items-center justify-between"><div><p className="text-[9px] font-black uppercase tracking-[.15em] text-zinc-400">Ordem dos componentes</p><strong className="text-sm">Page Builder</strong></div><MapPin size={17} className="text-zinc-400"/></div>
+      <div className="mt-3 space-y-2">{props.draft.sections.map((section, index) => <button key={section.id} type="button" onClick={() => props.onSelectSection(section.id)} className={`flex w-full items-center justify-between rounded-xl border px-3 py-3 text-left ${selected?.id === section.id ? 'border-fuchsia-500 bg-fuchsia-50' : 'bg-white'}`}><span className="text-[10px] font-black">{index + 1}. {sectionLabel(section)}</span><span className="text-[8px] font-black uppercase text-zinc-400">{section.type === 'simulation' ? section.placementMode : section.type}</span></button>)}</div>
     </div>
 
     {selected ? <div className="rounded-2xl border bg-white p-4">
-      <div className="flex items-center justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-[.15em] text-fuchsia-600">Seção selecionada</p><strong className="text-sm">{sectionLabel(selected)}</strong></div><div className="flex gap-1"><button type="button" onClick={() => moveSection(-1)} className="rounded-lg border p-2"><ArrowUp size={13}/></button><button type="button" onClick={() => moveSection(1)} className="rounded-lg border p-2"><ArrowDown size={13}/></button></div></div>
-      <Switch label="Exibir seção" value={selected.visible} onChange={(visible: boolean) => patchSection({ visible })}/>
+      <div className="flex items-center justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-[.15em] text-fuchsia-600">Componente selecionado</p><strong className="text-sm">{sectionLabel(selected)}</strong></div><div className="flex gap-1"><button type="button" onClick={() => moveSection(-1)} className="rounded-lg border p-2" title="Subir"><ArrowUp size={13}/></button><button type="button" onClick={() => moveSection(1)} className="rounded-lg border p-2" title="Descer"><ArrowDown size={13}/></button><button type="button" onClick={duplicateSelected} className="rounded-lg border p-2" title="Duplicar"><Copy size={13}/></button></div></div>
+      <Switch label="Exibir componente" value={selected.visible} onChange={(visible: boolean) => patchSection({ visible })}/>
+
+      {selected.type === 'simulation' ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
+        <div className="flex items-center gap-2 text-emerald-900"><Move size={15}/><strong className="text-xs">Posicionamento do Simulador</strong></div>
+        <p className="mt-1 text-[9px] font-semibold leading-4 text-emerald-800">SEÇÃO acompanha o fluxo da página. LIVRE permite posicionar o componente dentro do palco e usar Y negativo para subir sobre a área anterior, inclusive Hero.</p>
+        <div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => patchSection({ placementMode: 'section' })} className={`rounded-xl px-3 py-3 text-[10px] font-black ${selected.placementMode === 'section' ? 'bg-emerald-700 text-white' : 'border bg-white text-emerald-900'}`}>MODO SEÇÃO</button><button type="button" onClick={() => patchSection({ placementMode: 'free' })} className={`rounded-xl px-3 py-3 text-[10px] font-black ${selected.placementMode === 'free' ? 'bg-zinc-950 text-white' : 'border bg-white text-zinc-800'}`}>MODO LIVRE</button></div>
+        {selected.placementMode === 'free' && free ? <div className="mt-4 border-t border-emerald-200 pt-3"><p className="text-[9px] font-black uppercase tracking-[.12em] text-emerald-800">{deviceLabels[props.device]}</p><Num label="Horizontal" value={free.x} min={0} max={100} suffix="%" onChange={(x: number) => patchFreePlacement({ x })}/><Num label="Vertical" value={free.y} min={-1200} max={2000} suffix="px" onChange={(y: number) => patchFreePlacement({ y })}/><Num label="Largura" value={free.width} min={20} max={100} suffix="%" onChange={(width: number) => patchFreePlacement({ width })}/><Select label="Alinhamento pelo ponto" value={free.align} options={['left','center','right']} onChange={(align) => patchFreePlacement({ align: align as LandingBlockAlign })}/><Num label="Altura do palco" value={free.stageHeight} min={120} max={2000} suffix="px" onChange={(stageHeight: number) => patchFreePlacement({ stageHeight })}/><div className="mt-3 rounded-xl bg-white p-3 text-[9px] font-semibold leading-4 text-zinc-600">Dica: coloque o Simulador como primeira seção após o Hero e use Vertical negativo para sobrepor/subir sobre a capa.</div></div> : null}
+      </div> : null}
+
       <Num label="Largura máxima do conteúdo" value={selected.maxWidth} min={320} max={1800} suffix="px" onChange={(maxWidth: number) => patchSection({ maxWidth })}/>
       <Num label="Espaçamento vertical" value={selected.paddingY} min={0} max={180} suffix="px" onChange={(paddingY: number) => patchSection({ paddingY })}/>
       <Num label="Altura mínima" value={selected.minHeight} min={0} max={1800} suffix="px" onChange={(minHeight: number) => patchSection({ minHeight })}/>
       <Color label="Fundo da seção" value={selected.backgroundColor} onChange={(backgroundColor) => patchSection({ backgroundColor })}/>
       <Color label="Cor de texto" value={selected.textColor} onChange={(textColor) => patchSection({ textColor })}/>
-      {selected.type === 'simulation' ? <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-[10px] font-semibold leading-4 text-emerald-800">O simulador agora é independente do Hero. Aparência do formulário continua no painel “Simulador”; aqui você controla a faixa onde ele é encaixado.</p> : null}
+      {selected.type === 'simulation' ? <p className="mt-3 rounded-xl bg-indigo-50 p-3 text-[10px] font-semibold leading-4 text-indigo-800">Aparência interna do formulário é editada separadamente no painel “Simulador — aparência”. Posição não usa mais a caixa antiga do Hero.</p> : null}
       {selected.type === 'location' ? <p className="mt-3 rounded-xl bg-slate-950 p-3 text-[10px] font-semibold leading-4 text-white">A localização usa automaticamente nome, endereço, cidade/UF e datas do evento, com botão “Como chegar”.</p> : null}
     </div> : null}
   </div>;
