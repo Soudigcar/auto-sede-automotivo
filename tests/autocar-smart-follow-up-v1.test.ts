@@ -7,12 +7,14 @@ import { parseExplicitCallbackRequest, simulateSmartFollowUp } from '../src/lib/
 const migration = fs.readFileSync(path.join(process.cwd(), 'supabase/migrations/20260823042000_autocar_smart_follow_up_v1.sql'), 'utf8');
 const cron = fs.readFileSync(path.join(process.cwd(), 'src/app/api/cron/autocar-follow-up/route.ts'), 'utf8');
 const canaryCron = fs.readFileSync(path.join(process.cwd(), 'src/app/api/cron/autocar-follow-up-v2/route.ts'), 'utf8');
+const followUp = fs.readFileSync(path.join(process.cwd(), 'src/lib/server/autocar/smartFollowUp.ts'), 'utf8');
 const vercel = fs.readFileSync(path.join(process.cwd(), 'vercel.json'), 'utf8');
 
 describe('AUTOCAR Smart Follow-up V1', () => {
   it('permanece dry-run sem caminho de envio externo', () => {
     assert.equal(cron.includes('sendEvolution'), false);
     assert.equal(cron.includes('AUTOCAR_SMART_FOLLOW_UP_DRY_RUN_ENABLED'), true);
+    assert.equal(followUp.includes('external_execution: false'), true);
   });
 
   it('executa o endpoint V1 somente em Vercel Preview antes do acesso ao banco', () => {
@@ -45,33 +47,34 @@ describe('AUTOCAR Smart Follow-up V1', () => {
     assert.equal(simulateSmartFollowUp({ trigger_type: 'visit_confirmation', global_policy: 'allow', store_policy: 'allow', autopilot: true, human_active: true }).decision, 'would_send');
   });
 
-  it('simula confirmação quando todos os gates passam sem execução externa', () => {
-    const result = simulateSmartFollowUp({ trigger_type: 'visit_confirmation', global_policy: 'allow', store_policy: 'allow', autopilot: true, human_active: true, appointment_status: 'scheduled', lead_status: 'scheduled' });
-    assert.equal(result.decision, 'would_send');
-    assert.equal(result.external_execution, false);
-  });
-
-  it('usa data e hora quando fornecidas e fallback gramatical seguro quando ausentes', () => {
-    const withDate = simulateSmartFollowUp({
+  it('simula elegibilidade sem fabricar texto e sem execução externa', () => {
+    const result = simulateSmartFollowUp({
       trigger_type: 'visit_confirmation', global_policy: 'allow', store_policy: 'allow', autopilot: true, human_active: true,
       appointment_status: 'scheduled', lead_status: 'scheduled', scheduled_at: '2026-08-24T17:00:00.000Z', customer_name: 'João'
     });
-    assert.equal(withDate.proposed_text.includes('no dia 24/08/2026 às 14:00'), true);
-    const fallback = simulateSmartFollowUp({
-      trigger_type: 'visit_confirmation', global_policy: 'allow', store_policy: 'allow', autopilot: true, human_active: true,
-      appointment_status: 'scheduled', lead_status: 'scheduled', customer_name: 'João'
-    });
-    assert.equal(fallback.proposed_text.includes('no horário combinado'), true);
-    assert.equal(fallback.proposed_text.includes('em o horário'), false);
+    assert.equal(result.decision, 'would_send');
+    assert.equal(result.proposed_text, null);
+    assert.equal(result.external_execution, false);
+    assert.equal(result.gates.generation_required, true);
+    assert.equal(result.gates.fixed_text_fallback_disabled, true);
   });
 
-  it('usa mensagem neutra no no-show sem afirmar ausência como fato', () => {
-    const result = simulateSmartFollowUp({
-      trigger_type: 'no_show', global_policy: 'allow', store_policy: 'allow', autopilot: true, human_active: true,
-      appointment_status: 'scheduled', lead_status: 'scheduled', customer_name: 'João'
-    });
-    assert.equal(result.proposed_text.includes('Conseguiu passar na loja como combinado?'), true);
-    assert.equal(result.proposed_text.includes('Vi que não conseguimos concluir sua visita'), false);
+  it('gera copy contextual somente no avaliador assíncrono e falha fechado', () => {
+    assert.equal(followUp.includes("createAutocarStructuredResponse"), true);
+    assert.equal(followUp.includes("schemaName: 'autocar_smart_follow_up_v1_generative'"), true);
+    assert.equal(followUp.includes("task: 'commercial_followup'"), true);
+    assert.equal(followUp.includes('generation_fail_closed'), true);
+    assert.equal(followUp.includes('fixed_text_fallback_disabled: true'), true);
+    assert.equal(followUp.includes("proposed_text: null"), true);
+  });
+
+  it('não contém os templates comerciais antigos', () => {
+    assert.equal(followUp.includes('function textFor'), false);
+    assert.equal(followUp.includes('Passando para confirmar sua visita conosco'), false);
+    assert.equal(followUp.includes('Queria saber se você foi bem atendido na visita'), false);
+    assert.equal(followUp.includes('Conseguiu passar na loja como combinado?'), false);
+    assert.equal(followUp.includes('Você pediu para eu falar com você agora'), false);
+    assert.equal(followUp.includes('no horário combinado'), false);
   });
 
   it('cancela pós-visita sem comparecimento', () => {
