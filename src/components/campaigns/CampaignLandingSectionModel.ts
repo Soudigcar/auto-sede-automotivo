@@ -1,4 +1,4 @@
-import type { Draft } from './CampaignVisualEditorModel';
+import type { Device, Draft } from './CampaignVisualEditorModel';
 import type { ResponsiveDraft } from './CampaignVisualEditorResponsive';
 
 export type LandingSectionType = 'content' | 'vehicles' | 'simulation' | 'location';
@@ -6,6 +6,7 @@ export type LandingBlockType = 'title' | 'text' | 'card' | 'image' | 'icon' | 'b
 export type LandingBlockAction = 'simulator' | 'vehicles' | 'whatsapp' | 'none';
 export type LandingBlockAlign = 'left' | 'center' | 'right';
 export type LandingView = 'home' | 'vehicles' | 'simulation';
+export type LandingPlacementMode = 'section' | 'free';
 
 export type LandingNavigationItem = {
   id: LandingView;
@@ -74,6 +75,14 @@ export type LandingVehicleSettings = {
   filterWidth: number;
 };
 
+export type LandingFreePlacement = {
+  x: number;
+  y: number;
+  width: number;
+  align: LandingBlockAlign;
+  stageHeight: number;
+};
+
 export type LandingSection = {
   id: string;
   name: string;
@@ -88,6 +97,8 @@ export type LandingSection = {
   columns: number;
   blocks: LandingSectionBlock[];
   vehicleSettings: LandingVehicleSettings;
+  placementMode: LandingPlacementMode;
+  freePlacement: Record<Device, LandingFreePlacement>;
 };
 
 export type LandingDraftV3 = ResponsiveDraft & {
@@ -141,8 +152,22 @@ export const vehicleDefaults: LandingVehicleSettings = {
   filterWidth: 260
 };
 
+export const freePlacementDefaults: Record<Device, LandingFreePlacement> = {
+  desktop: { x: 50, y: 0, width: 76, align: 'center', stageHeight: 520 },
+  tablet: { x: 50, y: 0, width: 90, align: 'center', stageHeight: 680 },
+  mobile: { x: 50, y: 0, width: 94, align: 'center', stageHeight: 840 }
+};
+
 function id(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function cloneFreePlacement(source?: Partial<Record<Device, LandingFreePlacement>>): Record<Device, LandingFreePlacement> {
+  return {
+    desktop: { ...freePlacementDefaults.desktop, ...(source?.desktop || {}) },
+    tablet: { ...freePlacementDefaults.tablet, ...(source?.tablet || {}) },
+    mobile: { ...freePlacementDefaults.mobile, ...(source?.mobile || {}) }
+  };
 }
 
 function sectionBase(seed: Partial<LandingSection> = {}): LandingSection {
@@ -159,7 +184,9 @@ function sectionBase(seed: Partial<LandingSection> = {}): LandingSection {
     maxWidth: seed.maxWidth ?? 1280,
     columns: seed.columns ?? 3,
     blocks: seed.blocks || [],
-    vehicleSettings: { ...vehicleDefaults, ...(seed.vehicleSettings || {}) }
+    vehicleSettings: { ...vehicleDefaults, ...(seed.vehicleSettings || {}) },
+    placementMode: seed.placementMode === 'free' ? 'free' : 'section',
+    freePlacement: cloneFreePlacement(seed.freePlacement)
   };
 }
 
@@ -208,7 +235,7 @@ export function createVehiclesTemplateSection(source?: LandingSection): LandingS
     id: id('section-vehicles'), name: source ? `${source.name} — cópia` : 'Veículos — cópia', type: 'vehicles',
     backgroundColor: source?.backgroundColor || '#F1F5F9', textColor: source?.textColor || '#0F172A',
     paddingY: source?.paddingY ?? 28, minHeight: source?.minHeight ?? 0, maxWidth: source?.maxWidth ?? 1480, columns: 1,
-    vehicleSettings: { ...(source?.vehicleSettings || vehicleDefaults) }
+    vehicleSettings: { ...(source?.vehicleSettings || vehicleDefaults) }, placementMode: source?.placementMode || 'section', freePlacement: source?.freePlacement
   });
 }
 
@@ -216,7 +243,8 @@ export function createSimulationTemplateSection(source?: LandingSection): Landin
   return sectionBase({
     id: id('section-simulation'), name: source ? `${source.name} — cópia` : 'Simulação — cópia', type: 'simulation',
     backgroundColor: source?.backgroundColor || '#F1F5F9', textColor: source?.textColor || '#0F172A',
-    paddingY: source?.paddingY ?? 44, minHeight: source?.minHeight ?? 0, maxWidth: source?.maxWidth ?? 1180, columns: 1
+    paddingY: source?.paddingY ?? 44, minHeight: source?.minHeight ?? 0, maxWidth: source?.maxWidth ?? 1180, columns: 1,
+    placementMode: source?.placementMode || 'section', freePlacement: source?.freePlacement
   });
 }
 
@@ -259,7 +287,8 @@ function defaultSections(source: any): LandingSection[] {
     }),
     sectionBase({
       id: 'simulation', name: 'Simulador', type: 'simulation',
-      backgroundColor: String(source?.simulatorSectionBackground || '#F8FAFC'), textColor: '#0F172A', paddingY: 44, maxWidth: 1180, columns: 1
+      backgroundColor: String(source?.simulatorSectionBackground || '#F8FAFC'), textColor: '#0F172A', paddingY: 44, maxWidth: 1180, columns: 1,
+      placementMode: 'section'
     }),
     sectionBase({
       id: 'location', name: 'Localização', type: 'location',
@@ -311,6 +340,21 @@ function cleanVehicleSettings(raw: any): LandingVehicleSettings {
   };
 }
 
+function cleanFreePlacement(raw: any, fallback: Record<Device, LandingFreePlacement>): Record<Device, LandingFreePlacement> {
+  const cleanDevice = (device: Device): LandingFreePlacement => {
+    const incoming = raw?.[device] || {};
+    const base = fallback?.[device] || freePlacementDefaults[device];
+    return {
+      x: Math.max(0, Math.min(100, Number(incoming.x ?? base.x))),
+      y: Math.max(-1200, Math.min(2000, Number(incoming.y ?? base.y))),
+      width: Math.max(20, Math.min(100, Number(incoming.width ?? base.width))),
+      align: ['left','center','right'].includes(incoming.align) ? incoming.align : base.align,
+      stageHeight: Math.max(120, Math.min(2000, Number(incoming.stageHeight ?? base.stageHeight)))
+    };
+  };
+  return { desktop: cleanDevice('desktop'), tablet: cleanDevice('tablet'), mobile: cleanDevice('mobile') };
+}
+
 function cleanSection(raw: any, fallback: LandingSection): LandingSection {
   const type: LandingSectionType = raw?.type === 'vehicles' ? 'vehicles' : raw?.type === 'simulation' ? 'simulation' : raw?.type === 'location' ? 'location' : 'content';
   return sectionBase({
@@ -322,7 +366,9 @@ function cleanSection(raw: any, fallback: LandingSection): LandingSection {
     maxWidth: Math.max(320, Math.min(1800, Number(raw?.maxWidth ?? fallback.maxWidth ?? 1280))),
     columns: Math.max(1, Math.min(6, Number(raw?.columns ?? fallback.columns ?? 3))),
     blocks: Array.isArray(raw?.blocks) ? raw.blocks.map(cleanBlock) : fallback.blocks.map(cleanBlock),
-    vehicleSettings: cleanVehicleSettings(raw?.vehicleSettings || fallback.vehicleSettings)
+    vehicleSettings: cleanVehicleSettings(raw?.vehicleSettings || fallback.vehicleSettings),
+    placementMode: raw?.placementMode === 'free' ? 'free' : fallback.placementMode === 'free' ? 'free' : 'section',
+    freePlacement: cleanFreePlacement(raw?.freePlacement, fallback.freePlacement)
   });
 }
 
@@ -350,9 +396,15 @@ export function upgradeLandingDraft(source: ResponsiveDraft | Draft | any, campa
 }
 
 export function cloneLandingSection(section: LandingSection): LandingSection {
-  return { ...section, id: id('section'), name: `${section.name} — cópia`, locked: false,
+  return {
+    ...section,
+    id: id('section'),
+    name: `${section.name} — cópia`,
+    locked: false,
     blocks: section.blocks.map((block) => ({ ...block, id: id(`block-${block.type}`) })),
-    vehicleSettings: { ...section.vehicleSettings } };
+    vehicleSettings: { ...section.vehicleSettings },
+    freePlacement: cloneFreePlacement(section.freePlacement)
+  };
 }
 
 export function addLandingBlock(section: LandingSection, type: LandingBlockType): LandingSection {
