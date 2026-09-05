@@ -1,7 +1,7 @@
 import type { Draft } from './CampaignVisualEditorModel';
 import type { ResponsiveDraft } from './CampaignVisualEditorResponsive';
 
-export type LandingSectionType = 'content' | 'vehicles' | 'simulation';
+export type LandingSectionType = 'content' | 'vehicles' | 'simulation' | 'location';
 export type LandingBlockType = 'title' | 'text' | 'card' | 'image' | 'icon' | 'button';
 export type LandingBlockAction = 'simulator' | 'vehicles' | 'whatsapp' | 'none';
 export type LandingBlockAlign = 'left' | 'center' | 'right';
@@ -83,6 +83,8 @@ export type LandingSection = {
   backgroundColor: string;
   textColor: string;
   paddingY: number;
+  minHeight: number;
+  maxWidth: number;
   columns: number;
   blocks: LandingSectionBlock[];
   vehicleSettings: LandingVehicleSettings;
@@ -143,6 +145,24 @@ function id(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function sectionBase(seed: Partial<LandingSection> = {}): LandingSection {
+  return {
+    id: seed.id || id('section'),
+    name: seed.name || 'Seção',
+    type: seed.type || 'content',
+    visible: seed.visible !== false,
+    locked: seed.locked === true,
+    backgroundColor: seed.backgroundColor || '#FFFFFF',
+    textColor: seed.textColor || '#0F172A',
+    paddingY: seed.paddingY ?? 48,
+    minHeight: seed.minHeight ?? 0,
+    maxWidth: seed.maxWidth ?? 1280,
+    columns: seed.columns ?? 3,
+    blocks: seed.blocks || [],
+    vehicleSettings: { ...vehicleDefaults, ...(seed.vehicleSettings || {}) }
+  };
+}
+
 export function createLandingBlock(type: LandingBlockType, seed: Partial<LandingSectionBlock> = {}): LandingSectionBlock {
   const defaults: Record<LandingBlockType, Partial<LandingSectionBlock>> = {
     title: { title: 'Título da seção', color: '#0F172A', fullWidth: true },
@@ -164,92 +184,87 @@ export function createLandingBlock(type: LandingBlockType, seed: Partial<Landing
 }
 
 export function createContentSection(name = 'Nova seção'): LandingSection {
-  return {
-    id: id('section'), name, type: 'content', visible: true, locked: false,
-    backgroundColor: '#FFFFFF', textColor: '#0F172A', paddingY: 64, columns: 3,
-    blocks: [createLandingBlock('title', { title: name })],
-    vehicleSettings: { ...vehicleDefaults }
-  };
+  return sectionBase({
+    name, type: 'content', backgroundColor: '#FFFFFF', textColor: '#0F172A', paddingY: 56, maxWidth: 1280, columns: 3,
+    blocks: [createLandingBlock('title', { title: name })]
+  });
 }
 
 export function createHomeTemplateSection(draft: LandingDraftV3): LandingSection {
-  return {
-    ...createContentSection('Início — cópia'),
-    columns: 2,
-    backgroundColor: draft.secondaryColor,
-    textColor: '#FFFFFF',
+  return sectionBase({
+    name: 'Início — cópia', type: 'content', columns: 2, maxWidth: 1180,
+    backgroundColor: draft.secondaryColor, textColor: '#FFFFFF',
     blocks: [
       createLandingBlock('title', { title: draft.content.title.text || 'Encontre seu próximo veículo', color: '#FFFFFF', fullWidth: true }),
       createLandingBlock('text', { text: draft.content.description.text || 'Escolha um veículo e faça sua simulação.', color: '#FFFFFFCC', fullWidth: true }),
       createLandingBlock('button', { label: draft.content.primaryButton.text || 'Simular agora', action: 'simulator', backgroundColor: draft.primaryColor, color: '#FFFFFF' }),
       createLandingBlock('button', { label: draft.content.secondaryButton.text || 'Ver veículos', action: 'vehicles', backgroundColor: '#FFFFFF1A', borderColor: '#FFFFFF40', color: '#FFFFFF' })
     ]
-  };
+  });
 }
 
 export function createVehiclesTemplateSection(source?: LandingSection): LandingSection {
-  return {
-    id: id('section-vehicles'),
-    name: source ? `${source.name} — cópia` : 'Veículos — cópia',
-    type: 'vehicles',
-    visible: true,
-    locked: false,
-    backgroundColor: source?.backgroundColor || '#F1F5F9',
-    textColor: source?.textColor || '#0F172A',
-    paddingY: source?.paddingY ?? 24,
-    columns: 1,
-    blocks: [],
+  return sectionBase({
+    id: id('section-vehicles'), name: source ? `${source.name} — cópia` : 'Veículos — cópia', type: 'vehicles',
+    backgroundColor: source?.backgroundColor || '#F1F5F9', textColor: source?.textColor || '#0F172A',
+    paddingY: source?.paddingY ?? 28, minHeight: source?.minHeight ?? 0, maxWidth: source?.maxWidth ?? 1480, columns: 1,
     vehicleSettings: { ...(source?.vehicleSettings || vehicleDefaults) }
-  };
+  });
 }
 
 export function createSimulationTemplateSection(source?: LandingSection): LandingSection {
-  return {
-    id: id('section-simulation'),
-    name: source ? `${source.name} — cópia` : 'Simulação — cópia',
-    type: 'simulation',
-    visible: true,
-    locked: false,
-    backgroundColor: source?.backgroundColor || '#F1F5F9',
-    textColor: source?.textColor || '#0F172A',
-    paddingY: source?.paddingY ?? 48,
-    columns: 1,
-    blocks: [],
-    vehicleSettings: { ...vehicleDefaults }
-  };
+  return sectionBase({
+    id: id('section-simulation'), name: source ? `${source.name} — cópia` : 'Simulação — cópia', type: 'simulation',
+    backgroundColor: source?.backgroundColor || '#F1F5F9', textColor: source?.textColor || '#0F172A',
+    paddingY: source?.paddingY ?? 44, minHeight: source?.minHeight ?? 0, maxWidth: source?.maxWidth ?? 1180, columns: 1
+  });
+}
+
+export function createLocationTemplateSection(source?: LandingSection): LandingSection {
+  return sectionBase({
+    id: id('section-location'), name: source ? `${source.name} — cópia` : 'Localização', type: 'location',
+    backgroundColor: source?.backgroundColor || '#071020', textColor: source?.textColor || '#FFFFFF',
+    paddingY: source?.paddingY ?? 40, minHeight: source?.minHeight ?? 0, maxWidth: source?.maxWidth ?? 1180, columns: 1
+  });
 }
 
 export function createAdvantagesTemplateSection(source?: LandingSection): LandingSection {
   if (source) return cloneLandingSection(source);
-  return {
-    ...createContentSection('Vantagens do evento — cópia'),
+  return sectionBase({
+    name: 'Vantagens do evento — cópia', type: 'content', paddingY: 48, maxWidth: 1180,
     blocks: [
       createLandingBlock('title', { title: 'Vantagens do evento', fullWidth: true }),
       createLandingBlock('card', { title: 'Simulação rápida', text: 'Faça uma estimativa inicial de financiamento em poucos passos.' }),
       createLandingBlock('card', { title: 'Estoque conectado', text: 'Consulte os veículos disponíveis das lojas participantes.' }),
       createLandingBlock('card', { title: 'Atendimento responsável', text: 'Receba atendimento das lojas participantes do evento.' })
     ]
-  };
+  });
 }
 
 function defaultSections(source: any): LandingSection[] {
   return [
-    {
-      id: 'advantages', name: 'Vantagens do evento', type: 'content', visible: true, locked: false,
-      backgroundColor: String(source?.advantagesBackground || '#FFFFFF'), textColor: '#0F172A', paddingY: 64, columns: 3,
-      vehicleSettings: { ...vehicleDefaults },
+    sectionBase({
+      id: 'advantages', name: 'Vantagens do evento', type: 'content',
+      backgroundColor: String(source?.advantagesBackground || '#FFFFFF'), textColor: '#0F172A', paddingY: 48, maxWidth: 1180, columns: 3,
       blocks: [
         createLandingBlock('title', { id: 'advantages-title', title: 'Vantagens do evento', fullWidth: true }),
         createLandingBlock('card', { id: 'adv-quick', title: 'Simulação rápida', text: 'Faça uma estimativa inicial de financiamento em poucos passos.' }),
         createLandingBlock('card', { id: 'adv-stock', title: 'Estoque conectado', text: 'Consulte os veículos disponíveis das lojas participantes.' }),
         createLandingBlock('card', { id: 'adv-service', title: 'Atendimento responsável', text: 'Receba atendimento das lojas participantes do evento.' })
       ]
-    },
-    {
-      id: 'vehicles', name: 'Veículos', type: 'vehicles', visible: true, locked: false,
-      backgroundColor: String(source?.vehiclesBackground || '#F1F5F9'), textColor: '#0F172A', paddingY: 24, columns: 1,
-      vehicleSettings: { ...vehicleDefaults }, blocks: []
-    }
+    }),
+    sectionBase({
+      id: 'vehicles', name: 'Veículos', type: 'vehicles',
+      backgroundColor: String(source?.vehiclesBackground || '#F1F5F9'), textColor: '#0F172A', paddingY: 28, maxWidth: 1480, columns: 1
+    }),
+    sectionBase({
+      id: 'simulation', name: 'Simulador', type: 'simulation',
+      backgroundColor: String(source?.simulatorSectionBackground || '#F8FAFC'), textColor: '#0F172A', paddingY: 44, maxWidth: 1180, columns: 1
+    }),
+    sectionBase({
+      id: 'location', name: 'Localização', type: 'location',
+      backgroundColor: '#071020', textColor: '#FFFFFF', paddingY: 40, maxWidth: 1180, columns: 1
+    })
   ];
 }
 
@@ -297,24 +312,40 @@ function cleanVehicleSettings(raw: any): LandingVehicleSettings {
 }
 
 function cleanSection(raw: any, fallback: LandingSection): LandingSection {
-  const type: LandingSectionType = raw?.type === 'vehicles' ? 'vehicles' : raw?.type === 'simulation' ? 'simulation' : 'content';
-  return {
+  const type: LandingSectionType = raw?.type === 'vehicles' ? 'vehicles' : raw?.type === 'simulation' ? 'simulation' : raw?.type === 'location' ? 'location' : 'content';
+  return sectionBase({
     id: String(raw?.id || fallback.id || id('section')), name: String(raw?.name || fallback.name || 'Seção'), type,
     visible: raw?.visible !== false, locked: raw?.locked === true,
     backgroundColor: String(raw?.backgroundColor || fallback.backgroundColor || '#FFFFFF'), textColor: String(raw?.textColor || fallback.textColor || '#0F172A'),
-    paddingY: Math.max(0, Math.min(180, Number(raw?.paddingY ?? fallback.paddingY ?? 64))),
+    paddingY: Math.max(0, Math.min(180, Number(raw?.paddingY ?? fallback.paddingY ?? 48))),
+    minHeight: Math.max(0, Math.min(1800, Number(raw?.minHeight ?? fallback.minHeight ?? 0))),
+    maxWidth: Math.max(320, Math.min(1800, Number(raw?.maxWidth ?? fallback.maxWidth ?? 1280))),
     columns: Math.max(1, Math.min(6, Number(raw?.columns ?? fallback.columns ?? 3))),
     blocks: Array.isArray(raw?.blocks) ? raw.blocks.map(cleanBlock) : fallback.blocks.map(cleanBlock),
     vehicleSettings: cleanVehicleSettings(raw?.vehicleSettings || fallback.vehicleSettings)
-  };
+  });
+}
+
+function ensureStructuralSections(sections: LandingSection[], fallbacks: LandingSection[]) {
+  const next = [...sections];
+  if (!next.some((section) => section.type === 'simulation')) {
+    const simulation = fallbacks.find((section) => section.type === 'simulation');
+    if (simulation) next.push(simulation);
+  }
+  if (!next.some((section) => section.type === 'location')) {
+    const location = fallbacks.find((section) => section.type === 'location');
+    if (location) next.push(location);
+  }
+  return next;
 }
 
 export function upgradeLandingDraft(source: ResponsiveDraft | Draft | any, campaign?: any): LandingDraftV3 {
   const fallbacks = defaultSections(source);
   const rawSections = Array.isArray(source?.sections) ? source.sections : null;
-  const sections = rawSections?.length
+  const cleaned = rawSections?.length
     ? rawSections.map((section: any, index: number) => cleanSection(section, fallbacks[index] || createContentSection(section?.name || 'Seção')))
     : fallbacks;
+  const sections = ensureStructuralSections(cleaned, fallbacks);
   return { ...source, layoutVersion: 3, navigation: cleanNavigation(source?.navigation), sections } as LandingDraftV3;
 }
 
