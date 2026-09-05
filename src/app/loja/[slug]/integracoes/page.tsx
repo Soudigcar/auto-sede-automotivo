@@ -2,6 +2,7 @@
 
 import { StoreWhatsappWebhookButton } from '@/components/StoreWhatsappWebhookButton';
 import { useStorePortal } from '@/components/StorePortalShell';
+import { WhatsappCloudApiPanel } from '@/components/WhatsappCloudApiPanel';
 import { WhatsappEvolutionPanel } from '@/components/WhatsappEvolutionPanel';
 
 export default function StoreIntegrationsPage() {
@@ -15,6 +16,10 @@ export default function StoreIntegrationsPage() {
         storeSlug={portal.store.slug}
       />
       <StoreWhatsappWebhookButton storeSlug={portal.store.slug} />
+      <WhatsappCloudApiPanel
+        storeName={portal.store.store_name}
+        storeSlug={portal.store.slug}
+      />
     </>
   );
 }
