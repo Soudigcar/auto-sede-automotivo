@@ -64,7 +64,7 @@ function continuityFixture(options: {
     if (table === 'site_vehicles') return { data: [{ id: 'synthetic-vehicle', model: 'Veículo sintético' }] };
     throw new Error(`Unexpected table: ${table}`);
   }) };
-  const module = loadModule('src/lib/server/autocar/conversationContinuity.ts', {
+  const loaded = loadModule('src/lib/server/autocar/conversationContinuity.ts', {
     '@/lib/server/autocar/client': { createAutocarStructuredResponse: async (request: any) => {
       calls.push(request.schemaName);
       const classifier = request.schemaName === 'autocar_pending_action_resolution';
@@ -81,7 +81,7 @@ function continuityFixture(options: {
       consultAutocarVehiclePhotos: async () => ({ configured: !options.unavailable, photos: options.unavailable ? [] : ['https://example.test/vehicle.jpg'] })
     }
   });
-  return { calls, module, run: () => module.enhanceAutocarConversationContinuity({
+  return { calls, loaded, run: () => loaded.enhanceAutocarConversationContinuity({
     productionSupabase: db, storeId: 'synthetic-store', conversationId: 'synthetic-conversation', shadow,
     bookingGuard: { state: options.booking ? 'READY_TO_SCHEDULE' : 'NOT_APPLICABLE' }
   }) };
@@ -92,7 +92,7 @@ for (const action of ['send_location', 'send_photos']) {
     const fixture = continuityFixture({ action });
     const result = await fixture.run();
     assert.equal(result.conversation_continuity.resolution, 'direct_request');
-    assert.equal(fixture.module.isAutocarContinuityExecutionSafe(result.conversation_continuity), true);
+    assert.equal(fixture.loaded.isAutocarContinuityExecutionSafe(result.conversation_continuity), true);
     assert.equal(result.operational_preview.plan[action === 'send_photos' ? 'needs_photos' : 'needs_location'], true);
     assert.equal(result.response, 'Resposta gerada sintética');
   });
@@ -102,7 +102,7 @@ for (const resolution of ['unclear', 'declined', 'not_applicable']) {
   test(`continuidade ${resolution} não autoriza envio mesmo com plano anterior válido`, async () => {
     const fixture = continuityFixture({ resolution, action: 'none' });
     const result = await fixture.run();
-    assert.equal(fixture.module.isAutocarContinuityExecutionSafe(result.conversation_continuity), false);
+    assert.equal(fixture.loaded.isAutocarContinuityExecutionSafe(result.conversation_continuity), false);
     assert.equal(fixture.calls.length, 1);
   });
 }
@@ -110,7 +110,7 @@ for (const resolution of ['unclear', 'declined', 'not_applicable']) {
 test('aceite inequívoco continua elegível', async () => {
   const fixture = continuityFixture({ resolution: 'accepted' });
   const result = await fixture.run();
-  assert.equal(fixture.module.isAutocarContinuityExecutionSafe(result.conversation_continuity), true);
+  assert.equal(fixture.loaded.isAutocarContinuityExecutionSafe(result.conversation_continuity), true);
 });
 
 for (const options of [
@@ -123,14 +123,14 @@ for (const options of [
   test(`continuidade permanece fail-closed: ${JSON.stringify(options)}`, async () => {
     const fixture = continuityFixture(options);
     const result = await fixture.run();
-    assert.equal(fixture.module.isAutocarContinuityExecutionSafe(result.conversation_continuity), false);
+    assert.equal(fixture.loaded.isAutocarContinuityExecutionSafe(result.conversation_continuity), false);
   });
 }
 
 test('metadados incompletos não liberam continuidade', () => {
-  const { module } = continuityFixture();
-  assert.equal(module.isAutocarContinuityExecutionSafe({ resolution: 'direct_request', pending_action: 'send_location', execution_ready: true }), false);
-  assert.equal(module.isAutocarContinuityExecutionSafe(null), true);
+  const { loaded } = continuityFixture();
+  assert.equal(loaded.isAutocarContinuityExecutionSafe({ resolution: 'direct_request', pending_action: 'send_location', execution_ready: true }), false);
+  assert.equal(loaded.isAutocarContinuityExecutionSafe(null), true);
 });
 
 function visitFixture(changeDuringGeneration: (state: any) => void = () => {}) {
@@ -162,7 +162,7 @@ function visitFixture(changeDuringGeneration: (state: any) => void = () => {}) {
     state.scheduled++;
     return { data: { success: true, scheduled_at: '2026-09-10T17:30:00-03:00' }, error: null };
   } };
-  const module = loadModule('src/lib/server/autocar/liveVisitPilot.ts', {
+  const loaded = loadModule('src/lib/server/autocar/liveVisitPilot.ts', {
     '@/lib/server/autocar/client': { createAutocarStructuredResponse: async () => {
       events.push('generate');
       state.generated = true;
@@ -174,7 +174,7 @@ function visitFixture(changeDuringGeneration: (state: any) => void = () => {}) {
     '@/lib/server/autocar/operationalTools': { consultAutocarStoreLocation: async () => ({ configured: false }) },
     '@/lib/server/evolution': { sendEvolutionText: async () => { state.sent++; events.push('send-mock'); return {}; } }
   });
-  return { state, events, run: () => module.attemptAutocarLiveVisitPilot({
+  return { state, events, run: () => loaded.attemptAutocarLiveVisitPilot({
     productionSupabase: db, storeId: conversation.store_id, conversationId: conversation.id,
     whatsappNumberId: conversation.whatsapp_number_id, leadId: conversation.lead_id,
     inboundMessageId: 'synthetic-inbound', integration: { scope: 'store', status: 'connected', instance_name: 'mock-only' },
