@@ -71,7 +71,7 @@ export function WhatsappCloudApiPanel({ storeName, storeSlug }: Props) {
 
   async function post(action: string, payload: Record<string, unknown> = {}) {
     setBusy(action);
-    setMessage('Validando no ambiente isolado...');
+    setMessage('Validando configuração segura...');
     try {
       const token = await getToken();
       const response = await fetch('/api/store/integrations/whatsapp-cloud', {
@@ -82,17 +82,18 @@ export function WhatsappCloudApiPanel({ storeName, storeSlug }: Props) {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Não foi possível concluir a ação.');
       setIntegration(result.integration);
-      if (action === 'save-synthetic-secrets') {
+      if (action === 'save-synthetic-secrets' || action === 'save-secrets') {
         setForm((current) => ({ ...current, access_token: '', app_secret: '', verify_token: '' }));
       }
-      setMessage(action === 'save-draft' ? 'Configuração sintética salva no ambiente isolado.' : 'Ação concluída no ambiente isolado.');
+      setMessage(action === 'save-draft' ? 'Configuração salva com execução externa desligada.' : 'Ação concluída com execução externa desligada.');
     } catch (error: any) {
-      setMessage(error?.message || 'Erro na homologação da API própria.');
+      setMessage(error?.message || 'Erro na configuração da API própria.');
     } finally {
       setBusy('');
     }
   }
 
+  const syntheticOnly = capabilities?.synthetic_only !== false;
   const hasAllSecrets = Boolean(integration?.has_access_token && integration?.has_app_secret && integration?.has_verify_token);
   const fieldClass = 'mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm font-semibold text-zinc-900 outline-none transition focus:border-blue-400';
 
@@ -106,7 +107,7 @@ export function WhatsappCloudApiPanel({ storeName, storeSlug }: Props) {
               <h2 className="mt-3 text-3xl font-black md:text-4xl">WhatsApp via API própria da loja</h2>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-300">Estrutura paralela ao Espelhamento/Evolution. Cada loja terá sua própria conta, número, WABA, Templates e WhatsApp Flows. Nenhum fallback entre lojas ou provedores.</p>
             </div>
-            <span className="inline-flex self-start rounded-2xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-xs font-black uppercase tracking-wider text-amber-200">Homologação · execução externa OFF</span>
+            <span className="inline-flex self-start rounded-2xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-xs font-black uppercase tracking-wider text-amber-200">{syntheticOnly ? 'Homologação · execução externa OFF' : 'Configuração · execução externa OFF'}</span>
           </div>
         </div>
       </header>
@@ -119,25 +120,25 @@ export function WhatsappCloudApiPanel({ storeName, storeSlug }: Props) {
           </div>
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            <label className="text-xs font-black uppercase tracking-wide text-zinc-500">Nome da conta<input name="whatsapp-cloud-business-account-name" autoComplete="off" data-1p-ignore="true" data-lpignore="true" className={fieldClass} value={form.business_account_name} onChange={(e)=>setForm({...form,business_account_name:e.target.value})} placeholder="Conta sintética da loja" /></label>
-            <label className="text-xs font-black uppercase tracking-wide text-zinc-500">WABA ID<input name="whatsapp-cloud-waba-id" autoComplete="off" data-1p-ignore="true" data-lpignore="true" className={fieldClass} value={form.waba_id} onChange={(e)=>setForm({...form,waba_id:e.target.value})} placeholder="WABA_SYNTH_..." /></label>
-            <label className="text-xs font-black uppercase tracking-wide text-zinc-500">Phone Number ID<input name="whatsapp-cloud-phone-number-id" autoComplete="off" data-1p-ignore="true" data-lpignore="true" className={fieldClass} value={form.phone_number_id} onChange={(e)=>setForm({...form,phone_number_id:e.target.value})} placeholder="PHONE_SYNTH_..." /></label>
-            <label className="text-xs font-black uppercase tracking-wide text-zinc-500">Número de exibição<input name="whatsapp-cloud-display-phone-number" autoComplete="off" data-1p-ignore="true" data-lpignore="true" className={fieldClass} value={form.display_phone_number} onChange={(e)=>setForm({...form,display_phone_number:e.target.value})} placeholder="+55... sintético" /></label>
-            <label className="text-xs font-black uppercase tracking-wide text-zinc-500 sm:col-span-2">Versão Graph API <span className="normal-case font-semibold text-zinc-400">(não fixada até validação oficial)</span><input name="whatsapp-cloud-graph-api-version" autoComplete="off" data-1p-ignore="true" data-lpignore="true" spellCheck={false} className={fieldClass} value={form.graph_api_version} onChange={(e)=>setForm({...form,graph_api_version:e.target.value})} placeholder="Deixar vazio na homologação" /></label>
+            <label className="text-xs font-black uppercase tracking-wide text-zinc-500">Nome da conta<input name="whatsapp-cloud-business-account-name" autoComplete="off" data-1p-ignore="true" data-lpignore="true" className={fieldClass} value={form.business_account_name} onChange={(e)=>setForm({...form,business_account_name:e.target.value})} placeholder={syntheticOnly ? 'Conta sintética da loja' : 'Conta da loja na Meta'} /></label>
+            <label className="text-xs font-black uppercase tracking-wide text-zinc-500">WABA ID<input name="whatsapp-cloud-waba-id" autoComplete="off" data-1p-ignore="true" data-lpignore="true" className={fieldClass} value={form.waba_id} onChange={(e)=>setForm({...form,waba_id:e.target.value})} placeholder={syntheticOnly ? 'WABA_SYNTH_...' : 'WABA ID'} /></label>
+            <label className="text-xs font-black uppercase tracking-wide text-zinc-500">Phone Number ID<input name="whatsapp-cloud-phone-number-id" autoComplete="off" data-1p-ignore="true" data-lpignore="true" className={fieldClass} value={form.phone_number_id} onChange={(e)=>setForm({...form,phone_number_id:e.target.value})} placeholder={syntheticOnly ? 'PHONE_SYNTH_...' : 'Phone Number ID'} /></label>
+            <label className="text-xs font-black uppercase tracking-wide text-zinc-500">Número de exibição<input name="whatsapp-cloud-display-phone-number" autoComplete="off" data-1p-ignore="true" data-lpignore="true" className={fieldClass} value={form.display_phone_number} onChange={(e)=>setForm({...form,display_phone_number:e.target.value})} placeholder={syntheticOnly ? '+55... sintético' : '+55...'} /></label>
+            <label className="text-xs font-black uppercase tracking-wide text-zinc-500 sm:col-span-2">Versão Graph API <span className="normal-case font-semibold text-zinc-400">(não fixada até validação oficial)</span><input name="whatsapp-cloud-graph-api-version" autoComplete="off" data-1p-ignore="true" data-lpignore="true" spellCheck={false} className={fieldClass} value={form.graph_api_version} onChange={(e)=>setForm({...form,graph_api_version:e.target.value})} placeholder="Ex.: vXX.X" /></label>
           </div>
-          <button disabled={Boolean(busy)} onClick={()=>post('save-draft', form)} className="mt-5 rounded-xl bg-zinc-950 px-4 py-3 text-sm font-black text-white disabled:opacity-50">{busy==='save-draft'?<Loader2 className="inline animate-spin" size={17}/>:null} Salvar configuração sintética</button>
+          <button disabled={Boolean(busy)} onClick={()=>post('save-draft', form)} className="mt-5 rounded-xl bg-zinc-950 px-4 py-3 text-sm font-black text-white disabled:opacity-50">{busy==='save-draft'?<Loader2 className="inline animate-spin" size={17}/>:null} Salvar configuração</button>
 
           <div className="mt-8 border-t border-zinc-200 pt-6">
             <div className="flex items-center gap-2"><KeyRound size={19} className="text-blue-700"/><h4 className="font-black text-zinc-950">Credenciais no Vault</h4></div>
-            <p className="mt-1 text-sm text-zinc-500">Somente valores sintéticos iniciados por <strong>synthetic-</strong>. O frontend nunca recebe o segredo já salvo.</p>
+            <p className="mt-1 text-sm text-zinc-500">{syntheticOnly ? <>Somente valores sintéticos iniciados por <strong>synthetic-</strong>. O frontend nunca recebe o segredo já salvo.</> : <>As credenciais ficam no Vault do CRM e nunca são devolvidas ao frontend. Salvar credenciais não habilita envio externo.</>}</p>
             <div className="mt-4 grid gap-4 sm:grid-cols-3">
-              <input name="whatsapp-cloud-access-token" type="password" autoComplete="new-password" data-1p-ignore="true" data-lpignore="true" spellCheck={false} className={fieldClass} value={form.access_token} onChange={(e)=>setForm({...form,access_token:e.target.value})} placeholder="synthetic-access-..." />
-              <input name="whatsapp-cloud-app-secret" type="password" autoComplete="new-password" data-1p-ignore="true" data-lpignore="true" spellCheck={false} className={fieldClass} value={form.app_secret} onChange={(e)=>setForm({...form,app_secret:e.target.value})} placeholder="synthetic-app-..." />
-              <input name="whatsapp-cloud-verify-token" type="password" autoComplete="new-password" data-1p-ignore="true" data-lpignore="true" spellCheck={false} className={fieldClass} value={form.verify_token} onChange={(e)=>setForm({...form,verify_token:e.target.value})} placeholder="synthetic-verify-..." />
+              <input name="whatsapp-cloud-access-token" type="password" autoComplete="new-password" data-1p-ignore="true" data-lpignore="true" spellCheck={false} className={fieldClass} value={form.access_token} onChange={(e)=>setForm({...form,access_token:e.target.value})} placeholder={syntheticOnly ? 'synthetic-access-...' : 'Access Token'} />
+              <input name="whatsapp-cloud-app-secret" type="password" autoComplete="new-password" data-1p-ignore="true" data-lpignore="true" spellCheck={false} className={fieldClass} value={form.app_secret} onChange={(e)=>setForm({...form,app_secret:e.target.value})} placeholder={syntheticOnly ? 'synthetic-app-...' : 'App Secret'} />
+              <input name="whatsapp-cloud-verify-token" type="password" autoComplete="new-password" data-1p-ignore="true" data-lpignore="true" spellCheck={false} className={fieldClass} value={form.verify_token} onChange={(e)=>setForm({...form,verify_token:e.target.value})} placeholder={syntheticOnly ? 'synthetic-verify-...' : 'Verify Token'} />
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
-              <button disabled={Boolean(busy)||!integration?.configured} onClick={()=>post('save-synthetic-secrets',form)} className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-black text-blue-800 disabled:opacity-50">Salvar no Vault</button>
-              <button disabled={Boolean(busy)||!hasAllSecrets} onClick={()=>post('revoke-synthetic-secrets')} className="rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-black text-zinc-700 disabled:opacity-50">Revogar segredos sintéticos</button>
+              <button disabled={Boolean(busy)||!integration?.configured} onClick={()=>post(syntheticOnly ? 'save-synthetic-secrets' : 'save-secrets',form)} className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-black text-blue-800 disabled:opacity-50">Salvar no Vault</button>
+              <button disabled={Boolean(busy)||!hasAllSecrets} onClick={()=>post(syntheticOnly ? 'revoke-synthetic-secrets' : 'revoke-secrets')} className="rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-black text-zinc-700 disabled:opacity-50">Revogar segredos</button>
             </div>
           </div>
           {message ? <p className="mt-5 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm font-bold text-zinc-700">{message}</p> : null}
