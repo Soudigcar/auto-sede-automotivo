@@ -1,7 +1,8 @@
 -- Hardening de tenant da WhatsApp Cloud API por loja.
 -- Garante no banco que integration_id e store_id sempre apontem para a mesma loja.
 -- Fail-closed: se houver qualquer inconsistência pré-existente, a migration aborta sem corrigir dados automaticamente.
--- Idempotente: reconhece constraints já existentes com o mesmo nome e cria apenas as ausentes.
+-- Auditoria append-only preserva os IDs históricos e valida referências somente no INSERT,
+-- evitando conflito entre imutabilidade e ações referenciais ON DELETE SET NULL.
 
 do $$
 begin
@@ -111,7 +112,19 @@ begin
       references public.store_whatsapp_cloud_integrations(id, store_id)
       on delete cascade;
   end if;
+end $$;
 
+-- A auditoria é histórica/append-only. Referências com ON DELETE SET NULL seriam
+-- incompatíveis com o trigger de imutabilidade porque o PostgreSQL precisaria
+-- executar UPDATE na linha de auditoria quando o pai fosse apagado.
+alter table public.whatsapp_cloud_audit_events
+  drop constraint if exists whatsapp_cloud_audit_events_store_id_fkey,
+  drop constraint if exists whatsapp_cloud_audit_events_integration_id_fkey,
+  drop constraint if exists whatsapp_cloud_audit_events_actor_user_id_fkey,
+  drop constraint if exists whatsapp_cloud_audit_events_integration_store_fk;
+
+do $$
+begin
   if not exists (
     select 1 from pg_constraint
     where conname = 'whatsapp_cloud_audit_events_store_required_with_integration'
@@ -121,16 +134,52 @@ begin
       add constraint whatsapp_cloud_audit_events_store_required_with_integration
       check (integration_id is null or store_id is not null);
   end if;
-
-  if not exists (
-    select 1 from pg_constraint
-    where conname = 'whatsapp_cloud_audit_events_integration_store_fk'
-      and conrelid = 'public.whatsapp_cloud_audit_events'::regclass
-  ) then
-    alter table public.whatsapp_cloud_audit_events
-      add constraint whatsapp_cloud_audit_events_integration_store_fk
-      foreign key (integration_id, store_id)
-      references public.store_whatsapp_cloud_integrations(id, store_id)
-      on delete set null (integration_id);
-  end if;
 end $$;
+
+create or replace function public.whatsapp_cloud_audit_validate_insert()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_integration_store_id uuid;
+begin
+  if new.store_id is not null and not exists (
+    select 1 from public.stores s where s.id = new.store_id
+  ) then
+    raise exception 'Audit store not found';
+  end if;
+
+  if new.actor_user_id is not null and not exists (
+    select 1 from public.users u where u.id = new.actor_user_id
+  ) then
+    raise exception 'Audit actor not found';
+  end if;
+
+  if new.integration_id is not null then
+    if new.store_id is null then
+      raise exception 'Audit store_id is required when integration_id is present';
+    end if;
+
+    select i.store_id
+      into v_integration_store_id
+      from public.store_whatsapp_cloud_integrations i
+     where i.id = new.integration_id;
+
+    if not found then
+      raise exception 'Audit integration not found';
+    end if;
+
+    if v_integration_store_id is distinct from new.store_id then
+      raise exception 'Tenant mismatch em whatsapp_cloud_audit_events';
+    end if;
+  end if;
+
+  return new;
+end $$;
+
+drop trigger if exists whatsapp_cloud_audit_events_validate_insert
+  on public.whatsapp_cloud_audit_events;
+create trigger whatsapp_cloud_audit_events_validate_insert
+before insert on public.whatsapp_cloud_audit_events
+for each row execute function public.whatsapp_cloud_audit_validate_insert();
