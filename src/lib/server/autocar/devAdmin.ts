@@ -6,6 +6,7 @@ import {
 import { decorateAutocarRuntimeClientWithCutoverBridge } from '@/lib/server/autocar/shadowMirror';
 
 export type AutocarStoreMode = 'off' | 'copilot' | 'autopilot';
+export type AutocarStoreModeActorRole = 'master' | 'store';
 
 /**
  * Legacy name intentionally preserved during the controlled cutover.
@@ -102,29 +103,44 @@ export async function setAutocarMasterAccess(
   return data;
 }
 
+function auditedModeRpcMissing(error: any) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || error || '');
+  return code === '42883' || code === 'PGRST202' || /set_autocar_store_mode_audited|could not find the function|does not exist/i.test(message);
+}
+
 export async function setAutocarStoreSelectedMode(
   supabase: ReturnType<typeof getAutocarDevClient>,
   store: { id: string; store_name: string; slug?: string | null; status?: string | null; portal_enabled?: boolean | null },
-  mode: AutocarStoreMode
+  mode: AutocarStoreMode,
+  audit: {
+    actorProfileId: string;
+    actorRole: AutocarStoreModeActorRole;
+    source: 'store_portal';
+    requestId: string;
+  }
 ) {
   await ensureAutocarDevStore(supabase, store);
-  const existing = await currentAgent(supabase, store.id);
 
-  if (!existing?.master_enabled) {
-    throw new Error('A AUTOCAR ainda não foi liberada pelo Master para esta loja.');
+  const { data, error } = await supabase.rpc('set_autocar_store_mode_audited', {
+    p_store_id: store.id,
+    p_requested_mode: mode,
+    p_actor_profile_id: audit.actorProfileId,
+    p_actor_role: audit.actorRole,
+    p_source: audit.source,
+    p_request_id: audit.requestId
+  });
+
+  if (error) {
+    if (auditedModeRpcMissing(error)) {
+      throw new Error('Auditoria obrigatória de modo AUTOCAR ainda não está provisionada neste ambiente. Alteração bloqueada por segurança.');
+    }
+    throw error;
   }
-  if (mode === 'autopilot' && !existing.master_autopilot_allowed) {
-    throw new Error('O AUTOPILOT ainda não foi liberado pelo Master para esta loja.');
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('Resposta inválida da auditoria transacional de modo AUTOCAR.');
   }
 
-  const { data, error } = await supabase.from('ai_store_agents').update({
-    store_selected_mode: mode,
-    updated_at: new Date().toISOString()
-  }).eq('store_id', store.id)
-    .select('id,store_id,name,status,mode,tone,language,version,master_enabled,master_autopilot_allowed,store_selected_mode,updated_at')
-    .single();
-
-  if (error) throw error;
   return data;
 }
 
