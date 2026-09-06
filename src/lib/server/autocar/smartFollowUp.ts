@@ -29,14 +29,6 @@ type Decision = {
   external_execution: false;
 };
 
-export type SmartFollowUpTextGenerator = (input: {
-  triggerType: TriggerType;
-  customerName?: string | null;
-  scheduledAt?: string | null;
-  leadStatus?: string | null;
-  appointmentStatus?: string | null;
-}) => Promise<string>;
-
 const FOLLOW_UP_VERSION = 'autocar-smart-follow-up-v1-dry-run-generative';
 const allowedBases = new Set(['appointment_service', 'customer_requested_callback']);
 const followUpTextSchema = {
@@ -215,12 +207,7 @@ export async function createCallbackRequestedEvent(input: {
   });
 }
 
-export async function evaluateFollowUpEvent(input: {
-  production: any;
-  autocar: any;
-  event: EventRow;
-  generateText?: SmartFollowUpTextGenerator;
-}): Promise<Decision> {
+export async function evaluateFollowUpEvent(input: { production: any; autocar: any; event: EventRow }): Promise<Decision> {
   const event = input.event;
   const gates: Record<string, unknown> = {
     version: FOLLOW_UP_VERSION,
@@ -299,7 +286,7 @@ export async function evaluateFollowUpEvent(input: {
 
   const scheduledAt = appointment ? appointmentIso(appointment.appointment_date, appointment.appointment_time) : String(event.source_snapshot?.scheduled_at || '');
   try {
-    const proposed = await (input.generateText || generateSmartFollowUpText)({
+    const proposed = await generateSmartFollowUpText({
       triggerType: event.trigger_type,
       customerName: lead?.customer_name || null,
       scheduledAt: scheduledAt || null,
