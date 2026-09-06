@@ -2,12 +2,12 @@ import { NextResponse } from 'next/server';
 import { authorizeStorePortal } from '@/lib/server/storePortal';
 import { cleanText } from '@/lib/server/storeTeam';
 import {
-  assertWhatsappCloudPreviewWriteEnabled,
+  assertWhatsappCloudWriteEnabled,
   auditStoreWhatsappCloud,
   loadStoreWhatsappCloudIntegration,
   publicWhatsappCloudIntegration,
   saveStoreWhatsappCloudDraft,
-  saveStoreWhatsappCloudSyntheticSecrets
+  saveStoreWhatsappCloudSecrets
 } from '@/lib/server/storeWhatsappCloud';
 
 export const runtime = 'nodejs';
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
         flows: flows.count || 0,
         journeys: journeys.count || 0,
         external_execution: false,
-        synthetic_only: true
+        synthetic_only: process.env.VERCEL_ENV !== 'production'
       }
     });
   } catch (error: any) {
@@ -67,9 +67,10 @@ export async function POST(request: Request) {
   let context: any = null;
   let integration: any = null;
   let action = '';
+  let writeMode: 'preview_synthetic' | 'production_config' | null = null;
 
   try {
-    assertWhatsappCloudPreviewWriteEnabled();
+    writeMode = assertWhatsappCloudWriteEnabled();
     const body = await request.json();
     const slug = cleanText(body?.slug, 120);
     action = cleanText(body?.action, 60).toLowerCase();
@@ -82,7 +83,8 @@ export async function POST(request: Request) {
       integration = await saveStoreWhatsappCloudDraft(
         context.supabase,
         { storeId: context.store.id, profileId: context.profile.id },
-        body
+        body,
+        writeMode
       );
       await auditStoreWhatsappCloud(context.supabase, {
         storeId: context.store.id,
@@ -92,26 +94,32 @@ export async function POST(request: Request) {
         entityType: 'cloud_integration',
         entityId: integration.id,
         outcome: 'success',
-        metadata: { synthetic: true, enabled: false }
+        metadata: { mode: writeMode, enabled: false, external_execution: false }
       });
       return NextResponse.json({ success: true, integration: publicWhatsappCloudIntegration(integration) });
     }
 
-    if (action === 'save-synthetic-secrets') {
+    if (action === 'save-secrets' || action === 'save-synthetic-secrets') {
       if (!integration) {
-        return NextResponse.json({ error: 'Salve a configuração sintética antes das credenciais.' }, { status: 409 });
+        return NextResponse.json({ error: 'Salve a configuração antes das credenciais.' }, { status: 409 });
       }
-      await saveStoreWhatsappCloudSyntheticSecrets(context.supabase, integration.id, body);
+      if (writeMode === 'production_config' && action === 'save-synthetic-secrets') {
+        return NextResponse.json({ error: 'A ação sintética é exclusiva do Preview.' }, { status: 400 });
+      }
+      if (writeMode === 'preview_synthetic' && action === 'save-secrets') {
+        return NextResponse.json({ error: 'O Preview aceita somente a ação de credenciais sintéticas.' }, { status: 400 });
+      }
+      await saveStoreWhatsappCloudSecrets(context.supabase, integration.id, body, writeMode);
       const refreshed = await loadStoreWhatsappCloudIntegration(context.supabase, context.store.id);
       await auditStoreWhatsappCloud(context.supabase, {
         storeId: context.store.id,
         integrationId: integration.id,
         actorUserId: context.profile.id,
-        action: 'save_synthetic_secrets',
+        action: writeMode === 'preview_synthetic' ? 'save_synthetic_secrets' : 'save_secrets',
         entityType: 'cloud_integration',
         entityId: integration.id,
         outcome: 'success',
-        metadata: { synthetic: true }
+        metadata: { mode: writeMode, external_execution: false }
       });
       return NextResponse.json({ success: true, integration: publicWhatsappCloudIntegration(refreshed) });
     }
@@ -135,14 +143,21 @@ export async function POST(request: Request) {
         action: 'disable',
         entityType: 'cloud_integration',
         entityId: integration.id,
-        outcome: 'success'
+        outcome: 'success',
+        metadata: { mode: writeMode, external_execution: false }
       });
       return NextResponse.json({ success: true, integration: publicWhatsappCloudIntegration(data) });
     }
 
-    if (action === 'revoke-synthetic-secrets') {
+    if (action === 'revoke-secrets' || action === 'revoke-synthetic-secrets') {
       if (!integration) {
         return NextResponse.json({ success: true, integration: publicWhatsappCloudIntegration(null) });
+      }
+      if (writeMode === 'production_config' && action === 'revoke-synthetic-secrets') {
+        return NextResponse.json({ error: 'A ação sintética é exclusiva do Preview.' }, { status: 400 });
+      }
+      if (writeMode === 'preview_synthetic' && action === 'revoke-secrets') {
+        return NextResponse.json({ error: 'O Preview aceita somente a revogação sintética.' }, { status: 400 });
       }
       const { error } = await context.supabase.rpc('store_whatsapp_cloud_revoke_secrets', {
         p_integration_id: integration.id
@@ -153,11 +168,11 @@ export async function POST(request: Request) {
         storeId: context.store.id,
         integrationId: integration.id,
         actorUserId: context.profile.id,
-        action: 'revoke_synthetic_secrets',
+        action: writeMode === 'preview_synthetic' ? 'revoke_synthetic_secrets' : 'revoke_secrets',
         entityType: 'cloud_integration',
         entityId: integration.id,
         outcome: 'success',
-        metadata: { synthetic: true }
+        metadata: { mode: writeMode, external_execution: false }
       });
       return NextResponse.json({ success: true, integration: publicWhatsappCloudIntegration(refreshed) });
     }
@@ -174,7 +189,7 @@ export async function POST(request: Request) {
           entityType: 'cloud_integration',
           entityId: integration?.id || null,
           outcome: 'error',
-          metadata: { message: cleanText(error?.message || 'unknown error', 500) }
+          metadata: { mode: writeMode, message: cleanText(error?.message || 'unknown error', 500) }
         });
       } catch {}
     }
