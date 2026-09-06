@@ -115,3 +115,43 @@ test('cenários operacionais usam offsets oficiais, callback usa horário pedido
   planned=planFollowUpV2Sources(facts,f.state.config,true);assert.equal(planned[0].scenario,'callback_requested');assert.equal(planned[0].dueAt,'2026-09-07T14:17:00.000Z');
   facts.callbacks[0].explicitlyRequested=false;assert.deepEqual(planFollowUpV2Sources(facts,f.state.config,true),[]);
 });
+
+test('bloqueio anterior à geração registra gates sanitizados',async()=>{
+  const f=fixture();f.state.globalPolicy='deny';
+  f.state.context={secret:'DO-NOT-AUDIT',customer:'PRIVATE-CUSTOMER'};
+  await executeFollowUpV2(f.event,f.ports,preview);
+  assert.equal(f.outcomes[0].gates?.global_policy,'deny');
+  assert.equal(f.outcomes[0].gates?.human_state,'autocar_active');
+  assert.equal(f.outcomes[0].gates?.idempotency_key,'key');
+  assert.ok(!JSON.stringify(f.outcomes).includes('DO-NOT-AUDIT'));
+  assert.ok(!JSON.stringify(f.outcomes).includes('PRIVATE-CUSTOMER'));
+});
+
+test('limite de claim mantém evidência operacional sem chamar o modelo',async()=>{
+  const f=fixture();f.ports.claim=async()=>({reason:'daily_limit'});
+  await executeFollowUpV2(f.event,f.ports,preview);
+  assert.equal(f.outcomes[0].reason,'daily_limit');
+  assert.equal(f.outcomes[0].gates?.follow_up_enabled,true);
+  assert.equal(f.outcomes[0].gates?.effective_mode,'autopilot');
+  assert.ok(!f.calls.includes('generate'));
+});
+
+test('auditoria de bloqueio final usa snapshot novo, sem reutilizar o anterior',async()=>{
+  const f=fixture();f.event.dryRun=false;let reads=0;
+  f.ports.snapshot=async()=>({...structuredClone(f.state),humanState:++reads===3?'human_active':'autocar_active'});
+  const result=await executeFollowUpV2(f.event,f.ports,production);
+  assert.equal(result.reason,'human_protected');
+  assert.equal(f.outcomes[0].gates?.human_state,'human_active');
+  assert.ok(!f.calls.includes('send'));
+});
+
+for(const uncertain of [false,true]) test(`resultado do transport simulado preserva gates finais e modelo: uncertain=${uncertain}`,async()=>{
+  const f=fixture();f.event.dryRun=false;let reads=0;
+  f.ports.snapshot=async()=>{const state=structuredClone(f.state);state.config.global.maxPerLeadPerDay=++reads===3?1:2;return state;};
+  if(uncertain) f.ports.send=async()=>{throw Error('private provider error');};
+  const result=await executeFollowUpV2(f.event,f.ports,production);
+  assert.equal(result.external_execution,uncertain?null:true);
+  assert.equal(f.outcomes[0].gates?.max_per_lead_per_day,1);
+  assert.equal(f.outcomes[0].model,'mock-model');
+  assert.equal(f.outcomes[0].gates?.global_policy,'allow');
+});

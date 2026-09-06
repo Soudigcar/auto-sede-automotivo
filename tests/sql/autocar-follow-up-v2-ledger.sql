@@ -15,6 +15,17 @@ begin
   result:=public.claim_autocar_follow_up_v2(e,w,limits);
   token:=(result->'lease'->>'token')::uuid;
   if token is null then raise exception 'claim_failed: %',result; end if;
+  perform public.audit_autocar_follow_up_v2(e,'{"decision":"cancelled","reason":"human_protected","external_execution":false,"gates":{"human_state":"human_active","global_policy":"allow"},"context":"DO-NOT-STORE"}');
+  if not exists(select 1 from public.ai_follow_up_v2_execution_audit where execution_id=e
+    and reason='human_protected' and metadata->'gates'->>'human_state'='human_active'
+    and metadata->'gates'->>'global_policy'='allow' and not metadata ? 'context') then raise exception 'gate_evidence_missing'; end if;
+  if (select status from public.ai_follow_up_autopilot_executions where id=e)<>'claimed' then raise exception 'audit_revoked_active_lease'; end if;
+  begin
+    perform public.audit_autocar_follow_up_v2(e,'{"decision":"sent","reason":"forbidden","external_execution":true}');
+    raise exception 'audit_forged_provider_result';
+  exception when others then if sqlerrm<>'invalid_audit_only_outcome' then raise; end if; end;
+  if has_function_privilege('anon','public.audit_autocar_follow_up_v2(uuid,jsonb)','EXECUTE')
+    or has_function_privilege('authenticated','public.audit_autocar_follow_up_v2(uuid,jsonb)','EXECUTE') then raise exception 'public_audit_access'; end if;
   if public.claim_autocar_follow_up_v2(e,w2,limits)->>'reason'<>'duplicate_or_leased' then raise exception 'duplicate_worker'; end if;
   if public.transition_autocar_follow_up_v2(e,w2,token,'{"decision":"blocked","reason":"wrong_worker","external_execution":false}') then raise exception 'unfenced_worker'; end if;
   -- A second conversation for the same lead shares the reservation limit.

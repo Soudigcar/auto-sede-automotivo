@@ -88,22 +88,34 @@ export async function executeFollowUpV2(event: FollowUpV2Event, ports: FollowUpV
     return { decision: 'blocked', reason: 'environment_isolation', proposed_text: null, external_execution: false };
   }
   const before = await ports.snapshot(event);
+  let evidence = before;
+  // Capture only operational facts; never serialize conversation/model context into gates.
+  const withEvidence = (result: FollowUpV2Outcome): FollowUpV2Outcome => ({...result,gates:{
+    master_enabled:evidence.masterEnabled,master_autopilot_allowed:evidence.masterAutopilotAllowed,
+    agent_active:evidence.agentActive,store_selected_mode:evidence.storeSelectedMode,
+    effective_mode:evidence.effectiveMode,human_state:evidence.humanState,
+    global_policy:evidence.globalPolicy,store_policy:evidence.storePolicy,
+    follow_up_enabled:evidence.config.global.enabled,follow_up_mode:evidence.config.global.mode,
+    conversation_open:evidence.conversationOpen,lead_eligible:evidence.leadEligible,
+    sale_confirmed:evidence.saleConfirmed,opted_out:evidence.optedOut,source_valid:evidence.sourceValid,
+    inbound_unchanged:timestamp(evidence.latestInboundAt)===timestamp(event.inboundAt),
+    source_unchanged:timestamp(evidence.sourceAnchorAt)===timestamp(event.anchorAt),
+    max_per_lead_per_day:evidence.config.global.maxPerLeadPerDay,
+    min_interval_minutes:evidence.config.global.minIntervalMinutes,
+    safe_core:evidence.safeCore,scenario:event.scenario,idempotency_key:event.idempotencyKey
+  }});
   const denied = followUpV2Gates(event, before, ports.now());
-  if (denied) { await ports.audit(event, denied); return denied; }
+  if (denied) { const result=withEvidence(denied); await ports.audit(event, result); return result; }
   const claimed = await ports.claim(event, before);
   if (!claimed.lease) {
-    const result: FollowUpV2Outcome = { decision: 'blocked', reason: claimed.reason || 'claim_denied', proposed_text: null, external_execution: false };
+    const result = withEvidence({ decision: 'blocked', reason: claimed.reason || 'claim_denied', proposed_text: null, external_execution: false });
     await ports.audit(event, result); return result;
   }
   const lease = claimed.lease;
-  let evidence = before;
   const finish = async (result: FollowUpV2Outcome) => {
-    const gates = {master_enabled:evidence.masterEnabled,master_autopilot_allowed:evidence.masterAutopilotAllowed,
-      store_selected_mode:evidence.storeSelectedMode,effective_mode:evidence.effectiveMode,human_state:evidence.humanState,
-      global_policy:evidence.globalPolicy,store_policy:evidence.storePolicy,follow_up_enabled:evidence.config.global.enabled,
-      safe_core:evidence.safeCore,scenario:event.scenario,idempotency_key:event.idempotencyKey};
-    if (!await ports.settle(lease, {...result,gates})) return { decision: 'blocked' as const, reason: 'lease_lost', proposed_text: null, external_execution: false as const };
-    return result;
+    const recorded=withEvidence(result);
+    if (!await ports.settle(lease, recorded)) return { decision: 'blocked' as const, reason: 'lease_lost', proposed_text: null, external_execution: false as const };
+    return recorded;
   };
   let generated: FollowUpV2Generated;
   try { generated = await ports.generate(before, event); }
@@ -120,18 +132,19 @@ export async function executeFollowUpV2(event: FollowUpV2Event, ports: FollowUpV
   if (!ports.send) return finish({ decision: 'blocked', reason: 'transport_unavailable', proposed_text: null, external_execution: false });
   if (!await ports.arm(lease,generated)) return { decision: 'blocked', reason: 'lease_lost', proposed_text: null, external_execution: false };
   // Arming is the last database mutation before a final read-only operational gate.
-  const final = followUpV2Gates(event, await ports.snapshot(event), ports.now());
+  evidence = await ports.snapshot(event);
+  const final = followUpV2Gates(event, evidence, ports.now());
   if (final) return finish(final);
   try {
     const sent = await ports.send(event, generated.text);
     if (!sent.providerMessageId) throw new Error('Missing provider receipt');
-    const result: FollowUpV2Outcome = { decision: 'sent', reason: 'provider_confirmed', proposed_text: generated.text,
-      model: generated.model, external_execution: true, provider_message_id: sent.providerMessageId };
+    const result = withEvidence({ decision: 'sent', reason: 'provider_confirmed', proposed_text: generated.text,
+      model: generated.model, external_execution: true, provider_message_id: sent.providerMessageId });
     // A persistence failure must NEVER turn a confirmed provider send into external_execution=false.
     try { await ports.settle(lease, result); } catch { /* durable armed state prohibits retries */ }
     return result;
   } catch {
-    const result: FollowUpV2Outcome = { decision: 'delivery_unknown', reason: 'provider_result_unknown', proposed_text: null, external_execution: null };
+    const result = withEvidence({ decision: 'delivery_unknown', reason: 'provider_result_unknown', proposed_text: null, external_execution: null, model: generated.model });
     try { await ports.settle(lease, result); } catch { /* preserve durable armed state */ }
     return result;
   }
