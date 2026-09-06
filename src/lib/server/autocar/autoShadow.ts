@@ -8,7 +8,7 @@ import { evaluateAutocarOperationalShadowPolicy } from '@/lib/server/autocar/ope
 import { resolveBookingContext } from '@/lib/server/autocar/bookingContextResolver';
 import { evaluateBookingConfirmationGuard } from '@/lib/server/autocar/bookingConfirmationGuard';
 import { enhanceAutocarBookingConversation } from '@/lib/server/autocar/bookingConversation';
-import { enhanceAutocarConversationContinuity } from '@/lib/server/autocar/conversationContinuity';
+import { enhanceAutocarConversationContinuity, isAutocarContinuityExecutionSafe } from '@/lib/server/autocar/conversationContinuity';
 import { attemptAutocarLiveTextPilot } from '@/lib/server/autocar/liveTextPilot';
 import { attemptAutocarLivePhotoPilot } from '@/lib/server/autocar/livePhotoPilot';
 import { attemptAutocarLiveLocationPilot } from '@/lib/server/autocar/liveLocationPilot';
@@ -299,11 +299,7 @@ export async function processAutocarShadowInbound(input: {
       const bookingState = String(shadow?.booking_guard?.state || 'NOT_APPLICABLE');
       const bookingActive = bookingState !== 'NOT_APPLICABLE';
       const continuity = shadow?.conversation_continuity || null;
-      const continuityExecutionSafe = !continuity || (
-        continuity?.resolution === 'accepted' &&
-        continuity?.execution_ready === true &&
-        continuity?.fail_closed !== true
-      );
+      const continuityExecutionSafe = isAutocarContinuityExecutionSafe(continuity);
 
       let vehicleState: any = {
         updated: false,

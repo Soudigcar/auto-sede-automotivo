@@ -52,8 +52,7 @@ test('continuidade resolve aceite semanticamente e falha fechada em ambiguidade'
 });
 
 test('execução de continuidade exige geração íntegra antes de liberar operação', () => {
-  assert.match(autoShadow, /continuity\?\.execution_ready === true/);
-  assert.match(autoShadow, /continuity\?\.fail_closed !== true/);
+  assert.match(autoShadow, /const continuityExecutionSafe = isAutocarContinuityExecutionSafe\(continuity\)/);
   assert.match(autoShadow, /secondaryOperationAllowed && continuityExecutionSafe/);
 });
 

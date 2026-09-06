@@ -463,6 +463,27 @@ export async function attemptAutocarLiveVisitPilot(input: {
     }
   });
 
+  // A geração pode demorar; o atendimento pode ter sido assumido ou desabilitado nesse intervalo.
+  let eligibilityBeforeSend: { allowed: boolean; reason: string };
+  try {
+    eligibilityBeforeSend = await currentLiveEligibility(input.storeId, input.conversationId, shadow.operational_preview);
+  } catch {
+    eligibilityBeforeSend = { allowed: false, reason: 'Não foi possível revalidar a elegibilidade após a geração da confirmação.' };
+  }
+  if (!eligibilityBeforeSend.allowed) {
+    const skipped = await updateVisitClaim(claimResult.claim.id, {
+      status: 'skipped', policy_effect: 'deny', policy_reason: eligibilityBeforeSend.reason,
+      completed_at: new Date().toISOString(),
+      result: {
+        db_execution: true, external_execution: false, transaction,
+        confirmation_send_blocked: true,
+        eligibility_reason: eligibilityBeforeSend.reason,
+        automatic_retry_disabled: true
+      }
+    }).catch(() => claimResult.claim);
+    return { sent: false, scheduled: true, skipped: true, claim: skipped, transaction, reason: eligibilityBeforeSend.reason };
+  }
+
   try {
     const evolutionResult = await sendEvolutionText(String(input.integration.instance_name), recipient, confirmationText);
     const providerMessageId = String(evolutionResult?.key?.id || evolutionResult?.message?.key?.id || evolutionResult?.id || '').trim();

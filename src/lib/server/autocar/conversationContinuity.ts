@@ -16,7 +16,7 @@ const continuitySchema = (vehicleIds: string[]) => ({
     },
     resolution: {
       type: 'string',
-      enum: ['not_applicable', 'accepted', 'declined', 'unclear']
+      enum: ['not_applicable', 'direct_request', 'accepted', 'declined', 'unclear']
     },
     vehicle_id: { type: 'string', enum: ['', ...vehicleIds] },
     reason: { type: 'string' }
@@ -40,6 +40,14 @@ function bodyOf(message: any) {
 
 function uniqueIds(values: unknown[]) {
   return Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean)));
+}
+
+export function isAutocarContinuityExecutionSafe(continuity: any) {
+  if (!continuity) return true;
+  return ['accepted', 'direct_request'].includes(String(continuity.resolution || ''))
+    && ['send_location', 'send_photos'].includes(String(continuity.pending_action || ''))
+    && continuity.execution_ready === true
+    && continuity.fail_closed === false;
 }
 
 async function validatedVehicleCandidates(input: {
@@ -97,7 +105,7 @@ async function generateContinuityReply(input: {
     instructions: [
       'Você é a AUTOCAR continuando uma conversa comercial já em andamento.',
       'Escreva a resposta ao cliente de forma totalmente generativa e contextual; não reproduza template, frase fixa ou sequência obrigatória.',
-      'pending_action representa uma única ação operacional que o cliente acabou de aceitar semanticamente na conversa anterior.',
+      'pending_action representa uma única ação operacional pedida diretamente pelo cliente ou aceita semanticamente após uma oferta anterior.',
       'Se execution_ready for true, a ação ainda será executada pelo backend depois desta geração: não diga que ela já foi concluída, enviada ou realizada.',
       'Se execution_ready for false, não prometa execução; esclareça naturalmente o que falta para continuar.',
       'Use operational_data apenas como fonte factual. Nunca invente endereço, fotos, veículo, disponibilidade, preço, desconto, financiamento ou resultado operacional.',
@@ -185,11 +193,12 @@ export async function enhanceAutocarConversationContinuity(input: {
     const result = await createAutocarStructuredResponse({
       task: 'semantic_extraction',
       instructions: [
-        'Resolva semanticamente se a mensagem inbound mais recente responde a UMA oferta operacional explícita feita pela AUTOCAR no outbound anterior.',
+        'Resolva semanticamente se a mensagem inbound mais recente faz UM pedido operacional direto e inequívoco ou responde a UMA oferta operacional explícita feita pela AUTOCAR no outbound anterior.',
         'As únicas ações pendentes reconhecidas aqui são enviar localização da loja ou enviar fotos de um veículo real.',
         'Não use listas de palavras-chave nem correspondência literal para decidir aceite ou recusa; interprete o sentido, o histórico e a referência conversacional.',
         'Só marque accepted quando o outbound anterior realmente pediu consentimento para uma única ação e a resposta atual aceitar essa ação de forma inequívoca.',
-        'Se a mensagem atual trouxer um novo pedido independente, se houver mais de uma ação plausível ou se a referência estiver ambígua, use none/unclear e não autorize execução.',
+        'Marque direct_request para um pedido novo, direto e inequívoco de localização ou fotos; esse pedido não exige oferta nem consentimento solicitado no outbound anterior.',
+        'Se houver mais de uma ação plausível ou se a referência estiver ambígua, use none/unclear e não autorize execução. Um aceite curto sem oferta anterior inequívoca não é direct_request.',
         'Para send_photos, vehicle_id precisa ser um ID exato de candidate_vehicles e o histórico deve identificar semanticamente um único veículo. Se houver dúvida, deixe vazio.',
         'Nunca transforme uma confirmação de agendamento, negociação, desconto, crédito, venda ou atendimento humano em send_location ou send_photos.'
       ].join(' '),
@@ -222,7 +231,7 @@ export async function enhanceAutocarConversationContinuity(input: {
   const pendingAction = String(parsed?.pending_action || 'none');
   const resolution = String(parsed?.resolution || 'not_applicable');
   const vehicleId = String(parsed?.vehicle_id || '').trim();
-  if (resolution !== 'accepted' || !['send_location', 'send_photos'].includes(pendingAction)) {
+  if (!['accepted', 'direct_request'].includes(resolution) || !['send_location', 'send_photos'].includes(pendingAction)) {
     return {
       ...input.shadow,
       conversation_continuity: {
