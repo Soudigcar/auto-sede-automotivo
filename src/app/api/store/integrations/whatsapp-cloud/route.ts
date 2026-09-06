@@ -4,6 +4,7 @@ import { cleanText } from '@/lib/server/storeTeam';
 import {
   assertWhatsappCloudWriteEnabled,
   auditStoreWhatsappCloud,
+  evaluateWhatsappCloudWriteScope,
   loadStoreWhatsappCloudIntegration,
   publicWhatsappCloudIntegration,
   saveStoreWhatsappCloudDraft,
@@ -44,6 +45,14 @@ export async function GET(request: Request) {
       if (result.error) throw result.error;
     }
 
+    const writeScope = evaluateWhatsappCloudWriteScope({
+      vercelEnv: process.env.VERCEL_ENV,
+      gitRef: process.env.VERCEL_GIT_COMMIT_REF,
+      previewEnabled: process.env.WHATSAPP_CLOUD_PREVIEW_ENABLED,
+      productionConfigEnabled: process.env.WHATSAPP_CLOUD_PRODUCTION_CONFIG_ENABLED,
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL
+    });
+
     return NextResponse.json({
       success: true,
       integration: publicWhatsappCloudIntegration(row),
@@ -52,7 +61,9 @@ export async function GET(request: Request) {
         flows: flows.count || 0,
         journeys: journeys.count || 0,
         external_execution: false,
-        synthetic_only: process.env.VERCEL_ENV !== 'production'
+        synthetic_only: process.env.VERCEL_ENV !== 'production',
+        configuration_available: writeScope.allowed,
+        configuration_mode: writeScope.mode
       }
     });
   } catch (error: any) {
