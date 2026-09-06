@@ -1,57 +1,86 @@
 import { cleanText } from '@/lib/server/storeTeam';
 
 export type WhatsappCloudIntegrationStatus = 'draft' | 'testing' | 'ready' | 'disabled' | 'error';
+export type WhatsappCloudWriteMode = 'preview_synthetic' | 'production_config';
 
 export const WHATSAPP_CLOUD_PREVIEW_BRANCH = 'feature/whatsapp-api-store-v1-isolated';
 export const WHATSAPP_CLOUD_PREVIEW_PROJECT_REF = 'ggvwuqomwbxhtlxaocau';
+export const WHATSAPP_CLOUD_PRODUCTION_PROJECT_REF = 'wufikrdgyxrsszlbpfmv';
 const WHATSAPP_CLOUD_PREVIEW_SUPABASE_HOST = `${WHATSAPP_CLOUD_PREVIEW_PROJECT_REF}.supabase.co`;
+const WHATSAPP_CLOUD_PRODUCTION_SUPABASE_HOST = `${WHATSAPP_CLOUD_PRODUCTION_PROJECT_REF}.supabase.co`;
 
-type WhatsappCloudPreviewWriteScopeInput = {
+type WhatsappCloudWriteScopeInput = {
   vercelEnv?: string | null;
   gitRef?: string | null;
   previewEnabled?: string | null;
+  productionConfigEnabled?: string | null;
   supabaseUrl?: string | null;
 };
 
-export function evaluateWhatsappCloudPreviewWriteScope(input: WhatsappCloudPreviewWriteScopeInput) {
+function parseHostname(url: string) {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+export function evaluateWhatsappCloudWriteScope(input: WhatsappCloudWriteScopeInput) {
   const vercelEnv = String(input.vercelEnv || '').trim().toLowerCase();
   const gitRef = String(input.gitRef || '').trim();
   const previewEnabled = String(input.previewEnabled || '').trim().toLowerCase() === 'true';
-  const supabaseUrl = String(input.supabaseUrl || '').trim();
+  const productionConfigEnabled = String(input.productionConfigEnabled || '').trim().toLowerCase() === 'true';
+  const hostname = parseHostname(String(input.supabaseUrl || '').trim());
 
-  if (vercelEnv !== 'preview') {
-    return { allowed: false, reason: 'WhatsApp Cloud API V1 aceita escrita somente em Vercel Preview.' } as const;
+  if (vercelEnv === 'preview') {
+    if (gitRef !== WHATSAPP_CLOUD_PREVIEW_BRANCH) {
+      return { allowed: false, mode: null, reason: 'WhatsApp Cloud API V1 está bloqueada fora da branch isolada autorizada.' } as const;
+    }
+    if (!previewEnabled) {
+      return { allowed: false, mode: null, reason: 'WhatsApp Cloud API V1 não está habilitada neste Preview isolado.' } as const;
+    }
+    if (hostname !== WHATSAPP_CLOUD_PREVIEW_SUPABASE_HOST) {
+      return { allowed: false, mode: null, reason: 'WhatsApp Cloud API V1 está bloqueada fora do Supabase temporário autorizado.' } as const;
+    }
+    return { allowed: true, mode: 'preview_synthetic', reason: 'Preview isolado autorizado.' } as const;
   }
 
-  if (gitRef !== WHATSAPP_CLOUD_PREVIEW_BRANCH) {
-    return { allowed: false, reason: 'WhatsApp Cloud API V1 está bloqueada fora da branch isolada autorizada.' } as const;
+  if (vercelEnv === 'production') {
+    if (!productionConfigEnabled) {
+      return { allowed: false, mode: null, reason: 'Configuração da WhatsApp Cloud API em Production ainda não foi liberada.' } as const;
+    }
+    if (gitRef !== 'main') {
+      return { allowed: false, mode: null, reason: 'Configuração Production aceita somente a main publicada.' } as const;
+    }
+    if (hostname !== WHATSAPP_CLOUD_PRODUCTION_SUPABASE_HOST) {
+      return { allowed: false, mode: null, reason: 'Configuração Production está bloqueada fora do CRM Production autorizado.' } as const;
+    }
+    return { allowed: true, mode: 'production_config', reason: 'Configuração Production autorizada; execução externa permanece OFF.' } as const;
   }
 
-  if (!previewEnabled) {
-    return { allowed: false, reason: 'WhatsApp Cloud API V1 não está habilitada neste Preview isolado.' } as const;
-  }
-
-  let hostname = '';
-  try {
-    hostname = new URL(supabaseUrl).hostname.toLowerCase();
-  } catch {}
-
-  if (hostname !== WHATSAPP_CLOUD_PREVIEW_SUPABASE_HOST) {
-    return { allowed: false, reason: 'WhatsApp Cloud API V1 está bloqueada fora do Supabase temporário autorizado.' } as const;
-  }
-
-  return { allowed: true, reason: 'Preview isolado autorizado.' } as const;
+  return { allowed: false, mode: null, reason: 'WhatsApp Cloud API V1 não aceita escrita neste ambiente.' } as const;
 }
 
-export function assertWhatsappCloudPreviewWriteEnabled() {
-  const scope = evaluateWhatsappCloudPreviewWriteScope({
+export function evaluateWhatsappCloudPreviewWriteScope(input: WhatsappCloudWriteScopeInput) {
+  return evaluateWhatsappCloudWriteScope(input);
+}
+
+export function assertWhatsappCloudWriteEnabled(): WhatsappCloudWriteMode {
+  const scope = evaluateWhatsappCloudWriteScope({
     vercelEnv: process.env.VERCEL_ENV,
     gitRef: process.env.VERCEL_GIT_COMMIT_REF,
     previewEnabled: process.env.WHATSAPP_CLOUD_PREVIEW_ENABLED,
+    productionConfigEnabled: process.env.WHATSAPP_CLOUD_PRODUCTION_CONFIG_ENABLED,
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL
   });
 
-  if (!scope.allowed) throw new Error(scope.reason);
+  if (!scope.allowed || !scope.mode) throw new Error(scope.reason);
+  return scope.mode;
+}
+
+export function assertWhatsappCloudPreviewWriteEnabled() {
+  const mode = assertWhatsappCloudWriteEnabled();
+  if (mode !== 'preview_synthetic') throw new Error('Ação permitida somente no Preview sintético.');
 }
 
 export function publicWhatsappCloudIntegration(row: any) {
@@ -107,7 +136,8 @@ export async function loadStoreWhatsappCloudIntegration(supabase: any, storeId: 
 export async function saveStoreWhatsappCloudDraft(
   supabase: any,
   context: { storeId: string; profileId: string },
-  input: any
+  input: any,
+  mode: WhatsappCloudWriteMode = 'preview_synthetic'
 ) {
   const existing = await loadStoreWhatsappCloudIntegration(supabase, context.storeId);
   const payload = {
@@ -115,7 +145,7 @@ export async function saveStoreWhatsappCloudDraft(
     provider: 'meta_cloud',
     status: existing?.status === 'disabled' ? 'draft' : (existing?.status || 'draft'),
     enabled: false,
-    is_synthetic: true,
+    is_synthetic: mode === 'preview_synthetic',
     waba_id: cleanText(input?.waba_id, 180) || null,
     phone_number_id: cleanText(input?.phone_number_id, 180) || null,
     display_phone_number: cleanText(input?.display_phone_number, 80) || null,
@@ -133,18 +163,19 @@ export async function saveStoreWhatsappCloudDraft(
   return data;
 }
 
-export async function saveStoreWhatsappCloudSyntheticSecrets(
+export async function saveStoreWhatsappCloudSecrets(
   supabase: any,
   integrationId: string,
-  input: any
+  input: any,
+  mode: WhatsappCloudWriteMode = 'preview_synthetic'
 ) {
   const accessToken = cleanText(input?.access_token, 4096);
   const appSecret = cleanText(input?.app_secret, 1024);
   const verifyToken = cleanText(input?.verify_token, 1024);
   if (!accessToken || !appSecret || !verifyToken) {
-    throw new Error('Informe Access Token, App Secret e Verify Token sintéticos.');
+    throw new Error('Informe Access Token, App Secret e Verify Token.');
   }
-  if (![accessToken, appSecret, verifyToken].every((value) => value.toLowerCase().startsWith('synthetic-'))) {
+  if (mode === 'preview_synthetic' && ![accessToken, appSecret, verifyToken].every((value) => value.toLowerCase().startsWith('synthetic-'))) {
     throw new Error('Nesta homologação são aceitas somente credenciais sintéticas iniciadas por synthetic-.');
   }
 
@@ -155,6 +186,10 @@ export async function saveStoreWhatsappCloudSyntheticSecrets(
     p_verify_token: verifyToken
   });
   if (error) throw error;
+}
+
+export async function saveStoreWhatsappCloudSyntheticSecrets(supabase: any, integrationId: string, input: any) {
+  return saveStoreWhatsappCloudSecrets(supabase, integrationId, input, 'preview_synthetic');
 }
 
 export async function auditStoreWhatsappCloud(
@@ -174,7 +209,7 @@ export async function auditStoreWhatsappCloud(
     store_id: input.storeId,
     integration_id: input.integrationId || null,
     actor_user_id: input.actorUserId || null,
-    source: 'store_portal_preview',
+    source: 'store_portal',
     action: cleanText(input.action, 120),
     entity_type: cleanText(input.entityType, 120),
     entity_id: input.entityId || null,
