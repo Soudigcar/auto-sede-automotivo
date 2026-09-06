@@ -60,3 +60,20 @@ Current official settings from the preceding read-only audit: global disabled/of
 - DEV postflight: 5 stores, 247 historical claims, 0 synthetic stores, 0 synthetic V2 executions and 0 V2 audit rows. No new database writes during this continuation.
 - CRM and AUTOCAR Production: ACTIVE_HEALTHY in read-only metadata checks. Vercel Production `dpl_6NAp1Qn4zZ68na7zVEW2vpGzd2da` remains READY at main `1a7c5ff0b5bb2c27086fe0dd6c98009b863906b2`.
 - Result remains NOT_READY_FOR_CANARY. Integrated model generation and the requested scenario matrix are pending. No LIVE authorization is proposed.
+
+## Independent audit continuation — 2026-09-06 19:00 UTC
+
+The blocked Preview endpoint was not accessed through another route or tool. Independent source review found an observability defect: pre-generation audits dropped gate details, terminal provider outcomes omitted them, and the final pre-dispatch check could persist the previous snapshot.
+
+- Correction commit: `af759eaf3d719d74d7e7a5a084871a0f45332d88`, on the same isolated branch.
+- Operational gate evidence now accompanies early blocks, claim denials, final checks and provider outcomes. Context, conversation content and credentials are excluded from the gate payload.
+- Migration `20260906190548_autocar_follow_up_v2_audit_gate_evidence.sql` versioned and applied only to DEV. The audit-only function preserves gate metadata and rejects provider-result decisions; its service-only grants and existing lease/receipt protection remain intact.
+- Five new behavioral regressions failed before the fix and pass afterwards. Total: **593 tests passed**; lint and typecheck passed.
+- GitHub Actions `Security and quality`, run `34053889799`: **completed/success** at the correction commit.
+- Real DEV PostgreSQL assertions passed, including persisted gate evidence, active-lease preservation, forbidden provider-result rejection, permissions, the existing ledger checks and transactional fixture cleanup.
+- Postflight: **5 stores, 247 historical claims, 0 executions, 0 execution audits, 0 synthetic references**. Security advisors: no findings.
+- Code Preview: `dpl_4BY1G7RPAzqEPuWEWve2TvJN4Hs1`, **READY**, target Preview, exact correction commit. Homologation authentication was not recreated; LIVE was not enabled.
+- Observed drift outside this task: main is `97edf8c3185a1d8b3ab8a44a096a220a99efaef3`, 14 commits ahead of the preceding base. The comparison changes three pipeline/layout files. Production is `dpl_6SSAuZ58ToYKP5oBJhhdaBitD4r9`, READY at that main SHA. This task did not update main or Production and did not incorporate this drift into the V2 branch.
+- No Production SQL, real conversation access, model generation, Evolution/WhatsApp calls, PR or merge during this continuation.
+
+**NOT_READY_FOR_CANARY** remains the result. These additional unit and database checks do not establish integrated Preview isolation or real generative scenario completion. The supported resolution of the browser policy block and the pending integrated matrix remain required.
