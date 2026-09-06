@@ -1,0 +1,569 @@
+name: Pipeline drag fix apply
+
+on:
+  push:
+    branches:
+      - fix/pipeline-drag-without-full-refresh
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-test:
+    if: github.event.head_commit.message == 'chore(ci): apply pipeline drag fix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout isolated branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/pipeline-drag-without-full-refresh
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Apply scoped Pipeline patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          page_path = Path('src/app/loja/[slug]/pipeline/page.tsx')
+          page = page_path.read_text()
+
+          def replace_once(old: str, new: str, label: str):
+              global page
+              count = page.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 match, found {count}')
+              page = page.replace(old, new, 1)
+
+          replace_once(
+              "import { createClient } from '@/lib/supabase';\n",
+              "import { createClient } from '@/lib/supabase';\nimport {\n  classifyPipelineRealtimeEvent,\n  pipelineStatusPatchFromServerLead,\n  transitionPipelineMetrics,\n  type PipelineRealtimeGuard,\n  type PipelineRealtimeRow\n} from '@/lib/pipelineOptimisticState';\n",
+              'optimistic helper import'
+          )
+
+          replace_once(
+              "type PipelineCustomAssignment = {\n  stageId: string;\n  sourceStatus: string;\n};\n",
+              "type PipelineCustomAssignment = {\n  stageId: string;\n  sourceStatus: string;\n};\n\ntype PipelineCommandTransition = {\n  targetStatus: string;\n  optimistic?: boolean;\n};\n",
+              'transition type'
+          )
+
+          replace_once(
+              "  const loadInFlight = useRef<Promise<PipelinePayload> | null>(null);\n  const realtimeRefreshTimer = useRef<number | null>(null);\n  const hiddenAt = useRef<number | null>(null);\n",
+              "  const loadInFlight = useRef<Promise<PipelinePayload> | null>(null);\n  const realtimeRefreshTimer = useRef<number | null>(null);\n  const localRealtimeGuards = useRef<Map<string, PipelineRealtimeGuard>>(new Map());\n  const hiddenAt = useRef<number | null>(null);\n",
+              'realtime guard ref'
+          )
+
+          old_run_command = """  async function runCommand(command: string, lead: PipelineLead, extra: Record<string, any> = {}, loadingMessage = 'Atualizando lead...') {
+    if (!requireOperable(lead)) throw new Error(historicalSaleReadonlyMessage);
+    setBusy(true);
+    setMessage(loadingMessage);
+    try {
+      const result = await request('/api/store/portal/pipeline/actions', {
+        method: 'POST',
+        body: JSON.stringify({ command, slug, lead_id: lead.id, ...extra })
+      });
+      await loadData(true);
+      setMessage(result.message || 'Ação concluída.');
+      return result;
+    } catch (error: any) {
+      setMessage(error?.message || 'Não foi possível concluir a ação.');
+      throw error;
+    } finally {
+      setBusy(false);
+    }
+  }
+"""
+
+          new_run_command = """  function patchLoadedLead(leadId: string, patch: Partial<PipelineLead>) {
+    setLeads((current) => current.map((item) => item.id === leadId ? { ...item, ...patch } : item));
+  }
+
+  function applyMetricTransition(fromStatus: string, toStatus: string) {
+    if (fromStatus === toStatus) return;
+    setPayload((current) => current ? {
+      ...current,
+      metrics: transitionPipelineMetrics(current.metrics, fromStatus, toStatus)
+    } : current);
+  }
+
+  function beginLocalRealtimeGuard(leadId: string, targetStatus: string) {
+    localRealtimeGuards.current.set(leadId, {
+      leadId,
+      expectedStatus: targetStatus,
+      serverUpdatedAt: null,
+      serverLastActivityAt: null,
+      expiresAt: Date.now() + 10_000,
+      pendingRows: []
+    });
+  }
+
+  function clearLocalRealtimeGuard(leadId: string) {
+    localRealtimeGuards.current.delete(leadId);
+  }
+
+  function settleLocalRealtimeGuard(leadId: string, serverLead: Record<string, any>) {
+    const guard = localRealtimeGuards.current.get(leadId);
+    if (!guard) return false;
+
+    guard.expectedStatus = String(serverLead.status || guard.expectedStatus);
+    guard.serverUpdatedAt = String(serverLead.updated_at || '') || null;
+    guard.serverLastActivityAt = String(serverLead.last_activity_at || '') || null;
+    guard.expiresAt = Date.now() + 5_000;
+
+    if (!guard.serverUpdatedAt) {
+      localRealtimeGuards.current.delete(leadId);
+      return true;
+    }
+
+    const needsRefresh = guard.pendingRows.some((row) => classifyPipelineRealtimeEvent(guard, row) === 'refresh');
+    guard.pendingRows = [];
+    if (needsRefresh) {
+      localRealtimeGuards.current.delete(leadId);
+      return true;
+    }
+
+    const settledGuard = guard;
+    window.setTimeout(() => {
+      if (localRealtimeGuards.current.get(leadId) === settledGuard) {
+        localRealtimeGuards.current.delete(leadId);
+      }
+    }, 5_200);
+    return false;
+  }
+
+  async function runCommand(
+    command: string,
+    lead: PipelineLead,
+    extra: Record<string, any> = {},
+    loadingMessage = 'Atualizando lead...',
+    transition: PipelineCommandTransition | null = null
+  ) {
+    if (!requireOperable(lead)) throw new Error(historicalSaleReadonlyMessage);
+
+    const targetStatus = transition?.targetStatus || lead.status;
+    const optimistic = Boolean(transition?.optimistic && targetStatus !== lead.status);
+
+    if (transition) {
+      beginLocalRealtimeGuard(lead.id, targetStatus);
+      if (optimistic) {
+        patchLoadedLead(lead.id, { status: targetStatus });
+        applyMetricTransition(lead.status, targetStatus);
+      }
+    }
+
+    setBusy(true);
+    setMessage(loadingMessage);
+    try {
+      const result = await request('/api/store/portal/pipeline/actions', {
+        method: 'POST',
+        body: JSON.stringify({ command, slug, lead_id: lead.id, ...extra })
+      });
+
+      if (transition && result?.lead?.id === lead.id) {
+        const serverLead = result.lead as Record<string, any>;
+        const serverStatus = String(serverLead.status || targetStatus);
+        const safePatch = pipelineStatusPatchFromServerLead(serverLead) as Partial<PipelineLead>;
+        patchLoadedLead(lead.id, safePatch);
+        applyMetricTransition(optimistic ? targetStatus : lead.status, serverStatus);
+
+        if (settleLocalRealtimeGuard(lead.id, serverLead)) {
+          await loadData(true);
+        }
+      } else {
+        if (transition) clearLocalRealtimeGuard(lead.id);
+        await loadData(true);
+      }
+
+      setMessage(result.message || 'Ação concluída.');
+      return result;
+    } catch (error: any) {
+      if (transition) clearLocalRealtimeGuard(lead.id);
+      if (optimistic) {
+        patchLoadedLead(lead.id, { status: lead.status });
+        applyMetricTransition(targetStatus, lead.status);
+      }
+      setMessage(error?.message || 'Não foi possível concluir a ação.');
+      throw error;
+    } finally {
+      setBusy(false);
+    }
+  }
+"""
+          replace_once(old_run_command, new_run_command, 'runCommand')
+
+          old_realtime = """  useEffect(() => {
+    const storeId = payload?.store.id;
+    if (!storeId) return;
+
+    const scheduleRefresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (realtimeRefreshTimer.current !== null) window.clearTimeout(realtimeRefreshTimer.current);
+      realtimeRefreshTimer.current = window.setTimeout(() => {
+        realtimeRefreshTimer.current = null;
+        void loadData(true).catch(() => undefined);
+      }, 750);
+    };
+
+    const channel = supabase
+      .channel(`pipeline-leads-${storeId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'leads',
+        filter: `assigned_store_id=eq.${storeId}`
+      }, scheduleRefresh)
+      .subscribe();
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt.current = Date.now();
+        return;
+      }
+      const wasHiddenFor = hiddenAt.current ? Date.now() - hiddenAt.current : 0;
+      hiddenAt.current = null;
+      if (wasHiddenFor >= 60_000) scheduleRefresh();
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (realtimeRefreshTimer.current !== null) window.clearTimeout(realtimeRefreshTimer.current);
+      realtimeRefreshTimer.current = null;
+      void supabase.removeChannel(channel);
+    };
+  }, [payload?.store.id, slug, supabase]);
+"""
+
+          new_realtime = """  useEffect(() => {
+    const storeId = payload?.store.id;
+    if (!storeId) return;
+
+    const scheduleRefresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (realtimeRefreshTimer.current !== null) window.clearTimeout(realtimeRefreshTimer.current);
+      realtimeRefreshTimer.current = window.setTimeout(() => {
+        realtimeRefreshTimer.current = null;
+        void loadData(true).catch(() => undefined);
+      }, 750);
+    };
+
+    const handleRealtimeLeadChange = (event: any) => {
+      const candidate = event?.new && Object.keys(event.new).length ? event.new : event?.old;
+      const row = (candidate || {}) as PipelineRealtimeRow;
+      const leadId = String(row.id || '');
+      const guard = leadId ? localRealtimeGuards.current.get(leadId) : null;
+
+      if (guard) {
+        const decision = classifyPipelineRealtimeEvent(guard, row);
+        if (decision === 'defer') {
+          guard.pendingRows.push(row);
+          return;
+        }
+        if (decision === 'ignore') return;
+        localRealtimeGuards.current.delete(leadId);
+      }
+
+      scheduleRefresh();
+    };
+
+    const channel = supabase
+      .channel(`pipeline-leads-${storeId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'leads',
+        filter: `assigned_store_id=eq.${storeId}`
+      }, handleRealtimeLeadChange)
+      .subscribe();
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt.current = Date.now();
+        return;
+      }
+      const wasHiddenFor = hiddenAt.current ? Date.now() - hiddenAt.current : 0;
+      hiddenAt.current = null;
+      if (wasHiddenFor >= 60_000) scheduleRefresh();
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (realtimeRefreshTimer.current !== null) window.clearTimeout(realtimeRefreshTimer.current);
+      realtimeRefreshTimer.current = null;
+      localRealtimeGuards.current.clear();
+      void supabase.removeChannel(channel);
+    };
+  }, [payload?.store.id, slug, supabase]);
+"""
+          replace_once(old_realtime, new_realtime, 'Realtime subscription')
+
+          replacements = [
+              (
+                  "      await runCommand('schedule', scheduleLead, { date: scheduleDate, time: scheduleTime, notes: scheduleNotes }, 'Salvando agendamento...');",
+                  "      await runCommand('schedule', scheduleLead, { date: scheduleDate, time: scheduleTime, notes: scheduleNotes }, 'Salvando agendamento...', { targetStatus: 'scheduled' });",
+                  'schedule local reconcile'
+              ),
+              (
+                  "      await runCommand('cancel_schedule', cancelLead, { reason: cancelReason }, 'Registrando cancelamento...');",
+                  "      await runCommand('cancel_schedule', cancelLead, { reason: cancelReason }, 'Registrando cancelamento...', { targetStatus: 'appointment_cancelled' });",
+                  'cancel local reconcile'
+              ),
+              (
+                  "      await runCommand('register_loss', lostLead, { reason: lostReason }, 'Registrando perda...');",
+                  "      await runCommand('register_loss', lostLead, { reason: lostReason }, 'Registrando perda...', { targetStatus: 'lost' });",
+                  'loss local reconcile'
+              ),
+              (
+                  "      await runCommand('reopen_lead', lead, {}, 'Reabrindo lead...');",
+                  "      await runCommand('reopen_lead', lead, {}, 'Reabrindo lead...', { targetStatus: 'in_service', optimistic: true });",
+                  'reopen optimistic reconcile'
+              ),
+              (
+                  "      await runCommand(command, lead, command === 'change_stage' ? { target_status: target } : {}, 'Movendo lead...');",
+                  "      await runCommand(command, lead, command === 'change_stage' ? { target_status: target } : {}, 'Movendo lead...', { targetStatus: target, optimistic: true });",
+                  'drag optimistic reconcile'
+              )
+          ]
+          for old, new, label in replacements:
+              replace_once(old, new, label)
+
+          page_path.write_text(page)
+
+          helper = r"""export type PipelineMetricsSnapshot = {
+  total: number;
+  scheduled: number;
+  cancelled: number;
+  sold: number;
+  lost: number;
+};
+
+export type PipelineRealtimeRow = {
+  id?: unknown;
+  status?: unknown;
+  updated_at?: unknown;
+  last_activity_at?: unknown;
+  last_activity_type?: unknown;
+  last_activity_by_name?: unknown;
+};
+
+export type PipelineRealtimeGuard = {
+  leadId: string;
+  expectedStatus: string;
+  serverUpdatedAt: string | null;
+  serverLastActivityAt: string | null;
+  expiresAt: number;
+  pendingRows: PipelineRealtimeRow[];
+};
+
+export type PipelineRealtimeDecision = 'defer' | 'ignore' | 'refresh';
+
+type MetricKey = 'scheduled' | 'cancelled' | 'sold' | 'lost';
+
+const metricByStatus: Partial<Record<string, MetricKey>> = {
+  scheduled: 'scheduled',
+  appointment_cancelled: 'cancelled',
+  sale_confirmed: 'sold',
+  lost: 'lost'
+};
+
+function text(value: unknown) {
+  return String(value || '').trim();
+}
+
+export function transitionPipelineMetrics<T extends PipelineMetricsSnapshot>(metrics: T, fromStatus: string, toStatus: string): T {
+  if (fromStatus === toStatus) return metrics;
+
+  const next = { ...metrics } as T;
+  const fromKey = metricByStatus[fromStatus];
+  const toKey = metricByStatus[toStatus];
+
+  if (fromKey) next[fromKey] = Math.max(0, Number(next[fromKey] || 0) - 1) as T[MetricKey];
+  if (toKey) next[toKey] = (Number(next[toKey] || 0) + 1) as T[MetricKey];
+  return next;
+}
+
+export function classifyPipelineRealtimeEvent(
+  guard: PipelineRealtimeGuard,
+  row: PipelineRealtimeRow,
+  now = Date.now()
+): PipelineRealtimeDecision {
+  if (now > guard.expiresAt) return 'refresh';
+  if (text(row.id) !== guard.leadId) return 'refresh';
+  if (text(row.status) !== guard.expectedStatus) return 'refresh';
+  if (!guard.serverUpdatedAt) return 'defer';
+  if (text(row.updated_at) !== guard.serverUpdatedAt) return 'refresh';
+
+  const rowLastActivityAt = text(row.last_activity_at);
+  if (guard.serverLastActivityAt && rowLastActivityAt && rowLastActivityAt !== guard.serverLastActivityAt) {
+    return 'refresh';
+  }
+
+  return 'ignore';
+}
+
+const safeStatusFields = [
+  'status',
+  'scheduled_at',
+  'appointment_notes',
+  'appointment_cancelled_at',
+  'appointment_cancelled_reason',
+  'lost_reason',
+  'stage_entered_at',
+  'last_activity_at',
+  'last_activity_type',
+  'last_activity_label',
+  'last_activity_by_name',
+  'updated_at'
+] as const;
+
+export function pipelineStatusPatchFromServerLead(serverLead: Record<string, unknown>) {
+  const patch: Record<string, unknown> = {};
+  for (const key of safeStatusFields) {
+    if (Object.prototype.hasOwnProperty.call(serverLead, key)) patch[key] = serverLead[key];
+  }
+  if (serverLead.status === 'showed_up') patch.has_showed_up = true;
+  return patch;
+}
+"""
+          Path('src/lib/pipelineOptimisticState.ts').write_text(helper)
+
+          test = r"""import assert from 'node:assert/strict';
+import test from 'node:test';
+import {
+  classifyPipelineRealtimeEvent,
+  pipelineStatusPatchFromServerLead,
+  transitionPipelineMetrics,
+  type PipelineRealtimeGuard
+} from '../src/lib/pipelineOptimisticState';
+
+test('transitionPipelineMetrics updates only the counters affected by a stage move', () => {
+  const initial = { total: 25, scheduled: 4, cancelled: 2, sold: 3, lost: 5 };
+  assert.deepEqual(
+    transitionPipelineMetrics(initial, 'scheduled', 'showed_up'),
+    { total: 25, scheduled: 3, cancelled: 2, sold: 3, lost: 5 }
+  );
+  assert.deepEqual(
+    transitionPipelineMetrics(initial, 'in_service', 'lost'),
+    { total: 25, scheduled: 4, cancelled: 2, sold: 3, lost: 6 }
+  );
+  assert.deepEqual(
+    transitionPipelineMetrics({ ...initial, lost: 0 }, 'lost', 'in_service'),
+    { total: 25, scheduled: 4, cancelled: 2, sold: 3, lost: 0 }
+  );
+});
+
+test('pipelineStatusPatchFromServerLead never copies raw customer fields into client state', () => {
+  const patch = pipelineStatusPatchFromServerLead({
+    id: 'lead-1',
+    status: 'scheduled',
+    scheduled_at: '2026-09-07T15:00:00.000Z',
+    customer_phone: '5561999999999',
+    customer_name: 'Nome privado',
+    origin: 'facebook_lead_ads',
+    updated_at: '2026-09-06T15:00:00.000Z'
+  });
+
+  assert.equal(patch.status, 'scheduled');
+  assert.equal(patch.scheduled_at, '2026-09-07T15:00:00.000Z');
+  assert.equal('customer_phone' in patch, false);
+  assert.equal('customer_name' in patch, false);
+  assert.equal('origin' in patch, false);
+});
+
+test('Realtime guard defers the local echo until the server fingerprint is known', () => {
+  const guard: PipelineRealtimeGuard = {
+    leadId: 'lead-1',
+    expectedStatus: 'showed_up',
+    serverUpdatedAt: null,
+    serverLastActivityAt: null,
+    expiresAt: 10_000,
+    pendingRows: []
+  };
+
+  assert.equal(classifyPipelineRealtimeEvent(guard, {
+    id: 'lead-1',
+    status: 'showed_up',
+    updated_at: 'u1'
+  }, 1_000), 'defer');
+});
+
+test('Realtime guard ignores both local trigger echoes sharing the server fingerprint', () => {
+  const guard: PipelineRealtimeGuard = {
+    leadId: 'lead-1',
+    expectedStatus: 'showed_up',
+    serverUpdatedAt: '2026-09-06T15:00:00.000Z',
+    serverLastActivityAt: '2026-09-06T15:00:00.000Z',
+    expiresAt: 10_000,
+    pendingRows: []
+  };
+
+  const ownEcho = {
+    id: 'lead-1',
+    status: 'showed_up',
+    updated_at: '2026-09-06T15:00:00.000Z',
+    last_activity_at: '2026-09-06T15:00:00.000Z'
+  };
+
+  assert.equal(classifyPipelineRealtimeEvent(guard, ownEcho, 2_000), 'ignore');
+  assert.equal(classifyPipelineRealtimeEvent(guard, { ...ownEcho, last_activity_label: 'Loja marcou compareceu' }, 2_100), 'ignore');
+});
+
+test('Realtime guard refreshes for a real external change on the same lead', () => {
+  const guard: PipelineRealtimeGuard = {
+    leadId: 'lead-1',
+    expectedStatus: 'showed_up',
+    serverUpdatedAt: 'u1',
+    serverLastActivityAt: 'a1',
+    expiresAt: 10_000,
+    pendingRows: []
+  };
+
+  assert.equal(classifyPipelineRealtimeEvent(guard, {
+    id: 'lead-1',
+    status: 'lost',
+    updated_at: 'u2',
+    last_activity_at: 'a2'
+  }, 3_000), 'refresh');
+
+  assert.equal(classifyPipelineRealtimeEvent(guard, {
+    id: 'lead-1',
+    status: 'showed_up',
+    updated_at: 'u2',
+    last_activity_at: 'a2'
+  }, 3_000), 'refresh');
+});
+"""
+          Path('tests/pipeline-optimistic-state.test.ts').write_text(test)
+          PY
+
+      - name: Remove temporary workflow from final branch diff
+        run: rm .github/workflows/pipeline-drag-fix-apply.yml
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run test suite
+        run: npm test
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run typecheck
+        run: npm run typecheck
+
+      - name: Commit tested implementation
+        shell: bash
+        run: |
+          git config user.name "Soudigcar CI"
+          git config user.email "soudigcar@gmail.com"
+          git add src/app/loja/'[slug]'/pipeline/page.tsx src/lib/pipelineOptimisticState.ts tests/pipeline-optimistic-state.test.ts .github/workflows/pipeline-drag-fix-apply.yml
+          git commit -m "fix(pipeline): move cards without full refresh"
+          git push origin HEAD:fix/pipeline-drag-without-full-refresh
