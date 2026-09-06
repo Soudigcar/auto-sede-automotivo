@@ -1,7 +1,7 @@
 {
   "framework": "nextjs",
   "installCommand": "npm install --legacy-peer-deps",
-  "buildCommand": "node scripts/apply-pipeline-drag-fix.cjs && npm test && npm run typecheck && next build",
+  "buildCommand": "next build",
   "outputDirectory": ".next",
   "crons": [
     {
