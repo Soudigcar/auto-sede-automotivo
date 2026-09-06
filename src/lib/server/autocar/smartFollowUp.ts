@@ -1,3 +1,4 @@
+import { createAutocarStructuredResponse } from '@/lib/server/autocar/client';
 import { evaluateAutocarPolicy } from '@/lib/server/autocar/policyEngine';
 
 type TriggerType = 'visit_confirmation' | 'post_visit' | 'no_show' | 'callback_requested';
@@ -28,13 +29,16 @@ type Decision = {
   external_execution: false;
 };
 
-const FOLLOW_UP_VERSION = 'autocar-smart-follow-up-v1-dry-run';
+const FOLLOW_UP_VERSION = 'autocar-smart-follow-up-v1-dry-run-generative';
 const allowedBases = new Set(['appointment_service', 'customer_requested_callback']);
-
-function safeName(value: unknown) {
-  const name = String(value || '').trim().split(/\s+/)[0] || 'cliente';
-  return name.slice(0, 60);
-}
+const followUpTextSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    text: { type: 'string' }
+  },
+  required: ['text']
+};
 
 function appointmentIso(dateValue: unknown, timeValue: unknown) {
   const date = String(dateValue || '').slice(0, 10);
@@ -47,26 +51,44 @@ function eventKey(storeId: string, sourceId: string, trigger: TriggerType) {
   return `autocar-follow-up:v1:${storeId}:${sourceId}:${trigger}`;
 }
 
-function visitWhen(scheduledAt?: string | null) {
-  if (!scheduledAt) return 'no horário combinado';
-  const parsed = new Date(scheduledAt);
-  if (Number.isNaN(parsed.getTime())) return 'no horário combinado';
-  const date = new Intl.DateTimeFormat('pt-BR', {
-    timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric'
-  }).format(parsed);
-  const time = new Intl.DateTimeFormat('pt-BR', {
-    timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false
-  }).format(parsed);
-  return `no dia ${date} às ${time}`;
-}
-
-function textFor(trigger: TriggerType, name: string, scheduledAt?: string | null) {
-  if (trigger === 'visit_confirmation') {
-    return `Oi, ${name}! Passando para confirmar sua visita conosco ${visitWhen(scheduledAt)}. Continua tudo certo para você?`;
-  }
-  if (trigger === 'post_visit') return `Oi, ${name}! Queria saber se você foi bem atendido na visita e se deu tudo certo com a negociação.`;
-  if (trigger === 'no_show') return `Oi, ${name}! Conseguiu passar na loja como combinado? Se não conseguiu, sem problema — posso te ajudar a encontrar um novo horário.`;
-  return `Oi, ${name}! Você pediu para eu falar com você agora. Podemos continuar de onde paramos?`;
+async function generateSmartFollowUpText(input: {
+  triggerType: TriggerType;
+  customerName?: string | null;
+  scheduledAt?: string | null;
+  leadStatus?: string | null;
+  appointmentStatus?: string | null;
+}) {
+  const result = await createAutocarStructuredResponse({
+    task: 'commercial_followup',
+    instructions: [
+      'Você é a AUTOCAR gerando uma mensagem de Smart Follow-up em V1 DRY-RUN.',
+      'A mensagem ao cliente deve ser totalmente generativa e contextual. Não use, reproduza nem dependa de template, frase fixa ou fallback comercial pré-escrito.',
+      'Use somente os fatos estruturados fornecidos no input.',
+      'Nunca invente veículo, preço, estoque, vendedor, endereço, data, horário, comparecimento, ausência, venda, aprovação, negociação ou resultado.',
+      'trigger_type informa somente o objetivo do contato e não autoriza afirmar fatos que o contexto não comprova.',
+      'Quando scheduled_at estiver presente e válido, você pode mencioná-lo de forma natural. Quando estiver vazio, não invente data nem horário.',
+      'Para post_visit, só trate comparecimento como fato quando lead_status for showed_up.',
+      'Para no_show, faça uma abordagem comercial prudente sem afirmar ausência como fato além do que o estado fornecido realmente comprova.',
+      'Para callback_requested, retome a conversa de modo natural sem inventar assunto não fornecido.',
+      'Escreva em português do Brasil, de forma curta, humana e adequada ao WhatsApp, sem linguagem técnica de sistema.',
+      'Retorne somente o texto que seria proposto no dry-run.'
+    ].join(' '),
+    input: {
+      trigger_type: input.triggerType,
+      customer_name: String(input.customerName || '').trim().slice(0, 120) || null,
+      scheduled_at: input.scheduledAt || null,
+      lead_status: input.leadStatus || null,
+      appointment_status: input.appointmentStatus || null,
+      dry_run: true,
+      external_execution: false
+    },
+    schemaName: 'autocar_smart_follow_up_v1_generative',
+    schema: followUpTextSchema,
+    maxOutputTokens: 350
+  });
+  const text = String(result.parsed?.text || '').replace(/\s+/g, ' ').trim().slice(0, 1200);
+  if (!text) throw new Error('Smart Follow-up V1 generativo retornou texto vazio.');
+  return text;
 }
 
 function saoPauloParts(date: Date) {
@@ -187,7 +209,13 @@ export async function createCallbackRequestedEvent(input: {
 
 export async function evaluateFollowUpEvent(input: { production: any; autocar: any; event: EventRow }): Promise<Decision> {
   const event = input.event;
-  const gates: Record<string, unknown> = { version: FOLLOW_UP_VERSION, dry_run: true, contact_basis: event.contact_basis };
+  const gates: Record<string, unknown> = {
+    version: FOLLOW_UP_VERSION,
+    dry_run: true,
+    contact_basis: event.contact_basis,
+    generation_required: true,
+    fixed_text_fallback_disabled: true
+  };
   if (!allowedBases.has(event.contact_basis)) return { decision: 'blocked', reason: 'Base de contato não permitida no Smart Follow-up V1.', proposed_text: null, trigger_type: event.trigger_type, gates, external_execution: false };
 
   const [globalPolicyResult, storePolicyResult, agentResult, runtimeResult] = await Promise.all([
@@ -257,8 +285,28 @@ export async function evaluateFollowUpEvent(input: { production: any; autocar: a
   if (event.trigger_type === 'no_show' && !['scheduled','appointment_cancelled'].includes(String(lead?.status || ''))) return { decision: 'cancelled', reason: 'Estado atual do lead não comprova ausência elegível para recuperação.', proposed_text: null, trigger_type: event.trigger_type, gates, external_execution: false };
 
   const scheduledAt = appointment ? appointmentIso(appointment.appointment_date, appointment.appointment_time) : String(event.source_snapshot?.scheduled_at || '');
-  const proposed = textFor(event.trigger_type, safeName(lead?.customer_name), scheduledAt);
-  return { decision: 'would_send', reason: 'Todos os gates do Smart Follow-up V1 passaram. V1 permanece dry-run e não envia mensagem.', proposed_text: proposed, trigger_type: event.trigger_type, gates, external_execution: false };
+  try {
+    const proposed = await generateSmartFollowUpText({
+      triggerType: event.trigger_type,
+      customerName: lead?.customer_name || null,
+      scheduledAt: scheduledAt || null,
+      leadStatus: lead?.status || null,
+      appointmentStatus: appointment?.status || null
+    });
+    gates.generative_copy = true;
+    return { decision: 'would_send', reason: 'Todos os gates do Smart Follow-up V1 passaram e a copy contextual foi gerada. V1 permanece dry-run e não envia mensagem.', proposed_text: proposed, trigger_type: event.trigger_type, gates, external_execution: false };
+  } catch (error: any) {
+    gates.generative_copy = false;
+    gates.generation_fail_closed = true;
+    return {
+      decision: 'blocked',
+      reason: `Geração contextual do Smart Follow-up V1 falhou de forma segura: ${String(error?.message || error).slice(0, 180)}`,
+      proposed_text: null,
+      trigger_type: event.trigger_type,
+      gates,
+      external_execution: false
+    };
+  }
 }
 
 export async function processDueFollowUpsDryRun(input: { production: any; autocar: any; workerId: string; limit?: number }) {
@@ -269,7 +317,7 @@ export async function processDueFollowUpsDryRun(input: { production: any; autoca
   for (const event of (events || []) as EventRow[]) {
     let decision: Decision;
     try { decision = await evaluateFollowUpEvent({ production: input.production, autocar: input.autocar, event }); }
-    catch (error: any) { decision = { decision: 'blocked', reason: `Erro de revalidação: ${String(error?.message || error).slice(0, 300)}`, proposed_text: null, trigger_type: event.trigger_type, gates: { dry_run: true }, external_execution: false }; }
+    catch (error: any) { decision = { decision: 'blocked', reason: `Erro de revalidação: ${String(error?.message || error).slice(0, 300)}`, proposed_text: null, trigger_type: event.trigger_type, gates: { dry_run: true, fixed_text_fallback_disabled: true }, external_execution: false }; }
     const status = decision.decision === 'would_send' ? 'dry_run_ready' : decision.decision === 'cancelled' ? 'cancelled' : 'dry_run_blocked';
     const { error: updateError } = await input.autocar.from('ai_follow_up_events').update({ status, lease_owner: null, lease_until: null, last_decision: decision }).eq('id', event.id).eq('lease_owner', input.workerId);
     if (updateError) throw updateError;
@@ -289,7 +337,8 @@ export function simulateSmartFollowUp(input: {
     global_policy: input.global_policy || 'default', store_policy: input.store_policy || 'default',
     autopilot: input.autopilot === true, human_active: input.human_active === true,
     sale_confirmed: input.sale_confirmed === true, new_message: input.new_message === true,
-    appointment_status: input.appointment_status || 'scheduled', lead_status: input.lead_status || 'scheduled'
+    appointment_status: input.appointment_status || 'scheduled', lead_status: input.lead_status || 'scheduled',
+    generation_required: true, fixed_text_fallback_disabled: true
   };
   if (gates.global_policy !== 'allow') return { decision: 'blocked', reason: 'Smart Follow-up exige liberação explícita do Master.', proposed_text: null, gates, external_execution: false };
   if (gates.store_policy !== 'allow') return { decision: 'blocked', reason: 'Smart Follow-up exige liberação explícita da loja.', proposed_text: null, gates, external_execution: false };
@@ -300,5 +349,5 @@ export function simulateSmartFollowUp(input: {
   if (input.trigger_type !== 'callback_requested' && gates.appointment_status !== 'scheduled') return { decision: 'cancelled', reason: 'Agendamento não está mais ativo.', proposed_text: null, gates, external_execution: false };
   if (input.trigger_type === 'post_visit' && gates.lead_status !== 'showed_up') return { decision: 'cancelled', reason: 'Pós-visita exige comparecimento comprovado.', proposed_text: null, gates, external_execution: false };
   if (input.trigger_type === 'no_show' && gates.lead_status === 'showed_up') return { decision: 'cancelled', reason: 'Cliente compareceu; no-show não se aplica.', proposed_text: null, gates, external_execution: false };
-  return { decision: 'would_send', reason: 'Cenário elegível, mas o V1 apenas simula.', proposed_text: textFor(input.trigger_type, safeName(input.customer_name || 'Cliente'), input.scheduled_at), gates, external_execution: false };
+  return { decision: 'would_send', reason: 'Cenário elegível para geração contextual; o V1 apenas simula e não usa texto comercial fixo.', proposed_text: null, gates, external_execution: false };
 }

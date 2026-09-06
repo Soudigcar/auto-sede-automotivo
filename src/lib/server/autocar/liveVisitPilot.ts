@@ -1,9 +1,14 @@
+import { createAutocarStructuredResponse } from '@/lib/server/autocar/client';
 import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 import { evaluateAutocarOperationalShadowPolicy } from '@/lib/server/autocar/operationalPolicy';
+import {
+  consultAutocarStoreLocation,
+  consultAutocarVehiclePhotos
+} from '@/lib/server/autocar/operationalTools';
 import { sendEvolutionText } from '@/lib/server/evolution';
 
 const LIVE_PURPOSE = 'live_visit_schedule';
-const LIVE_PILOT_VERSION = 'autocar-live-visit-v1';
+const LIVE_PILOT_VERSION = 'autocar-live-visit-v2-generative';
 
 const blockedLiveCapabilities = new Set([
   'send_photos',
@@ -19,6 +24,19 @@ const blockedLiveCapabilities = new Set([
   'promise_credit_approval',
   'final_trade_appraisal'
 ]);
+
+const visitConfirmationSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    response: { type: 'string' },
+    next_best_action: {
+      type: 'string',
+      enum: ['none', 'offer_location', 'offer_photos']
+    }
+  },
+  required: ['response', 'next_best_action']
+};
 
 function normalizePhone(value: unknown) {
   return String(value || '').split('@')[0].split(':')[0].replace(/\D/g, '');
@@ -43,17 +61,6 @@ function liveKey(storeId: string, inboundMessageId: string) {
   return `autocar:${storeId}:${inboundMessageId}:${LIVE_PURPOSE}`;
 }
 
-function formatVisitConfirmation(startsAtIso: string) {
-  const date = new Date(startsAtIso);
-  const dateText = new Intl.DateTimeFormat('pt-BR', {
-    timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric'
-  }).format(date);
-  const timeText = new Intl.DateTimeFormat('pt-BR', {
-    timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false
-  }).format(date);
-  return `Pronto! Sua visita ficou agendada para ${dateText} às ${timeText}. Se precisar alterar o horário, me avise por aqui.`;
-}
-
 function visitGate(shadow: any, leadId?: string | null) {
   const guard = shadow?.booking_guard || {};
   const preview = shadow?.operational_preview || {};
@@ -63,10 +70,10 @@ function visitGate(shadow: any, leadId?: string | null) {
     return { allowed: false, reason: `booking_guard não está READY_TO_SCHEDULE (${String(guard?.state || 'missing')}).`, startsAt: '', durationMinutes: 60 };
   }
   if (String(guard?.booking_type || '') !== 'visit') {
-    return { allowed: false, reason: 'AGENDAMENTO LIVE V1 aceita somente VISITA; test-drive continua bloqueado.', startsAt: '', durationMinutes: 60 };
+    return { allowed: false, reason: 'AGENDAMENTO LIVE aceita somente VISITA; test-drive continua bloqueado.', startsAt: '', durationMinutes: 60 };
   }
   if (preview?.plan?.needs_photos || preview?.plan?.needs_location) {
-    return { allowed: false, reason: 'Pedido combinado com outra execução operacional; AGENDAMENTO LIVE V1 exige confirmação de visita isolada.', startsAt: '', durationMinutes: 60 };
+    return { allowed: false, reason: 'Pedido combinado com outra execução operacional; agendamento exige confirmação de visita isolada.', startsAt: '', durationMinutes: 60 };
   }
 
   const revalidation = guard?.revalidation || preview?.availability_revalidation || preview?.availability || null;
@@ -89,7 +96,7 @@ function visitGate(shadow: any, leadId?: string | null) {
       return { allowed: false, reason: `A conversa requer ${effect}; visita não será criada automaticamente.`, startsAt: '', durationMinutes };
     }
     if (blockedLiveCapabilities.has(capability) && effect === 'allow') {
-      return { allowed: false, reason: `Capability ${capability} também foi liberada, mas está fora do AGENDAMENTO LIVE V1.`, startsAt: '', durationMinutes };
+      return { allowed: false, reason: `Capability ${capability} também foi liberada, mas está fora do agendamento LIVE.`, startsAt: '', durationMinutes };
     }
   }
 
@@ -134,7 +141,7 @@ async function currentLiveEligibility(storeId: string, conversationId: string, o
     return { allowed: false, reason: policy.reason, runtime, policy };
   }
 
-  return { allowed: true, reason: 'Elegível para AUTOCAR AGENDAMENTO LIVE V1.', runtime, policy };
+  return { allowed: true, reason: 'Elegível para AUTOCAR AGENDAMENTO LIVE.', runtime, policy };
 }
 
 async function createVisitClaim(input: {
@@ -145,7 +152,6 @@ async function createVisitClaim(input: {
   leadId: string;
   startsAt: string;
   durationMinutes: number;
-  confirmationText: string;
   shadowClaimId?: string | null;
   gateReason?: string;
 }) {
@@ -167,13 +173,13 @@ async function createVisitClaim(input: {
     policy_capability: 'schedule_visit',
     policy_effect: blocked ? 'deny' : 'allow',
     policy_source: 'live_visit_pilot_gate',
-    policy_reason: input.gateReason || 'AUTOCAR AGENDAMENTO LIVE V1: visita liberada após elegibilidade da loja, confirmação semântica e revalidação do calendário.',
+    policy_reason: input.gateReason || 'AUTOCAR AGENDAMENTO LIVE: visita liberada após elegibilidade da loja, confirmação semântica e revalidação do calendário.',
     result: {
       live_pilot_version: LIVE_PILOT_VERSION,
       lead_id: input.leadId,
       planned_starts_at: input.startsAt,
       planned_duration_minutes: input.durationMinutes,
-      planned_text: input.confirmationText,
+      planned_text: null,
       shadow_claim_id: input.shadowClaimId || null,
       db_execution: false,
       external_execution: false,
@@ -212,6 +218,108 @@ async function updateVisitClaim(claimId: string, patch: Record<string, unknown>)
   return data;
 }
 
+async function generateVisitConfirmation(input: {
+  productionSupabase: any;
+  storeId: string;
+  conversationId: string;
+  leadId: string;
+  scheduledAt: string;
+  transaction: any;
+}) {
+  const [{ data: lead, error: leadError }, { data: messages, error: messagesError }, location] = await Promise.all([
+    input.productionSupabase.from('leads')
+      .select('id,customer_name,interested_vehicle,interested_vehicle_id,interested_vehicle_price,scheduled_at')
+      .eq('id', input.leadId)
+      .eq('assigned_store_id', input.storeId)
+      .maybeSingle(),
+    input.productionSupabase.from('whatsapp_messages')
+      .select('direction,message_type,body,sent_at,created_at')
+      .eq('store_id', input.storeId)
+      .eq('conversation_id', input.conversationId)
+      .order('sent_at', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(10),
+    consultAutocarStoreLocation(input.storeId)
+  ]);
+  if (leadError) throw leadError;
+  if (messagesError) throw messagesError;
+
+  let photos: any = null;
+  const vehicleId = String(lead?.interested_vehicle_id || '').trim();
+  if (vehicleId) {
+    photos = await consultAutocarVehiclePhotos({
+      productionSupabase: input.productionSupabase,
+      storeId: input.storeId,
+      vehicleId
+    }).catch(() => null);
+  }
+
+  const locationAvailable = Boolean(
+    location?.configured &&
+    String(location?.address || '').trim() &&
+    Number.isFinite(Number(location?.latitude)) &&
+    Number.isFinite(Number(location?.longitude))
+  );
+  const photosAvailable = Boolean(photos?.configured && Array.isArray(photos?.photos) && photos.photos.length);
+  const recentMessages = (messages || []).reverse().map((message: any) => ({
+    direction: String(message.direction || ''),
+    type: String(message.message_type || 'text'),
+    body: String(message.body || '').slice(0, 1600),
+    sent_at: message.sent_at || message.created_at || null
+  }));
+
+  const result = await createAutocarStructuredResponse({
+    task: 'commercial_followup',
+    instructions: [
+      'Você é a AUTOCAR respondendo imediatamente depois de uma transação REAL e bem-sucedida de agendamento de visita.',
+      'A resposta ao cliente deve ser totalmente generativa e contextual. Não use, reproduza nem dependa de template ou frase fixa.',
+      'Confirme a visita somente porque transaction_success é true e scheduled_at é a data/hora canônica já salva no banco.',
+      'Nunca invente data, horário, veículo, localização, fotos, desconto, financiamento ou qualquer outra informação.',
+      'Depois de confirmar a visita, você PODE oferecer no máximo UM próximo passo útil, somente se a capacidade correspondente estiver marcada como disponível.',
+      'As únicas ofertas adicionais permitidas nesta etapa são localização da loja ou fotos do veículo atual. Não existe ordem fixa entre elas e você também pode não oferecer nada.',
+      'Se oferecer localização ou fotos, apenas peça consentimento de forma natural. Não diga que já enviou; o backend aguardará uma resposta posterior do cliente.',
+      'Não proponha follow-up automático, desconto, negociação de preço, crédito, alteração de pipeline, venda, test-drive ou qualquer ação protegida.',
+      'Escreva em português do Brasil, de forma curta, humana e comercial, considerando a conversa recente.',
+      'next_best_action deve refletir exatamente a eventual oferta feita na própria resposta; use none se não houver oferta.'
+    ].join(' '),
+    input: {
+      transaction_success: true,
+      scheduled_at: input.scheduledAt,
+      transaction_code: input.transaction?.code || null,
+      lead: lead || null,
+      recent_messages: recentMessages,
+      verified_capabilities: {
+        location_available: locationAvailable,
+        photos_available: photosAvailable
+      }
+    },
+    schemaName: 'autocar_visit_confirmation_generative',
+    schema: visitConfirmationSchema,
+    maxOutputTokens: 650
+  });
+
+  const response = String(result.parsed?.response || '').trim();
+  if (!response) throw new Error('Geração de confirmação retornou resposta vazia; fallback comercial fixo é proibido.');
+
+  const nextBestAction = String(result.parsed?.next_best_action || 'none');
+  if (nextBestAction === 'offer_location' && !locationAvailable) {
+    throw new Error('Modelo tentou oferecer localização sem capacidade validada; confirmação bloqueada fail-closed.');
+  }
+  if (nextBestAction === 'offer_photos' && !photosAvailable) {
+    throw new Error('Modelo tentou oferecer fotos sem capacidade validada; confirmação bloqueada fail-closed.');
+  }
+
+  return {
+    response,
+    next_best_action: nextBestAction,
+    model_routing: result.routing,
+    verified_capabilities: {
+      location_available: locationAvailable,
+      photos_available: photosAvailable
+    }
+  };
+}
+
 export async function attemptAutocarLiveVisitPilot(input: {
   productionSupabase: any;
   storeId: string;
@@ -222,7 +330,7 @@ export async function attemptAutocarLiveVisitPilot(input: {
   integration: { instance_name?: string | null; status?: string | null; scope?: string | null };
   shadowResult: any;
 }) {
-  if (!isLiveRuntimeEnvironment()) return { sent: false, scheduled: false, skipped: true, reason: 'AGENDAMENTO LIVE V1 é bloqueado fora de Preview/Production.' };
+  if (!isLiveRuntimeEnvironment()) return { sent: false, scheduled: false, skipped: true, reason: 'AGENDAMENTO LIVE é bloqueado fora de Preview/Production.' };
   if (input.integration?.scope !== 'store' || input.integration?.status !== 'connected' || !input.integration?.instance_name) {
     return { sent: false, scheduled: false, skipped: true, reason: 'Integração Evolution da loja não está conectada.' };
   }
@@ -231,7 +339,6 @@ export async function attemptAutocarLiveVisitPilot(input: {
   if (!shadow) return { sent: false, scheduled: false, skipped: true, reason: 'AUTO-SHADOW não produziu resposta concluída.' };
 
   const gate = visitGate(shadow, input.leadId);
-  const confirmationText = gate.startsAt ? formatVisitConfirmation(gate.startsAt) : '';
   const shadowClaimId = input.shadowResult?.result?.claim?.id || null;
   const effectiveMode = String(input.shadowResult?.result?.effectiveMode || input.shadowResult?.result?.claim?.effective_mode || 'autopilot');
 
@@ -243,7 +350,6 @@ export async function attemptAutocarLiveVisitPilot(input: {
     leadId: String(input.leadId || ''),
     startsAt: gate.startsAt || '',
     durationMinutes: gate.durationMinutes || 60,
-    confirmationText,
     shadowClaimId,
     gateReason: gate.allowed ? undefined : gate.reason
   });
@@ -304,9 +410,79 @@ export async function attemptAutocarLiveVisitPilot(input: {
     return { sent: false, scheduled: false, skipped: true, claim: skipped, transaction, reason: String(transaction?.message || 'Transação de agenda recusada.') };
   }
 
+  const scheduledAt = String(transaction?.scheduled_at || gate.startsAt || '').trim();
   await updateVisitClaim(claimResult.claim.id, {
-    result: { db_execution: true, transaction, scheduled_at: transaction?.scheduled_at || gate.startsAt }
+    result: { db_execution: true, transaction, scheduled_at: scheduledAt }
   });
+
+  let confirmation: any;
+  try {
+    confirmation = await generateVisitConfirmation({
+      productionSupabase: input.productionSupabase,
+      storeId: input.storeId,
+      conversationId: input.conversationId,
+      leadId: String(input.leadId || ''),
+      scheduledAt,
+      transaction
+    });
+  } catch (generationError: any) {
+    const failed = await updateVisitClaim(claimResult.claim.id, {
+      status: 'failed', completed_at: new Date().toISOString(),
+      result: {
+        db_execution: true,
+        external_execution: false,
+        transaction,
+        confirmation_generation_failed: true,
+        error: String(generationError?.message || generationError || 'Falha ao gerar confirmação do agendamento.').slice(0, 1000),
+        fixed_text_fallback_disabled: true,
+        automatic_retry_disabled: true
+      }
+    }).catch(() => claimResult.claim);
+    return {
+      sent: false,
+      scheduled: true,
+      failed: true,
+      claim: failed,
+      transaction,
+      reason: 'A visita foi salva, mas a geração da confirmação falhou; nenhum texto comercial fixo foi enviado.'
+    };
+  }
+
+  const confirmationText = String(confirmation.response || '').trim();
+  await updateVisitClaim(claimResult.claim.id, {
+    result: {
+      db_execution: true,
+      external_execution: false,
+      transaction,
+      scheduled_at: scheduledAt,
+      planned_text: confirmationText,
+      generative_confirmation: true,
+      next_best_action: confirmation.next_best_action,
+      confirmation_model_routing: confirmation.model_routing || null,
+      verified_capabilities: confirmation.verified_capabilities || null
+    }
+  });
+
+  // A geração pode demorar; o atendimento pode ter sido assumido ou desabilitado nesse intervalo.
+  let eligibilityBeforeSend: { allowed: boolean; reason: string };
+  try {
+    eligibilityBeforeSend = await currentLiveEligibility(input.storeId, input.conversationId, shadow.operational_preview);
+  } catch {
+    eligibilityBeforeSend = { allowed: false, reason: 'Não foi possível revalidar a elegibilidade após a geração da confirmação.' };
+  }
+  if (!eligibilityBeforeSend.allowed) {
+    const skipped = await updateVisitClaim(claimResult.claim.id, {
+      status: 'skipped', policy_effect: 'deny', policy_reason: eligibilityBeforeSend.reason,
+      completed_at: new Date().toISOString(),
+      result: {
+        db_execution: true, external_execution: false, transaction,
+        confirmation_send_blocked: true,
+        eligibility_reason: eligibilityBeforeSend.reason,
+        automatic_retry_disabled: true
+      }
+    }).catch(() => claimResult.claim);
+    return { sent: false, scheduled: true, skipped: true, claim: skipped, transaction, reason: eligibilityBeforeSend.reason };
+  }
 
   try {
     const evolutionResult = await sendEvolutionText(String(input.integration.instance_name), recipient, confirmationText);
@@ -345,9 +521,11 @@ export async function attemptAutocarLiveVisitPilot(input: {
           provider: 'evolution',
           autocar_live_pilot: true,
           autocar_live_visit_pilot: true,
+          generative_confirmation: true,
+          next_best_action: confirmation.next_best_action,
           inbound_message_id: input.inboundMessageId,
           live_claim_id: claimResult.claim.id,
-          scheduled_at: transaction?.scheduled_at || gate.startsAt,
+          scheduled_at: scheduledAt,
           transaction_code: transaction?.code || null,
           evolution: evolutionResult
         },
@@ -367,11 +545,23 @@ export async function attemptAutocarLiveVisitPilot(input: {
       result: {
         db_execution: true, external_execution: true, transaction,
         sent_text: confirmationText, provider: 'evolution', provider_message_id: providerMessageId || null,
-        production_outbound_message_id: savedMessage?.id || null, sent_at: sentAt
+        production_outbound_message_id: savedMessage?.id || null, sent_at: sentAt,
+        generative_confirmation: true,
+        next_best_action: confirmation.next_best_action
       }
     });
 
-    return { sent: true, scheduled: true, live_visit_pilot: true, claim: completed, transaction, production_message_id: savedMessage?.id || null, provider_message_id: providerMessageId || null };
+    return {
+      sent: true,
+      scheduled: true,
+      live_visit_pilot: true,
+      generative_confirmation: true,
+      next_best_action: confirmation.next_best_action,
+      claim: completed,
+      transaction,
+      production_message_id: savedMessage?.id || null,
+      provider_message_id: providerMessageId || null
+    };
   } catch (error: any) {
     const failed = await updateVisitClaim(claimResult.claim.id, {
       status: 'failed', completed_at: new Date().toISOString(),
