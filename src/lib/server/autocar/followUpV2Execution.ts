@@ -38,7 +38,7 @@ export type FollowUpV2Ports = {
   audit(event: FollowUpV2Event, outcome: FollowUpV2Outcome): Promise<void>;
   generate(snapshot: FollowUpV2Snapshot, event: FollowUpV2Event): Promise<FollowUpV2Generated>;
   // Arm persists delivery_unknown BEFORE provider I/O; an expired worker cannot arm.
-  arm(lease: FollowUpV2Lease): Promise<boolean>;
+  arm(lease: FollowUpV2Lease, generated: FollowUpV2Generated): Promise<boolean>;
   send?: (event: FollowUpV2Event, text: string) => Promise<{ providerMessageId: string }>;
 };
 
@@ -118,7 +118,7 @@ export async function executeFollowUpV2(event: FollowUpV2Event, ports: FollowUpV
   if (stopped) return finish(stopped);
   if (event.dryRun) return finish({ decision: 'dry_run_ready', reason: 'all_gates_allow', proposed_text: generated.text, model: generated.model, external_execution: false });
   if (!ports.send) return finish({ decision: 'blocked', reason: 'transport_unavailable', proposed_text: null, external_execution: false });
-  if (!await ports.arm(lease)) return { decision: 'blocked', reason: 'lease_lost', proposed_text: null, external_execution: false };
+  if (!await ports.arm(lease,generated)) return { decision: 'blocked', reason: 'lease_lost', proposed_text: null, external_execution: false };
   // Arming is the last database mutation before a final read-only operational gate.
   const final = followUpV2Gates(event, await ports.snapshot(event), ports.now());
   if (final) return finish(final);

@@ -24,12 +24,13 @@ The homologation endpoint additionally requires the exact Preview branch, a dedi
 
 - `20260906153138_autocar_follow_up_v2_controlled_execution.sql`
 - `20260906154137_autocar_follow_up_v2_pre_dispatch_guards.sql`
+- `20260906155534_autocar_follow_up_v2_atomic_runtime_claim.sql`
 
 No Production migration is authorized. These migrations do not enable policies, stores or cron jobs.
 
 ## Verified
 
-- 578 local tests passed, including 58 new behavioral tests using simulated services.
+- 582 local tests passed, including 62 new behavioral tests using simulated services.
 - Typecheck and lint passed.
 - Real PostgreSQL assertions: unique planning, duplicate worker rejection, lease expiration/reclaim, old worker fencing, daily reservation, cooldown, sequence limit, superseded, audit and cleanup.
 - Two concurrent tool requests against the same synthetic event: one lease acquired, one `duplicate_or_leased`.

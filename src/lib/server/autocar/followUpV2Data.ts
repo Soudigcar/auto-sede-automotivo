@@ -40,7 +40,7 @@ export async function readFollowUpV2Bundle(crm: any, autocar: any, storeId: stri
   if (!conversation) throw new Error('follow_up_conversation_missing');
   const columns = currentAutocarExternalReferenceColumns();
   const queries = [
-    crm.from('stores').select('id,name,status,portal_enabled').eq('id',storeId).maybeSingle(),
+    crm.from('stores').select('id,store_name,status,portal_enabled').eq('id',storeId).maybeSingle(),
     crm.from('leads').select('id,customer_name,status,interested_vehicle,interested_vehicle_id,scheduled_at')
       .eq('id',conversation.lead_id).eq('assigned_store_id',storeId).maybeSingle(),
     crm.from('whatsapp_messages').select('id,direction,message_type,body,sent_at,created_at,raw_payload')
@@ -88,13 +88,16 @@ export function createFollowUpV2DatabasePorts(input: {
   assertClients(input.crm,input.autocar,input.dryRun);
   const owner = randomUUID();
   let latest: Awaited<ReturnType<typeof readFollowUpV2Bundle>> | null = null;
+  let latestEvent: FollowUpV2Event | null = null;
+  let liveClaimId: string | null = null;
   return {
     now: () => new Date(),
     async snapshot(event) {
       assertFollowUpV2Environment(event.dryRun);
       const bundle = await readFollowUpV2Bundle(input.crm,input.autocar,event.storeId,event.conversationId);
       latest = bundle;
-      if (input.syntheticConfig && (!input.dryRun || !String(bundle.store?.name).startsWith('AUTOCAR HOMOLOGACAO V2 '))) throw new Error('synthetic_scope_required');
+      latestEvent = event;
+      if (input.syntheticConfig && (!input.dryRun || !String(bundle.store?.store_name).startsWith('AUTOCAR HOMOLOGACAO V2 '))) throw new Error('synthetic_scope_required');
       const config = input.syntheticConfig || (await readStoreFollowUpV2(input.autocar,event.storeId)).effective;
       const source = planFollowUpV2Sources(bundle.facts,config,event.dryRun).find(e => e.sourceId===event.sourceId && e.scenario===event.scenario && e.stepId===event.stepId);
       const safeCore = input.dryRun ? true : (await evaluateAutocarExternalExecutionGate()).allowed;
@@ -117,22 +120,35 @@ export function createFollowUpV2DatabasePorts(input: {
       return await data(input.autocar.rpc('claim_autocar_follow_up_v2',{p_id:event.id,p_owner:owner,p_limits:snapshot.config.global}));
     },
     async settle(lease,outcome) {
-      return await data(input.autocar.rpc('transition_autocar_follow_up_v2',{p_id:lease.id,p_owner:lease.owner,p_token:lease.token,p_outcome:outcome}));
+      const settled=await data(input.autocar.rpc('transition_autocar_follow_up_v2',{p_id:lease.id,p_owner:lease.owner,p_token:lease.token,p_outcome:outcome}));
+      if (settled && liveClaimId) {
+        await data(input.autocar.from('ai_runtime_message_claims').update({status:outcome.decision==='sent'?'completed':'failed',
+          result:{follow_up_autopilot:true,follow_up_execution_id:lease.id,external_execution:outcome.external_execution,
+            provider_message_id:outcome.provider_message_id || null,sent_text:outcome.external_execution===true?outcome.proposed_text:null,
+            decision:outcome.decision,reason:outcome.reason},completed_at:new Date().toISOString(),updated_at:new Date().toISOString()})
+          .eq('id',liveClaimId).eq('purpose','live_text_send'));
+      }
+      return settled;
     },
     async audit(event,outcome) {
       await data(input.autocar.rpc('audit_autocar_follow_up_v2',{p_id:event.id,p_outcome:outcome}));
     },
     async generate(snapshot,event) {
       const context = snapshot.context as any;
-      const generated = await generateContextualFollowUpReopening({store:{id:event.storeId,store_name:context.store.name},
+      const generated = await generateContextualFollowUpReopening({store:{id:event.storeId,store_name:context.store.store_name},
         lead:context.lead,commercial:context.commercial,messages:context.messages,scenarioKey:event.scenario,inventorySupabase:input.crm,
         operationalContext:{memory:context.memory,appointment:context.appointment,now:context.now,next_best_action:context.memory?.next_best_action || null}});
       return {text:String(generated.plan.suggested_message || ''),model:String(generated.model || ''),valid:contextualAutopilotQuality(generated.plan).safe};
     },
-    async arm(lease) {
-      if (input.dryRun) return false;
-      return await data(input.autocar.rpc('transition_autocar_follow_up_v2',{p_id:lease.id,p_owner:lease.owner,p_token:lease.token,
-        p_outcome:{decision:'dispatching',reason:'provider_dispatch_armed',external_execution:null}}));
+    async arm(lease,generated) {
+      if (input.dryRun || !latest || !latestEvent || latestEvent.id!==lease.id || latestEvent.storeId!==FOLLOW_UP_V2_CANARY || !latest.facts.outboundId) return false;
+      // Lease fencing, quota revalidation and the legacy runtime claim share one transaction.
+      const armed=await data(input.autocar.rpc('arm_autocar_follow_up_v2',{
+        p_id:lease.id,p_owner:lease.owner,p_token:lease.token,p_message_id:latest.facts.outboundId,
+        p_text:generated.text,p_model:generated.model
+      }));
+      liveClaimId=armed?.runtime_claim_id || null;
+      return Boolean(liveClaimId);
     },
     // There is no transport function at all in DEV/Preview.
     ...(input.dryRun ? {} : {send:async (event: FollowUpV2Event,text: string) => {
@@ -151,6 +167,8 @@ export function createFollowUpV2DatabasePorts(input: {
           lead_id:event.leadId,base_lead_id:bundle.conversation.base_lead_id,direction:'outbound',message_type:'text',body:text,status:'sent',
           wa_message_id:`evolution:${bundle.conversation.whatsapp_number_id}:${receipt}`,sent_at:new Date().toISOString(),
           raw_payload:{provider:'evolution',autocar_follow_up_v2:true,follow_up_execution_id:event.id}}));
+        await data(input.crm.from('whatsapp_conversations').update({last_message:text,last_message_at:new Date().toISOString(),updated_at:new Date().toISOString()})
+          .eq('id',event.conversationId).eq('store_id',event.storeId));
       } catch { /* No retry of provider I/O; reconcile from the execution receipt. */ }
       return {providerMessageId:receipt};
     }})

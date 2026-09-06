@@ -29,6 +29,12 @@ begin
     perform public.transition_autocar_follow_up_v2(e,w2,next_token,'{"decision":"dispatching","reason":"forbidden","external_execution":null}');
     raise exception 'dry_run_armed';
   exception when others then if sqlerrm<>'live_scope_denied' then raise; end if; end;
+  begin
+    perform public.arm_autocar_follow_up_v2(e,w2,next_token,gen_random_uuid(),'Texto sintético','mock');
+    raise exception 'dry_run_runtime_claim_armed';
+  exception when others then if sqlerrm<>'live_scope_denied' then raise; end if; end;
+  if has_function_privilege('anon','public.arm_autocar_follow_up_v2(uuid,uuid,uuid,uuid,text,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.arm_autocar_follow_up_v2(uuid,uuid,uuid,uuid,text,text)','EXECUTE') then raise exception 'public_arm_access'; end if;
   if not public.transition_autocar_follow_up_v2(e,w2,next_token,'{"decision":"dry_run_ready","reason":"all_gates_allow","external_execution":false,"proposed_text":"Conteúdo do modelo simulado no teste SQL.","model":"mock-sql"}') then raise exception 'settle_failed'; end if;
   if public.claim_autocar_follow_up_v2(e,w,limits)->>'reason'<>'duplicate_or_leased' then raise exception 'completed_reclaimed'; end if;
   if public.claim_autocar_follow_up_v2(e2,w,limits)->>'reason'<>'daily_limit' then raise exception 'daily_limit_failed'; end if;
