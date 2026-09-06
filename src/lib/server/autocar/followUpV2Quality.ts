@@ -1,7 +1,7 @@
 const optOutSignals = [
-  /não\s+(quero|desejo)\s+(mais\s+)?(receber|mensagens|contato)/i,
+  /n[aã]o\s+(quero|desejo)\s+(mais\s+)?(receber|mensagens|contato)/i,
   /pare\s+de\s+(mandar|enviar|me\s+chamar)/i,
-  /não\s+me\s+(chame|mande|envie)\s+mais/i,
+  /n[aã]o\s+me\s+(chame|mande|envie)\s+mais/i,
   /remov(a|e)\s+(meu\s+)?(número|numero|contato)/i,
   /retir(a|e)\s+(meu\s+)?(número|numero|contato)/i,
   /descadastr(a|e)/i,
@@ -41,4 +41,3 @@ export function contextualAutopilotQuality(plan: any) {
   const score = avoid > 0 ? 0.93 : 0.84;
   return { safe: score >= 0.85, score, reason: score >= 0.85 ? 'Reabertura contextual apta ao canário.' : 'Contexto insuficiente para AUTOPILOT.' };
 }
-

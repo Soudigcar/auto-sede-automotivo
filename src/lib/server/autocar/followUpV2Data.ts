@@ -57,9 +57,12 @@ export async function readFollowUpV2Bundle(crm: any, autocar: any, storeId: stri
     autocar.from('ai_conversation_memory').select('rolling_summary,next_best_action,open_questions,active_objections')
       .eq('store_id',storeId).eq(columns.memory.conversationId,conversationId).maybeSingle(),
     crm.from('whatsapp_contacts').select('phone,wa_id').eq('id',conversation.contact_id).eq('store_id',storeId).maybeSingle(),
-    crm.from('store_whatsapp_integrations').select('instance_name,status').eq('store_id',storeId).eq('crm_number_id',conversation.whatsapp_number_id).eq('scope','store').maybeSingle()
+    crm.from('store_whatsapp_integrations').select('instance_name,status').eq('store_id',storeId).eq('crm_number_id',conversation.whatsapp_number_id).eq('scope','store').maybeSingle(),
+    // Search the full conversation for possible opt-outs, independently of the bounded model history.
+    crm.from('whatsapp_messages').select('direction,body').eq('store_id',storeId).eq('conversation_id',conversationId).eq('direction','inbound')
+      .or('body.ilike.%não%,body.ilike.%nao%,body.ilike.%pare%,body.ilike.%stop%,body.ilike.%sair%,body.ilike.%remov%,body.ilike.%retir%,body.ilike.%descadastr%,body.ilike.%unsubscribe%').limit(100)
   ];
-  const [store,lead,messages,appointments,sales,agent,runtime,policy,storePolicies,callbacks,commercial,memory,contact,integration] = await Promise.all(queries.map(data));
+  const [store,lead,messages,appointments,sales,agent,runtime,policy,storePolicies,callbacks,commercial,memory,contact,integration,optOutMessages] = await Promise.all(queries.map(data));
   const ordered = (messages || []).slice().sort((a: any,b: any) => Date.parse(a.sent_at || a.created_at)-Date.parse(b.sent_at || b.created_at));
   const inbound = ordered.filter((m: any) => m.direction==='inbound').at(-1);
   // Follow-up messages never restart their own sequence/cooldown anchor.
@@ -73,7 +76,8 @@ export async function readFollowUpV2Bundle(crm: any, autocar: any, storeId: stri
     callbacks:(callbacks || []).map((c: any) => ({id:c.id,at:iso(c.due_at) || '',
       explicitlyRequested:c.source_type==='callback_request' && c.source_snapshot?.customer_requested_callback===true && c.anchor_message_id===inbound?.id,
       active:!['cancelled','superseded'].includes(c.status)})) };
-  return {store,lead,conversation,messages:ordered,agent,runtime,policy,storePolicies,sales,commercial,memory,contact,integration,facts};
+  return {store,lead,conversation,messages:ordered,agent,runtime,policy,storePolicies,sales,commercial,memory,contact,integration,facts,
+    optedOut:optOutMessages?.length>=100 || hasFollowUpOptOut(optOutMessages || [])};
 }
 
 export function createFollowUpV2DatabasePorts(input: {
@@ -100,7 +104,7 @@ export function createFollowUpV2DatabasePorts(input: {
         globalPolicy:bundle.policy?.effect || 'deny',storePolicy:bundle.storePolicies?.length && bundle.storePolicies.every((p: any)=>p.effect==='allow') ? 'allow':'deny',safeCore,
         conversationOpen:bundle.conversation.status==='open',leadEligible:Boolean(bundle.lead && bundle.store?.status==='active' && bundle.store?.portal_enabled===true
           && !['won','lost','sale_confirmed','sold','closed','cancelled'].includes(bundle.lead.status) && !looksLikeNonLeadAutomation(bundle.messages)),
-        saleConfirmed:Boolean(bundle.sales?.length),optedOut:hasFollowUpOptOut(bundle.messages),latestInboundAt:bundle.facts.inboundAt,
+        saleConfirmed:Boolean(bundle.sales?.length),optedOut:bundle.optedOut || hasFollowUpOptOut(bundle.messages),latestInboundAt:bundle.facts.inboundAt,
         sourceValid:Boolean(source) && (event.scenario!=='visit_confirmation' || Date.parse(event.anchorAt)>Date.now()),
         sourceAnchorAt:source?.anchorAt || null,
         context:{store:bundle.store,lead:bundle.lead,commercial:bundle.commercial,messages:bundle.messages,memory:bundle.memory,

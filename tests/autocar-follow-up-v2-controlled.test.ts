@@ -100,6 +100,7 @@ test('timeout de provider fica unknown, nunca false nem retry cego',async()=>{
 });
 test('opt-out recente não é descartado num histórico descendente longo',()=>{
   assert.equal(hasFollowUpOptOut([{direction:'inbound',body:'STOP'},...Array.from({length:30},()=>({direction:'inbound',body:'Quero um carro'}))]),true);
+  assert.equal(hasFollowUpOptOut([{direction:'inbound',body:'Nao quero receber mensagens'}]),true);
 });
 test('cenários operacionais usam offsets oficiais, callback usa horário pedido',()=>{
   const f=fixture();const facts:FollowUpV2Facts={storeId:'synthetic',conversationId:'c',leadId:'l',leadStatus:'scheduled',
