@@ -12,22 +12,42 @@ export function StorePipelineViewportHeightGuard() {
   return (
     <style jsx global>{`
       @media (min-width: 1024px) {
-        body.pipeline-aura-active main.pipeline-aura-page {
+        html:has(body.pipeline-aura-active) {
+          height: 100%;
+          overflow: hidden !important;
+        }
+
+        body.pipeline-aura-active {
+          height: 100dvh !important;
           min-height: 0 !important;
+          overflow: hidden !important;
+        }
+
+        body.pipeline-aura-active main.pipeline-aura-page {
+          height: 100dvh !important;
+          min-height: 0 !important;
+          overflow: hidden !important;
           padding-bottom: 0 !important;
         }
 
         body.pipeline-aura-active main.pipeline-aura-page > section.pipeline-aura-portal-shell {
+          height: 100dvh !important;
           min-height: 0 !important;
-          align-items: flex-start !important;
+          align-items: stretch !important;
+          overflow: hidden !important;
         }
 
-        body.pipeline-aura-active .pipeline-aura-portal-canvas,
-        body.pipeline-aura-active .store-pipeline-page {
+        body.pipeline-aura-active .pipeline-aura-portal-canvas.pipeline-aura-canvas {
+          height: 100dvh !important;
           min-height: 0 !important;
+          overflow-x: clip !important;
+          overflow-y: auto !important;
+          overscroll-behavior-y: contain;
+          scrollbar-gutter: stable;
         }
 
         body.pipeline-aura-active .store-pipeline-page {
+          min-height: 0 !important;
           padding-bottom: 0 !important;
         }
       }
