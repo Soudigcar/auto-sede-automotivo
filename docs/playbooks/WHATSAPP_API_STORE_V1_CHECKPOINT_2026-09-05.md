@@ -1,114 +1,162 @@
-# CHECKPOINT — WhatsApp API por Loja V1 — hardening pré-Preview
+# CHECKPOINT — WhatsApp API por Loja V1 — PR #210
 
-Data: 2026-09-05
+Atualizado em: 2026-09-06 (America/Sao_Paulo)
 
 Playbook principal:
 
 `docs/playbooks/WHATSAPP_API_STORE_V1_PLAYBOOK.md`
 
-## Estado confirmado
+## Estado atual
 
-- `main` avançou externamente durante esta frente para `c816d6ff2423532dc73e642391ff38d339037751` via merge do PR #208 (`feature/landing-v3-structured-page-builder`).
-- branch: `feature/whatsapp-api-store-v1-isolated`
-- Supabase temporário: `ggvwuqomwbxhtlxaocau`, ACTIVE_HEALTHY, `with_data=false`
-- Vercel Production atual: `dpl_ABPQbJpb86ykyfaNH9V2nEHoPew6`, READY, commit `c816d6ff2423532dc73e642391ff38d339037751`
-- nenhuma alteração em CRM Production, AUTOCAR, saas-dev, autocar-dev, Evolution/VPS ou modos OFF/COPILOT/AUTOPILOT por esta frente
+- Repositório: `Soudigcar/auto-sede-automotivo`
+- `main`: `f3288179855e4dde953acaf4c131541954c3a4dc`
+- Branch protection da `main`: desabilitada
+- Branch: `feature/whatsapp-api-store-v1-isolated`
+- PR: #210, Draft, aberto, não mergeado
+- Base do PR: `main`
+- Supabase temporário: `ggvwuqomwbxhtlxaocau`
+- Branch Supabase ID: `1927c321-f276-443c-b26e-c7384910de69`
+- Parent CRM Production: `wufikrdgyxrsszlbpfmv`
+- Supabase temporário: `ACTIVE_HEALTHY`, `with_data=false`
+- CRM Production: nenhuma migration WhatsApp Cloud V1 aplicada
+- AUTOCAR Production, AUTOCAR DEV, saas-dev, Evolution/VPS e modos OFF/COPILOT/AUTOPILOT: fora do escopo e não alterados por esta frente
 
-## Hardening adicional realizado
+## Arquitetura da V1
 
-Arquivo:
+A Cloud API por loja é independente da integração Evolution existente.
 
-`src/lib/server/storeWhatsappCloud.ts`
+- Evolution continua em `store_whatsapp_integrations` e `/api/store/integrations/whatsapp`.
+- Cloud API usa `store_whatsapp_cloud_integrations` e rotas próprias.
+- Não existe fallback Cloud → Evolution, entre lojas ou para Master.
+- Segredos ficam no Vault do CRM e não são retornados ao frontend.
+- AUTOCAR não recebe segredos da Meta.
 
-Commit:
+## Rotas V1
 
-`205bd6806cfd4f58a5e6270ffe49d320a6115102`
+- `GET /api/store/integrations/whatsapp-cloud`
+- `POST /api/store/integrations/whatsapp-cloud`
+- `GET /api/store/integrations/whatsapp-cloud/assets`
+- `POST /api/store/integrations/whatsapp-cloud/assets`
 
-O gate de escrita da Cloud API agora exige simultaneamente:
+Nesta homologação final estão autorizados somente os dois GETs read-only.
+
+## SAFE CORE / fail-closed
+
+A homologação mantém:
+
+- `enabled=false`
+- `external_execution=false`
+- `synthetic_only=true`
+- Jornadas com `execution_enabled=false`
+- Jornadas com `safe_core_required=true`
+- nenhuma chamada real à Meta Graph API
+- nenhum envio real de WhatsApp
+- nenhum webhook Meta real
+- nenhuma execução externa de Jornada
+
+O gate de escrita exige simultaneamente:
 
 1. `VERCEL_ENV=preview`
 2. `VERCEL_GIT_COMMIT_REF=feature/whatsapp-api-store-v1-isolated`
 3. `WHATSAPP_CLOUD_PREVIEW_ENABLED=true`
-4. `NEXT_PUBLIC_SUPABASE_URL` com hostname exatamente `ggvwuqomwbxhtlxaocau.supabase.co`
+4. `NEXT_PUBLIC_SUPABASE_URL` apontando exatamente para `ggvwuqomwbxhtlxaocau.supabase.co`
 
-Production, development, outra branch, flag ausente/falsa, URL malformada ou qualquer outro projeto Supabase permanecem bloqueados.
+## Migrations versionadas no PR
 
-Isso protege contra um erro de configuração na Vercel: a flag isoladamente não é suficiente para liberar escrita.
+- `20260905144500_whatsapp_cloud_api_store_v1.sql`
+- `20260905221500_whatsapp_cloud_store_tenant_fk.sql`
+- `20260906005000_whatsapp_cloud_fk_indexes.sql`
 
-## Testes adicionados
+No Supabase temporário, a migration de tenant possui duas entradas históricas com o mesmo nome:
 
-Arquivo:
+- `20260905224732 whatsapp_cloud_store_tenant_fk`
+- `20260905230523 whatsapp_cloud_store_tenant_fk`
 
-`tests/whatsapp-cloud-preview-scope.test.ts`
+Auditoria anterior confirmou apenas uma cópia de cada constraint e `tenant_mismatches=0`. Esse drift não deve ser normalizado automaticamente.
 
-Commit:
+## Homologação já comprovada
 
-`80558a20760f0aa74a55086e327c6e6113a7f7d5`
+No SHA `2763935de7a70f78996bc9992cca9d09f0c07d76`, Preview `dpl_GY7JNbKP4w2ciadJU7keKNYQNTis`:
 
-Cobertura adicionada:
+- GET integração → HTTP 200
+- GET assets → HTTP 200
+- 1 template sintético
+- 1 Flow sintético
+- 1 Jornada sintética
+- Vault presente por flags booleanas, sem segredo retornado
+- `enabled=false`
+- `external_execution=false`
+- `synthetic_only=true`
+- Jornada `execution_enabled=false`
+- Jornada `safe_core_required=true`
 
-- permite somente Preview + branch exata + temp Supabase + flag true;
-- bloqueia Production;
-- bloqueia outra branch;
-- bloqueia flag ausente/falsa;
-- bloqueia CRM Production `wufikrdgyxrsszlbpfmv`;
-- bloqueia URL ausente/malformada.
+A credencial Auth descartável usada nesse smoke foi removida; token antigo passou a 403; perfil descartável removido; perfil pré-existente da Loja Sintética A permaneceu intacto.
 
-IMPORTANTE: o arquivo de teste foi criado, mas este checkpoint NÃO afirma que o teste foi executado por CI. O HEAD da branch não possuía status checks automáticos antes da liberação do Preview.
+## PR #210
 
-## TypeScript / React
+PR: `https://github.com/Soudigcar/auto-sede-automotivo/pull/210`
 
-Arquivo:
+Antes desta atualização documental, o PR estava:
 
-`src/components/WhatsappCloudApiPanel.tsx`
+- Draft
+- aberto
+- não mergeado
+- mergeable=true
+- 13 arquivos alterados
+- Vercel Preview READY no HEAD anterior `105d8447fa5d506f2488385a326e247f397d4d47`
+- sem GitHub Actions associados ao HEAD anterior
 
-Commit:
+Após esta atualização documental, deve ser considerado válido somente o novo HEAD gerado pela própria atualização e seu Preview correspondente.
 
-`1f0487ce8ec53ee64942ceb41ee7754d076cf248`
+## Hardening de autofill
 
-Alteração:
+Commit anterior:
 
-- import explícito de `type ReactNode`;
-- `Capability.icon` usa `ReactNode` em vez de depender do namespace global `React.ReactNode`.
+`1a28747ae03fef06a33ee2a1364fe51895dbd5c9`
 
-Objetivo: reduzir risco de typecheck no Next/React 19/TypeScript 6.
+Escopo:
 
-## Vercel — variáveis branch-specific configuradas
+- nomes próprios para campos da Cloud API
+- `autoComplete=off` nos campos de configuração
+- `autoComplete=new-password` nos segredos sintéticos
+- bloqueios para password managers
+- teste estático correspondente
 
-Confirmado via `vercel env ls preview feature/whatsapp-api-store-v1-isolated`:
+Não altera backend, migrations, Vault, tenant ou execução.
 
-- `NEXT_PUBLIC_SUPABASE_URL` — Config — Preview da branch isolada
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — Config — Preview da branch isolada
-- `SUPABASE_SERVICE_ROLE_KEY` — Secret — Preview da branch isolada
-- `WHATSAPP_CLOUD_PREVIEW_ENABLED` — Config — Preview da branch isolada
+## Ocorrência operacional 2026-09-06
 
-Nenhum valor secreto é registrado neste documento.
+Durante a atualização documental, foi criado por engano um arquivo vazio `__should_not_create__` na branch. O erro foi detectado imediatamente e o arquivo foi removido antes de qualquer continuação da homologação.
 
-## Liberação controlada do Preview
+- criação acidental: commit `ea664996f59127ebff8ae224f6d3b75c32f396ed`
+- remoção corretiva: commit `446b47f0429f5979111e759a14a2804f36c0c25a`
+- diff líquido do arquivo: zero
+- nenhum código, migration, banco, Vercel Production ou Production foi alterado por esse incidente
 
-O bloqueio abaixo foi removido somente da branch isolada após a confirmação das 4 variáveis:
+Não reescrever histórico para esconder a ocorrência.
 
-```json
-"git": {
-  "deploymentEnabled": false
-}
-```
+## Próximo passo autorizado
 
-Commit de remoção do bloqueio:
+1. atualizar este checkpoint e o playbook;
+2. confirmar o novo HEAD da branch e do PR #210;
+3. confirmar Vercel Preview do novo HEAD em estado READY;
+4. criar credencial Auth e perfil `public.users` 100% sintéticos e descartáveis somente no Supabase temporário, sem tocar no perfil Auth existente da Loja Sintética A;
+5. executar somente os dois GETs autenticados read-only no Preview do HEAD final;
+6. validar isolamento, Vault e SAFE CORE;
+7. remover integralmente perfil, Auth, sessão e arquivos locais sensíveis;
+8. validar token antigo revogado;
+9. reauditar PR/diff/status/Preview e confirmar CRM Production intacto;
+10. parar sem merge e sem Production.
 
-`4176decc0707b87aec79132b48e9efa701f57d57`
+## Não autorizado
 
-Esse primeiro commit recebeu status Vercel `failure` com descrição `Deployment failed`, mas nenhuma implantação foi criada para o SHA (confirmado por `vercel ls -m githubCommitSha=4176decc0707b87aec79132b48e9efa701f57d57`). Portanto a falha ocorreu antes do build.
-
-Este checkpoint atualizado serve como novo commit inofensivo para testar o gatilho Git→Vercel já com `deploymentEnabled=false` removido.
-
-## Próximo passo
-
-1. verificar se o commit deste checkpoint gera Preview da branch;
-2. se gerar, confirmar branch/SHA/ambiente e build/typecheck;
-3. executar smoke UI/API somente com dados sintéticos;
-4. confirmar por consulta que somente `ggvwuqomwbxhtlxaocau` recebeu efeitos;
-5. confirmar CRM Production e Evolution sem mudanças;
-6. parar antes de PR/merge/Production.
-
-Não autorizados nesta frente: PR, merge, `main`, CRM Production, AUTOCAR Production, `saas-dev`, `autocar-dev`, Evolution/VPS, instâncias/webhooks reais, números/QR Codes reais, dados/tokens reais, OFF/COPILOT/AUTOPILOT e Vercel Production.
+- POSTs de mutação da aplicação
+- CRM Production
+- migrations Production
+- merge
+- alteração de `main`
+- Vercel Production
+- AUTOCAR Production
+- Evolution/VPS
+- dados/tokens reais
+- OFF/COPILOT/AUTOPILOT
