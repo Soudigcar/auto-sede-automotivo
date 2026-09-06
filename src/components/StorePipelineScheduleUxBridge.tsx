@@ -25,8 +25,6 @@ const stageByTitle: Record<string, string> = {
   'Perdido': 'lost'
 };
 
-const directDropStages = new Set(['new_lead', 'in_service', 'no_show', 'showed_up']);
-
 function isPipeline(pathname: string) {
   return /^\/loja\/[^/]+\/pipeline\/?$/.test(pathname);
 }
@@ -122,26 +120,9 @@ export function StorePipelineScheduleUxBridge() {
       });
       setMessage(result.message || 'Agendamento salvo.');
       setForm(null);
-      window.setTimeout(() => window.location.reload(), 250);
     } catch (error: any) {
       setMessage(error?.message || 'Não foi possível salvar.');
     } finally {
-      setBusy(false);
-    }
-  }
-
-  async function moveLead(leadId: string, targetStatus: string) {
-    setBusy(true);
-    setMessage('Movendo lead...');
-    try {
-      const result = await request('/api/store/portal/pipeline/ux-actions', {
-        method: 'POST',
-        body: JSON.stringify({ action: 'move', slug, lead_id: leadId, target_status: targetStatus })
-      });
-      setMessage(result.message || 'Lead movido.');
-      window.setTimeout(() => window.location.reload(), 180);
-    } catch (error: any) {
-      setMessage(error?.message || 'Não foi possível mover o lead.');
       setBusy(false);
     }
   }
@@ -200,24 +181,14 @@ export function StorePipelineScheduleUxBridge() {
     const dropCapture = (event: DragEvent) => {
       const target = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-pipeline-stage]');
       const stage = target?.dataset.pipelineStage || '';
-      if (!stage) return;
+      if (stage !== 'scheduled') return;
       const leadId = event.dataTransfer?.getData('text/plain') || '';
       if (!leadId) return;
 
-      if (stage === 'scheduled') {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        void openSchedule(leadId);
-        return;
-      }
-
-      if (directDropStages.has(stage)) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        void moveLead(leadId, stage);
-      }
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      void openSchedule(leadId);
     };
 
     document.addEventListener('click', clickCapture, true);
