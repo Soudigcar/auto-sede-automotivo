@@ -51,17 +51,32 @@ describe('AUTOCAR Intelligence V2 vehicle options presentation', () => {
     assert.equal(constitution.includes('cta leve de visita'), true);
   });
 
-  it('monta 3 cards somente com dados grounded e uma foto principal por veículo', () => {
+  it('monta 3 cards grounded e usa a resposta generativa como abertura', () => {
+    const aiResponse = 'Qual dessas opções combina mais com você? Se quiser, posso te ajudar a organizar uma visita.';
     const presentation = buildAutocarVehiclePresentationV2({
       referencedVehicles: [vehicle('1'), vehicle('2'), vehicle('3')],
-      aiResponse: 'Qual dessas opções combina mais com você? Se quiser, posso te ajudar a organizar uma visita.'
+      aiResponse
     });
     assert.equal(presentation.ready, true);
     assert.equal(presentation.cards.length, 3);
     assert.equal(presentation.cards[0].photo_url, 'https://example.com/1.jpg');
     assert.equal(presentation.cards[0].facts.price_brl, 'R$ 49.900');
-    assert.equal(presentation.source, 'grounded_inventory_only');
+    assert.equal(presentation.opening_message, aiResponse);
+    assert.equal(presentation.closing_message, '');
+    assert.equal(presentation.source, 'grounded_inventory_plus_generative_context');
+    assert.equal(presentation.regression_flags.fixed_text_fallback_disabled, true);
     assert.equal(presentation.external_execution, false);
+  });
+
+  it('falha fechado se houver múltiplas opções sem abertura generativa', () => {
+    const presentation = buildAutocarVehiclePresentationV2({
+      referencedVehicles: [vehicle('1'), vehicle('2')],
+      aiResponse: ''
+    });
+    assert.equal(presentation.ready, false);
+    assert.equal(presentation.opening_message, '');
+    assert.equal(presentation.regression_flags.missing_generative_opening, true);
+    assert.equal(presentation.regression_flags.fixed_text_fallback_disabled, true);
   });
 
   it('falha fechado se IA selecionar mais de 3 veículos apresentados', () => {
@@ -145,14 +160,15 @@ describe('AUTOCAR Intelligence V2 vehicle options presentation', () => {
       requestedIds: ['hb20', 'weekend'],
       directRows: [stockRow('hb20'), stockRow('weekend')]
     });
+    const aiResponse = 'Além do Logan, tenho HB20 e Weekend. Qual deles te interessou mais?';
     const presentation = buildAutocarVehiclePresentationV2({
       referencedVehicles: hydration.vehicles,
-      aiResponse: 'Além do Logan, tenho HB20 e Weekend. Qual deles te interessou mais?'
+      aiResponse
     });
     const evaluation = evaluateAutocarReplayV2({
       customerRequestedHuman: false,
       shadow: {
-        response: 'Além do Logan, tenho HB20 e Weekend. Qual deles te interessou mais?',
+        response: aiResponse,
         next_best_action: 'Aguardar a escolha do cliente.',
         proposed_actions: []
       },
@@ -161,6 +177,7 @@ describe('AUTOCAR Intelligence V2 vehicle options presentation', () => {
     });
     assert.equal(presentation.option_count, 2);
     assert.equal(presentation.ready, true);
+    assert.equal(presentation.opening_message, aiResponse);
     assert.equal(evaluation.pass, true);
     assert.equal(evaluation.regression_flags.too_many_vehicle_options, false);
     assert.equal(evaluation.regression_flags.missing_primary_photo, false);
