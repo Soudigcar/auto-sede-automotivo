@@ -1,387 +1,157 @@
 # PLAYBOOK — WhatsApp API por Loja V1
 
-Checkpoint operacional do projeto AUTO CONTROLE AUTOMOTIVO.
-
-Data do checkpoint: 2026-09-05 (America/Sao_Paulo)
+Atualizado em: 2026-09-06 (America/Sao_Paulo)
 
 ## 0. REGRA DE RETOMADA
 
 Antes de qualquer alteração:
 
-1. Ler este playbook inteiro.
-2. Revalidar conexões GitHub, Supabase e Vercel.
-3. Ler `main`, HEAD da branch isolada, estado do Supabase temporário e deploys Vercel.
-4. Comparar o estado atual com este checkpoint.
-5. Informar diferenças.
-6. Só depois recomendar ou alterar.
-7. Em dúvida: FAIL-CLOSED.
+1. Revalidar `main`, HEAD da branch, PR #210, Supabase temporário e Vercel Preview.
+2. Comparar com este playbook.
+3. Informar qualquer diferença material.
+4. Em dúvida: fail-closed.
+5. Autorização antiga não vale para merge, migration Production, deploy Production, Evolution/VPS, WhatsApp real, tokens reais ou modos AUTOCAR.
 
-Nunca assumir que autorização antiga permite nova alteração de Production, merge, migration Production, Evolution/VPS, WhatsApp real, tokens reais ou modos AUTOCAR.
-
-## 1. AUTORIZAÇÃO VIGENTE DESTA FRENTE
-
-Autorização concedida pelo usuário:
-
-> Autorizo criar uma branch Git isolada a partir da `main` atual e uma branch temporária do Supabase CRM `AutoSedeAutomotivo` exclusivamente para implementar e homologar a V1 do WhatsApp API por Loja, incluindo armazenamento de segredos no Vault, conexão Meta por loja, Modelos de Mensagem, WhatsApp Flows, Jornadas internas e auditoria, usando somente dados e credenciais sintéticos, aplicando migrations somente na branch Supabase temporária e gerando somente Vercel Preview conectado a essa branch. Não autorizo alterar CRM Production, AUTOCAR Production, `saas-dev`, `autocar-dev`, Evolution/VPS, instâncias ou webhooks atuais, números/QR Codes reais, dados ou tokens reais, OFF/COPILOT/AUTOPILOT, `main`, PR, merge ou Vercel Production.
-
-Consequência prática:
-
-- PERMITIDO: branch Git isolada, branch Supabase temporária do CRM, migrations apenas nela, dados sintéticos, segredos sintéticos, código apenas na branch, Vercel Preview apenas se ligado ao Supabase temporário.
-- NÃO PERMITIDO: CRM Production, AUTOCAR Production, `saas-dev`, `autocar-dev`, Evolution/VPS, instâncias atuais, webhooks atuais, números reais, QR Codes reais, tokens reais, `main`, PR, merge, Vercel Production, OFF/COPILOT/AUTOPILOT.
-
-## 2. INFRA — CHECKPOINT
-
-### GitHub
+## 1. INFRA DA FRENTE
 
 Repositório:
 
 `Soudigcar/auto-sede-automotivo`
 
-`main` confirmado neste checkpoint:
+`main` no preflight desta atualização:
 
-`e06039a27fcd9128f1475b8c5214bf32bcb35461`
+`f3288179855e4dde953acaf4c131541954c3a4dc`
 
 Branch protection da `main`:
 
 DESABILITADA.
 
-Branch isolada desta frente:
+Branch da V1:
 
 `feature/whatsapp-api-store-v1-isolated`
 
-Base original da branch:
+PR:
 
-`e06039a27fcd9128f1475b8c5214bf32bcb35461`
+#210 — Draft, aberto, não mergeado.
 
-HEAD imediatamente antes da criação deste playbook:
+Supabase temporário:
 
-`5bbb070aa4c1377c639f98f5c0c2085daf9d6ed7`
+- nome: `whatsapp-api-store-v1-isolated`
+- project ref: `ggvwuqomwbxhtlxaocau`
+- branch ID: `1927c321-f276-443c-b26e-c7384910de69`
+- parent: `wufikrdgyxrsszlbpfmv`
+- `with_data=false`
+- estado no preflight: `ACTIVE_HEALTHY`
+- custo conhecido: US$ 0,01344/hora
 
-O commit que contém este playbook passa a ser o novo HEAD da branch.
+Fora do escopo desta frente:
 
-Não existe PR autorizado para esta frente.
-Não existe merge autorizado.
-Não alterar `main`.
+- CRM Production `wufikrdgyxrsszlbpfmv`
+- AUTOCAR Production `icmwdggbvijexjgrvsbl`
+- AUTOCAR DEV `azszzdotbrczlhrmhrlw`
+- `saas-dev` `hfzmzfhuhukmxkxbkxay`
+- Evolution/VPS
+- OFF/COPILOT/AUTOPILOT
 
-### Supabase CRM Production
+## 2. OBJETIVO DA V1
 
-Projeto:
+Adicionar uma alternativa independente de WhatsApp Cloud API própria por loja, sem desmontar ou modificar o fluxo Evolution existente.
 
-`AutoSedeAutomotivo`
+Princípios:
 
-Ref Production:
+- cada loja possui configuração própria;
+- nenhuma loja usa segredo/configuração de outra;
+- sem fallback entre providers ou tenants;
+- fail-closed por loja;
+- AUTOCAR permanece provider-agnostic;
+- segredos ficam no CRM/Vault, nunca no AUTOCAR;
+- CRM permanece fonte de verdade do negócio e agenda.
 
-`wufikrdgyxrsszlbpfmv`
+## 3. EVOLUTION EXISTENTE
 
-NÃO ALTERAR nesta frente.
+Estrutura Evolution existente permanece separada.
 
-### Supabase temporário desta homologação
+- tabela principal existente: `store_whatsapp_integrations`
+- rota existente: `/api/store/integrations/whatsapp`
+- painel existente: `WhatsappEvolutionPanel`
 
-Nome da branch:
+A V1 Cloud API não altera essa rota nem esse provider.
 
-`whatsapp-api-store-v1-isolated`
+Não executar conectar/desconectar/QR/webhook Evolution durante homologação Cloud API.
 
-Project ref:
+## 4. CLOUD API V1
 
-`ggvwuqomwbxhtlxaocau`
+Tabela principal:
 
-Branch ID:
+`store_whatsapp_cloud_integrations`
 
-`1927c321-f276-443c-b26e-c7384910de69`
+Rotas:
 
-Parent:
+- `GET /api/store/integrations/whatsapp-cloud`
+- `POST /api/store/integrations/whatsapp-cloud`
+- `GET /api/store/integrations/whatsapp-cloud/assets`
+- `POST /api/store/integrations/whatsapp-cloud/assets`
 
-`wufikrdgyxrsszlbpfmv`
-
-Estado no checkpoint:
-
-`ACTIVE_HEALTHY`
-
-`with_data=false`
-
-Custo confirmado na criação:
-
-`US$ 0,01344/hora`
-
-Não excluir esta branch sem nova autorização explícita de cleanup se a homologação ainda estiver em andamento.
-
-### Supabase protegidos / fora do escopo
-
-AUTOCAR Production:
-
-`icmwdggbvijexjgrvsbl`
-
-AUTOCAR DEV legado:
-
-`azszzdotbrczlhrmhrlw`
-
-`saas-dev`:
-
-`hfzmzfhuhukmxkxbkxay`
-
-Nenhum deles deve receber migrations, dados ou alterações desta frente.
-
-### Vercel
-
-Team:
-
-`soudigcar`
-
-Team ID:
-
-`team_9rTvoLWDdYyZEXGlnfCWMf42`
-
-Projeto:
-
-`auto-sede-automotivo`
-
-Project ID:
-
-`prj_doyYow0E3msbd0NaiNCA9too6gd4`
-
-Production confirmada no checkpoint:
-
-Deployment: `dpl_2BSR7SyC7sjXXyXdG256Hz2z8EwS`
-
-Estado: `READY`
-
-Git SHA: `e06039a27fcd9128f1475b8c5214bf32bcb35461`
-
-Nenhum Preview desta branch `feature/whatsapp-api-store-v1-isolated` foi criado até este checkpoint.
-
-Existem Previews de outras branches. Não confundir com esta frente.
-
-## 3. TRAVA TEMPORÁRIA DE VERCEL
-
-Na branch isolada, `vercel.json` foi alterado apenas para impedir deploy automático enquanto as variáveis Preview específicas da branch não puderem ser configuradas com segurança:
-
-```json
-"git": {
-  "deploymentEnabled": false
-}
-```
-
-Essa trava NÃO existe na `main`.
-
-Não remover essa trava antes de confirmar que o Preview da branch usará exclusivamente o Supabase temporário `ggvwuqomwbxhtlxaocau`.
-
-## 4. VARIÁVEIS NECESSÁRIAS PARA O PREVIEW ISOLADO
-
-Antes de gerar o Preview, configurar overrides exclusivos da branch Vercel `feature/whatsapp-api-store-v1-isolated`:
-
-- `NEXT_PUBLIC_SUPABASE_URL` -> URL do Supabase temporário `ggvwuqomwbxhtlxaocau`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` -> anon key do Supabase temporário
-- `SUPABASE_SERVICE_ROLE_KEY` -> service_role do Supabase temporário
-- `WHATSAPP_CLOUD_PREVIEW_ENABLED=true`
-
-REGRAS:
-
-- Nunca copiar essas chaves para o chat.
-- Nunca usar chaves do CRM Production nesse Preview.
-- Nunca gravar chaves em Git.
-- Confirmar o escopo da variável como Preview + branch específica antes de remover `deploymentEnabled=false`.
-- A conexão Vercel disponível no checkpoint permite leitura/deploy, mas não expõe escrita de Environment Variables por branch. Portanto, esse passo precisa de uma interface segura que suporte branch-specific env vars.
-
-## 5. ROTAS DA APLICAÇÃO — EXATAS
-
-### UI da loja
-
-Rota navegável:
+UI:
 
 `/loja/[slug]/integracoes`
-
-Arquivo:
-
-`src/app/loja/[slug]/integracoes/page.tsx`
-
-Estado:
-
-- mantém `WhatsappEvolutionPanel` existente;
-- mantém `StoreWhatsappWebhookButton` existente;
-- adiciona `WhatsappCloudApiPanel` abaixo deles.
-
-### Evolution existente — NÃO MODIFICADO
-
-Rota existente:
-
-`/api/store/integrations/whatsapp`
-
-Arquivo:
-
-`src/app/api/store/integrations/whatsapp/route.ts`
-
-Provider atual:
-
-Evolution.
-
-Não usar essa rota para Cloud API.
-Não alterar essa rota nesta frente sem nova necessidade explícita.
-Não clicar em ações de conectar/desconectar/refresh Evolution durante homologação da Cloud API se houver qualquer chance de atingir a VPS real.
-
-### Cloud API por Loja — conexão
-
-Rota nova:
-
-`/api/store/integrations/whatsapp-cloud`
-
-Arquivo:
-
-`src/app/api/store/integrations/whatsapp-cloud/route.ts`
-
-Métodos:
-
-`GET`
-
-- consulta a integração da loja;
-- retorna contagem de Templates, Flows e Jornadas;
-- retorna `external_execution=false`;
-- retorna `synthetic_only=true`.
-
-`POST`
-
-Ações aceitas:
-
-- `save-draft`
-- `save-synthetic-secrets`
-- `disable`
-- `revoke-synthetic-secrets`
-
-Todas as escritas chamam `assertWhatsappCloudPreviewWriteEnabled()`.
-
-### Cloud API por Loja — assets
-
-Rota nova:
-
-`/api/store/integrations/whatsapp-cloud/assets`
-
-Arquivo:
-
-`src/app/api/store/integrations/whatsapp-cloud/assets/route.ts`
-
-Métodos:
-
-`GET`
-
-- lista Templates da loja;
-- lista WhatsApp Flows da loja;
-- lista Jornadas internas da loja.
-
-`POST`
-
-`kind` aceitos:
-
-- `template`
-- `flow`
-- `journey`
-
-Todos são criados como sintéticos na homologação.
-
-Jornada é criada obrigatoriamente com:
-
-`execution_enabled=false`
-
-`safe_core_required=true`
-
-### Helper server-side
-
-Arquivo:
-
-`src/lib/server/storeWhatsappCloud.ts`
-
-Funções principais:
-
-- `assertWhatsappCloudPreviewWriteEnabled`
-- `publicWhatsappCloudIntegration`
-- `loadStoreWhatsappCloudIntegration`
-- `saveStoreWhatsappCloudDraft`
-- `saveStoreWhatsappCloudSyntheticSecrets`
-- `auditStoreWhatsappCloud`
-
-Gate de segurança:
-
-- se `VERCEL_ENV === 'production'` -> escrita Cloud API é bloqueada;
-- se `WHATSAPP_CLOUD_PREVIEW_ENABLED !== 'true'` -> escrita é bloqueada;
-- segredos sintéticos precisam começar com `synthetic-`.
-
-## 6. O QUE AINDA NÃO EXISTE / NÃO ESTÁ LIBERADO
-
-IMPORTANTE para não inferir funcionalidades inexistentes:
-
-- NÃO existe chamada real à Meta implementada nesta V1 de homologação.
-- NÃO existe envio real via Cloud API implementado.
-- NÃO existe recebimento real via webhook Meta implementado.
-- NÃO existe rota pública de webhook Meta criada nesta frente até este checkpoint.
-- NÃO existe sincronização real de Templates com a Meta.
-- NÃO existe sincronização real de WhatsApp Flows com a Meta.
-- NÃO existe execução externa de Jornadas.
-- NÃO existe fallback para Evolution.
-- NÃO existe fallback para Master.
-- NÃO existe fallback entre lojas.
-- Graph API Version foi deixada configurável e não foi hardcoded porque a documentação oficial da Meta não foi validada neste checkpoint.
-
-Antes de implementar endpoints Meta reais, validar documentação oficial atual de 2026 sobre Graph API, webhook signature, templates, Flows e onboarding/OAuth.
-
-## 7. UI NOVA
 
 Componente:
 
 `src/components/WhatsappCloudApiPanel.tsx`
 
-Título exibido:
+Helper server-side:
 
-`WhatsApp via API própria da loja`
+`src/lib/server/storeWhatsappCloud.ts`
 
-Campos:
+## 5. SAFE CORE / EXECUÇÃO
 
-- Nome da conta
-- WABA ID
-- Phone Number ID
-- Número de exibição
-- Graph API Version
+Nesta V1 de homologação:
+
+- `enabled=false`
+- `external_execution=false`
+- `synthetic_only=true`
+- Jornada `execution_enabled=false`
+- Jornada `safe_core_required=true`
+- sem chamada real à Meta Graph API
+- sem envio real de WhatsApp
+- sem webhook Meta real
+- sem sincronização real de template
+- sem sincronização real de Flow
+- sem execução externa de Jornada
+
+O gate de escrita exige simultaneamente:
+
+1. `VERCEL_ENV=preview`
+2. `VERCEL_GIT_COMMIT_REF=feature/whatsapp-api-store-v1-isolated`
+3. `WHATSAPP_CLOUD_PREVIEW_ENABLED=true`
+4. hostname Supabase exatamente `ggvwuqomwbxhtlxaocau.supabase.co`
+
+Production, outra branch, flag ausente/falsa, URL malformada ou outro Supabase permanecem bloqueados.
+
+## 6. VAULT
+
+RPCs:
+
+- `store_whatsapp_cloud_set_secrets(uuid,text,text,text)`
+- `store_whatsapp_cloud_get_secrets(uuid)`
+- `store_whatsapp_cloud_revoke_secrets(uuid)`
+
+Permissão esperada:
+
+- anon: sem EXECUTE
+- authenticated: sem EXECUTE
+- service_role: EXECUTE
+
+Segredos:
+
 - Access Token
 - App Secret
 - Verify Token
 
-A UI informa explicitamente:
+A integração guarda referências UUID; o frontend recebe apenas flags booleanas de presença do segredo.
 
-`Homologação · execução externa OFF`
-
-O frontend nunca recebe o valor de um segredo já salvo no Vault; recebe apenas flags booleanas:
-
-- `has_access_token`
-- `has_app_secret`
-- `has_verify_token`
-
-## 8. MIGRATION VERSIONADA NO GIT
-
-Arquivo oficial da branch Git:
-
-`supabase/migrations/20260905144500_whatsapp_cloud_api_store_v1.sql`
-
-Esta é a migration consolidada que deve ser usada como fonte de verdade da implementação.
-
-### ATENÇÃO — histórico da branch Supabase temporária
-
-Durante a homologação foram aplicadas três migrations incrementais diretamente no ambiente temporário:
-
-- `20260905140841 whatsapp_cloud_api_store_v1`
-- `20260905140906 whatsapp_cloud_api_store_v1_grants`
-- `20260905140947 whatsapp_cloud_api_store_v1_rls_qualified_store`
-
-No Git elas foram consolidadas em uma única migration:
-
-`20260905144500_whatsapp_cloud_api_store_v1.sql`
-
-REGRA:
-
-- se recriar/resetar uma branch de homologação a partir do Git, aplicar a migration consolidada do Git;
-- NÃO copiar as três versões temporárias para Production;
-- NÃO reaplicar a migration consolidada na branch temporária atual sem antes auditar o histórico, pois a estrutura equivalente já existe nela;
-- qualquer futura aplicação em CRM Production exige autorização separada e preflight de migration.
-
-## 9. TABELAS NOVAS
-
-Criadas apenas na branch Supabase temporária e versionadas na migration Git:
+## 7. TABELAS V1
 
 - `store_whatsapp_cloud_integrations`
 - `whatsapp_message_template_blueprints`
@@ -392,375 +162,202 @@ Criadas apenas na branch Supabase temporária e versionadas na migration Git:
 - `whatsapp_cloud_webhook_events`
 - `whatsapp_cloud_audit_events`
 
-Princípio de arquitetura:
+RLS permanece habilitada nas tabelas relevantes.
 
-`store_whatsapp_integrations` continua sendo a estrutura Evolution existente.
+Modelo esperado:
 
-A Cloud API usa `store_whatsapp_cloud_integrations` separadamente.
+- loja autenticada: leitura apenas do próprio tenant;
+- Master: leitura global;
+- escrita: backend com `service_role` após autorização de portal;
+- RPC Vault: somente `service_role`.
 
-Não misturar providers na tabela Evolution.
+## 8. MIGRATIONS GIT
 
-## 10. VAULT / RPCS
+Fonte de verdade para futura aplicação controlada:
 
-RPCs versionadas:
+- `supabase/migrations/20260905144500_whatsapp_cloud_api_store_v1.sql`
+- `supabase/migrations/20260905221500_whatsapp_cloud_store_tenant_fk.sql`
+- `supabase/migrations/20260906005000_whatsapp_cloud_fk_indexes.sql`
 
-- `store_whatsapp_cloud_set_secrets(uuid,text,text,text)`
-- `store_whatsapp_cloud_get_secrets(uuid)`
-- `store_whatsapp_cloud_revoke_secrets(uuid)`
+A primeira migration consolida as três versões incrementais aplicadas no temporário durante a homologação inicial:
 
-Permissão:
+- `20260905140841 whatsapp_cloud_api_store_v1`
+- `20260905140906 whatsapp_cloud_api_store_v1_grants`
+- `20260905140947 whatsapp_cloud_api_store_v1_rls_qualified_store`
 
-- `anon`: sem EXECUTE
-- `authenticated`: sem EXECUTE
-- `service_role`: EXECUTE
+Nunca copiar essas três versões incrementais para Production.
 
-Segredos:
+## 9. DRIFT CONHECIDO NO TEMPORÁRIO
 
-- Access Token
-- App Secret
-- Verify Token
+Histórico do Supabase temporário contém duas entradas com o mesmo nome:
 
-A tabela de integração guarda somente referências UUID dos segredos.
+- `20260905224732 whatsapp_cloud_store_tenant_fk`
+- `20260905230523 whatsapp_cloud_store_tenant_fk`
 
-## 11. RLS / ISOLAMENTO MULTI-TENANT
+Auditoria anterior confirmou:
 
-Todas as tabelas novas relevantes estão com RLS habilitada.
+- apenas uma cópia de cada constraint;
+- `tenant_mismatches=0`;
+- migration idempotente.
 
-Modelo:
+Não normalizar esse histórico automaticamente.
 
-- Gestor da loja autenticado -> somente leitura da própria loja;
-- Master -> leitura global;
-- escrita -> backend com `service_role` após autorização do portal;
-- RPC de descriptografia -> somente `service_role`.
+## 10. ÍNDICES DE FK
 
-Falha descoberta durante homologação:
+Migration:
 
-A primeira versão das policies tinha referência ambígua a `store_id`; uma sessão sintética da Loja A conseguiu ver 2 integrações.
+`20260906005000_whatsapp_cloud_fk_indexes.sql`
 
-Correção aplicada:
+Última validação conhecida no temporário:
 
-qualificação explícita do `store_id` da tabela em cada policy afetada.
+- 22 índices esperados presentes;
+- `cloud_fk_without_covering_index=0`;
+- sem mudança de dados, constraints, RLS, grants ou funções.
 
-Resultado depois da correção:
+## 11. DADOS SINTÉTICOS PRINCIPAIS
 
-- Loja A -> 1 integração, somente Loja A;
-- Loja B -> 1 integração, somente Loja B;
-- Master -> 2 integrações.
+Loja Sintética A:
 
-Essa correção já está incorporada na migration consolidada do Git.
-
-## 12. AUDITORIA / IDEMPOTÊNCIA
-
-Tabela:
-
-`whatsapp_cloud_audit_events`
-
-Trigger:
-
-auditoria é imutável; UPDATE ou DELETE gera exceção.
-
-Tabela de eventos:
-
-`whatsapp_cloud_webhook_events`
-
-Idempotência:
-
-`unique (integration_id, provider_event_id)`
-
-Teste executado:
-
-o mesmo evento sintético inserido/repetido resultou em apenas 1 evento persistido.
-
-## 13. DADOS SINTÉTICOS DO AMBIENTE TEMPORÁRIO
-
-### Loja Sintética A
-
-Store ID:
-
-`11111111-1111-4111-8111-111111111111`
-
-Integration ID:
-
-`41111111-1111-4111-8111-111111111111`
-
-Estado atual:
-
+- store: `11111111-1111-4111-8111-111111111111`
+- integration: `41111111-1111-4111-8111-111111111111`
 - provider: `meta_cloud`
 - status: `testing`
-- enabled: `false`
-- is_synthetic: `true`
-- access token no Vault: SIM
-- app secret no Vault: SIM
-- verify token no Vault: SIM
-- templates: 1
-- flows: 1
-- journeys: 1
+- enabled: false
+- possui Vault refs sintéticas
+- 1 template sintético
+- 1 Flow sintético
+- 1 Jornada sintética
 
-### Loja Sintética B
+Loja Sintética B:
 
-Store ID:
+- store: `22222222-2222-4222-8222-222222222222`
+- integration: `42222222-2222-4222-8222-222222222222`
+- disabled
+- enabled: false
+- segredos revogados
 
-`22222222-2222-4222-8222-222222222222`
+Nunca migrar dados sintéticos para Production.
 
-Integration ID:
+## 12. HOMOLOGAÇÃO JÁ CONCLUÍDA
 
-`42222222-2222-4222-8222-222222222222`
+Preview no SHA:
 
-Estado atual:
+`2763935de7a70f78996bc9992cca9d09f0c07d76`
 
-- provider: `meta_cloud`
-- status: `disabled`
-- enabled: `false`
-- is_synthetic: `true`
-- access token no Vault: NÃO
-- app secret no Vault: NÃO
-- verify token no Vault: NÃO
-- templates: 0
-- flows: 0
-- journeys: 0
+Deployment:
 
-Contadores sintéticos adicionais no checkpoint:
+`dpl_GY7JNbKP4w2ciadJU7keKNYQNTis`
 
-- `whatsapp_cloud_webhook_events`: 1
-- `whatsapp_cloud_audit_events`: 1
+Resultados autenticados:
 
-Não migrar esses dados sintéticos para Production.
+- GET integração → 200
+- GET assets → 200
+- Vault presente sem segredo exposto
+- 1 template
+- 1 Flow
+- 1 Jornada
+- `external_execution=false`
+- `synthetic_only=true`
+- Jornada `execution_enabled=false`
+- Jornada `safe_core_required=true`
 
-## 14. TESTES JÁ PASSADOS
+Cleanup concluído:
 
-- branch Supabase criada sem dados de Production;
-- Vault disponível;
-- segredos armazenados criptografados;
-- frontend não recebe segredos armazenados;
-- `authenticated` não consegue executar RPC de descriptografia;
-- `service_role` consegue executar RPC necessária;
-- Loja A não vê Loja B após correção de RLS;
-- Loja B não vê Loja A;
-- Master vê ambas;
-- `authenticated` sem INSERT/UPDATE/DELETE nas tabelas Cloud;
-- `service_role` com DML server-side;
-- evento duplicado bloqueado pela idempotência;
-- auditoria imutável validada;
-- jornada criada com `execution_enabled=false`;
-- jornada criada com `safe_core_required=true`;
-- revogação de segredos desliga a integração;
-- integração não pode ficar habilitada sem WABA, Phone Number ID e três referências Vault;
-- nenhum Preview desta branch foi disparado;
-- nenhum arquivo interno Evolution foi modificado;
-- CRM Production permaneceu intocado;
-- Vercel Production permaneceu no commit da `main`.
+- Auth descartável removido
+- perfil `public.users` descartável removido
+- token antigo retornando 403
+- arquivos locais sensíveis removidos
+- perfil pré-existente da Loja A intacto
 
-## 15. ARQUITETURA ALVO
+## 13. HARDENING DE AUTOFILL
 
-```text
-                    AUTO CONTROLE
-                         |
-               WhatsApp Integration Router
-                  /                 \
-          EVOLUTION               META CLOUD
-        Espelhamento            API por loja
-             |             Templates / Flows
-             \                 /
-               CRM normalizado
-                    |
-                 AUTOCAR
-```
+Commit:
 
-Regras:
+`1a28747ae03fef06a33ee2a1364fe51895dbd5c9`
 
-- Evolution existente continua independente.
-- Meta Cloud é por loja.
-- nenhuma loja usa credencial de outra loja.
-- nenhum fallback entre providers.
-- nenhum segredo Meta vai para AUTOCAR.
-- AUTOCAR permanece provider-agnostic.
-- Jornadas internas passam por SAFE CORE.
-- `create_follow_up` não deve ser liberado implicitamente por esta implementação.
+Alterações:
 
-## 16. PRÓXIMO PASSO EXATO
+- nomes próprios para inputs Cloud API;
+- `autoComplete=off` em campos de configuração;
+- `autoComplete=new-password` em segredos;
+- `data-1p-ignore=true` e `data-lpignore=true`;
+- teste estático dedicado.
 
-Estado atual: BLOQUEADO DE FORMA SEGURA antes de Preview.
+Esse commit não altera backend, migrations, Vault, tenant ou execução.
 
-Motivo:
+## 14. PR #210
 
-as variáveis específicas de Preview ainda não foram gravadas na Vercel para esta branch, e a conexão Vercel usada no checkpoint não expõe operação de Environment Variable por branch.
+Antes da atualização documental de 2026-09-06:
 
-Sequência obrigatória:
+- base: `main` `f3288179855e4dde953acaf4c131541954c3a4dc`
+- head: `105d8447fa5d506f2488385a326e247f397d4d47`
+- Draft
+- aberto
+- mergeable=true
+- 13 arquivos alterados
+- Vercel Preview `dpl_Gq5z9YMu5hxEnWujsiAFF25H5MzL` READY
+- status Vercel success
+- sem GitHub Actions associados ao HEAD anterior
 
-1. Revalidar `main` e HEAD da branch.
-2. Revalidar que Supabase `ggvwuqomwbxhtlxaocau` está `ACTIVE_HEALTHY`.
-3. Configurar na Vercel os 4 overrides de Preview exclusivos da branch.
-4. Confirmar sem expor valores que os três Supabase vars apontam para `ggvwuqomwbxhtlxaocau`.
-5. Confirmar `WHATSAPP_CLOUD_PREVIEW_ENABLED=true` apenas nessa branch.
-6. Confirmar que nenhuma variável necessária está usando CRM Production.
-7. Só então remover `git.deploymentEnabled=false` do `vercel.json` NA BRANCH ISOLADA.
-8. Push/commit dessa remoção apenas na branch isolada.
-9. Confirmar que a Vercel gerou Preview da branch correta.
-10. Confirmar que o Preview NÃO é Production.
-11. Fazer smoke da rota `/loja/<slug-sintetico>/integracoes`.
-12. Testar GET `/api/store/integrations/whatsapp-cloud`.
-13. Testar `save-draft` com dados sintéticos.
-14. Testar `save-synthetic-secrets` apenas com `synthetic-*`.
-15. Testar criação sintética de template/flow/journey.
-16. Recarregar e conferir contagens.
-17. Repetir teste RLS Loja A x Loja B.
-18. Repetir auditoria imutável e idempotência.
-19. Confirmar `external_execution=false`.
-20. Confirmar zero chamada real Meta.
-21. Confirmar zero mudança em Evolution/VPS.
-22. Parar e apresentar resultado.
-23. NÃO criar PR.
-24. NÃO mergear.
-25. NÃO aplicar nada em CRM Production.
+Depois da atualização documental, somente o novo HEAD e Preview decorrentes devem ser usados no preflight final.
 
-## 17. CHECKLIST DE SMOKE DO PREVIEW
+## 15. OCORRÊNCIA OPERACIONAL 2026-09-06
 
-### GET conexão
+Durante a atualização documental foi criado acidentalmente o arquivo vazio:
 
-`GET /api/store/integrations/whatsapp-cloud?slug=<slug>`
+`__should_not_create__`
 
-Esperado:
+O erro foi detectado imediatamente e revertido antes da continuação.
 
-- HTTP 200 para Gestor/Master autorizado;
-- `provider=meta_cloud`;
-- `enabled=false`;
-- `external_execution=false`;
-- `synthetic_only=true`;
-- nenhum segredo retornado.
+- commit de criação acidental: `ea664996f59127ebff8ae224f6d3b75c32f396ed`
+- commit de remoção corretiva: `446b47f0429f5979111e759a14a2804f36c0c25a`
+- diff líquido: zero
 
-### POST draft
+Não reescrever histórico para ocultar o incidente.
 
-`POST /api/store/integrations/whatsapp-cloud`
+## 16. HOMOLOGAÇÃO FINAL AUTORIZADA
 
-Body lógico:
+Escopo vigente:
 
-```json
-{
-  "action": "save-draft",
-  "slug": "<slug-sintetico>",
-  "business_account_name": "Conta sintética",
-  "waba_id": "WABA_SYNTH_001",
-  "phone_number_id": "PHONE_SYNTH_001",
-  "display_phone_number": "+5500000000000",
-  "graph_api_version": ""
-}
-```
+1. atualizar somente este playbook e o checkpoint;
+2. obter novo HEAD da branch;
+3. usar somente o Vercel Preview decorrente desse HEAD;
+4. criar Auth + perfil sintéticos temporários exclusivos para smoke;
+5. vincular apenas à Loja Sintética A;
+6. executar somente os dois GETs read-only;
+7. validar tenant, Vault e SAFE CORE;
+8. remover Auth, perfil, sessão e arquivos locais;
+9. confirmar token antigo revogado;
+10. auditar PR/diff/status/Preview;
+11. confirmar CRM Production sem migrations Cloud V1;
+12. parar sem merge e sem Production.
 
-### POST Vault sintético
+## 17. NÃO AUTORIZADO
 
-Ação:
+- POSTs de mutação da aplicação
+- CRM Production
+- migrations Production
+- merge
+- alteração de `main`
+- Vercel Production
+- AUTOCAR Production
+- Evolution/VPS
+- dados ou tokens reais
+- OFF/COPILOT/AUTOPILOT
 
-`save-synthetic-secrets`
+## 18. CHECKPOINT DE ENCERRAMENTO ESPERADO
 
-Todos os valores precisam começar com:
+Ao finalizar, registrar:
 
-`synthetic-`
-
-### Assets
-
-`GET /api/store/integrations/whatsapp-cloud/assets?slug=<slug>`
-
-Criação:
-
-`POST /api/store/integrations/whatsapp-cloud/assets`
-
-`kind=template|flow|journey`
-
-### Fail-closed
-
-Testar:
-
-- POST sem `WHATSAPP_CLOUD_PREVIEW_ENABLED=true` -> deve falhar;
-- POST com `VERCEL_ENV=production` -> deve falhar por código;
-- credencial sem prefixo `synthetic-` -> deve falhar;
-- Gestor Loja A tentando agir sobre Loja B -> deve falhar/ficar fora do escopo;
-- jornada criada -> `execution_enabled=false`.
-
-## 18. CAMINHO FUTURO PARA META REAL — NÃO AUTORIZADO AINDA
-
-Somente depois da homologação sintética:
-
-1. validar documentação oficial Meta atual;
-2. desenhar webhook real com assinatura HMAC;
-3. desenhar onboarding/credencial por loja;
-4. testar em ambiente isolado com credencial de teste apropriada;
-5. desenhar normalização inbound/outbound CRM;
-6. provar não interferência no Evolution;
-7. provar idempotência;
-8. provar roteamento por store;
-9. provar fail-closed sem fallback;
-10. apresentar relatório;
-11. pedir autorização separada para qualquer passo com credencial/número real;
-12. pedir autorização separada para CRM Production;
-13. pedir autorização separada para PR/merge/deploy Production.
-
-## 19. PRODUÇÃO — REGRAS PARA O FUTURO
-
-NUNCA aplicar a migration em CRM Production apenas porque o Preview passou.
-
-Antes de Production:
-
-- atualizar a leitura da `main`;
-- verificar se a `main` avançou;
-- refazer comparação da branch;
-- reauditar migration consolidada;
-- revisar RLS/FKs/indexes/RPCs/grants/Vault;
-- revisar compatibilidade com `store_whatsapp_integrations` e `whatsapp_numbers` existentes;
-- revisar o token plaintext legado encontrado em Production sem lê-lo/exibi-lo;
-- validar backup/rollback;
-- pedir autorização explícita de migration CRM Production;
-- aplicar somente após autorização;
-- validar banco;
-- depois pedir autorização separada para PR/merge/Vercel Production.
-
-## 20. PROMPT DE RETOMADA PARA NOVO CHAT
-
-Usar este texto em um novo chat:
-
-> Retome a frente WhatsApp API por Loja V1 do projeto AUTO CONTROLE AUTOMOTIVO. Primeiro leia no GitHub `Soudigcar/auto-sede-automotivo`, branch `feature/whatsapp-api-store-v1-isolated`, o arquivo `docs/playbooks/WHATSAPP_API_STORE_V1_PLAYBOOK.md`. Depois revalide GitHub, Supabase e Vercel contra o checkpoint do arquivo e me informe qualquer diferença antes de alterar qualquer coisa. Continue em fail-closed e respeite exatamente as autorizações registradas no playbook.
-
-## 21. CHECKPOINT RESUMIDO
-
-CONCLUÍDO:
-
-- arquitetura paralela Cloud API por loja;
-- branch Git isolada;
-- branch Supabase temporária;
-- migration temporária homologada;
-- migration Git consolidada;
-- Vault;
-- RLS corrigida;
-- Templates;
-- Flows;
-- Jornadas OFF + SAFE CORE;
-- auditoria imutável;
-- idempotência;
-- UI paralela;
-- APIs sintéticas;
-- trava Vercel de deploy automático.
-
-VALIDADO:
-
-- isolamento Loja A/Loja B;
-- Master global;
-- Vault;
-- grants;
-- revogação;
-- fail-closed de secrets;
-- idempotência;
-- auditoria imutável;
-- nenhum Preview desta branch;
-- Production intocada.
-
-PENDENTE:
-
-- overrides Vercel Preview por branch;
-- remover trava somente após overrides;
-- gerar Preview;
-- smoke visual/API;
-- documentação Meta oficial;
-- webhook Meta real;
-- chamadas Meta reais;
-- homologação com credenciais reais (não autorizada);
-- qualquer Production (não autorizada);
-- PR/merge (não autorizados).
+- novo HEAD final da branch;
+- Preview final e estado READY;
+- dois GETs autenticados e respectivos 200;
+- isolamento tenant confirmado;
+- Vault sem exposição de segredo;
+- SAFE CORE intacto;
+- cleanup de Auth/perfil/sessão concluído;
+- token antigo revogado;
+- PR #210 ainda Draft e não mergeado;
+- CRM Production sem migrations Cloud V1;
+- branch temporária ainda existente ou removida somente mediante autorização separada;
+- nenhuma autorização implícita para Production.
