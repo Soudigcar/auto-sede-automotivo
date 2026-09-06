@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { authorizeStorePortal } from '@/lib/server/storePortal';
 import { autocarModelName, autocarOpenAiConfigured } from '@/lib/server/autocar/client';
@@ -12,7 +13,8 @@ import {
   ensureAutocarDevStore,
   getAutocarDevClient,
   setAutocarStoreSelectedMode,
-  type AutocarStoreMode
+  type AutocarStoreMode,
+  type AutocarStoreModeActorRole
 } from '@/lib/server/autocar/devAdmin';
 
 export const runtime = 'nodejs';
@@ -20,6 +22,10 @@ export const dynamic = 'force-dynamic';
 
 function validMode(value: unknown): value is AutocarStoreMode {
   return value === 'off' || value === 'copilot' || value === 'autopilot';
+}
+
+function auditedActorRole(value: unknown): AutocarStoreModeActorRole | null {
+  return value === 'master' || value === 'store' ? value : null;
 }
 
 async function agentForStore(context: any) {
@@ -127,12 +133,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Modo AUTOCAR inválido.' }, { status: 400 });
     }
 
+    const actorRole = auditedActorRole(context.role);
+    const actorProfileId = cleanText(context.profile?.id, 100);
+    if (!actorRole || !actorProfileId) {
+      return NextResponse.json(
+        { error: 'Identidade auditável obrigatória para alterar o modo da AUTOCAR.' },
+        { status: 403 }
+      );
+    }
+
+    const requestId = randomUUID();
     const autocar = getAutocarDevClient();
-    const agent = await setAutocarStoreSelectedMode(autocar, context.store, mode);
+    const agent = await setAutocarStoreSelectedMode(autocar, context.store, mode, {
+      actorProfileId,
+      actorRole,
+      source: 'store_portal',
+      requestId
+    });
     const runtimeStatus = await getAutocarRuntimePublicStatus();
 
     return NextResponse.json({
       ...payload(context, agent, runtimeStatus),
+      audit_request_id: requestId,
       message: `Modo ${String(agent.mode || 'off').toUpperCase()} salvo em ${runtimeStatus.runtime_environment}.`
     });
   } catch (error: any) {
