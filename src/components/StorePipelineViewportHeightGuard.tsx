@@ -30,14 +30,14 @@ export function StorePipelineViewportHeightGuard() {
           padding-bottom: 0 !important;
         }
 
-        body.pipeline-aura-active main.pipeline-aura-page > section.pipeline-aura-portal-shell {
+        body.pipeline-aura-active main.pipeline-aura-page > section.premium-shell {
           height: 100dvh !important;
           min-height: 0 !important;
           align-items: stretch !important;
           overflow: hidden !important;
         }
 
-        body.pipeline-aura-active .pipeline-aura-portal-canvas.pipeline-aura-canvas {
+        body.pipeline-aura-active main.pipeline-aura-page > section.premium-shell > .premium-canvas.pipeline-aura-canvas {
           height: 100dvh !important;
           min-height: 0 !important;
           overflow-x: clip !important;
