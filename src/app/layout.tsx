@@ -10,7 +10,6 @@ import { OlxSharedTextNormalizerBridge } from '@/components/OlxSharedTextNormali
 import { StorePipelineDomSync } from '@/components/StorePipelineDomSync';
 import { StorePipelineAuraTheme } from '@/components/StorePipelineAuraTheme';
 import { StorePipelineViewportHeightGuard } from '@/components/StorePipelineViewportHeightGuard';
-import { StorePipelineScrollDiagnostics } from '@/components/StorePipelineScrollDiagnostics';
 import { StoreAiIdentityBoundary } from '@/components/StoreAiIdentityBoundary';
 import { StorePipelineCockpitUx } from '@/components/StorePipelineCockpitUx';
 import { StorePipelineResponsibleTopbar } from '@/components/StorePipelineResponsibleTopbar';
@@ -78,7 +77,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StorePipelineDomSync />
         <StorePipelineAuraTheme />
         <StorePipelineViewportHeightGuard />
-        <StorePipelineScrollDiagnostics />
         <StoreAiIdentityBoundary />
         <StorePipelineCockpitUx />
         <StorePipelineResponsibleTopbar />
