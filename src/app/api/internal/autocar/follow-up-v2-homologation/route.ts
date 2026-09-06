@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { safeEqual } from '@/lib/server/requestSecurity';
+import { readRawBody, safeEqual } from '@/lib/server/requestSecurity';
 import { createAdminClient } from '@/lib/server/storeTeam';
 import { getAutocarRuntimeClient } from '@/lib/server/autocar/runtimeEnvironment';
 import { assertFollowUpV2Environment, createFollowUpV2DatabasePorts } from '@/lib/server/autocar/followUpV2Data';
@@ -10,21 +10,49 @@ export const runtime='nodejs';
 export const dynamic='force-dynamic';
 export const maxDuration=120;
 
-function authorized(request: Request) {
-  if (process.env.VERCEL_ENV!=='preview' || process.env.VERCEL_GIT_COMMIT_REF!=='fix/autocar-follow-up-v2-controlled'
-    || process.env.AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_ENABLED!=='true') return false;
+function available() {
+  return process.env.VERCEL_ENV==='preview' && process.env.VERCEL_GIT_COMMIT_REF==='fix/autocar-follow-up-v2-controlled'
+    && process.env.AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_ENABLED==='true';
+}
+
+export async function GET() {
+  if (!available()) return NextResponse.json({error:'Unavailable'},{status:403});
+  return new Response(`<!doctype html><html lang="pt-BR"><meta charset="utf-8"><title>Homologação AUTOCAR V2</title>
+    <h1>Homologação AUTOCAR V2 — DEV</h1><p>Dados sintéticos. Envio externo bloqueado.</p>
+    <form method="post" autocomplete="off">
+    <label>Autenticação temporária <input name="credential" type="password" required autocomplete="off"></label>
+    <label>Fase <select name="phase"><option value="isolation">Isolamento</option><option value="execute">Executar evento sintético</option></select></label>
+    <label>Evento sintético <input name="event_id" maxlength="36"></label>
+    <label>Geração <select name="generation_mode"><option value="model">Modelo</option><option value="invalid">Inválida (fail-closed)</option></select></label>
+    <button type="submit">Executar homologação</button></form></html>`,{headers:{
+      'Content-Type':'text/html; charset=utf-8','Cache-Control':'private, no-store',
+      'Content-Security-Policy':"default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+      'Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow'
+    }});
+}
+
+function authorized(credential: string) {
   const secret=process.env.AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SECRET || '';
-  return Boolean(secret && safeEqual((request.headers.get('authorization') || '').replace(/^Bearer\s+/i,''),secret));
+  return Boolean(secret && safeEqual(credential,secret));
 }
 
 export async function POST(request: Request) {
-  if (!authorized(request)) return NextResponse.json({error:'Unavailable'},{status:403});
+  if (!available()) return NextResponse.json({error:'Unavailable'},{status:403});
   try {
+    let body: Record<string, unknown>;
+    if ((request.headers.get('content-type') || '').startsWith('application/x-www-form-urlencoded')) {
+      if (request.headers.get('origin')!==new URL(request.url).origin) return NextResponse.json({error:'Unavailable'},{status:403});
+      const form=new URLSearchParams(await readRawBody(request,8192));
+      if (!authorized(form.get('credential') || '')) return NextResponse.json({error:'Unavailable'},{status:403});
+      body={phase:form.get('phase'),event_id:form.get('event_id'),generation_mode:form.get('generation_mode')};
+    } else {
+      if (!authorized((request.headers.get('authorization') || '').replace(/^Bearer\s+/i,''))) return NextResponse.json({error:'Unavailable'},{status:403});
+      body=JSON.parse(await readRawBody(request,8192));
+    }
     const environment=assertFollowUpV2Environment(true);
     const crm=createAdminClient(); const autocar=getAutocarRuntimeClient();
     // Also proves the actual client destinations, not just the environment variable names.
     createFollowUpV2DatabasePorts({crm,autocar,dryRun:true});
-    const body=await request.json();
     if (body.phase==='isolation') {
       const [a,b]=await Promise.all([crm.from('stores').select('id',{head:true,count:'exact'}),autocar.from('ai_follow_up_autopilot_executions').select('id',{head:true,count:'exact'})]);
       if (a.error || b.error) throw new Error('isolation_query_failed');
