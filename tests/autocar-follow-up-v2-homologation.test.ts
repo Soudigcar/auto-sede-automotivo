@@ -58,7 +58,7 @@ function route(overrides:Record<string,string>={},options:RouteOptions={}) {
     console:{warn:(value:string)=>{if(options.loggerThrows) throw Error('logger unavailable');diagnostics.push(value);}},
     process:{env:{VERCEL_ENV:'preview',
     VERCEL_GIT_COMMIT_REF:'fix/autocar-follow-up-v2-controlled',AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_ENABLED:'true',
-    AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SECRET:'synthetic-test-only',AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SESSION_SECRET:'',...overrides}},require:(name:string)=>{
+    AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SECRET:'synthetic-test-only',...overrides}},require:(name:string)=>{
       assert.ok(Object.hasOwn(dependencies,name),`Unexpected dependency ${name}`);return dependencies[name];
     }});
   return {api:exports,reads:()=>reads,diagnostics};
@@ -74,8 +74,8 @@ for(const overrides of [{VERCEL_ENV:'production'},{VERCEL_GIT_COMMIT_REF:'main'}
   });
 }
 test('formulário não expõe segredo, desabilita cache, scripts e frames',async()=>{
-  const r=route({AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SESSION_SECRET:'PRIVATE-SESSION-SECRET'});const response=await r.api.GET();const html=await response.text();
-  assert.equal(response.status,200);assert.ok(!html.includes('synthetic-test-only'));assert.ok(!html.includes('PRIVATE-SESSION-SECRET'));
+  const r=route();const response=await r.api.GET();const html=await response.text();
+  assert.equal(response.status,200);assert.ok(!html.includes('synthetic-test-only'));
   assert.match(html,/method="post"/);assert.match(html,/type="password"/);
   assert.match(response.headers.get('cache-control')||'',/no-store/);
   assert.match(response.headers.get('content-security-policy')||'',/default-src 'none'/);assert.equal(r.reads(),0);
@@ -89,13 +89,6 @@ test('formulário autenticado executa somente prova de isolamento sanitizada',as
   assert.equal(response.status,200);assert.equal(result.isolated,true);assert.equal(result.external_execution,false);
   assert.equal(r.reads(),2);assert.ok(!JSON.stringify(result).includes('synthetic-test-only'));
   assert.deepEqual(r.diagnostics,[]);
-});
-
-test('session secret temporário autentica sem substituir o segredo principal',async()=>{
-  const r=route({AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SESSION_SECRET:'synthetic-session-test-only'});
-  const response=await r.api.POST(form('synthetic-session-test-only'));const result=await response.json();
-  assert.equal(response.status,200);assert.equal(result.isolated,true);assert.equal(result.external_execution,false);
-  assert.equal(r.reads(),2);assert.deepEqual(r.diagnostics,[]);
 });
 
 function expectDiagnostic(values:string[],reason:string,status:number,method='POST') {
@@ -127,7 +120,7 @@ for(const source of [undefined,'https://foreign.invalid/private-origin']) test(`
 });
 
 for(const transport of ['form','bearer']) for(const missingSecret of [false,true]) test(`credential diagnostic preserves rejection: ${transport}, missingSecret=${missingSecret}`,async()=>{
-  const r=route(missingSecret?{AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SECRET:'',AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SESSION_SECRET:''}:{});
+  const r=route(missingSecret?{AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SECRET:''}:{});
   const request=transport==='form'?form('PRIVATE-CREDENTIAL'):new Request(`${origin}/api/internal/autocar/follow-up-v2-homologation`,{
     method:'POST',headers:{authorization:'Bearer PRIVATE-CREDENTIAL','content-type':'application/json'},body:'{"phase":"isolation","customer":"PRIVATE-CUSTOMER"}'
   });
@@ -137,9 +130,9 @@ for(const transport of ['form','bearer']) for(const missingSecret of [false,true
   assert.equal(r.reads(),0);
 });
 
-function jsonRequest(body:string,credential='synthetic-test-only') {
+function jsonRequest(body:string) {
   return new Request(`${origin}/api/internal/autocar/follow-up-v2-homologation`,{method:'POST',
-    headers:{authorization:`Bearer ${credential}`,'content-type':'application/json'},body});
+    headers:{authorization:'Bearer synthetic-test-only','content-type':'application/json'},body});
 }
 
 function syntheticRow(marker='AUTOCAR HOMOLOGACAO V2 TEST') {
@@ -154,13 +147,6 @@ function syntheticRow(marker='AUTOCAR HOMOLOGACAO V2 TEST') {
 
 test('valid bearer isolation has no rejection diagnostic',async()=>{
   const r=route();const response=await r.api.POST(jsonRequest('{"phase":"isolation"}'));
-  assert.equal(response.status,200);assert.equal((await response.json()).external_execution,false);
-  assert.equal(r.reads(),2);assert.deepEqual(r.diagnostics,[]);
-});
-
-test('session secret temporário funciona também no bearer JSON',async()=>{
-  const r=route({AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SESSION_SECRET:'synthetic-session-test-only'});
-  const response=await r.api.POST(jsonRequest('{"phase":"isolation"}','synthetic-session-test-only'));
   assert.equal(response.status,200);assert.equal((await response.json()).external_execution,false);
   assert.equal(r.reads(),2);assert.deepEqual(r.diagnostics,[]);
 });

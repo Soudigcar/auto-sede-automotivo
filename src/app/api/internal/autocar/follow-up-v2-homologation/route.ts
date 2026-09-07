@@ -18,92 +18,12 @@ function available() {
 type BlockReason = 'environment_not_preview' | 'branch_not_allowed' | 'homologation_disabled'
   | 'origin_missing' | 'origin_mismatch' | 'secret_not_configured' | 'credential_rejected'
   | 'invalid_request' | 'synthetic_scope_required' | 'synthetic_configuration_required' | 'request_failed_closed';
-type OpenAiDiagnosticStage = 'embedding' | 'responses';
 
 function recordBlock(method: 'GET' | 'POST', reason: BlockReason, status: 400 | 403 | 500) {
   // Fixed diagnostic codes only: never log headers, URLs, body, credentials or exceptions.
   try {
     console.warn(JSON.stringify({event:'autocar_follow_up_v2_homologation_blocked',method,reason,status}));
   } catch { /* Observability must not change authentication or the HTTP response. */ }
-}
-
-function safeDiagnosticToken(value: unknown, fallback: string) {
-  const token=String(value || '').trim();
-  return /^[A-Za-z0-9_.:-]{1,80}$/.test(token) ? token : fallback;
-}
-
-function recordOpenAiDiagnostic(input: {
-  stage: OpenAiDiagnosticStage;
-  status: number | null;
-  code: unknown;
-  type: unknown;
-  model: unknown;
-}) {
-  try {
-    console.warn(JSON.stringify({
-      event:'autocar_follow_up_v2_homologation_openai_diagnostic',
-      stage:input.stage,
-      status:input.status,
-      code:safeDiagnosticToken(input.code,'unknown'),
-      type:safeDiagnosticToken(input.type,'unknown'),
-      model:safeDiagnosticToken(input.model,'unknown')
-    }));
-  } catch { /* Diagnostics must never change the homologation result. */ }
-}
-
-async function probeOpenAiStage(input: {
-  stage: OpenAiDiagnosticStage;
-  endpoint: string;
-  model: string;
-  body: Record<string, unknown>;
-}) {
-  const key=String(process.env.OPENAI_API_KEY || '').trim();
-  if (!key) {
-    recordOpenAiDiagnostic({stage:input.stage,status:null,code:'missing_api_key',type:'configuration_error',model:input.model});
-    return;
-  }
-  try {
-    const response=await fetch(input.endpoint,{
-      method:'POST',
-      headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},
-      body:JSON.stringify(input.body),
-      cache:'no-store'
-    });
-    const payload:any=await response.json().catch(()=>({}));
-    recordOpenAiDiagnostic({
-      stage:input.stage,
-      status:response.status,
-      code:response.ok ? 'ok' : payload?.error?.code,
-      type:response.ok ? 'ok' : payload?.error?.type,
-      model:input.model
-    });
-  } catch (error) {
-    recordOpenAiDiagnostic({
-      stage:input.stage,
-      status:null,
-      code:'transport_error',
-      type:error instanceof Error ? error.name : 'transport_error',
-      model:input.model
-    });
-  }
-}
-
-async function runOpenAiHomologationDiagnostics() {
-  const embeddingModel='text-embedding-3-small';
-  const responseModel=String(process.env.OPENAI_AUTOCAR_TERRA_MODEL || process.env.OPENAI_AUTOCAR_MODEL
-    || process.env.OPENAI_MODEL || 'gpt-5.6-terra').trim();
-  await probeOpenAiStage({
-    stage:'embedding',
-    endpoint:'https://api.openai.com/v1/embeddings',
-    model:embeddingModel,
-    body:{model:embeddingModel,input:'AUTOCAR HOMOLOGATION V2 SYNTHETIC DIAGNOSTIC',dimensions:1536}
-  });
-  await probeOpenAiStage({
-    stage:'responses',
-    endpoint:'https://api.openai.com/v1/responses',
-    model:responseModel,
-    body:{model:responseModel,store:false,max_output_tokens:128,instructions:'Synthetic diagnostic only.',input:'Return only OK.'}
-  });
 }
 
 function unavailable(method: 'GET' | 'POST') {
@@ -113,15 +33,8 @@ function unavailable(method: 'GET' | 'POST') {
   return NextResponse.json({error:'Unavailable'},{status:403});
 }
 
-function configuredSecrets() {
-  return [
-    process.env.AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SECRET || '',
-    process.env.AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SESSION_SECRET || ''
-  ].filter(Boolean);
-}
-
 function rejectedCredential() {
-  recordBlock('POST',configuredSecrets().length ? 'credential_rejected' : 'secret_not_configured',403);
+  recordBlock('POST',process.env.AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SECRET ? 'credential_rejected' : 'secret_not_configured',403);
   return NextResponse.json({error:'Unavailable'},{status:403});
 }
 
@@ -166,8 +79,8 @@ export async function GET() {
 }
 
 function authorized(credential: string) {
-  if (!credential) return false;
-  return configuredSecrets().some(secret=>safeEqual(credential,secret));
+  const secret=process.env.AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SECRET || '';
+  return Boolean(secret && safeEqual(credential,secret));
 }
 
 export async function POST(request: Request) {
@@ -210,7 +123,6 @@ export async function POST(request: Request) {
       recordBlock('POST','synthetic_configuration_required',400);
       return NextResponse.json({error:'Synthetic configuration required'},{status:400});
     }
-    if (body.generation_mode==='model') await runOpenAiHomologationDiagnostics();
     const event:FollowUpV2Event={id:row.id,storeId:row.store_id,conversationId:row.production_conversation_id,leadId:row.production_lead_id,
       scenario:row.scenario_key,stepId:row.step_id,sourceId:row.source_id,sequenceKey:row.sequence_key,dueAt:row.due_at,
       anchorAt:row.anchor_at,inboundAt:row.trigger_last_customer_message_at,idempotencyKey:row.idempotency_key,dryRun:true};
