@@ -33,8 +33,15 @@ function unavailable(method: 'GET' | 'POST') {
   return NextResponse.json({error:'Unavailable'},{status:403});
 }
 
+function configuredSecrets() {
+  return [
+    process.env.AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SECRET || '',
+    process.env.AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SESSION_SECRET || ''
+  ].filter(Boolean);
+}
+
 function rejectedCredential() {
-  recordBlock('POST',process.env.AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SECRET ? 'credential_rejected' : 'secret_not_configured',403);
+  recordBlock('POST',configuredSecrets().length ? 'credential_rejected' : 'secret_not_configured',403);
   return NextResponse.json({error:'Unavailable'},{status:403});
 }
 
@@ -79,8 +86,8 @@ export async function GET() {
 }
 
 function authorized(credential: string) {
-  const secret=process.env.AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SECRET || '';
-  return Boolean(secret && safeEqual(credential,secret));
+  if (!credential) return false;
+  return configuredSecrets().some(secret=>safeEqual(credential,secret));
 }
 
 export async function POST(request: Request) {
