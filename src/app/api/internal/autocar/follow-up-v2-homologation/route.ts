@@ -3,7 +3,7 @@ import { readRawBody, safeEqual } from '@/lib/server/requestSecurity';
 import { createAdminClient } from '@/lib/server/storeTeam';
 import { getAutocarRuntimeClient } from '@/lib/server/autocar/runtimeEnvironment';
 import { assertFollowUpV2Environment, createFollowUpV2DatabasePorts } from '@/lib/server/autocar/followUpV2Data';
-import { executeFollowUpV2, type FollowUpV2Event } from '@/lib/server/autocar/followUpV2Execution';
+import { executeFollowUpV2, type FollowUpV2Event, type FollowUpV2Ports } from '@/lib/server/autocar/followUpV2Execution';
 import { validateFollowUpConfigV2 } from '@/lib/server/autocar/smartFollowUpV2';
 
 export const runtime='nodejs';
@@ -36,6 +36,30 @@ function unavailable(method: 'GET' | 'POST') {
 function rejectedCredential() {
   recordBlock('POST',process.env.AUTOCAR_FOLLOW_UP_V2_HOMOLOGATION_SECRET ? 'credential_rejected' : 'secret_not_configured',403);
   return NextResponse.json({error:'Unavailable'},{status:403});
+}
+
+function withSyntheticHomologationGates(base: FollowUpV2Ports): FollowUpV2Ports {
+  return {
+    ...base,
+    // This wrapper is reachable only after Preview/DEV isolation, the execution metadata marker,
+    // a valid synthetic config and the adapter's synthetic store-name marker have all passed.
+    async snapshot(event) {
+      const state=await base.snapshot(event);
+      return {
+        ...state,
+        masterEnabled:true,
+        masterAutopilotAllowed:true,
+        agentActive:true,
+        storeSelectedMode:'autopilot',
+        effectiveMode:'autopilot',
+        humanState:'autocar_active',
+        globalPolicy:'allow',
+        storePolicy:'allow'
+      };
+    },
+    // Homologation never gains a transport function, even if a future adapter changes shape.
+    send:undefined
+  };
 }
 
 export async function GET() {
@@ -102,7 +126,8 @@ export async function POST(request: Request) {
     const event:FollowUpV2Event={id:row.id,storeId:row.store_id,conversationId:row.production_conversation_id,leadId:row.production_lead_id,
       scenario:row.scenario_key,stepId:row.step_id,sourceId:row.source_id,sequenceKey:row.sequence_key,dueAt:row.due_at,
       anchorAt:row.anchor_at,inboundAt:row.trigger_last_customer_message_at,idempotencyKey:row.idempotency_key,dryRun:true};
-    const ports=createFollowUpV2DatabasePorts({crm,autocar,dryRun:true,syntheticConfig:config});
+    const basePorts=createFollowUpV2DatabasePorts({crm,autocar,dryRun:true,syntheticConfig:config});
+    const ports=withSyntheticHomologationGates(basePorts);
     if (body.generation_mode==='invalid') ports.generate=async()=>({text:'',model:'',valid:false});
     const result=await executeFollowUpV2(event,ports,environment);
     return NextResponse.json({event_id:row.id,dry_run:true,...result});
