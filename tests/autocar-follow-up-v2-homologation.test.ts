@@ -5,7 +5,15 @@ import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { readRawBody, safeEqual } from '../src/lib/server/requestSecurity';
 
-function route(overrides:Record<string,string>={},options:{row?:unknown;databaseError?:boolean;loggerThrows?:boolean}={}) {
+type RouteOptions = {
+  row?: any;
+  databaseError?: boolean;
+  loggerThrows?: boolean;
+  validConfig?: boolean;
+  baseSnapshot?: Record<string, unknown>;
+};
+
+function route(overrides:Record<string,string>={},options:RouteOptions={}) {
   let reads=0;
   const diagnostics:string[]=[];
   const exports:any={};
@@ -15,6 +23,12 @@ function route(overrides:Record<string,string>={},options:{row?:unknown;database
     then:(resolve:(value:unknown)=>unknown)=>resolve({error:options.databaseError ? {message:'PRIVATE-DATABASE-DETAIL'} : null})
   };
   const db={from:()=>{reads++;return query;}};
+  const basePorts:any={
+    now:()=>new Date('2026-09-07T12:00:00Z'),
+    snapshot:async()=>options.baseSnapshot || {},
+    claim:async()=>({}),settle:async()=>true,audit:async()=>{},
+    generate:async()=>({text:'Synthetic model output',model:'synthetic-model',valid:true}),arm:async()=>false
+  };
   const dependencies:Record<string,any>={
     'next/server':{NextResponse:{json:(body:unknown,options?:ResponseInit)=>Response.json(body,options)}},
     '@/lib/server/requestSecurity':{readRawBody,safeEqual},
@@ -22,9 +36,21 @@ function route(overrides:Record<string,string>={},options:{row?:unknown;database
     '@/lib/server/autocar/runtimeEnvironment':{getAutocarRuntimeClient:()=>db},
     '@/lib/server/autocar/followUpV2Data':{
       assertFollowUpV2Environment:()=>({crmRef:'azszzdotbrczlhrmhrlw',autocarRef:'azszzdotbrczlhrmhrlw'}),
-      createFollowUpV2DatabasePorts:()=>({})
+      createFollowUpV2DatabasePorts:()=>basePorts
     },
-    '@/lib/server/autocar/followUpV2Execution':{},'@/lib/server/autocar/smartFollowUpV2':{validateFollowUpConfigV2:()=>({ok:false})}
+    '@/lib/server/autocar/followUpV2Execution':{
+      executeFollowUpV2:async(event:any,ports:any)=>{
+        const snapshot=await ports.snapshot(event);
+        const generated=await ports.generate(snapshot,event);
+        const valid=Boolean(generated?.valid && String(generated?.model || '').trim() && String(generated?.text || '').trim());
+        return {
+          decision:valid?'dry_run_ready':'blocked',reason:valid?'all_gates_allow':'generation_invalid',
+          proposed_text:valid?generated.text:null,model:valid?generated.model:undefined,external_execution:false,
+          generation_fail_closed:valid?undefined:true,gates:snapshot,transport_available:typeof ports.send==='function'
+        };
+      }
+    },
+    '@/lib/server/autocar/smartFollowUpV2':{validateFollowUpConfigV2:()=>({ok:options.validConfig===true})}
   };
   const source=ts.transpileModule(readFileSync('src/app/api/internal/autocar/follow-up-v2-homologation/route.ts','utf8'),
     {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
@@ -109,6 +135,16 @@ function jsonRequest(body:string) {
     headers:{authorization:'Bearer synthetic-test-only','content-type':'application/json'},body});
 }
 
+function syntheticRow(marker='AUTOCAR HOMOLOGACAO V2 TEST') {
+  return {
+    id:'00000000-0000-4000-8000-000000000001',store_id:'00000000-0000-4000-8000-000000000002',
+    production_conversation_id:'00000000-0000-4000-8000-000000000003',production_lead_id:'00000000-0000-4000-8000-000000000004',
+    scenario_key:'silent_lead',step_id:'silent-30m',source_id:'00000000-0000-4000-8000-000000000005',sequence_key:'synthetic-sequence',
+    due_at:'2026-09-07T11:00:00.000Z',anchor_at:'2026-09-07T10:30:00.000Z',trigger_last_customer_message_at:'2026-09-07T10:00:00.000Z',
+    idempotency_key:'synthetic-idempotency',metadata:{homologation:marker,homologation_config:{version:2}}
+  };
+}
+
 test('valid bearer isolation has no rejection diagnostic',async()=>{
   const r=route();const response=await r.api.POST(jsonRequest('{"phase":"isolation"}'));
   assert.equal(response.status,200);assert.equal((await response.json()).external_execution,false);
@@ -127,6 +163,32 @@ for(const configuration of [false,true]) test(`synthetic event rejection is sani
   assert.equal(response.status,configuration?400:403);
   assert.deepEqual(await response.json(),{error:configuration?'Synthetic configuration required':'Synthetic scope required'});
   expectDiagnostic(r.diagnostics,configuration?'synthetic_configuration_required':'synthetic_scope_required',configuration?400:403);
+});
+
+test('non-marked execution cannot reach synthetic gate overrides',async()=>{
+  const r=route({}, {row:syntheticRow('REAL DATA'),validConfig:true});
+  const response=await r.api.POST(jsonRequest('{"phase":"execute","event_id":"00000000-0000-4000-8000-000000000001","generation_mode":"model"}'));
+  assert.equal(response.status,403);assert.deepEqual(await response.json(),{error:'Synthetic scope required'});
+  expectDiagnostic(r.diagnostics,'synthetic_scope_required',403);
+});
+
+for(const generationMode of ['model','invalid'] as const) test(`synthetic execute applies fixed Preview-only gates with no transport: ${generationMode}`,async()=>{
+  const r=route({}, {row:syntheticRow(),validConfig:true,baseSnapshot:{
+    masterEnabled:false,masterAutopilotAllowed:false,agentActive:false,storeSelectedMode:'off',effectiveMode:'off',humanState:'human_active',
+    globalPolicy:'deny',storePolicy:'deny',safeCore:true,conversationOpen:true,leadEligible:true,saleConfirmed:false,optedOut:false,
+    config:{global:{enabled:true,mode:'autopilot'}},latestInboundAt:'2026-09-07T10:00:00.000Z',sourceValid:true,sourceAnchorAt:'2026-09-07T10:30:00.000Z',context:{}
+  }});
+  const response=await r.api.POST(jsonRequest(JSON.stringify({phase:'execute',event_id:'00000000-0000-4000-8000-000000000001',generation_mode:generationMode})));
+  const result=await response.json();
+  assert.equal(response.status,200);assert.equal(result.external_execution,false);assert.equal(result.transport_available,false);
+  assert.equal(result.gates.masterEnabled,true);assert.equal(result.gates.masterAutopilotAllowed,true);assert.equal(result.gates.agentActive,true);
+  assert.equal(result.gates.storeSelectedMode,'autopilot');assert.equal(result.gates.effectiveMode,'autopilot');assert.equal(result.gates.humanState,'autocar_active');
+  assert.equal(result.gates.globalPolicy,'allow');assert.equal(result.gates.storePolicy,'allow');
+  if(generationMode==='model') {
+    assert.equal(result.decision,'dry_run_ready');assert.equal(result.reason,'all_gates_allow');assert.equal(result.generation_fail_closed,undefined);
+  } else {
+    assert.equal(result.decision,'blocked');assert.equal(result.reason,'generation_invalid');assert.equal(result.generation_fail_closed,true);
+  }
 });
 
 for(const failure of ['invalid_json','oversized_form','database']) test(`fail-closed diagnostic does not expose the underlying failure: ${failure}`,async()=>{
