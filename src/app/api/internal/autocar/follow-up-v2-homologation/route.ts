@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { readRawBody, safeEqual } from '@/lib/server/requestSecurity';
 import { createAdminClient } from '@/lib/server/storeTeam';
-import { resolveAutocarModel } from '@/lib/server/autocar/client';
 import { getAutocarRuntimeClient } from '@/lib/server/autocar/runtimeEnvironment';
 import { assertFollowUpV2Environment, createFollowUpV2DatabasePorts } from '@/lib/server/autocar/followUpV2Data';
 import { executeFollowUpV2, type FollowUpV2Event, type FollowUpV2Ports } from '@/lib/server/autocar/followUpV2Execution';
@@ -91,7 +90,8 @@ async function probeOpenAiStage(input: {
 
 async function runOpenAiHomologationDiagnostics() {
   const embeddingModel='text-embedding-3-small';
-  const responseModel=resolveAutocarModel({task:'commercial_reply'}).model;
+  const responseModel=String(process.env.OPENAI_AUTOCAR_TERRA_MODEL || process.env.OPENAI_AUTOCAR_MODEL
+    || process.env.OPENAI_MODEL || 'gpt-5.6-terra').trim();
   await probeOpenAiStage({
     stage:'embedding',
     endpoint:'https://api.openai.com/v1/embeddings',
