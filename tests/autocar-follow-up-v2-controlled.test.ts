@@ -102,18 +102,20 @@ test('opt-out recente não é descartado num histórico descendente longo',()=>{
   assert.equal(hasFollowUpOptOut([{direction:'inbound',body:'STOP'},...Array.from({length:30},()=>({direction:'inbound',body:'Quero um carro'}))]),true);
   assert.equal(hasFollowUpOptOut([{direction:'inbound',body:'Nao quero receber mensagens'}]),true);
 });
-test('cenários operacionais usam offsets oficiais, callback usa horário pedido',()=>{
+test('cenários operacionais usam status e scheduled_at oficiais, callback usa horário pedido',()=>{
   const f=fixture();const facts:FollowUpV2Facts={storeId:'synthetic',conversationId:'c',leadId:'l',leadStatus:'scheduled',
     inboundAt:'2026-09-06T12:00:00Z',outboundAt:'2026-09-06T13:00:00Z',outboundId:'m',scheduledAt:'2026-09-07T18:00:00Z',vehicleInterest:false,financingPending:false,
-    appointments:[{id:'a',at:'2026-09-07T18:00:00Z',status:'scheduled'}],callbacks:[]};
+    appointments:[],callbacks:[]};
   let planned=planFollowUpV2Sources(facts,f.state.config,true);
-  assert.equal(planned.find(e=>e.scenario==='visit_confirmation')?.dueAt,'2026-09-06T18:00:00.000Z');
-  assert.equal(planned.find(e=>e.scenario==='no_show')?.dueAt,'2026-09-07T18:30:00.000Z');
+  assert.deepEqual(planned.map(e=>e.scenario),['visit_confirmation']);
+  assert.equal(planned[0]?.dueAt,'2026-09-06T18:00:00.000Z');
+  facts.leadStatus='no_show';planned=planFollowUpV2Sources(facts,f.state.config,true);
+  assert.deepEqual(planned.map(e=>e.scenario),['no_show']);assert.equal(planned[0].dueAt,'2026-09-07T18:30:00.000Z');
   facts.leadStatus='showed_up';planned=planFollowUpV2Sources(facts,f.state.config,true);
   assert.deepEqual(planned.map(e=>e.scenario),['post_visit']);assert.equal(planned[0].dueAt,'2026-09-07T20:00:00.000Z');
-  facts.appointments=[];facts.callbacks=[{id:'cb',at:'2026-09-07T14:17:00Z',explicitlyRequested:true,active:true}];
+  facts.scheduledAt=null;facts.leadStatus='in_service';facts.callbacks=[{id:'cb',at:'2026-09-07T14:17:00Z',explicitlyRequested:true,active:true}];
   planned=planFollowUpV2Sources(facts,f.state.config,true);assert.equal(planned[0].scenario,'callback_requested');assert.equal(planned[0].dueAt,'2026-09-07T14:17:00.000Z');
-  facts.callbacks[0].explicitlyRequested=false;assert.deepEqual(planFollowUpV2Sources(facts,f.state.config,true),[]);
+  facts.callbacks[0].explicitlyRequested=false;assert.equal(planFollowUpV2Sources(facts,f.state.config,true).some(e=>e.scenario==='callback_requested'),false);
 });
 
 test('bloqueio anterior à geração registra gates sanitizados',async()=>{
