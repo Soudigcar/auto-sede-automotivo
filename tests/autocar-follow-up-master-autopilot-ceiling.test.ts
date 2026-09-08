@@ -54,18 +54,20 @@ describe('Smart Follow-up Master AUTOPILOT ceiling', () => {
     assert.doesNotMatch(cron, /runA4FollowUpAutopilot\(/);
   });
 
-  it('revalida o teto Master imediatamente antes do claim LIVE e antes da Evolution', () => {
-    const executor = fs.readFileSync(path.join(root, 'src/lib/server/autocar/followUpV2Autopilot.ts'), 'utf8');
-    assert.match(executor, /readMasterAutopilotCeiling/);
-    assert.match(executor, /stage: 'before_live_claim'/);
-    assert.match(executor, /stage: 'before_evolution_send'/);
-    assert.match(executor, /blocked_by: 'master_autopilot_ceiling'/);
-    const beforeClaim = executor.indexOf("stage: 'before_live_claim'");
-    const liveClaim = executor.indexOf('const liveClaim = await createLiveTextSendClaim(');
-    const beforeEvolution = executor.indexOf("stage: 'before_evolution_send'");
-    const evolutionSend = executor.indexOf('const evolutionResult = await sendEvolutionText(');
-    assert.ok(beforeClaim >= 0 && liveClaim > beforeClaim);
-    assert.ok(beforeEvolution >= 0 && evolutionSend > beforeEvolution);
+  it('revalida teto Master, human state e policies no arm transacional antes da Evolution', () => {
+    const adapter = fs.readFileSync(path.join(root, 'src/lib/server/autocar/followUpV2Data.ts'), 'utf8');
+    const guards = fs.readFileSync(path.join(root, 'supabase/migrations/20260906154137_autocar_follow_up_v2_pre_dispatch_guards.sql'), 'utf8');
+    assert.match(adapter, /evaluateAutocarExternalExecutionGate/);
+    assert.match(adapter, /arm_autocar_follow_up_v2/);
+    assert.match(guards, /master_enabled/);
+    assert.match(guards, /master_autopilot_allowed/);
+    assert.match(guards, /store_selected_mode='autopilot'/);
+    assert.match(guards, /human_state='autocar_active'/);
+    assert.match(guards, /ai_global_capability_policies/);
+    assert.match(guards, /ai_store_policies/);
+    const arm = adapter.indexOf("input.autocar.rpc('arm_autocar_follow_up_v2'");
+    const evolutionSend = adapter.indexOf('const result = await sendEvolutionText(');
+    assert.ok(arm >= 0 && evolutionSend > arm);
   });
 
   it('não adiciona migration para o teto Master', () => {
