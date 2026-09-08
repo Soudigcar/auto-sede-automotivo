@@ -9,6 +9,7 @@ export type FollowUpReopeningSource = {
   messages: Array<{ direction: string; message_type: string; body: string; sent_at?: string | null }>;
   inventorySupabase?: any;
   scenarioKey: string;
+  operationalContext?: Record<string, unknown>;
 };
 
 export type FollowUpReopeningPlan = {
@@ -118,6 +119,7 @@ export async function generateContextualFollowUpReopening(source: FollowUpReopen
     ].join(' '),
     input: {
       scenario: source.scenarioKey,
+      operational_context: source.operationalContext || {},
       store: { name: source.store.store_name, city: source.store.city || null, state: source.store.state || null },
       crm: {
         customer_name: source.lead?.customer_name || source.baseLead?.name || null,

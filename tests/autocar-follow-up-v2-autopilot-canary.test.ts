@@ -84,18 +84,26 @@ describe('Smart Follow-up V2 AUTOPILOT canary', () => {
     assert.match(source, /master\.global\.mode !== 'autopilot'/);
   });
 
-  it('executor exige SAFE CORE, capability, revalidação e claim LIVE antes da Evolution', () => {
-    const source = fs.readFileSync(path.join(process.cwd(), 'src/lib/server/autocar/followUpV2Autopilot.ts'), 'utf8');
-    assert.match(source, /evaluateAutocarExternalExecutionGate/);
-    assert.match(source, /create_follow_up/);
-    assert.match(source, /immediateRevalidation/);
-    assert.match(source, /hasFollowUpOptOut/);
-    assert.match(source, /looksLikeNonLeadAutomation/);
-    assert.match(source, /createLiveTextSendClaim/);
-    assert.match(source, /purpose: 'live_text_send'/);
-    assert.match(source, /sendEvolutionText/);
-    assert.match(source, /FOLLOW_UP_AUTOPILOT_MAX_SENDS_PER_RUN = 3/);
-    assert.doesNotMatch(source, /\/api\/whatsapp\/messages\/send|markAutocarHumanActive|sendWhatsApp/i);
+  it('executor modular exige SAFE CORE, policies, opt-out e claim LIVE antes da Evolution', () => {
+    const data = fs.readFileSync(path.join(process.cwd(), 'src/lib/server/autocar/followUpV2Data.ts'), 'utf8');
+    const execution = fs.readFileSync(path.join(process.cwd(), 'src/lib/server/autocar/followUpV2Execution.ts'), 'utf8');
+    const atomicClaim = fs.readFileSync(path.join(process.cwd(), 'supabase/migrations/20260906155534_autocar_follow_up_v2_atomic_runtime_claim.sql'), 'utf8');
+    const wrapper = fs.readFileSync(path.join(process.cwd(), 'src/lib/server/autocar/followUpV2Autopilot.ts'), 'utf8');
+    assert.match(data, /evaluateAutocarExternalExecutionGate/);
+    assert.match(data, /create_follow_up/);
+    assert.match(data, /hasFollowUpOptOut/);
+    assert.match(data, /looksLikeNonLeadAutomation/);
+    assert.match(data, /arm_autocar_follow_up_v2/);
+    assert.match(data, /sendEvolutionText/);
+    assert.match(execution, /humanState !== 'autocar_active'/);
+    assert.match(execution, /globalPolicy !== 'allow'/);
+    assert.match(atomicClaim, /ai_runtime_message_claims/);
+    assert.match(atomicClaim, /'live_text_send'/);
+    assert.match(wrapper, /FOLLOW_UP_AUTOPILOT_MAX_SENDS_PER_RUN = 3/);
+    const arm = data.indexOf("input.autocar.rpc('arm_autocar_follow_up_v2'");
+    const evolutionSend = data.indexOf('const result = await sendEvolutionText(');
+    assert.ok(arm >= 0 && evolutionSend > arm);
+    assert.doesNotMatch(data, /\/api\/whatsapp\/messages\/send|markAutocarHumanActive|sendWhatsApp/i);
   });
 
   it('cron é protegido, Production-only e varre somente o executor A4 governado', () => {
