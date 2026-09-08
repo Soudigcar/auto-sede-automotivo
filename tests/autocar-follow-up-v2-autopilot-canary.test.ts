@@ -84,7 +84,19 @@ describe('Smart Follow-up V2 AUTOPILOT canary', () => {
     assert.match(source, /master\.global\.mode !== 'autopilot'/);
   });
 
-  // Execution order and late gate changes are exercised behaviorally in autocar-follow-up-v2-controlled.test.ts.
+  it('executor exige SAFE CORE, capability, revalidação e claim LIVE antes da Evolution', () => {
+    const source = fs.readFileSync(path.join(process.cwd(), 'src/lib/server/autocar/followUpV2Autopilot.ts'), 'utf8');
+    assert.match(source, /evaluateAutocarExternalExecutionGate/);
+    assert.match(source, /create_follow_up/);
+    assert.match(source, /immediateRevalidation/);
+    assert.match(source, /hasFollowUpOptOut/);
+    assert.match(source, /looksLikeNonLeadAutomation/);
+    assert.match(source, /createLiveTextSendClaim/);
+    assert.match(source, /purpose: 'live_text_send'/);
+    assert.match(source, /sendEvolutionText/);
+    assert.match(source, /FOLLOW_UP_AUTOPILOT_MAX_SENDS_PER_RUN = 3/);
+    assert.doesNotMatch(source, /\/api\/whatsapp\/messages\/send|markAutocarHumanActive|sendWhatsApp/i);
+  });
 
   it('cron é protegido, Production-only e varre somente o executor A4 governado', () => {
     const route = fs.readFileSync(path.join(process.cwd(), 'src/app/api/cron/autocar-follow-up-v2/route.ts'), 'utf8');

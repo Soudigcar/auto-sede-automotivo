@@ -20,26 +20,32 @@ export type FollowUpV2Snapshot = {
   context: Record<string, unknown>;
 };
 export type FollowUpV2Decision = 'blocked' | 'cancelled' | 'superseded';
-export type FollowUpV2Generated = { text: string; model: string; valid: boolean };
+export type FollowUpV2Generated = {
+  text: string; model: string; valid: boolean;
+  qualityReason?: string; qualityScore?: number; usage?: Record<string, unknown>;
+};
 export type FollowUpV2Lease = { id: string; owner: string; token: string };
 export type FollowUpV2Outcome = {
   decision: FollowUpV2Decision | 'dry_run_ready' | 'sent' | 'delivery_unknown';
   reason: string; proposed_text: string | null;
   external_execution: false | true | null;
-  generation_fail_closed?: boolean; model?: string; provider_message_id?: string;
+  generation_fail_closed?: boolean; fallback_copilot?: boolean;
+  model?: string; provider_message_id?: string; production_outbound_message_id?: string;
   gates?: Record<string, unknown>;
 };
 export type FollowUpV2Ports = {
   now(): Date;
   snapshot(event: FollowUpV2Event): Promise<FollowUpV2Snapshot>;
-  claim(event: FollowUpV2Event, snapshot: FollowUpV2Snapshot): Promise<{ lease?: FollowUpV2Lease; reason?: string }>;
+  claim(event: FollowUpV2Event, snapshot: FollowUpV2Snapshot): Promise<{ lease?: FollowUpV2Lease; reason?: string; audited?: boolean }>;
   // Every transition must compare the lease owner/token; stale workers fail closed.
   settle(lease: FollowUpV2Lease, outcome: FollowUpV2Outcome): Promise<boolean>;
   audit(event: FollowUpV2Event, outcome: FollowUpV2Outcome): Promise<void>;
   generate(snapshot: FollowUpV2Snapshot, event: FollowUpV2Event): Promise<FollowUpV2Generated>;
+  // Advisory fallback is optional and must never perform provider I/O.
+  fallback?: (event: FollowUpV2Event, snapshot: FollowUpV2Snapshot, generated: FollowUpV2Generated) => Promise<boolean>;
   // Arm persists delivery_unknown BEFORE provider I/O; an expired worker cannot arm.
   arm(lease: FollowUpV2Lease, generated: FollowUpV2Generated): Promise<boolean>;
-  send?: (event: FollowUpV2Event, text: string) => Promise<{ providerMessageId: string }>;
+  send?: (event: FollowUpV2Event, text: string) => Promise<{ providerMessageId: string; productionOutboundMessageId?: string }>;
 };
 
 const timestamp = (value: string | null) => value ? Date.parse(value) : NaN;
@@ -109,7 +115,8 @@ export async function executeFollowUpV2(event: FollowUpV2Event, ports: FollowUpV
   const claimed = await ports.claim(event, before);
   if (!claimed.lease) {
     const result = withEvidence({ decision: 'blocked', reason: claimed.reason || 'claim_denied', proposed_text: null, external_execution: false });
-    await ports.audit(event, result); return result;
+    if (!claimed.audited) await ports.audit(event, result);
+    return result;
   }
   const lease = claimed.lease;
   const finish = async (result: FollowUpV2Outcome) => {
@@ -120,14 +127,34 @@ export async function executeFollowUpV2(event: FollowUpV2Event, ports: FollowUpV
   let generated: FollowUpV2Generated;
   try { generated = await ports.generate(before, event); }
   catch { return finish({ decision: 'blocked', reason: 'generation_failed', proposed_text: null, external_execution: false, generation_fail_closed: true }); }
-  if (!generated.valid || !generated.model?.trim() || !generated.text?.trim() || generated.text.length > 600) {
+
+  const usableGeneration = Boolean(generated.model?.trim() && generated.text?.trim() && generated.text.length <= 600);
+  if (!usableGeneration) {
     return finish({ decision: 'blocked', reason: 'generation_invalid', proposed_text: null, external_execution: false, generation_fail_closed: true });
   }
-  // Re-read all gates and configuration after the model finishes.
+
+  // Re-read every gate after generation before either an advisory fallback or LIVE arming.
   const after = await ports.snapshot(event);
   evidence = after;
   const stopped = followUpV2Gates(event, after, ports.now());
   if (stopped) return finish(stopped);
+
+  if (!generated.valid) {
+    if (!event.dryRun && ports.fallback) {
+      try {
+        if (await ports.fallback(event, after, generated)) {
+          return finish({ decision: 'blocked', reason: 'fallback_copilot', proposed_text: generated.text, model: generated.model,
+            external_execution: false, generation_fail_closed: true, fallback_copilot: true });
+        }
+      } catch {
+        return finish({ decision: 'blocked', reason: 'fallback_copilot_failed', proposed_text: null, model: generated.model,
+          external_execution: false, generation_fail_closed: true });
+      }
+    }
+    return finish({ decision: 'blocked', reason: 'generation_invalid', proposed_text: null, model: generated.model,
+      external_execution: false, generation_fail_closed: true });
+  }
+
   if (event.dryRun) return finish({ decision: 'dry_run_ready', reason: 'all_gates_allow', proposed_text: generated.text, model: generated.model, external_execution: false });
   if (!ports.send) return finish({ decision: 'blocked', reason: 'transport_unavailable', proposed_text: null, external_execution: false });
   if (!await ports.arm(lease,generated)) return { decision: 'blocked', reason: 'lease_lost', proposed_text: null, external_execution: false };
@@ -139,7 +166,8 @@ export async function executeFollowUpV2(event: FollowUpV2Event, ports: FollowUpV
     const sent = await ports.send(event, generated.text);
     if (!sent.providerMessageId) throw new Error('Missing provider receipt');
     const result = withEvidence({ decision: 'sent', reason: 'provider_confirmed', proposed_text: generated.text,
-      model: generated.model, external_execution: true, provider_message_id: sent.providerMessageId });
+      model: generated.model, external_execution: true, provider_message_id: sent.providerMessageId,
+      production_outbound_message_id: sent.productionOutboundMessageId });
     // A persistence failure must NEVER turn a confirmed provider send into external_execution=false.
     try { await ports.settle(lease, result); } catch { /* durable armed state prohibits retries */ }
     return result;

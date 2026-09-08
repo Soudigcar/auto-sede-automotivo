@@ -9,25 +9,49 @@ export type FollowUpV2Facts = {
   callbacks: Array<{ id: string; at: string; explicitlyRequested: boolean; active: boolean }>;
 };
 
-/** Uses official configured offsets. Missing operational evidence never invents a trigger. */
+function parsedAt(value: string | null | undefined) {
+  const parsed = value ? Date.parse(value) : NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Uses official configured offsets. Missing or contradictory operational evidence never invents a trigger. */
 export function planFollowUpV2Sources(facts: FollowUpV2Facts, config: FollowUpConfigV2, dryRun: boolean): FollowUpV2Event[] {
   if (!facts.inboundAt || !facts.outboundAt || !facts.outboundId) return [];
+  const inboundMs = parsedAt(facts.inboundAt);
+  const outboundMs = parsedAt(facts.outboundAt);
+  // A Follow-up is only eligible after the store has answered the latest customer message.
+  if (inboundMs === null || outboundMs === null || outboundMs <= inboundMs) return [];
+
   const sources: Array<{ scenario: FollowUpScenarioKey; source: string; anchor: string }> = [];
-  for (const appointment of facts.appointments) {
-    if (appointment.status !== 'scheduled') continue;
-    if (facts.leadStatus === 'showed_up') sources.push({ scenario: 'post_visit', source: appointment.id, anchor: appointment.at });
-    else if (facts.leadStatus === 'scheduled') {
-      sources.push({ scenario: 'visit_confirmation', source: appointment.id, anchor: appointment.at });
-      sources.push({ scenario: 'no_show', source: appointment.id, anchor: appointment.at });
+  const leadStatus = String(facts.leadStatus || '').trim().toLowerCase();
+  const scheduledMs = parsedAt(facts.scheduledAt);
+
+  // CRM leads.status + leads.scheduled_at are the authoritative operational evidence.
+  // appointments is used only to preserve a real source id when it matches the same scheduled timestamp.
+  if (scheduledMs !== null) {
+    const scheduledIso = new Date(scheduledMs).toISOString();
+    const matchingAppointment = facts.appointments.find((appointment) => {
+      const appointmentMs = parsedAt(appointment.at);
+      return appointmentMs !== null && Math.abs(appointmentMs - scheduledMs) < 60_000;
+    });
+    const sourceId = matchingAppointment?.id || `lead-scheduled:${facts.leadId}`;
+    if (leadStatus === 'scheduled') sources.push({ scenario: 'visit_confirmation', source: sourceId, anchor: scheduledIso });
+    else if (leadStatus === 'no_show') sources.push({ scenario: 'no_show', source: sourceId, anchor: scheduledIso });
+    else if (leadStatus === 'showed_up') sources.push({ scenario: 'post_visit', source: sourceId, anchor: scheduledIso });
+  }
+
+  for (const callback of facts.callbacks) {
+    if (callback.explicitlyRequested && callback.active && parsedAt(callback.at) !== null) {
+      sources.push({ scenario: 'callback_requested', source: callback.id, anchor: new Date(Date.parse(callback.at)).toISOString() });
     }
   }
-  for (const callback of facts.callbacks) {
-    if (callback.explicitlyRequested && callback.active) sources.push({ scenario: 'callback_requested', source: callback.id, anchor: callback.at });
-  }
-  if (!facts.scheduledAt && facts.appointments.every(a => a.status !== 'scheduled') && !sources.length) {
+
+  // A historical scheduled_at without a current operational status is ambiguous; fail closed instead of starting a generic sequence.
+  if (scheduledMs === null && !sources.length) {
     sources.push({ scenario: facts.financingPending ? 'simulation_pending' : facts.vehicleInterest ? 'vehicle_interest' : 'silent_lead',
       source: facts.outboundId, anchor: facts.outboundAt });
   }
+
   return sources.flatMap(source => {
     const scenario = config.scenarios.find(s => s.key === source.scenario);
     if (!scenario?.enabled || !Number.isFinite(Date.parse(source.anchor))) return [];
