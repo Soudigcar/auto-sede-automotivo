@@ -1,40 +1,5 @@
 import type { NextConfig } from 'next';
 
-const HOMOLOGATION_BRANCH = 'test/autocar-follow-up-v2-final-homologation';
-
-function projectRefFromSupabaseUrl(rawUrl: string) {
-  try {
-    const parsed = new URL(rawUrl);
-    if (parsed.protocol !== 'https:' || !parsed.hostname.endsWith('.supabase.co')) return null;
-    return parsed.hostname.split('.')[0] || null;
-  } catch {
-    return null;
-  }
-}
-
-if (
-  process.env.VERCEL_ENV === 'preview'
-  && process.env.VERCEL_GIT_COMMIT_REF === HOMOLOGATION_BRANCH
-) {
-  const modernAutocarUrl = String(process.env.AUTOCAR_DEV_SUPABASE_URL || '').trim();
-  const modernAutocarKey = String(process.env.AUTOCAR_DEV_SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  const legacyAutocarUrl = String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_URL || '').trim();
-  const legacyAutocarKey = String(process.env.AUTOCAR_KNOWLEDGE_SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  const selectedAutocarUrl = modernAutocarUrl && modernAutocarKey
-    ? modernAutocarUrl
-    : legacyAutocarUrl && legacyAutocarKey
-      ? legacyAutocarUrl
-      : '';
-
-  console.log('[AUTOCAR_HOMOLOGATION_ENV]', JSON.stringify({
-    vercel_env: process.env.VERCEL_ENV,
-    branch: process.env.VERCEL_GIT_COMMIT_REF,
-    commit: process.env.VERCEL_GIT_COMMIT_SHA || null,
-    crm_ref: projectRefFromSupabaseUrl(String(process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim()),
-    autocar_ref: projectRefFromSupabaseUrl(selectedAutocarUrl)
-  }));
-}
-
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
