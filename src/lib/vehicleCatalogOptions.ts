@@ -49,6 +49,14 @@ export function normalizeVehicleOption(
 ) {
   const raw = clean(value);
   if (!raw) return '';
+  if (type === 'transmission') {
+    const text = fold(raw);
+    if (/\bcvt\b/.test(text)) return 'CVT';
+    if (/\bsemi[- ](?:automatic[oa]|automatizad[oa])\b/.test(text)) return 'Semi-automático';
+    if (/\b(?:dualogic|automatizad[oa])\b/.test(text)) return 'Automatizado';
+    if (/\b(?:automatic[oa]|at)\b/.test(text)) return 'Automático';
+    if (/\b(?:manual|mecanic[oa]|mt)\b/.test(text)) return 'Manual';
+  }
   const normalized = aliases[type][fold(raw)];
   if (normalized) return normalized;
 

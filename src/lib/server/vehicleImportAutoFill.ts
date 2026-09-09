@@ -44,7 +44,7 @@ function getAdminClient() {
 function directEvidence(input: AutoFillInput): VehicleImportFieldEvidence[] {
   const evidence: VehicleImportFieldEvidence[] = [];
   const vehicle = input.vehicle || {};
-  const description = fold(input.description || vehicle.description);
+  const description = String(input.description || vehicle.description || '').trim();
   const version = compact(vehicle.version || input.title);
 
   if (vehicle.transmission) {
@@ -56,11 +56,11 @@ function directEvidence(input: AutoFillInput): VehicleImportFieldEvidence[] {
       detail: 'Campo técnico extraído da página.'
     });
   } else {
-    const match = description.match(/\b(?:cambio|transmissao)\s*(?:de\s*)?(manual|mecanico|mecanica|automatico|automatica|automatizado|automatizada|cvt|dualogic)\b/);
+    const match = description.match(/(?:c[aâ]mbio|transmiss[aã]o)\s*(?:de\s*)?([^\n.!?]+)/i);
     if (match?.[1]) {
       evidence.push({
         field: 'transmission',
-        value: /dualogic|automatizad/.test(match[1]) ? 'Automatizado' : normalizeVehicleOption('transmission', match[1]),
+        value: normalizeVehicleOption('transmission', match[1]),
         confidence: 98,
         source: 'description',
         detail: `Descrição original informa “${match[0]}”.`
@@ -154,7 +154,7 @@ function scoreCatalogVersion(inputVersion: unknown, candidate: any) {
 async function catalogEvidence(input: AutoFillInput): Promise<VehicleImportFieldEvidence[]> {
   const supabase = getAdminClient();
   const vehicle = input.vehicle || {};
-  if (!supabase || !vehicle.brand || !vehicle.model) return [];
+  if (!supabase || !vehicle.brand || !vehicle.model || (vehicle.transmission && vehicle.fuel)) return [];
 
   const brandName = fold(vehicle.brand);
   const modelName = fold(vehicle.model);
@@ -240,6 +240,7 @@ async function catalogEvidence(input: AutoFillInput): Promise<VehicleImportField
 }
 
 export async function autoFillVehicleImport(input: AutoFillInput) {
+  if (input.evidence?.target && input.evidence.target.matched !== true) return { vehicle: input.vehicle, evidence: input.evidence };
   const direct = directEvidence(input);
   const catalog = await catalogEvidence(input);
   const allEvidence = [...direct, ...catalog];
@@ -253,7 +254,8 @@ export async function autoFillVehicleImport(input: AutoFillInput) {
     const best = candidates[0];
     if (!best) continue;
 
-    const conflict = candidates.some((item) => item.value !== best.value && item.confidence >= 85);
+    const conflict = best.source !== 'technical_page' && best.source !== 'description'
+      && candidates.some((item) => item.value !== best.value && item.confidence >= 85);
     fieldConfidence[field] = {
       value: best.value,
       confidence: conflict ? 0 : best.confidence,
