@@ -47,3 +47,13 @@ route retains source evidence and manual-confirmation metadata as well.
   Dependency upgrades are outside this correction.
 - No real AI call, vehicle import, database mutation or storage upload was used
   in validation. No UI/layout files were changed.
+
+## Isolated visual validation
+
+`/validacao-importador` is a standalone, Preview-only HTML GET route. It runs
+the pure extractor against the saved fixture; it does not load the CRM layout,
+AI adapter, database clients, image uploader, or external assets. A restrictive
+CSP blocks scripts, connections, images and forms. No save/publish actions exist.
+Production returns 404. Optimized description is explicitly not generated.
+Validation after adding this screen: 628 tests passed, ESLint and build passed
+with offline mocks. The fixture is included in the route deployment trace.
