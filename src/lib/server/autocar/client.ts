@@ -92,13 +92,14 @@ async function requestAutocarResponse(request: AutocarResponseRequest, extraBody
   });
   const stage = request.diagnosticStage || 'generation_internal';
   const correlationId = request.diagnosticCorrelationId || null;
+  const key = requiredOpenAiKey(stage, correlationId);
 
   let response: Response;
   try {
     response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${requiredOpenAiKey(stage, correlationId)}`,
+        Authorization: `Bearer ${key}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
