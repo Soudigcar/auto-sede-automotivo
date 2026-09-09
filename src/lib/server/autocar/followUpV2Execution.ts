@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { FollowUpConfigV2, FollowUpScenarioKey } from './smartFollowUpV2';
 import { withinFollowUpAllowedWindow } from './followUpV2CopilotQueue';
+import { recordAutocarOpenAiFailure, sanitizeAutocarOpenAiFailure } from './openAiDiagnostics';
 
 export const FOLLOW_UP_V2_CANARY = '239755c3-a2d4-4cdd-9502-f1595031c924';
 export type FollowUpV2Event = {
@@ -97,6 +98,7 @@ export async function executeFollowUpV2(event: FollowUpV2Event, ports: FollowUpV
   let evidence = before;
   // Capture only operational facts; never serialize conversation/model context into gates.
   const withEvidence = (result: FollowUpV2Outcome): FollowUpV2Outcome => ({...result,gates:{
+    ...(result.gates || {}),
     master_enabled:evidence.masterEnabled,master_autopilot_allowed:evidence.masterAutopilotAllowed,
     agent_active:evidence.agentActive,store_selected_mode:evidence.storeSelectedMode,
     effective_mode:evidence.effectiveMode,human_state:evidence.humanState,
@@ -126,7 +128,12 @@ export async function executeFollowUpV2(event: FollowUpV2Event, ports: FollowUpV
   };
   let generated: FollowUpV2Generated;
   try { generated = await ports.generate(before, event); }
-  catch { return finish({ decision: 'blocked', reason: 'generation_failed', proposed_text: null, external_execution: false, generation_fail_closed: true }); }
+  catch (error) {
+    const diagnostic = sanitizeAutocarOpenAiFailure(error, 'generation_internal', event.id);
+    recordAutocarOpenAiFailure(diagnostic);
+    return finish({ decision: 'blocked', reason: 'generation_failed', proposed_text: null, external_execution: false,
+      generation_fail_closed: true, gates: { generation_error: diagnostic } });
+  }
 
   const usableGeneration = Boolean(generated.model?.trim() && generated.text?.trim() && generated.text.length <= 600);
   if (!usableGeneration) {
