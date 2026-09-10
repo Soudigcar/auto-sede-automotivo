@@ -1,3 +1,5 @@
+import { importDistinctVehicleImages } from '@/lib/server/siteVehicleImporter';
+import { canReuseImport, confirmedFields, preserveConfirmedFields, importDiagnostic } from '@/lib/server/vehicleImportDraft';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { mergeImportedVehicle, reviewVehicleImportWithOpenAI } from '@/lib/server/vehicleImportAi';
@@ -276,7 +278,7 @@ async function callImporter(request: Request, vehicleUrl: string) {
   const response = await fetch(`${origin}/api/site-import`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ action: 'import', url: vehicleUrl }),
+    body: JSON.stringify({ action: 'preview', url: vehicleUrl }),
     cache: 'no-store'
   });
 
@@ -298,7 +300,7 @@ function buildImportedForm(importResult: any, sourceUrl: string) {
   return withNormalizedYears({
     source_url: sourceUrl,
     title: cleanText(importResult.title || vehicle.title, 500),
-    description: cleanText(importResult.description || vehicle.description, 12000),
+    description: String(importResult.source_description ?? importResult.description ?? vehicle.description ?? '').trim(),
     brand: cleanText(vehicle.brand, 100),
     model: cleanText(vehicle.model, 140),
     version: cleanText(vehicle.version, 220),
@@ -343,11 +345,18 @@ function draftFromBody(body: any, link: any) {
 }
 
 async function importLinkDraft(request: Request, supabase: any, store: any, profile: any, link: any, sourceUrl: string) {
+  if (link.imported_vehicle_id || link.status === 'published') {
+    throw new Error('Veículo publicado: revise os campos manualmente antes de atualizar.');
+  }
+  if (link.metadata?.publication_status === 'importando_automaticamente'
+    && Date.now() - Date.parse(link.metadata.import_started_at || '') < 120_000) {
+    throw new Error('Uma importação já está em andamento. Aguarde a conclusão.');
+  }
   const now = new Date().toISOString();
   const attempt = Number(link?.metadata?.import_attempts || 0) + 1;
   const source = inventorySource(profile);
 
-  await supabase
+  const claimQuery = supabase
     .from('store_vehicle_link_submissions')
     .update({
       status: 'reviewing',
@@ -364,27 +373,49 @@ async function importLinkDraft(request: Request, supabase: any, store: any, prof
     })
     .eq('id', link.id)
     .eq('store_id', store.id);
+  const claim = await (link.updated_at ? claimQuery.eq('updated_at', link.updated_at) : claimQuery.is('updated_at', null))
+    .select('id,updated_at').maybeSingle();
+  if (claim.error) throw claim.error;
+  if (!claim.data) throw new Error('O rascunho foi atualizado. Recarregue antes de importar novamente.');
+  const claimedVersion = claim.data.updated_at || now;
 
   try {
     const importResult = await callImporter(request, sourceUrl);
+    if (importResult.evidence?.target?.matched !== true) throw new Error('Não foi possível identificar um único veículo neste link.');
+    const reused = canReuseImport(link.metadata || {}, importResult.evidence);
     const technicalDraft = buildImportedForm(importResult, sourceUrl);
-    const aiReview = await reviewVehicleImportWithOpenAI(
+    const aiReview = reused ? {
+      ok: link.metadata?.ai_review?.applied === true,
+      model: link.metadata?.ai_review?.model || '',
+      vehicle: link.metadata.imported_preview,
+      optimized_description: link.metadata.optimized_description || '',
+      warnings: link.metadata?.ai_review?.warnings || [],
+      conflicts: link.metadata?.ai_review?.conflicts || [],
+      error: link.metadata?.ai_review?.error || undefined
+    } : await reviewVehicleImportWithOpenAI(
       technicalDraft,
       isMasterProfile(profile) ? 'estoque administrado pelo Master' : 'site público da loja',
       { source_evidence: importResult.evidence || null }
     );
-    const merged = mergeImportedVehicle(technicalDraft, aiReview.vehicle);
-    const importedForm = withNormalizedYears({
-      ...technicalDraft,
-      ...merged,
-      description: aiReview.optimized_description || merged.description || technicalDraft.description || '',
-      image_url: technicalDraft.image_url,
-      image_urls: technicalDraft.image_urls
-    });
+    const merged = mergeImportedVehicle(technicalDraft, aiReview.vehicle, importResult.evidence);
+    const locks = confirmedFields(link.metadata || {});
+    const imageResult = reused || Object.hasOwn(locks, 'image_urls')
+      ? null : await importDistinctVehicleImages(importResult.images || [], 8);
+    const images = imageResult?.uploadedImages.length ? imageResult.uploadedImages : technicalDraft.image_urls;
+    // Display the source by default. Optimized copy remains separately available in metadata.
+    const candidate = reused ? link.metadata.imported_preview : {
+      ...technicalDraft, ...merged,
+      description: importResult.source_description || importResult.description || '',
+      image_url: images[0] || '', image_urls: images
+    };
+    const importedForm = withNormalizedYears(preserveConfirmedFields(candidate, link.metadata || {}));
+    if (process.env.VERCEL_ENV === 'preview') {
+      console.info(importDiagnostic(importResult.evidence, technicalDraft, importedForm));
+    }
     const missing = requiredMissing(importedForm, importedForm.image_urls.length);
     const finishedAt = new Date().toISOString();
 
-    const { error } = await supabase
+    const { data: saved, error } = await supabase
       .from('store_vehicle_link_submissions')
       .update({
         vehicle_url: sourceUrl,
@@ -396,6 +427,10 @@ async function importLinkDraft(request: Request, supabase: any, store: any, prof
           auto_import: true,
           publication_status: missing.length ? 'aguardando_preenchimento' : 'pronto_para_conferencia',
           imported_preview: importedForm,
+          source_description: importResult.source_description || importResult.description || '',
+          optimized_description: aiReview.optimized_description || '',
+          import_evidence: importResult.evidence,
+          manual_confirmed_fields: locks,
           imported_at: finishedAt,
           import_started_at: now,
           import_finished_at: finishedAt,
@@ -424,9 +459,12 @@ async function importLinkDraft(request: Request, supabase: any, store: any, prof
         updated_at: finishedAt
       })
       .eq('id', link.id)
-      .eq('store_id', store.id);
+      .eq('store_id', store.id)
+      .eq('updated_at', claimedVersion)
+      .select('id').maybeSingle();
 
     if (error) throw error;
+    if (!saved) throw new Error('O rascunho mudou durante a importação. Seus dados foram preservados.');
 
     return {
       success: true,
@@ -462,7 +500,7 @@ async function importLinkDraft(request: Request, supabase: any, store: any, prof
         updated_at: failedAt
       })
       .eq('id', link.id)
-      .eq('store_id', store.id);
+      .eq('store_id', store.id).eq('updated_at', claimedVersion);
 
     throw new Error(message);
   }
@@ -674,6 +712,7 @@ export async function POST(request: Request) {
             source,
             publication_status: missing.length ? 'aguardando_preenchimento' : 'pronto_para_conferencia',
             imported_preview: draft,
+            manual_confirmed_fields: confirmedFields(link.metadata || {}, draft),
             missing_fields: missing,
             draft_saved_at: now,
             ...(master ? { reviewed_by_master: true } : { reviewed_by_store: true }),
@@ -830,6 +869,7 @@ export async function POST(request: Request) {
             source,
             publication_status: 'publicado',
             final_preview: draft,
+            manual_confirmed_fields: confirmedFields(link.metadata || {}, draft),
             final_description: draft.description || null,
             ...(master
               ? { published_by_master: true, reviewed_by_master: true }

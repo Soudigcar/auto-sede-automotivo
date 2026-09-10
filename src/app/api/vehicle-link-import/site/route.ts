@@ -1,3 +1,4 @@
+import { confirmedFields, preserveConfirmedFields } from '@/lib/server/vehicleImportDraft';
 import { NextResponse } from 'next/server';
 import { asStorePortalRole, type StorePortalRole } from '@/lib/server/storePortal';
 import { cleanText, createAdminClient, getProfileFromToken, readBearerToken } from '@/lib/server/storeTeam';
@@ -281,7 +282,7 @@ async function ensureNoPublishedDuplicate(context: ImportContext, sourceUrl: str
   }
 }
 
-async function savePreview(context: ImportContext, existing: any, sourceUrl: string, preview: any) {
+async function savePreview(context: ImportContext, existing: any, sourceUrl: string, preview: any, imported: any) {
   const now = new Date().toISOString();
   const metadata = {
     ...(existing?.metadata || {}),
@@ -289,6 +290,8 @@ async function savePreview(context: ImportContext, existing: any, sourceUrl: str
     provider: 'website',
     publication_status: 'em_revisao',
     imported_preview: preview,
+    source_description: imported.source_description || imported.description || '',
+    import_evidence: imported.evidence || null,
     missing_fields: missingFields(preview),
     imported_at: now,
     audit_history: withAudit(existing?.metadata, audit(context.profile, context.role, 'website_preview_imported'))
@@ -357,6 +360,7 @@ async function saveDraft(context: ImportContext, submission: any, draft: any, ac
     provider: 'website',
     publication_status: action === 'submit_approval' ? 'aguardando_aprovacao' : 'rascunho_salvo',
     imported_preview: draft,
+    manual_confirmed_fields: confirmedFields(submission.metadata || {}, draft),
     missing_fields: missingFields(draft),
     submitted_for_approval_at: action === 'submit_approval' ? now : submission.metadata?.submitted_for_approval_at || null,
     audit_history: withAudit(submission.metadata, audit(context.profile, context.role, action))
@@ -438,6 +442,7 @@ async function publish(context: ImportContext, submission: any, draft: any) {
     ...(submission.metadata || {}),
     publication_status: 'publicado',
     imported_preview: draft,
+    manual_confirmed_fields: confirmedFields(submission.metadata || {}, draft),
     missing_fields: [],
     published_at: now,
     published_by_user_id: context.profile.id,
@@ -486,11 +491,12 @@ export async function POST(request: Request) {
       existing = await findReusableSubmission(context, sourceUrl, existing);
       await ensureNoPublishedDuplicate(context, sourceUrl);
       const imported = await siteImporterRequest(request, 'preview', sourceUrl);
-      const preview = mapImporterPreview(imported, sourceUrl);
+      if (imported.evidence?.target?.matched !== true) throw new ImportHttpError('Não foi possível identificar um único veículo neste link.', 422);
+      const preview = preserveConfirmedFields(mapImporterPreview(imported, sourceUrl), existing?.metadata || {});
       if (!preview.title && !preview.model && !preview.description && !preview.image_urls.length) {
         throw new ImportHttpError('O site foi acessado, mas não foram encontrados dados suficientes do veículo.', 422);
       }
-      const submission = await savePreview(context, existing, sourceUrl, preview);
+      const submission = await savePreview(context, existing, sourceUrl, preview, imported);
       return NextResponse.json({
         success: true,
         submission_id: submission.id,

@@ -168,7 +168,7 @@ export async function secureRemoteFetch(value: string, options: SecureFetchOptio
   throw new RequestSecurityError('Destino remoto inválido.', 400);
 }
 
-export async function secureFetchHtml(value: string) {
+export async function secureFetchHtmlPage(value: string) {
   const result = await secureRemoteFetch(value, {
     accept: 'text/html,application/xhtml+xml;q=0.9',
     allowedContentTypes: ['text/html', 'application/xhtml+xml'],
@@ -176,7 +176,14 @@ export async function secureFetchHtml(value: string) {
     timeoutMs: 12_000,
     userAgent: 'Mozilla/5.0 AutoControleAutomotivo/1.0'
   });
-  return result.body.toString('utf8');
+  let html: string;
+  try { html = new TextDecoder('utf-8', { fatal: true }).decode(result.body); }
+  catch { html = new TextDecoder('windows-1252').decode(result.body); }
+  return { html, finalUrl: result.finalUrl };
+}
+
+export async function secureFetchHtml(value: string) {
+  return (await secureFetchHtmlPage(value)).html;
 }
 
 export async function secureFetchImage(value: string) {
