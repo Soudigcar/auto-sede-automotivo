@@ -66,6 +66,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         title: enrichedPage.title,
         description: enrichedPage.description,
+        source_description: enrichedPage.source_description,
         evidence: enrichedPage.evidence,
         price: enrichedPage.price,
         images: enrichedPage.images,
