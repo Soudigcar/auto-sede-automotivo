@@ -6,6 +6,7 @@ import { executeFollowUpV2, FOLLOW_UP_V2_CANARY, type FollowUpV2Event, type Foll
 import { planFollowUpV2Sources, type FollowUpV2Facts } from './followUpV2Sources';
 import { generateContextualFollowUpReopening, looksLikeNonLeadAutomation } from './followUpV2ContextualReopening';
 import { contextualAutopilotQuality, hasFollowUpOptOut } from './followUpV2Quality';
+import { selectFollowUpV2RunBatch } from './followUpV2RunSelection';
 import type { FollowUpConfigV2 } from './smartFollowUpV2';
 
 const claimReasonsAuditedByDatabase = new Set([
@@ -62,14 +63,12 @@ export async function readFollowUpV2Bundle(crm: any, autocar: any, storeId: stri
       .eq('store_id',storeId).eq(columns.memory.conversationId,conversationId).maybeSingle(),
     crm.from('whatsapp_contacts').select('phone,wa_id').eq('id',conversation.contact_id).eq('store_id',storeId).maybeSingle(),
     crm.from('store_whatsapp_integrations').select('instance_name,status').eq('store_id',storeId).eq('crm_number_id',conversation.whatsapp_number_id).eq('scope','store').maybeSingle(),
-    // Search the full conversation for possible opt-outs, independently of the bounded model history.
     crm.from('whatsapp_messages').select('direction,body').eq('store_id',storeId).eq('conversation_id',conversationId).eq('direction','inbound')
       .or('body.ilike.%não%,body.ilike.%nao%,body.ilike.%pare%,body.ilike.%stop%,body.ilike.%sair%,body.ilike.%remov%,body.ilike.%retir%,body.ilike.%descadastr%,body.ilike.%unsubscribe%').limit(100)
   ];
   const [store,lead,messages,appointments,sales,agent,runtime,policy,storePolicies,callbacks,commercial,memory,contact,integration,optOutMessages] = await Promise.all(queries.map(data));
   const ordered = (messages || []).slice().sort((a: any,b: any) => Date.parse(a.sent_at || a.created_at)-Date.parse(b.sent_at || b.created_at));
   const inbound = ordered.filter((m: any) => m.direction==='inbound').at(-1);
-  // Follow-up messages never restart their own sequence/cooldown anchor.
   const outbound = ordered.filter((m: any) => m.direction==='outbound' && !m.raw_payload?.autocar_follow_up_v2 && !m.raw_payload?.autocar_follow_up_autopilot).at(-1);
   const iso = (value: unknown) => value && Number.isFinite(Date.parse(String(value))) ? new Date(String(value)).toISOString() : null;
   const facts: FollowUpV2Facts = { storeId,conversationId,leadId:conversation.lead_id,leadStatus:lead?.status || '',
@@ -86,7 +85,6 @@ export async function readFollowUpV2Bundle(crm: any, autocar: any, storeId: stri
 
 export function createFollowUpV2DatabasePorts(input: {
   crm: any; autocar: any; dryRun: boolean;
-  // Synthetic overrides are accepted only after proving DEV destinations and the synthetic store marker.
   syntheticConfig?: FollowUpConfigV2;
 }): FollowUpV2Ports {
   assertClients(input.crm,input.autocar,input.dryRun);
@@ -156,6 +154,7 @@ export function createFollowUpV2DatabasePorts(input: {
       const context = snapshot.context as any;
       const generated = await generateContextualFollowUpReopening({store:{id:event.storeId,store_name:context.store.store_name},
         lead:context.lead,commercial:context.commercial,messages:context.messages,scenarioKey:event.scenario,inventorySupabase:input.crm,
+        correlationId:event.id,
         operationalContext:{memory:context.memory,appointment:context.appointment,now:context.now,next_best_action:context.memory?.next_best_action || null}});
       const quality=contextualAutopilotQuality(generated.plan);
       return {text:String(generated.plan.suggested_message || ''),model:String(generated.model || ''),valid:quality.safe,
@@ -163,7 +162,6 @@ export function createFollowUpV2DatabasePorts(input: {
     },
     async arm(lease,generated) {
       if (input.dryRun || !latest || !latestEvent || latestEvent.id!==lease.id || latestEvent.storeId!==FOLLOW_UP_V2_CANARY || !latest.facts.outboundId) return false;
-      // Reserve the future CRM outbound UUID per execution; source_id keeps the original CRM anchor separately.
       liveOutboundMessageId=randomUUID();
       liveGeneratedModel=generated.model;
       const armed=await data(input.autocar.rpc('arm_autocar_follow_up_v2',{
@@ -174,7 +172,6 @@ export function createFollowUpV2DatabasePorts(input: {
       if (!liveClaimId) liveOutboundMessageId=null;
       return Boolean(liveClaimId);
     },
-    // There is no transport or fallback persistence function at all in DEV/Preview.
     ...(input.dryRun ? {} : {
       fallback:async (event: FollowUpV2Event,snapshot: FollowUpV2Snapshot,generated: FollowUpV2Generated) => {
         assertFollowUpV2Environment(false);
@@ -216,12 +213,11 @@ export function createFollowUpV2DatabasePorts(input: {
           await data(input.crm.from('whatsapp_conversations').update({last_message:text,last_message_at:sentAt,updated_at:sentAt})
             .eq('id',event.conversationId).eq('store_id',event.storeId));
         } catch {
-          // The webhook may have persisted the provider receipt first; reconcile without retrying provider I/O.
           try {
             const existing=await data(input.crm.from('whatsapp_messages').select('id').eq('whatsapp_number_id',bundle.conversation.whatsapp_number_id)
               .in('wa_message_id',[receipt,scopedId]).limit(1).maybeSingle());
             if (existing?.id) productionOutboundMessageId=String(existing.id);
-          } catch { /* provider receipt remains authoritative in the execution ledger */ }
+          } catch { }
         }
         const scenario=latestSnapshot?.config.scenarios.find(row=>row.key===event.scenario);
         try {
@@ -231,7 +227,7 @@ export function createFollowUpV2DatabasePorts(input: {
             attributed_to_follow_up:true,metadata:{autopilot:true,canary:true,execution_id:event.id,model:liveGeneratedModel,
               production_outbound_message_id:productionOutboundMessageId || null}
           }));
-        } catch { /* observability must not turn a confirmed provider receipt into an unknown delivery */ }
+        } catch { }
         return {providerMessageId:receipt,productionOutboundMessageId};
       }
     })
@@ -239,7 +235,6 @@ export function createFollowUpV2DatabasePorts(input: {
 }
 
 export async function runControlledA4FollowUpV2(input: {productionSupabase:any;now?:Date;maxSends?:number}) {
-  // Explicit rollout gate defaults closed; this task never configures it in Production.
   if (process.env.AUTOCAR_FOLLOW_UP_V2_LIVE_A4_ENABLED!=='true') return {success:true,enabled:false,sent:0,results:[],reason:'v2_canary_not_authorized'};
   const environment = assertFollowUpV2Environment(false);
   const autocar = getAutocarRuntimeClient();
@@ -269,17 +264,22 @@ export async function runControlledA4FollowUpV2(input: {productionSupabase:any;n
     for (const [id,event] of plannedDue) if (runnableIds.has(id)) events.set(id,event);
   }
 
-  const results = [];
+  const results:any[] = [];
   let sent=0;
-  const runnableEvents=Array.from(events.values())
-    .filter(event=>Number.isFinite(Date.parse(event.dueAt)) && Date.parse(event.dueAt)<=runNow.getTime())
-    .sort((a,b)=>Date.parse(a.dueAt)-Date.parse(b.dueAt));
-  for (const event of runnableEvents) {
+  const dueEvents=Array.from(events.values())
+    .filter(event=>Number.isFinite(Date.parse(event.dueAt)) && Date.parse(event.dueAt)<=runNow.getTime());
+  const selected=selectFollowUpV2RunBatch(dueEvents);
+  for (const event of selected.superseded) {
+    const ports=createFollowUpV2DatabasePorts({crm,autocar,dryRun:false});
+    await ports.audit(event,{decision:'superseded',reason:'newer_due_step',proposed_text:null,external_execution:false});
+    results.push({execution_id:event.id,decision:'superseded',reason:'newer_due_step',external_execution:false});
+  }
+  for (const event of selected.runnable) {
     if (sent>=Math.max(1,Math.min(input.maxSends || 3,3))) break;
     const result=await executeFollowUpV2(event,createFollowUpV2DatabasePorts({crm,autocar,dryRun:false}),environment);
     results.push({execution_id:event.id,decision:result.decision,reason:result.reason,external_execution:result.external_execution});
     if (result.external_execution===true) sent++;
     if (result.external_execution===null) break;
   }
-  return {success:true,enabled:true,store_id:FOLLOW_UP_V2_CANARY,sent,results};
+  return {success:true,enabled:true,store_id:FOLLOW_UP_V2_CANARY,sent,results,deferred:selected.deferred.length};
 }

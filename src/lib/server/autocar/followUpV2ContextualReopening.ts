@@ -10,6 +10,7 @@ export type FollowUpReopeningSource = {
   inventorySupabase?: any;
   scenarioKey: string;
   operationalContext?: Record<string, unknown>;
+  correlationId?: string | null;
 };
 
 export type FollowUpReopeningPlan = {
@@ -93,7 +94,8 @@ export async function generateContextualFollowUpReopening(source: FollowUpReopen
     storeId: source.store.id,
     query: String(lastCustomer?.body || recent.at(-1)?.text || '').slice(0, 6000),
     mode: 'copilot',
-    inventorySupabase: source.inventorySupabase
+    inventorySupabase: source.inventorySupabase,
+    correlationId: source.correlationId || null
   });
 
   const result = await createAutocarStructuredResponse({
@@ -101,6 +103,8 @@ export async function generateContextualFollowUpReopening(source: FollowUpReopen
     schemaName: 'autocar_follow_up_contextual_reopening',
     schema: reopeningSchema,
     maxOutputTokens: 1200,
+    diagnosticStage: 'structured_response',
+    diagnosticCorrelationId: source.correlationId || null,
     instructions: [
       intelligence.hardPolicyInstructions,
       'Você é a inteligência de REABERTURA CONTEXTUAL do Smart Follow-up AUTOCAR para lojas de veículos.',

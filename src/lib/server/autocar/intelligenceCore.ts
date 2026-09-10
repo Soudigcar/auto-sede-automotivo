@@ -1,5 +1,6 @@
 import { searchAutocarKnowledge } from '@/lib/server/autocar/knowledgeLibrary';
 import { searchTrainingScenarios } from '@/lib/server/autocar/trainingLab';
+import { searchAutocarRetrievalContext } from '@/lib/server/autocar/retrievalContext';
 import { autocarHardPolicyInstructions, autocarHardPolicyManifest } from '@/lib/server/autocar/policyEngine';
 import { loadAutocarInventory } from '@/lib/server/autocar/inventory';
 import { autocarCommercialConstitutionV2 } from '@/lib/server/autocar/commercialConstitutionV2';
@@ -16,6 +17,7 @@ export async function buildAutocarIntelligenceContext(input: {
   query: string;
   mode: AutocarIntelligenceMode;
   inventorySupabase?: any;
+  correlationId?: string | null;
 }) {
   const query = String(input.query || '').trim().slice(0, 6000);
   const constitution = autocarCommercialConstitutionV2();
@@ -36,23 +38,37 @@ export async function buildAutocarIntelligenceContext(input: {
     };
   }
 
-  const [rawTraining, rawKnowledge, inventory] = await Promise.all([
-    searchTrainingScenarios(query, input.storeId, 6),
-    searchAutocarKnowledge(input.storeId, query, 10),
+  const retrievalPromise = input.correlationId
+    ? searchAutocarRetrievalContext({
+        storeId: input.storeId,
+        query,
+        trainingLimit: 6,
+        knowledgeLimit: 10,
+        correlationId: input.correlationId
+      })
+    : Promise.all([
+        searchTrainingScenarios(query, input.storeId, 6),
+        searchAutocarKnowledge(input.storeId, query, 10)
+      ]).then(([training, knowledge]) => ({ training, knowledge }));
+
+  const [retrieved, inventory] = await Promise.all([
+    retrievalPromise,
     input.inventorySupabase
       ? loadAutocarInventory({ supabase: input.inventorySupabase, storeId: input.storeId, query, matchLimit: 12, indexLimit: 80 })
       : Promise.resolve(null)
   ]);
 
-  const training = selectRelevantTraining(rawTraining || []);
-  const selectedKnowledge = selectRelevantKnowledge(rawKnowledge || [], input.storeId);
+  const rawTraining = retrieved.training || [];
+  const rawKnowledge = retrieved.knowledge || [];
+  const training = selectRelevantTraining(rawTraining);
+  const selectedKnowledge = selectRelevantKnowledge(rawKnowledge, input.storeId);
   const methodKnowledge = selectedKnowledge.method;
   const storeKnowledge = selectedKnowledge.store;
   const knowledge = selectedKnowledge.all;
   const retrieval = autocarContextBudgetReport({
-    rawTraining: rawTraining || [],
+    rawTraining,
     selectedTraining: training,
-    rawKnowledge: rawKnowledge || [],
+    rawKnowledge,
     selectedMethod: methodKnowledge,
     selectedStore: storeKnowledge
   });

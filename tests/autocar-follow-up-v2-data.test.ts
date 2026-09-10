@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { hasFollowUpOptOut } from '../src/lib/server/autocar/followUpV2Quality';
+import { selectFollowUpV2RunBatch } from '../src/lib/server/autocar/followUpV2RunSelection';
 
 function loadAdapter() {
   const exports:any={};
@@ -11,7 +12,7 @@ function loadAdapter() {
     'node:crypto':{randomUUID:()=> 'worker'},'@/lib/server/evolution':{},'./followUpV2ConfigStore':{},
     './runtimeEnvironment':{currentAutocarExternalReferenceColumns:()=>({memory:{conversationId:'conversation_id'}}),
       resolveAutocarRuntimeTarget:()=>({projectRef:'azszzdotbrczlhrmhrlw'}),autocarProjectRefFromUrl:(url:string)=>new URL(url).hostname.split('.')[0]},
-    './followUpV2Execution':{},'./followUpV2Sources':{},'./followUpV2ContextualReopening':{},'./followUpV2Quality':{hasFollowUpOptOut}
+    './followUpV2Execution':{},'./followUpV2Sources':{},'./followUpV2RunSelection':{selectFollowUpV2RunBatch},'./followUpV2ContextualReopening':{},'./followUpV2Quality':{hasFollowUpOptOut}
   };
   const source=ts.transpileModule(readFileSync('src/lib/server/autocar/followUpV2Data.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
   runInNewContext(source,{exports,process:{env:{VERCEL_ENV:'preview',NEXT_PUBLIC_SUPABASE_URL:'https://azszzdotbrczlhrmhrlw.supabase.co'}},require:(name:string)=>{
