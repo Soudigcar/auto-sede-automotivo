@@ -12,5 +12,10 @@
       "path": "/api/cron/privacy-retention",
       "schedule": "17 3 * * *"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "fix/commercial-metrics-canonicalization-v1": false
+    }
+  }
 }

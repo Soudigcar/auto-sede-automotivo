@@ -26,12 +26,11 @@ test('global operational and WhatsApp authorization remains current-owner only',
 });
 
 test('dashboard counts attendance as a historical milestone across current and legacy audit formats', () => {
-  assert.match(dashboardRoute, /from\('lead_activity_logs'\)/);
-  assert.match(dashboardRoute, /or\('activity_type\.eq\.showed_up_marked,to_status\.eq\.showed_up'\)/);
-  assert.match(dashboardRoute, /const showedUpLeadIds = new Set<string>/);
-  assert.match(dashboardRoute, /if \(event\?\.lead_id\) showedUpLeadIds\.add/);
-  assert.match(dashboardRoute, /showed_up: showedUpLeadIds\.size/);
-  assert.doesNotMatch(dashboardRoute, /showed_up: statusCount\('showed_up'\)/);
+  const sql = readFileSync('supabase/proposed/commercial-metrics-v1/crm.sql', 'utf8');
+  assert.match(dashboardRoute, /readCanonicalCommercialMetrics/);
+  assert.match(sql, /a.activity_type='showed_up_marked' or a.to_status='showed_up'/);
+  assert.match(sql, /select id as lead_id from scoped where status='showed_up'/);
+  assert.match(sql, /'showed_up',count\(l.id\) filter\(where exists/);
 });
 
 test('pipeline exposes the same historical attendance milestone without changing current stage status', () => {
@@ -43,8 +42,8 @@ test('pipeline exposes the same historical attendance milestone without changing
 
 test('cockpit uses historical attendance for KPI while stage columns remain current-state', () => {
   assert.match(pipelineCockpit, /has_showed_up\?: boolean/);
-  assert.match(pipelineCockpit, /visibleLeads\.filter\(\(lead\) => lead\.has_showed_up === true\)\.length/);
-  assert.match(pipelineCockpit, /lead\.status === stage\.systemKey/);
+  assert.match(pipelineCockpit, /summary\?\.metrics\?\.showed_up/);
+  assert.match(pipelineCockpit, /stage_totals\?\.\[stage\.systemKey/);
   assert.doesNotMatch(storeLayout, /StorePipelineHistoricalAttendanceKpi/);
 });
 

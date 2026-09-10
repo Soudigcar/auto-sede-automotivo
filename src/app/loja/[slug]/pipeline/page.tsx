@@ -1,5 +1,6 @@
 'use client';
 
+import { PIPELINE_STAGES, mergeStageCards, revalidateStagePages, type StageCursor } from '@/lib/pipelineStagePagination';
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
@@ -92,10 +93,11 @@ type PipelinePayload = {
   profile: { id: string; full_name: string; role: string };
   scope_label: string;
   capabilities: { can_delete: boolean; can_transfer: boolean; can_bulk_transfer: boolean; can_confirm_sale: boolean };
-  metrics: { total: number; scheduled: number; cancelled: number; sold: number; lost: number };
+  metrics: { total: number; new_leads: number; scheduled: number; cancelled: number; sold: number; lost: number };
+  stage_totals: Record<string, number>;
   team: Array<{ id: string; full_name: string; role: string; role_label: string }>;
   leads: PipelineLead[];
-  pagination: { offset: number; limit: number; total: number; has_more: boolean };
+  pagination: { offset: number; limit: number; total: number; has_more: boolean; next_cursor?: StageCursor | null };
 };
 
 type LeadNote = { id: string; note_type: string; content: string; author_name: string | null; created_at: string };
@@ -238,6 +240,13 @@ export default function StoreSlugPipelinePage() {
   const [stageOptions, setStageOptions] = useState<PipelineStageOption[]>(defaultStageOptions);
   const [customAssignments, setCustomAssignments] = useState<Record<string, PipelineCustomAssignment>>({});
   const [selectedResponsible, setSelectedResponsible] = useState('all');
+  const subjectRef = useRef('all');
+  const stagePages = useRef<Record<string, number>>({});
+  const [stageCursors, setStageCursors] = useState<Record<string, StageCursor | null>>({});
+  const generation = useRef(0);
+  const refreshQueued = useRef(false);
+  const stageBoundaries = useRef<Record<string, PipelineLead | null>>({});
+
 
   const [scheduleLead, setScheduleLead] = useState<PipelineLead | null>(null);
   const [scheduleDate, setScheduleDate] = useState('');
@@ -308,48 +317,52 @@ export default function StoreSlugPipelinePage() {
   }
 
   async function loadData(silent = false) {
-    if (loadInFlight.current) return loadInFlight.current;
+    if (loadInFlight.current) { refreshQueued.current = true; return loadInFlight.current; }
+    const epoch = generation.current;
+    const subject = subjectRef.current;
     if (!silent) setMessage('Atualizando Pipeline seguro...');
-
-    const pending = request(`/api/store/portal/pipeline?slug=${encodeURIComponent(slug)}&offset=0&limit=200`) as Promise<PipelinePayload>;
+    const pending = (async () => {
+      let metadata: PipelinePayload | null = null;
+      const results = [];
+      // Sequential stage requests avoid multiplying database aggregation load.
+      for (const stage of PIPELINE_STAGES) {
+        const result = await revalidateStagePages<PipelineLead>(async (cursor) => {
+          const data = await request(`/api/store/portal/pipeline?slug=${encodeURIComponent(slug)}&stage=${stage}&subject=${encodeURIComponent(subject)}&limit=50${cursor ? `&cursor=${encodeURIComponent(JSON.stringify(cursor))}` : ''}`) as PipelinePayload;
+          metadata = data;
+          return { leads: data.leads, next_cursor: data.pagination.next_cursor || null };
+        }, stagePages.current[stage] || 1, stageBoundaries.current[stage]);
+        results.push({ stage, ...result });
+      }
+      const data = metadata as unknown as PipelinePayload;
+      const cards = mergeStageCards<PipelineLead>([], results.flatMap(r => r.leads));
+      const combined = { ...data, leads: cards, pagination: { ...data.pagination, has_more: results.some(r => r.next_cursor) } };
+      if (epoch === generation.current) {
+        stageBoundaries.current = Object.fromEntries(results.map(r => [r.stage, r.leads[r.leads.length - 1] || null]));
+        setStageCursors(Object.fromEntries(results.map(r => [r.stage, r.next_cursor])));
+        setPayload(combined); setLeads(cards);
+        window.dispatchEvent(new CustomEvent('pipeline-data-updated', { detail: combined }));
+        if (!silent) setMessage('');
+      }
+      return combined;
+    })();
     loadInFlight.current = pending;
-
-    try {
-      const data = await pending;
-      setPayload(data);
-      setLeads(data.leads || []);
-      window.dispatchEvent(new CustomEvent('pipeline-data-updated', { detail: data }));
-      if (!silent) setMessage('');
-      return data;
-    } finally {
-      loadInFlight.current = null;
+    try { return await pending; } finally {
+      if (loadInFlight.current === pending) {
+        loadInFlight.current = null;
+        if (refreshQueued.current) { refreshQueued.current = false; void loadData(true).catch(error => setMessage(error.message)); }
+      }
     }
   }
 
-  async function loadMore() {
-    if (!payload?.pagination.has_more || loadingMore) return;
+  async function loadMore(stage?: string) {
+    if (loadingMore || loadInFlight.current) return;
     setLoadingMore(true);
     try {
-      const offset = leads.length;
-      const data = await request(`/api/store/portal/pipeline?slug=${encodeURIComponent(slug)}&offset=${offset}&limit=200`) as PipelinePayload;
-      setLeads((current) => {
-        const known = new Set(current.map((lead) => lead.id));
-        return [...current, ...data.leads.filter((lead) => !known.has(lead.id))];
-      });
-      setPayload((current) => current ? {
-        ...current,
-        pagination: {
-          ...data.pagination,
-          offset: 0,
-          total: data.pagination.total,
-          has_more: offset + data.leads.length < data.pagination.total
-        }
-      } : data);
-    } catch (error: any) {
-      setMessage(error?.message || 'Não foi possível carregar mais leads.');
-    } finally {
-      setLoadingMore(false);
-    }
+      const stages = stage ? [stage] : PIPELINE_STAGES.filter(key => stageCursors[key]);
+      for (const key of stages) if (stageCursors[key]) stagePages.current[key] = (stagePages.current[key] || 1) + 1;
+      await loadData(true);
+    } catch (error: any) { setMessage(error?.message || 'Não foi possível carregar mais leads.'); }
+    finally { setLoadingMore(false); }
   }
 
   async function runCommand(command: string, lead: PipelineLead, extra: Record<string, any> = {}, loadingMessage = 'Atualizando lead...') {
@@ -373,7 +386,11 @@ export default function StoreSlugPipelinePage() {
   }
 
   useEffect(() => {
+    generation.current++; stagePages.current = {}; stageBoundaries.current = {};
+    refreshQueued.current = false; loadInFlight.current = null; subjectRef.current = 'all';
+    setSelectedResponsible('all'); setLeads([]); setPayload(null); setStageCursors({});
     void loadData().catch((error) => setMessage(error?.message || 'Não foi possível carregar o Pipeline.'));
+    return () => { generation.current++; };
   }, [slug]);
 
   useEffect(() => {
@@ -436,11 +453,15 @@ export default function StoreSlugPipelinePage() {
 
   useEffect(() => {
     const onResponsibleChange = (event: Event) => {
-      setSelectedResponsible((event as CustomEvent<{ value?: string }>).detail?.value || 'all');
+      const subject = (event as CustomEvent<{ value?: string }>).detail?.value || 'all';
+      setSelectedResponsible(subject); subjectRef.current = subject;
+      generation.current++; stagePages.current = {}; stageBoundaries.current = {}; loadInFlight.current = null;
+      setLeads([]); setPayload(null);
+      void loadData(true).catch(error => setMessage(error.message));
     };
     window.addEventListener('pipeline-responsible-change', onResponsibleChange as EventListener);
     return () => window.removeEventListener('pipeline-responsible-change', onResponsibleChange as EventListener);
-  }, []);
+  }, [slug]);
 
   useEffect(() => {
     const profileId = payload?.profile.id;
@@ -846,7 +867,7 @@ export default function StoreSlugPipelinePage() {
                       <div className={`mb-3 rounded-2xl border px-3 py-3 ${styles.header}`}>
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${styles.dot}`} /><h2 className="text-sm font-black leading-tight">{column.title}</h2></div>
-                          <span className={`rounded-full px-3 py-1 text-xs font-black ${styles.badge}`}>{column.leads.length}</span>
+                          <span className={`rounded-full px-3 py-1 text-xs font-black ${styles.badge}`}>{payload.stage_totals[column.key] || 0}</span>
                         </div>
                       </div>
                       <div data-pipeline-stage-cards="true" className="space-y-1">
@@ -873,6 +894,7 @@ export default function StoreSlugPipelinePage() {
                             onTransfer={() => void openTransfer(lead)}
                           />
                         ))}
+                        {stageCursors[column.key] ? <button type="button" disabled={loadingMore} onClick={() => void loadMore(column.key)} className="premium-button-secondary">Carregar mais desta etapa</button> : null}
                         {column.leads.length === 0 ? <div className="rounded-2xl border border-dashed border-zinc-200 bg-white/70 p-5 text-center text-xs font-bold text-zinc-400">Solte o card aqui</div> : null}
                       </div>
                     </div>
@@ -916,7 +938,7 @@ export default function StoreSlugPipelinePage() {
 
           <section className="premium-card mt-5 p-5">
             <div className="grid gap-3 md:grid-cols-4">
-              <Status label="Novos" value={leads.filter((lead) => lead.status === 'new_lead').length} icon={<Clock3 size={18} />} />
+              <Status label="Novos" value={payload.metrics.new_leads} icon={<Clock3 size={18} />} />
               <Status label="Agendados" value={payload.metrics.scheduled} icon={<CalendarCheck size={18} />} />
               <Status label="Confirmados" value={payload.metrics.sold} icon={<CheckCircle2 size={18} />} />
               <Status label="Perdidos" value={payload.metrics.lost} icon={<XCircle size={18} />} />

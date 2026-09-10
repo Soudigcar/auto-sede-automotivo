@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { calculateResponseTimes, responseByLeadId } from '@/lib/commercialMetrics';
+import { readCanonicalCommercialMetrics, resolveMetricsSubject } from '@/lib/server/canonicalCommercialMetrics';
+import { PIPELINE_STAGES } from '@/lib/pipelineStagePagination';
 import { cleanText } from '@/lib/server/storeTeam';
 import { authorizeStorePortal, storeVisibleLeadOrigin } from '@/lib/server/storePortal';
 import { whatsappCustomerDisplayName } from '@/lib/server/whatsappCustomerIdentity';
@@ -32,12 +33,13 @@ function historicalParticipantField(role: string) {
   return null;
 }
 
-function applyPipelineLeadScope(query: any, profile: any, role: string) {
-  if (role === 'master' || role === 'store') return query;
+function applyPipelineLeadScope(query: any, profile: any, role: string, cursorFilter?: string) {
+  if (role === 'master' || role === 'store') return cursorFilter ? query.or(cursorFilter) : query;
   const userId = cleanText(profile?.id, 80);
   if (!userId) return query.eq('id', '__unauthorized__');
   const participantField = historicalParticipantField(role);
-  if (!participantField) return query.eq('assigned_user_id', userId);
+  if (!participantField) return cursorFilter ? query.eq('assigned_user_id', userId).or(cursorFilter) : query.eq('assigned_user_id', userId);
+  if (cursorFilter) return query.or(`and(or(assigned_user_id.eq.${userId},and(status.eq.sale_confirmed,${participantField}.eq.${userId})),or(${cursorFilter}))`);
   return query.or(`assigned_user_id.eq.${userId},and(status.eq.sale_confirmed,${participantField}.eq.${userId})`);
 }
 
@@ -59,25 +61,45 @@ export async function GET(request: Request) {
   try {
     const searchParams = new URL(request.url).searchParams;
     const slug = cleanText(searchParams.get('slug'), 120);
-    const offset = Math.max(0, Number.parseInt(searchParams.get('offset') || '0', 10) || 0);
+    const offset = searchParams.get('stage') ? 0 : Math.max(0, Number.parseInt(searchParams.get('offset') || '0', 10) || 0);
     const pageSize = Math.min(200, Math.max(25, Number.parseInt(searchParams.get('limit') || '200', 10) || 200));
     const context = await authorizeStorePortal(request, slug);
     if ('error' in context) return context.error;
 
+    const subject = await resolveMetricsSubject(context, searchParams.get('subject'));
+    const stage = searchParams.get('stage');
+    if (stage && !(PIPELINE_STAGES as readonly string[]).includes(stage)) return NextResponse.json({ error: 'Etapa inválida.' }, { status: 400 });
+    let cursor: { created_at: string; id: string } | null = null;
+    if (searchParams.get('cursor')) {
+      try { cursor = JSON.parse(searchParams.get('cursor')!); } catch { return NextResponse.json({ error: 'Cursor inválido.' }, { status: 400 }); }
+      if (!cursor || !/^\d{4}-\d{2}-\d{2}T[0-9:.+Z-]+$/.test(cursor.created_at) || !Number.isFinite(Date.parse(cursor.created_at)) ||
+        !/^[0-9a-f-]{36}$/i.test(cursor.id) || !stage) return NextResponse.json({ error: 'Cursor inválido.' }, { status: 400 });
+    }
+    let scopeProfile = context.profile;
+    let scopeRole: string = context.role;
+    if (subject && ['master', 'store'].includes(context.role)) {
+      const { data: member, error: memberError } = await context.supabase.from('users').select('id,role').eq('store_id', context.store.id).eq('id', subject).eq('status', 'active').single();
+      if (memberError || !member) throw new Error('Responsável inválido.');
+      scopeProfile = member; scopeRole = member.role;
+      // A manager selected as subject means current ownership only.
+      if (scopeRole === 'store') scopeRole = 'member';
+    }
     let query = context.supabase
       .from('leads')
       .select([
         'id', 'customer_name', 'customer_phone', 'interested_vehicle', 'origin', 'status',
         'assigned_user_id', 'seller_user_id', 'pre_sales_user_id', 'captured_by_user_id',
         'notes', 'scheduled_at', 'appointment_notes', 'appointment_cancelled_at',
-        'appointment_cancelled_reason', 'lost_reason', 'created_at'
+        'appointment_cancelled_reason', 'lost_reason', 'created_at', 'updated_at'
       ].join(','), { count: 'exact' })
       .eq('assigned_store_id', context.store.id)
       .neq('status', 'deleted')
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: false }).order('id', { ascending: false })
       .range(offset, offset + pageSize - 1);
 
-    query = applyPipelineLeadScope(query, context.profile, context.role);
+    const cursorFilter = cursor ? `created_at.lt.${cursor.created_at},and(created_at.eq.${cursor.created_at},id.lt.${cursor.id})` : undefined;
+    query = applyPipelineLeadScope(query, scopeProfile, scopeRole, cursorFilter);
+    if (stage) query = query.eq('status', stage);
     const { data, error, count } = await query;
     if (error) throw error;
 
@@ -102,7 +124,6 @@ export async function GET(request: Request) {
     }
 
     let conversationRows: any[] = [];
-    let messageRows: any[] = [];
     let contactRows: any[] = [];
     let whatsappBusinessNames: unknown[] = [context.store.store_name];
     let whatsappEnrichment: 'ready' | 'degraded' = 'ready';
@@ -121,17 +142,6 @@ export async function GET(request: Request) {
           .order('last_message_at', { ascending: false });
         if (conversationsResult.error) throw conversationsResult.error;
         conversationRows = conversationsResult.data || [];
-      }
-
-      const conversationIds = conversationRows.map((conversation: any) => conversation.id).filter(Boolean);
-      if (conversationIds.length) {
-        const messagesResult = await context.supabase
-          .from('whatsapp_messages')
-          .select('conversation_id,lead_id,direction,raw_payload,sent_at,created_at')
-          .in('conversation_id', conversationIds)
-          .order('sent_at', { ascending: true });
-        if (messagesResult.error) throw messagesResult.error;
-        messageRows = messagesResult.data || [];
       }
 
       const contactIds = Array.from(new Set(conversationRows.map((conversation: any) => conversation.contact_id).filter(Boolean)));
@@ -158,7 +168,6 @@ export async function GET(request: Request) {
       whatsappEnrichment = 'degraded';
       whatsappWarning = 'Os leads foram carregados, mas o enriquecimento do WhatsApp está temporariamente indisponível.';
       conversationRows = [];
-      messageRows = [];
       contactRows = [];
       console.warn('[Store Pipeline] WhatsApp enrichment degraded; returning leads without blocking Pipeline.', {
         storeId: context.store.id,
@@ -166,9 +175,7 @@ export async function GET(request: Request) {
       });
     }
 
-    const responseMeasurements = responseByLeadId(
-      calculateResponseTimes(conversationRows, messageRows).measurements
-    );
+    const canonical = await readCanonicalCommercialMetrics(context, { subject, cardIds: loadedLeadIds });
 
     const conversationByLeadId = new Map<string, any>();
     for (const conversation of conversationRows) {
@@ -181,7 +188,7 @@ export async function GET(request: Request) {
     const leads = (data || []).map((lead: any) => {
       const conversation = conversationByLeadId.get(lead.id) || null;
       const contact = conversation?.contact_id ? contactById.get(conversation.contact_id) : null;
-      const response = responseMeasurements.get(String(lead.id));
+      const response = canonical.card_responses[String(lead.id)];
       const accessMode = pipelineLeadAccessMode(lead, context.profile, context.role);
 
       return {
@@ -209,38 +216,7 @@ export async function GET(request: Request) {
       };
     });
 
-    const loadedMetrics = {
-      total: count || leads.length,
-      scheduled: leads.filter((lead: any) => lead.status === 'scheduled').length,
-      cancelled: leads.filter((lead: any) => lead.status === 'appointment_cancelled').length,
-      sold: leads.filter((lead: any) => lead.status === 'sale_confirmed').length,
-      lost: leads.filter((lead: any) => lead.status === 'lost').length
-    };
-
-    const metrics = offset === 0 && (count || 0) > leads.length
-      ? await (async () => {
-          async function countStatus(status: string) {
-            let statusQuery = context.supabase
-              .from('leads')
-              .select('id', { count: 'exact', head: true })
-              .eq('assigned_store_id', context.store.id)
-              .eq('status', status);
-            statusQuery = applyPipelineLeadScope(statusQuery, context.profile, context.role!);
-            const { count: statusCount, error: statusError } = await statusQuery;
-            if (statusError) throw statusError;
-            return statusCount || 0;
-          }
-
-          const [scheduled, cancelled, sold, lost] = await Promise.all([
-            countStatus('scheduled'),
-            countStatus('appointment_cancelled'),
-            countStatus('sale_confirmed'),
-            countStatus('lost')
-          ]);
-
-          return { total: count || leads.length, scheduled, cancelled, sold, lost };
-        })()
-      : loadedMetrics;
+    const metrics = canonical.metrics;
 
     let team: Array<{ id: string; full_name: string; role: string; role_label: string }> = [];
 
@@ -301,6 +277,8 @@ export async function GET(request: Request) {
         can_confirm_sale: context.role !== 'prospector'
       },
       metrics,
+      stage_totals: canonical.stage_totals,
+      subject_user_id: subject,
       team,
       leads,
       enrichment: {
@@ -310,8 +288,10 @@ export async function GET(request: Request) {
       pagination: {
         offset,
         limit: pageSize,
-        total: count || leads.length,
-        has_more: offset + leads.length < (count || leads.length)
+        total: stage ? (canonical.stage_totals[stage] || 0) : canonical.metrics.total,
+        has_more: offset + leads.length < (count || leads.length),
+        next_cursor: stage && leads.length && offset + leads.length < (count || leads.length)
+          ? { created_at: leads[leads.length - 1].created_at, id: leads[leads.length - 1].id } : null
       }
     });
   } catch (error: any) {

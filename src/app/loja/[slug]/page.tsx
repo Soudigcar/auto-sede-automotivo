@@ -23,6 +23,7 @@ import { createClient } from '@/lib/supabase';
 import { useStorePortal } from '@/components/StorePortalShell';
 
 type DashboardData = {
+  autocar?: { available: boolean; reason?: string; answered_leads?: number; answered_conversations?: number; sent_messages?: number; currently_active_conversations?: number; appointments_with_participation?: number; sales_with_participation?: number; first_response?: { measured_leads: number; p50_minutes: number | null; p90_minutes: number | null } };
   generated_at: string;
   scope_label: string;
   metrics: {
@@ -39,16 +40,17 @@ type DashboardData = {
     conversion_rate: number;
     assignment_coverage_percent: number;
     response: {
-      eligible_conversations: number;
-      measured_conversations: number;
-      unanswered_conversations: number;
+      indeterminate_leads?: number;
+      eligible_leads: number;
+      measured_leads: number;
+      unanswered_leads: number;
       coverage_percent: number;
       average_minutes: number | null;
       median_minutes: number | null;
       p90_minutes: number | null;
     };
   };
-  team: Array<{ id: string; full_name: string; role_label: string; leads: number; active_leads: number; converted_leads: number; conversion_rate: number; response: DashboardData['metrics']['response'] }>;
+  team: Array<{ id: string; full_name: string; role_label: string; leads: number; active_leads: number; converted_leads: number; seller_participation: number; pre_sales_participation: number; prospector_participation: number; conversion_rate: number | null; response: DashboardData['metrics']['response'] }>;
   recent_leads: any[];
   upcoming_appointments: any[];
 };
@@ -69,7 +71,7 @@ const emptyData: DashboardData = {
     lost: 0,
     conversion_rate: 0,
     assignment_coverage_percent: 0,
-    response: { eligible_conversations: 0, measured_conversations: 0, unanswered_conversations: 0, coverage_percent: 0, average_minutes: null, median_minutes: null, p90_minutes: null }
+    response: { eligible_leads: 0, measured_leads: 0, unanswered_leads: 0, coverage_percent: 0, average_minutes: null, median_minutes: null, p90_minutes: null }
   },
   team: [],
   recent_leads: [],
@@ -211,8 +213,19 @@ export default function StoreSlugHomePage() {
           <Metric label="Vendas" value={data.metrics.sold} icon={<ShoppingCart size={24} />} tone="blue" trend="Vendas confirmadas e distintas" />
           <Metric label="Perdas" value={data.metrics.lost} icon={<XCircle size={24} />} tone="orange" trend="Perdas registradas" negative />
           <Metric label="Conversão" value={`${conversion.toFixed(1).replace('.', ',')}%`} icon={<Target size={24} />} tone="purple" trend="Vendas confirmadas ÷ leads" />
-          <Metric label="Resposta humana" value={responseTime(data.metrics.response.median_minutes)} icon={<Clock3 size={24} />} tone="cyan" trend={`${data.metrics.response.measured_conversations}/${data.metrics.response.eligible_conversations} conversas medidas · mediana`} />
+          <Metric label="Resposta humana" value={responseTime(data.metrics.response.median_minutes)} icon={<Clock3 size={24} />} tone="cyan" trend={`${data.metrics.response.measured_leads}/${data.metrics.response.eligible_leads} leads medidos · ${data.metrics.response.indeterminate_leads || 0} indeterminados · mediana`} />
         </section>
+      <section className="rounded-2xl border border-white/10 p-5">
+        <h2 className="text-lg font-black">Atendimento AUTOCAR</h2>
+        {!data.autocar?.available ? <p>{data.autocar?.reason || 'Métricas indisponíveis.'}</p> : <>
+          <p>{data.autocar.answered_leads} leads atendidos · {data.autocar.answered_conversations} conversas atendidas · {data.autocar.sent_messages} mensagens enviadas</p>
+          <p>Primeira resposta AUTOCAR: {responseTime(data.autocar.first_response?.p50_minutes ?? null)} (mediana) · {responseTime(data.autocar.first_response?.p90_minutes ?? null)} (p90)</p>
+          <p>{data.autocar.currently_active_conversations} conversas atualmente sob AUTOCAR</p>
+          <p>Agendamentos com participação AUTOCAR: {data.autocar.appointments_with_participation}</p>
+          <p>Vendas com participação AUTOCAR: {data.autocar.sales_with_participation}</p>
+        </>}
+      </section>
+
 
         <section className="aura-dark-surface mt-4 grid gap-3 rounded-2xl border border-white/10 bg-[#0d1725] p-4 text-white md:grid-cols-5">
           {funnel.map(([label, value, color], index) => (
@@ -233,7 +246,7 @@ export default function StoreSlugHomePage() {
                 <p className="mt-4 text-xs font-bold text-zinc-400">Leads atribuídos</p><p className="mt-1 text-2xl font-black text-white">{data.metrics.assignment_coverage_percent.toFixed(1).replace('.', ',')}%</p>
               </div>
               <div className="space-y-4">
-                {teamRows.length ? teamRows.map((member) => <div key={member.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-4"><div className="min-w-0"><p className="truncate text-sm font-black text-zinc-100">{member.full_name}</p><p className="mt-1 text-[10px] font-bold uppercase text-zinc-500">{member.role_label} · resposta {responseTime(member.response.median_minutes)}</p><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, data.metrics.total ? (member.leads / data.metrics.total) * 100 : 0)}%` }} /></div></div><span className="text-xs font-bold text-zinc-400">{member.leads} leads</span><strong className="text-sm text-white">{member.conversion_rate.toFixed(1).replace('.', ',')}%</strong></div>) : <p className="text-sm font-bold text-zinc-400">Sem colaboradores ativos ou leads atribuídos.</p>}
+                {teamRows.length ? teamRows.map((member) => <div key={member.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-4"><div className="min-w-0"><p className="truncate text-sm font-black text-zinc-100">{member.full_name}</p><p className="mt-1 text-[10px] font-bold uppercase text-zinc-500">{member.role_label} · resposta {responseTime(member.response.median_minutes)}</p><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, data.metrics.total ? (member.leads / data.metrics.total) * 100 : 0)}%` }} /></div></div><span className="text-xs font-bold text-zinc-400">{member.leads} leads</span><strong className="text-sm text-white">{member.seller_participation || 0} vendas · {member.pre_sales_participation || 0} pré-vendas · {member.prospector_participation || 0} captações</strong></div>) : <p className="text-sm font-bold text-zinc-400">Sem colaboradores ativos ou leads atribuídos.</p>}
               </div>
             </div>
           </Panel>

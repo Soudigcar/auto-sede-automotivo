@@ -47,6 +47,8 @@ type TeamMember = {
 };
 
 type PipelineSummary = {
+  metrics?: { total: number; new_leads: number; in_service: number; scheduled: number; showed_up: number; sold: number; response: { median_minutes: number | null; measured_leads: number } };
+  stage_totals?: Record<string, number>;
   team?: TeamMember[];
   leads?: PipelineLead[];
 };
@@ -105,20 +107,6 @@ function matchesResponsible(lead: PipelineLead, selectedResponsible: string) {
 function percentage(value: number, total: number) {
   if (!total) return 0;
   return Math.round((value / total) * 100);
-}
-
-function medianResponseMinutes(leads: PipelineLead[]) {
-  const samples = leads
-    .map((lead) => lead.human_response_minutes)
-    .filter((value): value is number => value !== null && value !== undefined && Number.isFinite(value) && value >= 0)
-    .sort((left, right) => left - right);
-
-  if (!samples.length) return { minutes: null as number | null, measured: 0 };
-  const middle = Math.floor(samples.length / 2);
-  return {
-    minutes: samples.length % 2 ? samples[middle] : (samples[middle - 1] + samples[middle]) / 2,
-    measured: samples.length
-  };
 }
 
 function formatResponseTime(minutes: number | null) {
@@ -509,7 +497,7 @@ export function StorePipelineCockpitUx() {
           const assignedIds = new Set(Object.entries(effectiveAssignments)
             .filter(([, assignment]) => assignment.sourceStatus === stage.systemKey)
             .map(([leadId]) => leadId));
-          const count = filteredLeads.filter((lead) => lead.status === stage.systemKey && !assignedIds.has(lead.id)).length;
+          const count = Math.max(0, (summaryRef.current?.stage_totals?.[stage.systemKey!] || 0) - assignedIds.size);
           const header = column.firstElementChild as HTMLElement | null;
           const badge = header ? Array.from(header.querySelectorAll<HTMLElement>('span')).find((item) => item.className.includes('rounded-full') && item !== header.querySelector('span')) : null;
           if (badge && badge.textContent !== String(count)) badge.textContent = String(count);
@@ -557,14 +545,13 @@ export function StorePipelineCockpitUx() {
 
   if (!active) return null;
 
-  const visibleLeads = (summary?.leads || []).filter((lead) => matchesResponsible(lead, selectedResponsible));
-  const total = visibleLeads.length;
-  const newLeads = visibleLeads.filter((lead) => lead.status === 'new_lead').length;
-  const inService = visibleLeads.filter((lead) => lead.status === 'in_service').length;
-  const scheduled = visibleLeads.filter((lead) => lead.status === 'scheduled').length;
-  const showedUp = visibleLeads.filter((lead) => lead.has_showed_up === true).length;
-  const closed = visibleLeads.filter((lead) => lead.status === 'sale_confirmed').length;
-  const response = medianResponseMinutes(visibleLeads);
+  const total = summary?.metrics?.total || 0;
+  const newLeads = summary?.metrics?.new_leads || 0;
+  const inService = summary?.metrics?.in_service || 0;
+  const scheduled = summary?.metrics?.scheduled || 0;
+  const showedUp = summary?.metrics?.showed_up || 0;
+  const closed = summary?.metrics?.sold || 0;
+  const response = { minutes: summary?.metrics?.response.median_minutes ?? null, measured: summary?.metrics?.response.measured_leads || 0 };
 
   const indicators = [
     { label: 'Novos', value: String(newLeads), detail: `${percentage(newLeads, total)}% do total`, icon: UserRound, tone: 'coral' },
@@ -572,7 +559,7 @@ export function StorePipelineCockpitUx() {
     { label: 'Agendados', value: String(scheduled), detail: `${percentage(scheduled, total)}% do total`, icon: CalendarClock, tone: 'amber' },
     { label: 'Compareceram', value: String(showedUp), detail: `${percentage(showedUp, total)}% do total`, icon: UserRoundCheck, tone: 'cyan' },
     { label: 'Fechados', value: String(closed), detail: `${percentage(closed, total)}% do total`, icon: CircleCheckBig, tone: 'green' },
-    { label: 'Resposta humana', value: formatResponseTime(response.minutes), detail: response.measured ? `mediana de ${response.measured} conversa${response.measured === 1 ? '' : 's'} · AUTOCAR excluída` : 'sem conversa humana medida', icon: Timer, tone: 'blue' }
+    { label: 'Resposta humana', value: formatResponseTime(response.minutes), detail: response.measured ? `mediana de ${response.measured} lead${response.measured === 1 ? '' : 's'} · AUTOCAR excluída` : 'sem resposta humana comprovada', icon: Timer, tone: 'blue' }
   ];
 
   function openCustomization() {
