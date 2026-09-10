@@ -1,3 +1,5 @@
+-- Audit tags only: these settings do NOT prove database identity.
+-- Require a fresh official branch preflight and an explicit verified connection before applying.
 -- Isolated project installation only. No operational migrations or integrations.
 do $$
 declare ref text := current_setting('app.metrics_project_ref',true);
@@ -5,7 +7,7 @@ begin
  if current_setting('app.metrics_homologation',true) is distinct from 'synthetic-only'
  or ref is null or ref !~ '^[a-z]{20}$'
  or ref in ('wufikrdgyxrsszlbpfmv','icmwdggbvijexjgrvsbl','azszzdotbrczlhrmhrlw','hfzmzfhuhukmxkxbkxay')
- or current_setting('app.settings.api_external_url',true) is distinct from ('https://' || ref || '.supabase.co')
+ or current_setting('app.metrics_preflight',true) is distinct from 'branch-metadata-v1'
  then raise exception 'Unverified homologation database'; end if;
 end $$;
 -- Synthetic external_execution=true DOES NOT perform external execution.

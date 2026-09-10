@@ -30,15 +30,38 @@ redirects são rejeitados. Não existem credenciais operacionais nos fixtures.
 
 Não utilizar `supabase db push`, projeto linked/default ou migrations completas.
 `schema.sql`, RPCs propostas e `seed.sql` são arquivos separados.
-O renderer local exige `--kind` e `--project-ref`, confere o manifesto e apenas
-imprime um bundle transacional. Não faz conexão nem executa SQL.
-O bootstrap exige marca synthetic-only, ref permitido e a identificação
-`app.settings.api_external_url` correspondente ao destino. Essa identificação
-precisa ser verificada no futuro projeto. Se estiver ausente, PARAR; não
-inventar ou sobrescrever a identidade do banco para contornar o bloqueio.
-Os testes locais configuram essa identidade exclusivamente na instância PGlite.
-Essas verificações SQL são defesa adicional; a origem da conexão também deve
-ser conferida pelo operador antes da instalação. Não são autorização independente.
+O renderer exige `--kind`, `--project-ref`, `--expected-parent-ref`,
+`--branch-name` e `--api-url`, sem defaults. Primeiro valida o manifesto;
+depois consulta GET `https://api.supabase.com/v1/projects/{parent}/branches`.
+Exige uma única branch com ref, parent e nome exatos, `is_default=false`,
+`with_data=false`, `status=FUNCTIONS_DEPLOYED` e `preview_project_status=ACTIVE_HEALTHY`.
+A URL deve ser exatamente `https://{ref}.supabase.co`, sem porta, caminho,
+userinfo ou redirecionamento. Os dois refs do manifesto devem ser distintos
+e nenhum pode pertencer à lista proibida.
+
+`SUPABASE_ACCESS_TOKEN` é utilizado somente pelo operador local para leitura
+da Management API. Nunca é impresso, incluído no SQL, enviado ao Vercel ou
+armazenado em Git. Falhas são sanitizadas. Testes usam transportes simulados.
+Nenhuma consulta SQL remota é realizada pelo renderer; ele apenas imprime o bundle.
+O manifesto permanece bloqueado, portanto nenhum bundle de instalação pode
+ser gerado até autorização posterior de seus refs.
+
+Antes da aplicação futura, o operador deve repetir o preflight oficial e
+usar explicitamente o mesmo project ref na ferramenta/conexão, validando
+hostname e TLS. Não aceitar linked/default project, arquivo de metadata
+fornecido livremente, seleção por ambiente local ou bundle antigo como prova.
+O preflight autoriza um destino, não concede autorização para instalar SQL.
+As GUCs `app.metrics_homologation`, `app.metrics_project_ref` e
+`app.metrics_preflight` são apenas etiquetas do bundle. NÃO comprovam a
+identidade do banco, são reproduzíveis por qualquer sessão autorizada a SQL.
+`app.settings.api_external_url`, `cluster_name`, `current_database()` e
+`autocar_runtime_config.environment` não são utilizados como identidade.
+Não existe fallback que crie uma identidade artificial.
+
+O bootstrap mínimo foi originalmente preparado para projetos vazios.
+Branches com estrutura herdada precisam de revisão de compatibilidade de
+colunas, constraints e policies antes de aplicação; corrigir identidade não
+significa aprovar automaticamente schema ou seed sobre a estrutura herdada.
 
 CRM: nove tabelas mínimas, sem extensão adicional, cron, trigger de integração,
 Edge Function ou Storage. `store_whatsapp_integrations` existe vazia, sem
@@ -108,9 +131,9 @@ verificação. Nenhuma variável foi lida em valor ou alterada nesta rodada.
 
 ## Pendências antes do Preview
 
-- Criar projetos somente após autorização e custo confirmado.
+- Revalidar as branches temporárias existentes e concluir sua neutralização autorizada.
 - Revisar refs no manifesto em commit separado autorizado.
-- Certificar configuração de identidade SQL; não desativar guards se ausente.
+- Aplicar preflight externo autoritativo e conexão explicitamente direcionada; não fabricar identidade SQL.
 - Certificar inventário/overrides Vercel e exposição dos metadados oficiais.
 - Instalar estrutura, criar Auth sintético e testar autenticação real isolada.
 - Conferir visualmente app shell, CSP, assets, fluxo login e Realtime.
@@ -134,3 +157,13 @@ O teste do hook executa a função real transpilada e exige zero fetches.
 O teste de proxy exige rejeição da foto antes de encaminhar à rota.
 Não houve verificação visual de Preview, login Supabase hospedado ou evento
 Realtime remoto. A prontidão desta entrega é local, não validação integrada.
+
+## Fase 2A-2C — correção de identidade
+
+Alteração limitada ao preflight/renderer, etiquetas dos cinco arquivos SQL,
+testes e documentação. O manifesto de aplicação continua `approved=false`
+e refs nulos. Nenhum seletor operacional AUTOCAR foi modificado.
+A autorização nominal das branches para neutralização é independente da
+aprovação futura de instalação pelo manifesto. O operador deve registrar os
+metadados oficiais antes de neutralizar, sempre com ref temporário explícito.
+A correção não aplica bootstrap, RPC, seed, Auth ou configuração Vercel.

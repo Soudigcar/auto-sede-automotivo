@@ -53,7 +53,7 @@ test('profile picture UI exits before enqueue/fetch in homologation',()=>{
  assert.ok(fn.indexOf("status: 'missing'")<fn.indexOf('fetch('));
 });
 const base='supabase/homologation/commercial-metrics-v1';
-async function database(ref:string){const db=new PGlite();await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key);create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('test.uid',true),'')::uuid$$;grant usage on schema auth to authenticated;grant execute on function auth.uid() to authenticated;set app.metrics_homologation='synthetic-only';set app.metrics_project_ref='${ref}';set app.settings.api_external_url='https://${ref}.supabase.co';`);return db;}
+async function database(ref:string){const db=new PGlite();await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key);create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('test.uid',true),'')::uuid$$;grant usage on schema auth to authenticated;grant execute on function auth.uid() to authenticated;set app.metrics_homologation='synthetic-only';set app.metrics_project_ref='${ref}';set app.metrics_preflight='branch-metadata-v1';`);return db;}
 test('separate bootstraps install twice, preserve deterministic data and SQL permissions',async()=>{
  const c=await database(crm),a=await database(autocar);
  try{
@@ -91,7 +91,7 @@ test('separate bootstraps install twice, preserve deterministic data and SQL per
  assert.deepEqual((await c.query<{tablename:string}>("select tablename from pg_publication_tables where pubname='supabase_realtime'")).rows.map(r=>r.tablename),['leads']);
  }finally{await c.close();await a.close();}
 });
-test('SQL rejects missing or prohibited identity before DDL',async()=>{
+test('SQL audit tags reject prohibited bundle refs before DDL',async()=>{
  const db=await database(forbiddenMetricsRefs[0]);try{await assert.rejects(db.exec(readFileSync(`${base}/crm/schema.sql`,'utf8')));}finally{await db.close();}
 });
 
