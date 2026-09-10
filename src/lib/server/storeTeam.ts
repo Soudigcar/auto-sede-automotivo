@@ -1,3 +1,4 @@
+import { homologationRequested, validateMetricsHomologation, restrictedCrmFetch } from '../commercialMetricsHomologation';
 import { createClient } from '@supabase/supabase-js';
 
 export type StoreTeamRole = 'pre_sales' | 'seller' | 'prospector';
@@ -22,7 +23,9 @@ export function createAdminClient() {
     throw new Error('Supabase Service Role não configurada no servidor.');
   }
 
+  const refs = homologationRequested() ? validateMetricsHomologation() : null;
   return createClient(supabaseUrl, serviceRoleKey, {
+    ...(refs ? { global: { fetch: restrictedCrmFetch(`${refs.crm}.supabase.co`) } } : {}),
     auth: {
       persistSession: false,
       autoRefreshToken: false

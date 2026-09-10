@@ -1,0 +1,59 @@
+{
+  "purpose": "Synthetic Auth provisioning plan only; no passwords or executable API requests",
+  "users": [
+    {
+      "email": "synthetic-1@metrics.invalid",
+      "name": "Synthetic Master",
+      "email_confirm": true,
+      "profile_id": "20000000-0000-4000-8000-000000000001"
+    },
+    {
+      "email": "synthetic-2@metrics.invalid",
+      "name": "Synthetic Manager Alpha",
+      "email_confirm": true,
+      "profile_id": "20000000-0000-4000-8000-000000000002"
+    },
+    {
+      "email": "synthetic-3@metrics.invalid",
+      "name": "Synthetic Pre Sales Alpha",
+      "email_confirm": true,
+      "profile_id": "20000000-0000-4000-8000-000000000003"
+    },
+    {
+      "email": "synthetic-4@metrics.invalid",
+      "name": "Synthetic Seller Alpha",
+      "email_confirm": true,
+      "profile_id": "20000000-0000-4000-8000-000000000004"
+    },
+    {
+      "email": "synthetic-5@metrics.invalid",
+      "name": "Synthetic Prospector Alpha",
+      "email_confirm": true,
+      "profile_id": "20000000-0000-4000-8000-000000000005"
+    },
+    {
+      "email": "synthetic-6@metrics.invalid",
+      "name": "Synthetic Manager Beta",
+      "email_confirm": true,
+      "profile_id": "20000000-0000-4000-8000-000000000006"
+    },
+    {
+      "email": "synthetic-7@metrics.invalid",
+      "name": "Synthetic Seller Beta",
+      "email_confirm": true,
+      "profile_id": "20000000-0000-4000-8000-000000000007"
+    },
+    {
+      "email": "synthetic-8@metrics.invalid",
+      "name": "Synthetic Pre Sales Beta",
+      "email_confirm": true,
+      "profile_id": "20000000-0000-4000-8000-000000000008"
+    },
+    {
+      "email": "synthetic-9@metrics.invalid",
+      "name": "Synthetic Prospector Beta",
+      "email_confirm": true,
+      "profile_id": "20000000-0000-4000-8000-000000000009"
+    }
+  ]
+}

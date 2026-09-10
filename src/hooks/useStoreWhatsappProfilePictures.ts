@@ -92,6 +92,7 @@ function enqueue(task: () => Promise<SessionEntry>) {
 }
 
 function loadPicture(slug: string, conversation: any, accessToken: string) {
+  if (process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview' && process.env.NEXT_PUBLIC_COMMERCIAL_METRICS_HOMOLOGATION_ENABLED === 'true') return Promise.resolve({ status: 'missing', url: '' } satisfies SessionEntry);
   const key = pictureKey(slug, conversation);
   if (!key || !isEvolutionConversation(conversation)) {
     return Promise.resolve({ status: 'missing', url: '' } satisfies SessionEntry);

@@ -1,12 +1,11 @@
-import { createAutocarRuntimeClient, resolveAutocarRuntimeTarget } from './autocar/runtimeEnvironment';
+import { createAutocarMetricsClient } from './autocarMetricsEnvironment';
 import { resolveMetricsSubject, type MetricsContext } from './canonicalCommercialMetrics';
 
 /** Reads persisted evidence only. Never imports runtime executors or store upserts. */
 export async function readAutocarMetrics(context: MetricsContext, asOf: string) {
   const subject = await resolveMetricsSubject(context);
   try {
-    const target = resolveAutocarRuntimeTarget();
-    const autocar = createAutocarRuntimeClient(target);
+    const autocar = createAutocarMetricsClient();
     const evidence = await autocar.rpc('read_store_autocar_evidence_v1', {
       p_store_id: context.store.id, p_as_of: asOf
     });

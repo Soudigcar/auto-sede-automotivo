@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
+import { homologationRequested, homologationRouteAllowed, validateMetricsHomologation } from './lib/commercialMetricsHomologation';
+
 const OFFICIAL_HOST = 'www.autosede.com.br';
 const APEX_HOST = 'autosede.com.br';
 const INTERNAL_HOST = 'sistemaautomotivo.autosede.com.br';
@@ -57,6 +59,18 @@ function internalResponse() {
 }
 
 export function proxy(request: NextRequest) {
+  if (homologationRequested()) {
+    try { validateMetricsHomologation(); } catch {
+      return NextResponse.json({ error: 'Homologação não configurada.' }, { status: 503 });
+    }
+    if (request.nextUrl.pathname === '/master/dashboard/live' && ['GET','HEAD'].includes(request.method)) return NextResponse.redirect(new URL('/loja/store-alpha', request.url));
+    if (!homologationRouteAllowed(request.nextUrl.pathname, request.method)) return NextResponse.json({ error: 'Rota bloqueada na homologação.' }, { status: 403 });
+    const response = NextResponse.next();
+    const crm = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).hostname;
+    response.headers.set('Content-Security-Policy', `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://${crm} wss://${crm}; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'`);
+    response.headers.set('Cache-Control', 'private, no-store');
+    return response;
+  }
   const host = requestHost(request);
   const pathname = request.nextUrl.pathname;
 
@@ -97,5 +111,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)']
+  matcher: ['/:path*']
 };
