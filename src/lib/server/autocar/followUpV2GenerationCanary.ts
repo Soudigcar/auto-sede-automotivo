@@ -55,16 +55,9 @@ const canarySchema: Record<string, unknown> = {
     suggested_message: { type: 'string' }
   },
   required: [
-    'is_commercial_conversation',
-    'block_reason',
-    'last_topic',
-    'customer_last_intent',
-    'store_last_action',
-    'pending_thread',
-    'reopening_hook',
-    'commercial_objective',
-    'avoid_repeating',
-    'suggested_message'
+    'is_commercial_conversation', 'block_reason', 'last_topic', 'customer_last_intent',
+    'store_last_action', 'pending_thread', 'reopening_hook', 'commercial_objective',
+    'avoid_repeating', 'suggested_message'
   ]
 };
 
@@ -74,53 +67,29 @@ const syntheticInput = {
   operational_context: {
     next_best_action: 'Continue the synthetic vehicle-interest conversation without claiming any external action.'
   },
-  store: {
-    name: 'AUTOCAR Synthetic Store',
-    city: 'Goiania',
-    state: 'GO'
-  },
+  store: { name: 'AUTOCAR Synthetic Store', city: 'Goiania', state: 'GO' },
   crm: {
-    customer_name: 'Synthetic Customer',
-    vehicle_interest: 'Synthetic Hatch 2024',
-    status: 'in_progress',
-    scheduled_at: null,
-    payment_type: null,
-    financing_bank: null
+    customer_name: 'Synthetic Customer', vehicle_interest: 'Synthetic Hatch 2024', status: 'in_progress',
+    scheduled_at: null, payment_type: null, financing_bank: null
   },
   recent_conversation_weighted: [
     {
-      recency_rank: 3,
-      recency_weight: 'ALTO',
-      speaker: 'CLIENTE',
-      type: 'text',
-      text: 'Tenho interesse no carro. Ele ainda esta disponivel?',
-      sent_at: '2026-01-01T12:00:00.000Z'
+      recency_rank: 3, recency_weight: 'ALTO', speaker: 'CLIENTE', type: 'text',
+      text: 'Tenho interesse no carro. Ele ainda esta disponivel?', sent_at: '2026-01-01T12:00:00.000Z'
     },
     {
-      recency_rank: 2,
-      recency_weight: 'MAXIMO',
-      speaker: 'LOJA',
-      type: 'text',
-      text: 'Sim. Voce gostaria de agendar uma visita para conhecer o veiculo?',
-      sent_at: '2026-01-01T12:01:00.000Z'
+      recency_rank: 2, recency_weight: 'MAXIMO', speaker: 'LOJA', type: 'text',
+      text: 'Sim. Voce gostaria de agendar uma visita para conhecer o veiculo?', sent_at: '2026-01-01T12:01:00.000Z'
     },
     {
-      recency_rank: 1,
-      recency_weight: 'MAXIMO',
-      speaker: 'CLIENTE',
-      type: 'text',
-      text: 'Tenho interesse, mas para mim sabado seria melhor.',
-      sent_at: '2026-01-01T12:03:00.000Z'
+      recency_rank: 1, recency_weight: 'MAXIMO', speaker: 'CLIENTE', type: 'text',
+      text: 'Tenho interesse, mas para mim sabado seria melhor.', sent_at: '2026-01-01T12:03:00.000Z'
     }
   ],
   autocar_intelligence: {
-    hard_policies: [],
-    commercial_constitution: { synthetic: true },
+    hard_policies: [], commercial_constitution: { synthetic: true },
     context_engine: { synthetic: true, training_selected: 0, knowledge_selected: 0 },
-    approved_training: [],
-    method_and_global_knowledge: [],
-    store_specific_knowledge: [],
-    store_inventory: null
+    approved_training: [], method_and_global_knowledge: [], store_specific_knowledge: [], store_inventory: null
   }
 };
 
@@ -131,12 +100,17 @@ const syntheticEmbeddingInput = [
 ].join(' ');
 
 export function assertFollowUpV2GenerationCanaryEnvironment(environment: FollowUpV2GenerationCanaryEnvironment) {
-  if (environment.VERCEL_ENV !== 'preview') {
-    throw new Error('follow_up_v2_generation_canary_preview_only');
-  }
+  if (environment.VERCEL_ENV !== 'preview') throw new Error('follow_up_v2_generation_canary_preview_only');
   if (environment.VERCEL_GIT_COMMIT_REF !== FOLLOW_UP_V2_GENERATION_CANARY_BRANCH) {
     throw new Error('follow_up_v2_generation_canary_branch_only');
   }
+}
+
+function currentCanaryEnvironment(): FollowUpV2GenerationCanaryEnvironment {
+  return {
+    VERCEL_ENV: process.env.VERCEL_ENV,
+    VERCEL_GIT_COMMIT_REF: process.env.VERCEL_GIT_COMMIT_REF
+  };
 }
 
 function embeddingFingerprint(embedding: number[]) {
@@ -147,20 +121,15 @@ export async function runFollowUpV2GenerationCanary(options: {
   environment?: FollowUpV2GenerationCanaryEnvironment;
   ports?: FollowUpV2GenerationCanaryPorts;
 } = {}) {
-  const environment = options.environment || process.env;
+  const environment: FollowUpV2GenerationCanaryEnvironment = options.environment || currentCanaryEnvironment();
   const ports = options.ports || defaultPorts;
   assertFollowUpV2GenerationCanaryEnvironment(environment);
 
   try {
-    const embedding = await ports.createEmbedding(
-      syntheticEmbeddingInput,
-      FOLLOW_UP_V2_GENERATION_CANARY_CORRELATION_ID
-    );
+    const embedding = await ports.createEmbedding(syntheticEmbeddingInput, FOLLOW_UP_V2_GENERATION_CANARY_CORRELATION_ID);
     if (!Array.isArray(embedding) || embedding.length !== EXPECTED_EMBEDDING_DIMENSIONS) {
       throw invalidOpenAiResponseFailure(
-        'retrieval_embedding',
-        'invalid_canary_embedding_dimensions',
-        FOLLOW_UP_V2_GENERATION_CANARY_CORRELATION_ID
+        'retrieval_embedding', 'invalid_canary_embedding_dimensions', FOLLOW_UP_V2_GENERATION_CANARY_CORRELATION_ID
       );
     }
 
@@ -185,33 +154,19 @@ export async function runFollowUpV2GenerationCanary(options: {
 
     const plan = generated.parsed || {};
     const suggestedMessage = String(plan.suggested_message || '').trim();
-    const outputValid = plan.is_commercial_conversation === true
-      && suggestedMessage.length > 0
-      && suggestedMessage.length <= 600;
+    const outputValid = plan.is_commercial_conversation === true && suggestedMessage.length > 0 && suggestedMessage.length <= 600;
 
     return {
       ok: outputValid,
       canary: 'follow_up_v2_generation_only',
       reason: outputValid ? 'generation_ready' : 'generation_invalid',
-      safety: {
-        synthetic_only: true,
-        persistence_enabled: false,
-        outbound_enabled: false,
-        tools_enabled: false
-      },
+      safety: { synthetic_only: true, persistence_enabled: false, outbound_enabled: false, tools_enabled: false },
       stages: {
-        retrieval_embedding: 'pass',
-        structured_response: 'pass',
-        output_validation: outputValid ? 'pass' : 'fail'
+        retrieval_embedding: 'pass', structured_response: 'pass', output_validation: outputValid ? 'pass' : 'fail'
       },
-      embedding: {
-        model: EMBEDDING_MODEL,
-        dimensions: embedding.length,
-        fingerprint: embeddingFingerprint(embedding)
-      },
+      embedding: { model: EMBEDDING_MODEL, dimensions: embedding.length, fingerprint: embeddingFingerprint(embedding) },
       generation: {
-        model: String(generated.routing?.model || ''),
-        suggested_message: suggestedMessage,
+        model: String(generated.routing?.model || ''), suggested_message: suggestedMessage,
         message_length: suggestedMessage.length,
         input_tokens: Number(generated.payload?.usage?.input_tokens || 0),
         output_tokens: Number(generated.payload?.usage?.output_tokens || 0)
@@ -220,24 +175,15 @@ export async function runFollowUpV2GenerationCanary(options: {
     };
   } catch (error) {
     const diagnostic = sanitizeAutocarOpenAiFailure(
-      error,
-      'generation_internal',
-      FOLLOW_UP_V2_GENERATION_CANARY_CORRELATION_ID
+      error, 'generation_internal', FOLLOW_UP_V2_GENERATION_CANARY_CORRELATION_ID
     );
     ports.recordFailure(diagnostic);
     return {
       ok: false,
       canary: 'follow_up_v2_generation_only',
       reason: 'openai_failure',
-      safety: {
-        synthetic_only: true,
-        persistence_enabled: false,
-        outbound_enabled: false,
-        tools_enabled: false
-      },
-      stages: {
-        [diagnostic.stage]: 'fail'
-      },
+      safety: { synthetic_only: true, persistence_enabled: false, outbound_enabled: false, tools_enabled: false },
+      stages: { [diagnostic.stage]: 'fail' },
       diagnostic
     };
   }
