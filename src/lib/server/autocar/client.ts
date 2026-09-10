@@ -5,6 +5,13 @@ import {
   type AutocarModelRoutingDecision,
   type AutocarModelTask
 } from '@/lib/server/autocar/modelRouter';
+import {
+  invalidOpenAiResponseFailure,
+  missingOpenAiKeyFailure,
+  openAiHttpFailure,
+  openAiTransportFailure,
+  type AutocarOpenAiStage
+} from '@/lib/server/autocar/openAiDiagnostics';
 
 export type AutocarResponseRequest = {
   instructions: string;
@@ -16,6 +23,8 @@ export type AutocarResponseRequest = {
   confidence?: number | null;
   ambiguous?: boolean;
   risk?: 'normal' | 'high';
+  diagnosticStage?: AutocarOpenAiStage;
+  diagnosticCorrelationId?: string | null;
 };
 
 export type AutocarStructuredResponseRequest = Omit<AutocarResponseRequest, 'input'> & {
@@ -33,15 +42,10 @@ export type AutocarStructuredResponsePayload = AutocarResponsePayload & {
   parsed: any;
 };
 
-function requiredOpenAiKey() {
+function requiredOpenAiKey(stage: AutocarOpenAiStage, correlationId?: string | null) {
   const key = String(process.env.OPENAI_API_KEY || '').trim();
-  if (!key) throw new Error('OPENAI_API_KEY não disponível no ambiente de execução.');
+  if (!key) throw missingOpenAiKeyFailure(stage, correlationId);
   return key;
-}
-
-function safeProviderMessage(payload: any, status: number) {
-  const value = String(payload?.error?.message || `OpenAI respondeu com HTTP ${status}.`).trim();
-  return value.slice(0, 500);
 }
 
 export function autocarOutputText(payload: any) {
@@ -86,27 +90,35 @@ async function requestAutocarResponse(request: AutocarResponseRequest, extraBody
     ambiguous: request.ambiguous,
     risk: request.risk
   });
+  const stage = request.diagnosticStage || 'generation_internal';
+  const correlationId = request.diagnosticCorrelationId || null;
+  const key = requiredOpenAiKey(stage, correlationId);
 
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${requiredOpenAiKey()}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: routing.model,
-      store: false,
-      max_output_tokens: Math.max(128, Math.min(Number(request.maxOutputTokens || 1200), 4000)),
-      instructions: request.instructions,
-      input: request.input,
-      ...(request.includeReadTools === false ? {} : { tools: openAiAutocarReadTools() }),
-      ...extraBody
-    }),
-    cache: 'no-store'
-  });
+  let response: Response;
+  try {
+    response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: routing.model,
+        store: false,
+        max_output_tokens: Math.max(128, Math.min(Number(request.maxOutputTokens || 1200), 4000)),
+        instructions: request.instructions,
+        input: request.input,
+        ...(request.includeReadTools === false ? {} : { tools: openAiAutocarReadTools() }),
+        ...extraBody
+      }),
+      cache: 'no-store'
+    });
+  } catch (error) {
+    throw openAiTransportFailure(stage, error, correlationId);
+  }
 
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(safeProviderMessage(payload, response.status));
+  if (!response.ok) throw openAiHttpFailure(stage, response, payload, correlationId);
   return { payload, routing };
 }
 
@@ -131,11 +143,23 @@ export async function createAutocarStructuredResponse(request: AutocarStructured
   });
 
   const text = autocarOutputText(result.payload);
-  if (!text) throw new Error(`A OpenAI não retornou ${request.schemaName}.`);
+  if (!text) {
+    throw invalidOpenAiResponseFailure(
+      request.diagnosticStage || 'structured_response',
+      'missing_structured_output',
+      request.diagnosticCorrelationId,
+      result.payload?._request_id || null
+    );
+  }
 
   try {
     return { ...result, parsed: JSON.parse(text) };
   } catch {
-    throw new Error(`A resposta estruturada ${request.schemaName} não pôde ser interpretada.`);
+    throw invalidOpenAiResponseFailure(
+      request.diagnosticStage || 'structured_response',
+      'invalid_structured_json',
+      request.diagnosticCorrelationId,
+      result.payload?._request_id || null
+    );
   }
 }

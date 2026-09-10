@@ -54,7 +54,7 @@ test('release hardening usa claim por execução, só executa vencidos e restaur
   const source = fs.readFileSync('src/lib/server/autocar/followUpV2Data.ts', 'utf8');
   assert.match(source, /liveOutboundMessageId=randomUUID\(\)/);
   assert.match(source, /p_message_id:liveOutboundMessageId/);
-  assert.match(source, /source_id keeps the original CRM anchor separately/);
+  assert.doesNotMatch(source, /p_message_id:latest\.facts\.outboundId/);
   assert.match(source, /\.lte\('due_at',runNow\.toISOString\(\)\)/);
   assert.match(source, /Date\.parse\(event\.dueAt\)<=runNow\.getTime\(\)/);
   assert.match(source, /ai_follow_up_copilot_suggestions/);
