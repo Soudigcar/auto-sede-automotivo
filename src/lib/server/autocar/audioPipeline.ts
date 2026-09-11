@@ -1,4 +1,5 @@
 import { getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
+import { evaluateAutocarPolicy } from '@/lib/server/autocar/policyEngine';
 import { getEvolutionAudioBase64 } from '@/lib/server/evolutionAudio';
 
 const AUDIO_PIPELINE_VERSION = 'autocar-audio-v1';
@@ -83,6 +84,7 @@ async function audioRuntimeEligibility(storeId: string, conversationId: string) 
 
   const agent = agentResult.data;
   const runtime = runtimeResult.data;
+  const policy = evaluateAutocarPolicy({ mode: 'autopilot', capability: 'respond_first_contact' });
   const agentAllowed = Boolean(
     agent?.master_enabled &&
     agent?.master_autopilot_allowed &&
@@ -103,8 +105,11 @@ async function audioRuntimeEligibility(storeId: string, conversationId: string) 
       reason: `Audio V1 bloqueado durante takeover humano: ${runtime.pause_reason || runtime.human_state || 'estado humano'}.`
     };
   }
+  if (policy.effect !== 'allow') {
+    return { allowed: false, reason: `Audio V1 bloqueado pela policy de resposta: ${policy.reason}` };
+  }
 
-  return { allowed: true, reason: 'AUTOCAR em AUTOPILOT e sem takeover humano.' };
+  return { allowed: true, reason: 'AUTOCAR em AUTOPILOT, policy allow e sem takeover humano.' };
 }
 
 async function transcribe(bytes: Buffer, mime: string) {
