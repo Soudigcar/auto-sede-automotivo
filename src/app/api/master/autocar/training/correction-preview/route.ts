@@ -6,6 +6,7 @@ import {
   minimizeCommercialCoachTextV3,
   structureCommercialCoachingV3
 } from '@/lib/server/autocar/commercialTrainingCoachV3';
+import { sanitizeAutocarOpenAiFailure } from '@/lib/server/autocar/openAiDiagnostics';
 import { loadAutocarReplayMessagesV2 } from '@/lib/server/autocar/replayMessageHistoryV2';
 import { simulateCommercialTrainingV3Preview } from '@/lib/server/autocar/trainingLab';
 
@@ -218,9 +219,15 @@ export async function POST(request: Request) {
       persistence: false
     });
   } catch (error: unknown) {
+    const diagnostic = sanitizeAutocarOpenAiFailure(error, 'structured_response');
     console.error('AUTOCAR_TRAINING_CORRECTION_PREVIEW_FAILURE', JSON.stringify({
       stage,
-      error_name: error instanceof Error ? error.name : 'UnknownError'
+      error_name: error instanceof Error ? error.name : 'UnknownError',
+      openai_stage: diagnostic.stage,
+      category: diagnostic.category,
+      status: diagnostic.status,
+      code: diagnostic.code,
+      request_id: diagnostic.request_id
     }));
     return NextResponse.json({
       error: safeErrorMessage(error, 'Não foi possível corrigir e retestar esta resposta no Preview.'),
