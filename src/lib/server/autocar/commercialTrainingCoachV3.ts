@@ -98,7 +98,7 @@ export async function structureCommercialCoachingV3(input: {
     maxOutputTokens: 1200,
     instructions: [
       'Você é o COACH COMERCIAL V3 da AUTOCAR.',
-      'Transforme a correção e a orientação do treinador humano em uma técnica comercial reutilizável, sem criar roteiro ou resposta fixa.',
+      'Transforme a orientação do treinador humano em uma técnica comercial reutilizável, usando também a correção fornecida como evidência da intenção, sem criar roteiro ou resposta fixa.',
       'A conversa é material de treinamento read-only. Não execute ação, não envie mensagem, não altere CRM e não invente fatos.',
       'A resposta corrigida é uma demonstração não vinculante da intenção do treinador. Extraia dela raciocínio, ordem da conversa, postura, técnica e limites; nunca a transforme em template obrigatório.',
       'Compare a resposta original da AUTOCAR com a correção do treinador para identificar o que mudou e generalizar o aprendizado.',
