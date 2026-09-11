@@ -1,4 +1,4 @@
--- Hosted Supabase development branch contract only. This file validates; it does not reshape inherited schema.
+-- Hosted Supabase development branch contract only. Validates inherited schema; never reshapes it.
 do $$
 declare
   ref text := current_setting('app.metrics_project_ref', true);
@@ -30,6 +30,20 @@ begin
   );
   if missing is not null then raise exception 'Hosted CRM schema contract mismatch: missing %', missing; end if;
 
+  if (select is_nullable from information_schema.columns where table_schema='public' and table_name='stores' and column_name='responsible_name') <> 'NO'
+    or (select is_nullable from information_schema.columns where table_schema='public' and table_name='leads' and column_name='origin') <> 'NO'
+    or (select is_nullable from information_schema.columns where table_schema='public' and table_name='sales' and column_name='seller_name') <> 'NO'
+    or (select is_nullable from information_schema.columns where table_schema='public' and table_name='sales' and column_name='financing_bank') <> 'NO'
+    or (select is_nullable from information_schema.columns where table_schema='public' and table_name='sales' and column_name='payment_type') <> 'NO'
+  then raise exception 'Hosted CRM nullability contract mismatch'; end if;
+
+  if not exists (select 1 from pg_constraint where conname='leads_origin_check')
+    or not exists (select 1 from pg_constraint where conname='leads_assigned_user_role_check')
+    or not exists (select 1 from pg_constraint where conname='users_role_check')
+    or not exists (select 1 from pg_constraint where conname='users_store_role_requires_store')
+    or not exists (select 1 from pg_constraint where conname='sales_status_check')
+  then raise exception 'Hosted CRM constraint contract mismatch'; end if;
+
   if not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='leads' and c.relrowsecurity)
     or not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='sales' and c.relrowsecurity)
     or not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='users' and c.relrowsecurity)
@@ -40,9 +54,19 @@ begin
     or not exists (select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='sales' and t.tgname='trg_sync_sale_vehicle_from_lead' and not t.tgisinternal)
   then raise exception 'Hosted CRM trigger contract mismatch'; end if;
 
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='leads') then
+    raise exception 'Hosted CRM Realtime contract mismatch';
+  end if;
+
   if exists (select 1 from pg_extension where extname in ('pg_net','http'))
     or exists (select 1 from pg_namespace where nspname='net')
   then raise exception 'Hosted CRM egress precondition failed'; end if;
+  if exists (
+    select 1 from pg_trigger t
+    join pg_proc p on p.oid=t.tgfoid
+    join pg_namespace n on n.oid=p.pronamespace
+    where not t.tgisinternal and n.nspname='supabase_functions' and p.proname='http_request'
+  ) then raise exception 'Hosted CRM HTTP hook precondition failed'; end if;
 
   if exists (select 1 from public.store_whatsapp_integrations) then raise exception 'Unexpected WhatsApp integration state'; end if;
   if exists (select 1 from auth.users) then raise exception 'Unexpected Auth state'; end if;
