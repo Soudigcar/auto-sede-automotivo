@@ -27,6 +27,7 @@ import {
 import { createClient } from '@/lib/supabase';
 import { getStorePortalContext } from '@/lib/storePortalClient';
 import { asTeamRegistrationUrl } from '@/lib/storeTeamRegistration';
+import MemberOffboardingAction from './MemberOffboardingAction';
 
 const roleConfigs = [
   { role: 'pre_sales', title: 'Pré-vendas', description: 'Recebe o lead da loja, faz o primeiro contato e encaminha para o vendedor.', icon: UserCheck },
@@ -292,6 +293,27 @@ export default function StoreTeamPage() {
     window.setTimeout(() => setCopiedKey(''), 1800);
   }
 
+  async function offboardMember(memberId: string, confirmation: string) {
+    const member = members.find((item) => item.id === memberId);
+    setBusyKey(`offboard:${memberId}`);
+    setMessage(member ? `Verificando desligamento de ${member.full_name}...` : 'Verificando desligamento...');
+    try {
+      const data = await postAction({ action: 'offboard_member', member_id: memberId, confirmation });
+      if (data.preview_mode) {
+        setMembers((current) => current.filter((item) => item.id !== memberId));
+        setMessage(data.message || 'SIMULAÇÃO DO PREVIEW — nenhum acesso ou dado real foi alterado.');
+        return;
+      }
+      await loadTeam();
+      setMessage(data.message || 'Colaborador excluído da equipe com segurança.');
+    } catch (error: any) {
+      setMessage(error?.message || 'Erro ao excluir colaborador da equipe.');
+      throw error;
+    } finally {
+      setBusyKey('');
+    }
+  }
+
   if (message && !store && !loading) {
     return <main className="flex min-h-screen items-center justify-center bg-[#071020] p-6 text-center text-white">{message}</main>;
   }
@@ -412,10 +434,12 @@ export default function StoreTeamPage() {
                     member={member}
                     saving={busyKey === `member:${member.id}`}
                     recovering={busyKey === `recovery:${member.id}`}
+                    offboarding={busyKey === `offboard:${member.id}`}
                     copiedRecovery={copiedKey === `recovery:${member.id}`}
                     onSave={saveMember}
                     onSendRecovery={sendPasswordRecovery}
                     onCopyRecovery={copyRecoveryPage}
+                    onOffboard={offboardMember}
                   />
                 ))}
               </div>
@@ -427,14 +451,16 @@ export default function StoreTeamPage() {
   );
 }
 
-function MemberCard({ member, saving, recovering, copiedRecovery, onSave, onSendRecovery, onCopyRecovery }: {
+function MemberCard({ member, saving, recovering, offboarding, copiedRecovery, onSave, onSendRecovery, onCopyRecovery, onOffboard }: {
   member: TeamMember;
   saving: boolean;
   recovering: boolean;
+  offboarding: boolean;
   copiedRecovery: boolean;
   onSave: (draft: TeamMember) => Promise<void>;
   onSendRecovery: (member: TeamMember) => Promise<void>;
   onCopyRecovery: (member: TeamMember) => Promise<void>;
+  onOffboard: (memberId: string, confirmation: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<TeamMember>(member);
 
@@ -527,7 +553,7 @@ function MemberCard({ member, saving, recovering, copiedRecovery, onSave, onSend
         <input type="checkbox" checked={Boolean(draft.receives_leads)} onChange={(event) => changeRouting(event.target.checked)} className="h-5 w-5 accent-red-600" />
       </label>
 
-      <button type="button" onClick={() => onSave(draft)} disabled={saving || !profileValid} className="premium-button-primary mt-4 w-full justify-center disabled:opacity-50">
+      <button type="button" onClick={() => onSave(draft)} disabled={saving || offboarding || !profileValid} className="premium-button-primary mt-4 w-full justify-center disabled:opacity-50">
         {saving ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />} Salvar alterações
       </button>
 
@@ -537,10 +563,17 @@ function MemberCard({ member, saving, recovering, copiedRecovery, onSave, onSend
           <div><p className="text-sm font-black text-zinc-800">Acesso e Segurança</p><p className="mt-1 text-xs leading-relaxed text-zinc-500">O colaborador recebe a recuperação no próprio e-mail. A loja nunca vê senha ou token.</p></div>
         </div>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          <button type="button" onClick={() => onSendRecovery(member)} disabled={recovering} className="premium-button-secondary justify-center text-sm disabled:opacity-50">{recovering ? <Loader2 size={16} className="animate-spin" /> : <KeyRound size={16} />} {recovering ? 'Enviando...' : 'Enviar redefinição'}</button>
-          <button type="button" onClick={() => onCopyRecovery(member)} className="premium-button-secondary justify-center text-sm">{copiedRecovery ? <Check size={16} /> : <Copy size={16} />} {copiedRecovery ? 'Copiado' : 'Copiar recuperação'}</button>
+          <button type="button" onClick={() => onSendRecovery(member)} disabled={recovering || offboarding} className="premium-button-secondary justify-center text-sm disabled:opacity-50">{recovering ? <Loader2 size={16} className="animate-spin" /> : <KeyRound size={16} />} {recovering ? 'Enviando...' : 'Enviar redefinição'}</button>
+          <button type="button" onClick={() => onCopyRecovery(member)} disabled={offboarding} className="premium-button-secondary justify-center text-sm disabled:opacity-50">{copiedRecovery ? <Check size={16} /> : <Copy size={16} />} {copiedRecovery ? 'Copiado' : 'Copiar recuperação'}</button>
         </div>
       </div>
+
+      <MemberOffboardingAction
+        memberId={member.id}
+        memberName={member.full_name}
+        busy={offboarding}
+        onOffboard={onOffboard}
+      />
     </article>
   );
 }
