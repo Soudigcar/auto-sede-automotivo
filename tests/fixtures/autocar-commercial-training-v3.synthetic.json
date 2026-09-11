@@ -1,0 +1,24 @@
+{
+  "fixture": "AUTOCAR Commercial Intelligence Training V3 synthetic",
+  "scope": "global",
+  "store_id": null,
+  "situation": "Cliente pergunta o preço de um veículo no início da conversa.",
+  "intent": "preco_inicial",
+  "technique": "Responder a pergunta confirmada e manter a conversa consultiva, sem converter um sinal isolado em convite imediato para visita.",
+  "objective": "Preservar confiança e avançar a descoberta com uma pergunta curta e relevante.",
+  "restrictions": [
+    "Não forçar visita ou test-drive apenas por uma pergunta de preço.",
+    "Não inventar preço, desconto ou disponibilidade."
+  ],
+  "next_action": "Fazer uma pergunta curta de descoberta depois de responder o que foi perguntado.",
+  "examples": [
+    "Quanto custa esse carro?",
+    "Qual o valor desse veículo?"
+  ],
+  "reference_response": "O valor anunciado é o confirmado no estoque. Para eu te orientar melhor, você está buscando esse modelo específico ou comparando algumas opções?",
+  "conversation_context": [
+    "Cliente: Vi o veículo no anúncio.",
+    "AUTOCAR: Posso te ajudar com as informações dele."
+  ],
+  "customer_input": "Qual o valor desse carro?"
+}

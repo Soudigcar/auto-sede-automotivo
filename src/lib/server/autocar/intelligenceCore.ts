@@ -5,6 +5,10 @@ import { autocarHardPolicyInstructions, autocarHardPolicyManifest } from '@/lib/
 import { loadAutocarInventory } from '@/lib/server/autocar/inventory';
 import { autocarCommercialConstitutionV2 } from '@/lib/server/autocar/commercialConstitutionV2';
 import {
+  commercialTrainingV3Instructions,
+  serializeCommercialTrainingGuidanceV3
+} from '@/lib/server/autocar/commercialTrainingV3';
+import {
   autocarContextBudgetReport,
   selectRelevantKnowledge,
   selectRelevantTraining
@@ -117,18 +121,10 @@ export function serializeAutocarIntelligenceContext(context: Awaited<ReturnType<
   return {
     hard_policies: context.hardPolicies,
     commercial_constitution: context.commercialConstitution,
+    commercial_training_version: 3,
+    commercial_training_contract: commercialTrainingV3Instructions(),
     context_engine: context.retrieval,
-    approved_training: context.training.map((item: any) => ({
-      id: item.id,
-      situation: item.situation,
-      intent: item.intent,
-      ideal_response: item.ideal_response,
-      objective: item.objective,
-      next_action: item.next_action,
-      restrictions: item.restrictions,
-      tags: item.tags,
-      similarity: item.similarity
-    })),
+    approved_training: serializeCommercialTrainingGuidanceV3(context.training),
     method_and_global_knowledge: context.methodKnowledge.map((item: any) => ({
       document_id: item.document_id,
       title: item.title,

@@ -7,6 +7,7 @@ import {
   prepareTrainingScenarioForApproval,
   reviewTrainingSimulation,
   saveTrainingScenario,
+  simulateCommercialTrainingV3Preview,
   simulateTraining
 } from '@/lib/server/autocar/trainingLab';
 import { ensureAutocarDevStore, getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
@@ -29,6 +30,10 @@ function stringList(value: unknown, max = 20) {
     return value.split(/[\n,;]+/).map((item) => cleanText(item, 500)).filter(Boolean).slice(0, max);
   }
   return [];
+}
+
+function trainingScope(value: unknown): 'global' | 'store' {
+  return value === 'store' ? 'store' : 'global';
 }
 
 async function masterContext(request: Request) {
@@ -92,11 +97,41 @@ export async function POST(request: Request) {
     const action = cleanText(body?.action, 60);
     const autocar = getAutocarDevClient();
 
+    if (action === 'simulate-v3-preview') {
+      const scope = trainingScope(body?.scope);
+      const result = await simulateCommercialTrainingV3Preview({
+        customerInput: cleanText(body?.customer_input, 5000),
+        situation: cleanText(body?.situation, 4000) || null,
+        scope,
+        storeId: scope === 'store' ? cleanText(body?.store_id, 100) || null : null,
+        intent: cleanText(body?.intent, 240) || null,
+        technique: cleanText(body?.technique, 5000),
+        referenceResponse: cleanText(body?.reference_response, 6000) || null,
+        objective: cleanText(body?.objective, 2000) || null,
+        nextAction: cleanText(body?.next_action, 2000) || null,
+        restrictions: stringList(body?.restrictions),
+        tags: stringList(body?.tags, 30),
+        examples: stringList(body?.examples, 20),
+        conversationContext: stringList(body?.conversation_context, 12)
+      });
+      return NextResponse.json({
+        success: true,
+        environment: 'preview-synthetic',
+        runtime: null,
+        ...result
+      });
+    }
+
     if (action === 'save-scenario') {
+      const scope = trainingScope(body?.scope);
       const scenario = await saveTrainingScenario({
+        scope,
+        storeId: scope === 'store' ? cleanText(body?.store_id, 100) || null : null,
         situation: cleanText(body?.situation, 4000),
         intent: cleanText(body?.intent, 240) || null,
-        idealResponse: cleanText(body?.ideal_response, 6000),
+        technique: cleanText(body?.technique, 5000) || null,
+        referenceResponse: cleanText(body?.reference_response, 6000) || null,
+        idealResponse: cleanText(body?.ideal_response, 6000) || null,
         objective: cleanText(body?.objective, 2000) || null,
         nextAction: cleanText(body?.next_action, 2000) || null,
         restrictions: stringList(body?.restrictions),
@@ -115,14 +150,18 @@ export async function POST(request: Request) {
       const preparation = await prepareTrainingScenarioForApproval(scenarioId, context.profile.id);
       const scenario = await approveTrainingScenario(autocar, scenarioId, context.profile.id, {
         expectedVersion: preparation.version,
-        expectedUpdatedAt: preparation.updated_at
+        expectedUpdatedAt: preparation.updated_at,
+        expectedScope: preparation.scope === 'store' ? 'store' : 'global',
+        expectedStoreId: preparation.store_id || null
       });
       return NextResponse.json(await runtimeResponse({ scenario, governance: 'approved_unpublished' }));
     }
 
     if (action === 'publish-scenario') {
-      if (cleanText(body?.confirmation, 80) !== 'PUBLICAR_GLOBAL') {
-        return NextResponse.json({ error: 'Confirmação explícita de publicação global obrigatória.' }, { status: 400 });
+      const scope = trainingScope(body?.scope);
+      const expectedConfirmation = scope === 'store' ? 'PUBLICAR_LOJA' : 'PUBLICAR_GLOBAL';
+      if (cleanText(body?.confirmation, 80) !== expectedConfirmation) {
+        return NextResponse.json({ error: `Confirmação explícita ${expectedConfirmation} obrigatória.` }, { status: 400 });
       }
       const scenarioId = cleanText(body?.scenario_id, 100);
       if (!scenarioId) return NextResponse.json({ error: 'Aprendizado obrigatório.' }, { status: 400 });
@@ -153,7 +192,8 @@ export async function POST(request: Request) {
       const result = await simulateTraining({
         customerInput: cleanText(body?.customer_input, 5000),
         storeId,
-        actorProfileId: context.profile.id
+        actorProfileId: context.profile.id,
+        conversationContext: stringList(body?.conversation_context, 12)
       });
       return NextResponse.json(await runtimeResponse(result));
     }
@@ -163,6 +203,7 @@ export async function POST(request: Request) {
       if (!['approved', 'corrected', 'rejected'].includes(evaluation)) {
         return NextResponse.json({ error: 'Avaliação inválida.' }, { status: 400 });
       }
+      const scope = trainingScope(body?.scope);
       const result = await reviewTrainingSimulation({
         simulationId: cleanText(body?.simulation_id, 100),
         evaluation,
@@ -174,9 +215,12 @@ export async function POST(request: Request) {
       let learning = null;
       if (Boolean(body?.save_as_learning) && evaluation !== 'rejected') {
         learning = await saveTrainingScenario({
+          scope,
+          storeId: scope === 'store' ? cleanText(body?.store_id, 100) || null : null,
           situation: cleanText(body?.situation, 4000) || String(result.simulation?.customer_input || '').trim(),
           intent: cleanText(body?.intent, 240) || null,
-          idealResponse: cleanText(body?.corrected_response, 6000) || String(result.simulation?.corrected_response || result.simulation?.ai_response || '').trim(),
+          technique: cleanText(body?.technique, 5000),
+          referenceResponse: cleanText(body?.corrected_response, 6000) || String(result.simulation?.corrected_response || result.simulation?.ai_response || '').trim(),
           objective: cleanText(body?.objective, 2000) || null,
           nextAction: cleanText(body?.next_action, 2000) || String(result.simulation?.next_action || '').trim() || null,
           restrictions: stringList(body?.restrictions),
