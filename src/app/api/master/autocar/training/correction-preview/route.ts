@@ -12,6 +12,17 @@ import { simulateCommercialTrainingV3Preview } from '@/lib/server/autocar/traini
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+type CorrectionPreviewStage =
+  | 'guard'
+  | 'auth'
+  | 'parse_request'
+  | 'load_store'
+  | 'load_selected_reply'
+  | 'load_replay'
+  | 'structure_coaching'
+  | 'generate_retest'
+  | 'respond';
+
 function rawPayload(value: unknown): Record<string, any> {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>;
   if (typeof value === 'string') {
@@ -94,12 +105,16 @@ async function loadSelectedAutocarAndInbound(input: {
 }
 
 export async function POST(request: Request) {
+  let stage: CorrectionPreviewStage = 'guard';
   try {
     const guard = assertCommercialTrainingCoachPreviewScope();
+
+    stage = 'auth';
     const production = getAdminClient();
     const profile = await requireMaster(request, production);
     if (!profile) return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
 
+    stage = 'parse_request';
     const body = await request.json().catch(() => ({}));
     const storeId = cleanText(body?.store_id, 100);
     const conversationId = cleanText(body?.conversation_id, 100);
@@ -115,6 +130,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Edite a cópia da resposta da AUTOCAR ou explique a correção desejada.' }, { status: 400 });
     }
 
+    stage = 'load_store';
     const { data: store, error: storeError } = await production.from('stores')
       .select('id,store_name')
       .eq('id', storeId)
@@ -122,6 +138,7 @@ export async function POST(request: Request) {
     if (storeError) throw storeError;
     if (!store) return NextResponse.json({ error: 'Loja não encontrada.' }, { status: 404 });
 
+    stage = 'load_selected_reply';
     const { selected, inbound } = await loadSelectedAutocarAndInbound({
       production,
       storeId,
@@ -129,6 +146,7 @@ export async function POST(request: Request) {
       autocarMessageId
     });
 
+    stage = 'load_replay';
     const replay = await loadAutocarReplayMessagesV2({
       productionSupabase: production,
       storeId,
@@ -146,6 +164,8 @@ export async function POST(request: Request) {
 
     const originalResponse = minimizeCommercialCoachTextV3(selected.body, 6000);
     const minimizedCorrection = minimizeCommercialCoachTextV3(correctedResponse, 6000);
+
+    stage = 'structure_coaching';
     const coaching = await structureCommercialCoachingV3({
       feedback,
       correctedResponse: minimizedCorrection,
@@ -156,6 +176,7 @@ export async function POST(request: Request) {
       recentConversation: conversationContext
     });
 
+    stage = 'generate_retest';
     const retest = await simulateCommercialTrainingV3Preview({
       customerInput: String(replay.currentInbound.body || ''),
       situation: coaching.lesson.situation,
@@ -171,6 +192,7 @@ export async function POST(request: Request) {
       conversationContext
     });
 
+    stage = 'respond';
     return NextResponse.json({
       success: true,
       guard,
@@ -196,8 +218,15 @@ export async function POST(request: Request) {
       persistence: false
     });
   } catch (error: unknown) {
+    console.error('AUTOCAR_TRAINING_CORRECTION_PREVIEW_FAILURE', JSON.stringify({
+      stage,
+      error_name: error instanceof Error ? error.name : 'UnknownError'
+    }));
     return NextResponse.json({
-      error: safeErrorMessage(error, 'Não foi possível corrigir e retestar esta resposta no Preview.')
+      error: safeErrorMessage(error, 'Não foi possível corrigir e retestar esta resposta no Preview.'),
+      failure_stage: stage,
+      external_execution: false,
+      persistence: false
     }, { status: 500 });
   }
 }
