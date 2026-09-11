@@ -10,6 +10,11 @@ import {
   simulateCommercialTrainingV3Preview,
   simulateTraining
 } from '@/lib/server/autocar/trainingLab';
+import {
+  assertCommercialTrainingCoachPreviewScope,
+  structureCommercialCoachingV3
+} from '@/lib/server/autocar/commercialTrainingCoachV3';
+import { loadAutocarReplayMessagesV2 } from '@/lib/server/autocar/replayMessageHistoryV2';
 import { ensureAutocarDevStore, getAutocarDevClient } from '@/lib/server/autocar/devAdmin';
 import { getAutocarRuntimePublicStatus } from '@/lib/server/autocar/runtimeEnvironment';
 import {
@@ -36,6 +41,49 @@ function trainingScope(value: unknown): 'global' | 'store' {
   return value === 'store' ? 'store' : 'global';
 }
 
+function rawPayload(value: unknown): Record<string, any> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function isAutocarOutbound(message: any) {
+  if (String(message?.direction || '') !== 'outbound') return false;
+  const payload = rawPayload(message?.raw_payload);
+  const source = String(payload.metric_sender_source || payload.sender_source || '').toLowerCase();
+  return Boolean(
+    payload.autocar_live_pilot === true
+    || payload.autocar_audio_reply === true
+    || payload.autocar_follow_up_autopilot === true
+    || payload.autocar_human_handoff === true
+    || source.includes('autocar')
+  );
+}
+
+function coachSpeaker(message: any) {
+  if (String(message?.direction || '') !== 'outbound') return 'CLIENTE';
+  return isAutocarOutbound(message) ? 'AUTOCAR' : 'LOJA/HUMANO';
+}
+
+function coachMessage(message: any) {
+  return {
+    id: String(message?.id || ''),
+    direction: String(message?.direction || ''),
+    speaker: coachSpeaker(message),
+    message_type: String(message?.message_type || 'text'),
+    body: cleanText(message?.body, 2400),
+    sent_at: message?.sent_at || message?.created_at || null,
+    is_autocar: isAutocarOutbound(message)
+  };
+}
+
 async function masterContext(request: Request) {
   const production = getAdminClient();
   const profile = await requireMaster(request, production);
@@ -51,6 +99,40 @@ async function runtimeResponse(extra: Record<string, unknown> = {}) {
     runtime: runtimeStatus,
     ...extra
   };
+}
+
+async function readCoachStore(production: any, storeId: string) {
+  const { data, error } = await production.from('stores')
+    .select('id,store_name,slug,status,portal_enabled')
+    .eq('id', storeId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('Loja não encontrada no CRM.');
+  return data;
+}
+
+async function observedAutocarResponseAfter(input: {
+  production: any;
+  storeId: string;
+  conversationId: string;
+  inbound: any;
+}) {
+  let query = input.production.from('whatsapp_messages')
+    .select('id,direction,message_type,body,raw_payload,sent_at,created_at')
+    .eq('store_id', input.storeId)
+    .eq('conversation_id', input.conversationId)
+    .eq('direction', 'outbound');
+
+  if (input.inbound?.sent_at) query = query.gte('sent_at', input.inbound.sent_at);
+  else if (input.inbound?.created_at) query = query.gte('created_at', input.inbound.created_at);
+
+  const { data, error } = await query
+    .order('sent_at', { ascending: true })
+    .order('created_at', { ascending: true })
+    .limit(20);
+  if (error) throw error;
+  const match = (data || []).find((message: any) => isAutocarOutbound(message));
+  return match ? coachMessage(match) : null;
 }
 
 export async function GET(request: Request) {
@@ -94,8 +176,142 @@ export async function POST(request: Request) {
     const context = await masterContext(request);
     if (!context) return NextResponse.json({ error: 'Acesso restrito ao perfil Master.' }, { status: 403 });
     const body = await request.json().catch(() => ({}));
-    const action = cleanText(body?.action, 60);
+    const action = cleanText(body?.action, 80);
     const autocar = getAutocarDevClient();
+
+    if (action === 'coach-stores-preview') {
+      const guard = assertCommercialTrainingCoachPreviewScope();
+      const { data, error } = await context.production.from('stores')
+        .select('id,store_name,slug,status,portal_enabled')
+        .order('store_name', { ascending: true })
+        .limit(100);
+      if (error) throw error;
+      return NextResponse.json({ success: true, guard, stores: data || [], no_external_execution: true, persistence: false });
+    }
+
+    if (action === 'coach-conversations-preview') {
+      const guard = assertCommercialTrainingCoachPreviewScope();
+      const storeId = cleanText(body?.store_id, 100);
+      if (!storeId) return NextResponse.json({ error: 'Selecione uma loja.' }, { status: 400 });
+      await readCoachStore(context.production, storeId);
+      const { data, error } = await context.production.from('whatsapp_conversations')
+        .select('id,status,last_message,last_message_at,created_at')
+        .eq('store_id', storeId)
+        .order('last_message_at', { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      const conversations = (data || []).map((item: any) => ({
+        id: String(item.id),
+        status: String(item.status || ''),
+        last_message: cleanText(item.last_message, 240),
+        last_message_at: item.last_message_at || item.created_at || null
+      }));
+      return NextResponse.json({ success: true, guard, conversations, no_external_execution: true, persistence: false });
+    }
+
+    if (action === 'coach-conversation-preview') {
+      const guard = assertCommercialTrainingCoachPreviewScope();
+      const storeId = cleanText(body?.store_id, 100);
+      const conversationId = cleanText(body?.conversation_id, 100);
+      if (!storeId || !conversationId) return NextResponse.json({ error: 'Loja e conversa são obrigatórias.' }, { status: 400 });
+      const store = await readCoachStore(context.production, storeId);
+      const { data: conversation, error: conversationError } = await context.production.from('whatsapp_conversations')
+        .select('id,store_id,status')
+        .eq('id', conversationId)
+        .eq('store_id', storeId)
+        .maybeSingle();
+      if (conversationError) throw conversationError;
+      if (!conversation) return NextResponse.json({ error: 'Conversa não pertence à loja selecionada.' }, { status: 404 });
+      const { data, error } = await context.production.from('whatsapp_messages')
+        .select('id,direction,message_type,body,raw_payload,sent_at,created_at')
+        .eq('store_id', storeId)
+        .eq('conversation_id', conversationId)
+        .order('sent_at', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      const messages = (data || []).reverse().map(coachMessage).filter((item: any) => item.body);
+      return NextResponse.json({
+        success: true,
+        guard,
+        store: { id: store.id, name: store.store_name },
+        conversation: { id: conversation.id, status: conversation.status },
+        messages,
+        no_external_execution: true,
+        persistence: false
+      });
+    }
+
+    if (action === 'coach-retest-real-preview') {
+      const guard = assertCommercialTrainingCoachPreviewScope();
+      const storeId = cleanText(body?.store_id, 100);
+      const conversationId = cleanText(body?.conversation_id, 100);
+      const messageId = cleanText(body?.message_id, 100);
+      const feedback = cleanText(body?.trainer_feedback, 6000);
+      const scope = trainingScope(body?.scope);
+      if (!storeId || !conversationId || !messageId || !feedback) {
+        return NextResponse.json({ error: 'Loja, conversa, mensagem do cliente e orientação do treinador são obrigatórias.' }, { status: 400 });
+      }
+
+      const store = await readCoachStore(context.production, storeId);
+      const replay = await loadAutocarReplayMessagesV2({
+        productionSupabase: context.production,
+        storeId,
+        conversationId,
+        messageId,
+        limit: 12
+      });
+      const observed = await observedAutocarResponseAfter({
+        production: context.production,
+        storeId,
+        conversationId,
+        inbound: replay.currentInbound
+      });
+      const conversationContext = replay.messages
+        .map((message: any) => `${coachSpeaker(message)}: ${cleanText(message.body, 1600)}`)
+        .filter(Boolean);
+
+      const coaching = await structureCommercialCoachingV3({
+        feedback,
+        scope,
+        storeName: scope === 'store' ? store.store_name : null,
+        currentInbound: String(replay.currentInbound.body || ''),
+        currentAutocarResponse: observed?.body || '',
+        recentConversation: conversationContext
+      });
+
+      const retest = await simulateCommercialTrainingV3Preview({
+        customerInput: String(replay.currentInbound.body || ''),
+        situation: coaching.lesson.situation,
+        scope,
+        storeId: scope === 'store' ? storeId : null,
+        intent: coaching.lesson.intent,
+        technique: coaching.lesson.technique,
+        objective: coaching.lesson.objective,
+        nextAction: coaching.lesson.next_action,
+        restrictions: coaching.lesson.restrictions,
+        examples: coaching.lesson.examples,
+        conversationContext
+      });
+
+      return NextResponse.json({
+        success: true,
+        guard,
+        source: {
+          store: { id: store.id, name: store.store_name },
+          conversation_id: conversationId,
+          message_id: messageId,
+          customer_message: cleanText(replay.currentInbound.body, 4000),
+          observed_autocar_response: observed,
+          historical_cutoff_applied: replay.historical,
+          future_messages_excluded_from_context: replay.historical
+        },
+        coaching,
+        retest,
+        no_external_execution: true,
+        persistence: false
+      });
+    }
 
     if (action === 'simulate-v3-preview') {
       const scope = trainingScope(body?.scope);
@@ -114,12 +330,7 @@ export async function POST(request: Request) {
         examples: stringList(body?.examples, 20),
         conversationContext: stringList(body?.conversation_context, 12)
       });
-      return NextResponse.json({
-        success: true,
-        environment: 'preview-synthetic',
-        runtime: null,
-        ...result
-      });
+      return NextResponse.json({ success: true, environment: 'preview-synthetic', runtime: null, ...result });
     }
 
     if (action === 'save-scenario') {

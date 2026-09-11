@@ -36,7 +36,7 @@ export async function buildAutocarIntelligenceContext(input: {
       methodKnowledge: [],
       storeKnowledge: [],
       retrieval: autocarContextBudgetReport({
-        rawTraining: [], selectedTraining: [], rawKnowledge: [], selectedMethod: [], selectedStore: []
+        rawTraining: [], selectedTraining: [], rawKnowledge: [], selectedMethod: [], selectedStore: [], storeId: input.storeId
       }),
       inventory: null
     };
@@ -64,7 +64,7 @@ export async function buildAutocarIntelligenceContext(input: {
 
   const rawTraining = retrieved.training || [];
   const rawKnowledge = retrieved.knowledge || [];
-  const training = selectRelevantTraining(rawTraining);
+  const training = selectRelevantTraining(rawTraining, input.storeId);
   const selectedKnowledge = selectRelevantKnowledge(rawKnowledge, input.storeId);
   const methodKnowledge = selectedKnowledge.method;
   const storeKnowledge = selectedKnowledge.store;
@@ -74,7 +74,8 @@ export async function buildAutocarIntelligenceContext(input: {
     selectedTraining: training,
     rawKnowledge,
     selectedMethod: methodKnowledge,
-    selectedStore: storeKnowledge
+    selectedStore: storeKnowledge,
+    storeId: input.storeId
   });
 
   return {
@@ -122,7 +123,11 @@ export function serializeAutocarIntelligenceContext(context: Awaited<ReturnType<
     hard_policies: context.hardPolicies,
     commercial_constitution: context.commercialConstitution,
     commercial_training_version: 3,
-    commercial_training_contract: commercialTrainingV3Instructions(),
+    commercial_training_precedence: ['global_master', 'store_complementary'],
+    commercial_training_contract: [
+      commercialTrainingV3Instructions(),
+      'PRECEDÊNCIA DETERMINÍSTICA: aprendizados Global/Master selecionados são soberanos sobre aprendizados de Loja. A Loja somente complementa ou adapta detalhes não conflitantes. Se houver conflito, aplique o Global/Master e ignore a parte conflitante do treinamento de Loja.'
+    ].join(' '),
     context_engine: context.retrieval,
     approved_training: serializeCommercialTrainingGuidanceV3(context.training),
     method_and_global_knowledge: context.methodKnowledge.map((item: any) => ({
