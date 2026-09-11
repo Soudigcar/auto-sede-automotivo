@@ -65,9 +65,11 @@ test('erros estruturados continuam convertidos para mensagem textual segura', ()
   assert.doesNotMatch(route, /error\?\.message \|\| error/);
 });
 
-test('tela V3 explicita técnica e mantém gravação bloqueada no Preview autorizado', () => {
-  assert.match(ui, /Treinar técnica, não decorar resposta/);
+test('tela V3 prioriza Coach read-only e mantém gravação bloqueada no Preview autorizado', () => {
+  assert.match(ui, /Treinar como um vendedor aprende/);
+  assert.match(ui, /Treinar com Conversas Reais/);
   assert.match(ui, /Exemplo de resposta · opcional e NÃO vinculante/);
   assert.match(ui, /Salvar rascunho · bloqueado no Preview/);
-  assert.match(ui, /Preview sintético · sem gravação/);
+  assert.match(ui, /Preview read-only · sem gravação/);
+  assert.match(ui, /Salvar aprendizado · bloqueado/);
 });
