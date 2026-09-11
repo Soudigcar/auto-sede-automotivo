@@ -156,6 +156,16 @@ async function updateClaim(claimId: string, patch: Record<string, unknown>) {
   return data;
 }
 
+async function skipClaimForEligibility(claimId: string, reason: string, extraResult: Record<string, unknown> = {}) {
+  return updateClaim(claimId, {
+    status: 'skipped',
+    policy_effect: 'deny',
+    policy_reason: reason,
+    completed_at: new Date().toISOString(),
+    result: { external_execution: false, eligibility_reason: reason, ...extraResult }
+  });
+}
+
 export async function attemptAutocarLiveAudioPilot(input: {
   productionSupabase: any;
   storeId: string;
@@ -192,10 +202,7 @@ export async function attemptAutocarLiveAudioPilot(input: {
 
   const eligibility = await currentLiveEligibility(input.storeId, input.conversationId);
   if (!eligibility.allowed) {
-    const skipped = await updateClaim(claimResult.claim.id, {
-      status: 'skipped', policy_effect: 'deny', policy_reason: eligibility.reason, completed_at: new Date().toISOString(),
-      result: { external_execution: false, eligibility_reason: eligibility.reason }
-    });
+    const skipped = await skipClaimForEligibility(claimResult.claim.id, eligibility.reason);
     return { sent: false, skipped: true, claim: skipped, reason: eligibility.reason };
   }
 
@@ -214,6 +221,18 @@ export async function attemptAutocarLiveAudioPilot(input: {
 
   try {
     const speech = await synthesizeAutocarSpeech(response);
+
+    const sendEligibility = await currentLiveEligibility(input.storeId, input.conversationId);
+    if (!sendEligibility.allowed) {
+      const skipped = await skipClaimForEligibility(claimResult.claim.id, sendEligibility.reason, {
+        speech_generated: true,
+        send_revalidation_blocked: true,
+        tts_model: speech.model,
+        tts_voice: speech.voice
+      });
+      return { sent: false, skipped: true, claim: skipped, reason: sendEligibility.reason };
+    }
+
     const evolutionResult = await sendEvolutionAudio({
       instanceName: String(input.integration.instance_name),
       number: recipient,
