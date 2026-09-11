@@ -51,6 +51,7 @@ async function loadTeam(supabase: any, store: any, request: Request) {
       .select('id, auth_user_id, full_name, email, phone, role, status, receives_leads, routing_order, max_open_leads, must_change_password, created_at, updated_at')
       .eq('store_id', store.id)
       .in('role', ['pre_sales', 'seller', 'prospector'])
+      .neq('status', 'inactive')
       .order('role', { ascending: true })
       .order('routing_order', { ascending: true })
       .order('full_name', { ascending: true }),
@@ -170,13 +171,30 @@ export async function POST(request: Request) {
 
       const { data: existingProfile, error: profileLookupError } = await supabase
         .from('users')
-        .select('id')
+        .select('id,store_id,role,status')
         .ilike('email', email)
         .maybeSingle();
 
       if (profileLookupError) throw profileLookupError;
       if (existingProfile) {
-        return NextResponse.json({ error: 'Já existe um usuário cadastrado com este e-mail.' }, { status: 409 });
+        if (existingProfile.store_id === store.id) {
+          return NextResponse.json({
+            error: 'Este e-mail já pertence a um cadastro desta loja.',
+            code: 'ALREADY_MEMBER'
+          }, { status: 409 });
+        }
+
+        if (isStoreTeamRole(existingProfile.role)) {
+          return NextResponse.json({
+            error: 'Este e-mail já possui uma conta em outra loja. Gere um link de cadastro para o cargo desejado; o próprio colaborador deverá validar a senha e confirmar a transferência segura da conta.',
+            code: 'ACCOUNT_TRANSFER_REQUIRED'
+          }, { status: 409 });
+        }
+
+        return NextResponse.json({
+          error: 'Este e-mail já possui uma conta que não pode ser transferida por este fluxo.',
+          code: 'ACCOUNT_NOT_TRANSFERABLE'
+        }, { status: 409 });
       }
 
       const bootstrapSecret = createBootstrapSecret();
@@ -197,7 +215,12 @@ export async function POST(request: Request) {
       if (authError || !createdAuth.user) {
         const duplicate = String(authError?.message || '').toLowerCase().includes('already');
         return NextResponse.json(
-          { error: duplicate ? 'Este e-mail já possui uma conta de acesso.' : authError?.message || 'Não foi possível criar o acesso.' },
+          {
+            error: duplicate
+              ? 'Este e-mail já possui uma conta de acesso. Use um link de cadastro da equipe para validar uma transferência segura.'
+              : authError?.message || 'Não foi possível criar o acesso.',
+            code: duplicate ? 'ACCOUNT_TRANSFER_REQUIRED' : undefined
+          },
           { status: duplicate ? 409 : 400 }
         );
       }
@@ -416,6 +439,154 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: true,
         message: `Instruções de recuperação enviadas para o e-mail cadastrado de ${member.full_name}.`
+      });
+    }
+
+    if (action === 'offboard_member') {
+      const memberId = cleanText(body.member_id, 80);
+      const confirmation = cleanText(body.confirmation, 40).toUpperCase();
+
+      if (!memberId || confirmation !== 'EXCLUIR') {
+        return NextResponse.json({ error: 'Confirmação de exclusão inválida.' }, { status: 400 });
+      }
+
+      const { data: member, error: memberError } = await supabase
+        .from('users')
+        .select('id,full_name,role,store_id,status,receives_leads')
+        .eq('id', memberId)
+        .eq('store_id', store.id)
+        .in('role', ['pre_sales', 'seller', 'prospector'])
+        .maybeSingle();
+
+      if (memberError) throw memberError;
+      if (!member) {
+        return NextResponse.json({ error: 'Colaborador não pertence a esta loja.' }, { status: 404 });
+      }
+
+      if (member.status === 'inactive') {
+        return NextResponse.json({
+          success: true,
+          already_offboarded: true,
+          message: 'Este colaborador já está desligado desta loja.'
+        });
+      }
+
+      const countOpenLeads = async () => {
+        const { count, error } = await supabase
+          .from('leads')
+          .select('id', { count: 'exact', head: true })
+          .eq('assigned_store_id', store.id)
+          .eq('assigned_user_id', member.id)
+          .not('status', 'in', '(lost,sale_confirmed)');
+
+        if (error) throw error;
+        return Number(count || 0);
+      };
+
+      const openLeadCount = await countOpenLeads();
+      if (openLeadCount > 0) {
+        return NextResponse.json({
+          error: `Este colaborador ainda possui ${openLeadCount} lead(s) não encerrado(s). Transfira a carteira no Pipeline antes de excluí-lo da equipe.`,
+          code: 'ACTIVE_LEADS_ASSIGNED',
+          open_lead_count: openLeadCount
+        }, { status: 409 });
+      }
+
+      if (process.env.VERCEL_ENV === 'preview') {
+        return NextResponse.json({
+          success: true,
+          preview_mode: true,
+          message: `Preview validado para ${member.full_name}. Nenhum acesso ou dado real foi alterado.`
+        });
+      }
+
+      await enforceRateLimit(request, `team-offboard-member:${profile.id}`, 20, 60 * 60);
+
+      const updatedAt = new Date().toISOString();
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({
+          status: 'inactive',
+          receives_leads: false,
+          updated_at: updatedAt
+        })
+        .eq('id', member.id)
+        .eq('store_id', store.id)
+        .in('role', ['pre_sales', 'seller', 'prospector']);
+
+      if (updateError) throw updateError;
+
+      const postOffboardOpenLeadCount = await countOpenLeads();
+      if (postOffboardOpenLeadCount > 0) {
+        const { error: rollbackError } = await supabase
+          .from('users')
+          .update({
+            status: member.status,
+            receives_leads: member.receives_leads,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', member.id)
+          .eq('store_id', store.id);
+
+        if (rollbackError) throw rollbackError;
+
+        return NextResponse.json({
+          error: 'Um lead foi atribuído ao colaborador durante o desligamento. O acesso foi restaurado por segurança; transfira a carteira e tente novamente.',
+          code: 'CONCURRENT_LEAD_ASSIGNMENT',
+          open_lead_count: postOffboardOpenLeadCount
+        }, { status: 409 });
+      }
+
+      if (member.role === 'prospector') {
+        const { error: prospectorError } = await supabase
+          .from('prospectors')
+          .update({ status: 'inactive', updated_at: updatedAt })
+          .eq('user_id', member.id)
+          .eq('store_id', store.id);
+
+        if (prospectorError) {
+          const { error: rollbackError } = await supabase
+            .from('users')
+            .update({
+              status: member.status,
+              receives_leads: member.receives_leads,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', member.id)
+            .eq('store_id', store.id);
+
+          if (rollbackError) throw rollbackError;
+          throw prospectorError;
+        }
+      }
+
+      await Promise.allSettled([
+        supabase.from('audit_logs').insert({
+          event_id: store.event_id || null,
+          action_type: 'team_member_offboarded',
+          entity_type: 'users',
+          entity_id: member.id,
+          old_value: {
+            store_id: store.id,
+            role: member.role,
+            status: member.status,
+            receives_leads: member.receives_leads
+          },
+          new_value: {
+            store_id: store.id,
+            role: member.role,
+            status: 'inactive',
+            receives_leads: false,
+            offboarded_by_user_id: profile.id,
+            identity_preserved: true,
+            history_preserved: true
+          }
+        })
+      ]);
+
+      return NextResponse.json({
+        success: true,
+        message: `${member.full_name} foi excluído da equipe desta loja. O acesso foi encerrado e o histórico comercial foi preservado.`
       });
     }
 
