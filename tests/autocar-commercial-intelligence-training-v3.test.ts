@@ -120,14 +120,17 @@ test('rota expõe reteste V3 separado do fluxo persistente existente', () => {
 
 test('inteligência serializa treinamento no contrato V3 sem raw ideal_response', () => {
   assert.match(intelligenceSource, /commercial_training_version: 3/);
-  assert.match(intelligenceSource, /commercial_training_contract: commercialTrainingV3Instructions\(\)/);
+  assert.match(intelligenceSource, /commercial_training_contract: \[/);
+  assert.match(intelligenceSource, /commercialTrainingV3Instructions\(\)/);
+  assert.match(intelligenceSource, /commercial_training_precedence: \['global_master', 'store_complementary'\]/);
   assert.match(intelligenceSource, /approved_training: serializeCommercialTrainingGuidanceV3\(context\.training\)/);
 });
 
-test('UI V3 ensina técnica e mantém persistência bloqueada nesta validação', () => {
-  assert.match(uiSource, /Treinar técnica, não decorar resposta/);
+test('UI V3 prioriza coaching por conversa real e mantém persistência bloqueada nesta validação', () => {
+  assert.match(uiSource, /Treinar como um vendedor aprende/);
+  assert.match(uiSource, /Treinar com Conversas Reais/);
   assert.match(uiSource, /Técnica \/ forma de condução/);
   assert.match(uiSource, /Exemplo de resposta · opcional e NÃO vinculante/);
   assert.match(uiSource, /Salvar rascunho · bloqueado no Preview/);
-  assert.match(uiSource, /Replay \/ Reteste sintético/);
+  assert.match(uiSource, /Salvar aprendizado · bloqueado/);
 });
