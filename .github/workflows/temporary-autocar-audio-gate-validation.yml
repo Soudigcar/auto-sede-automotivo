@@ -1,0 +1,45 @@
+name: Temporary AUTOCAR audio gate validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/autocar-audio-eligibility-gate
+
+permissions:
+  contents: read
+
+concurrency:
+  group: temporary-autocar-audio-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Setup Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --legacy-peer-deps
+      - name: Check diff whitespace
+        run: git diff --check origin/main...HEAD
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Focused audio gate regression
+        run: node --import tsx --test tests/autocar-audio-eligibility-gate.test.ts
+      - name: Full test suite
+        run: npm test
+      - name: Build
+        run: npm run build
