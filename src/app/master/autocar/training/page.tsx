@@ -1,5 +1,5 @@
-import { MasterAutocarCommercialTrainingV3 } from '@/components/MasterAutocarCommercialTrainingV3';
+import { MasterAutocarCommercialCorrectionCoachV3 } from '@/components/MasterAutocarCommercialCorrectionCoachV3';
 
 export default function MasterAutocarTrainingPage() {
-  return <MasterAutocarCommercialTrainingV3 />;
+  return <MasterAutocarCommercialCorrectionCoachV3 />;
 }
