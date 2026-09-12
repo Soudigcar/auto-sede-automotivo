@@ -7,7 +7,6 @@ import { MasterSidebar } from '@/components/MasterSidebar';
 import { WhatsappEvolutionPanel } from '@/components/WhatsappEvolutionPanel';
 import { createClient } from '@/lib/supabase';
 
-const defaultVerifyToken = '';
 const defaultGraphVersion = 'v20.0';
 
 type StoreItem = {
@@ -24,7 +23,6 @@ type WhatsappNumber = {
   phone_number: string | null;
   phone_number_id: string;
   waba_id: string | null;
-  verify_token: string;
   graph_version: string;
   routing_mode: string;
   is_active: boolean;
@@ -35,6 +33,11 @@ type WhatsappNumber = {
   stores?: StoreItem | null;
 };
 
+type WebhookSecurity = {
+  verify_token_configured: boolean;
+  app_secret_configured: boolean;
+};
+
 const emptyForm = {
   id: '',
   label: '',
@@ -43,7 +46,6 @@ const emptyForm = {
   phone_number_id: '',
   waba_id: '',
   access_token: '',
-  verify_token: defaultVerifyToken,
   graph_version: defaultGraphVersion,
   routing_mode: 'store_pipeline',
   is_active: true,
@@ -73,6 +75,10 @@ export default function MasterWhatsappIntegrationPage() {
   const [saving, setSaving] = useState(false);
   const [stores, setStores] = useState<StoreItem[]>([]);
   const [numbers, setNumbers] = useState<WhatsappNumber[]>([]);
+  const [webhookSecurity, setWebhookSecurity] = useState<WebhookSecurity>({
+    verify_token_configured: false,
+    app_secret_configured: false
+  });
   const [form, setForm] = useState(emptyForm);
 
   const callbackUrl = useMemo(() => {
@@ -113,6 +119,10 @@ export default function MasterWhatsappIntegrationPage() {
 
       setStores(result.stores || []);
       setNumbers(result.numbers || []);
+      setWebhookSecurity(result.webhook_security || {
+        verify_token_configured: false,
+        app_secret_configured: false
+      });
       setMessage('');
     } catch {
       setMessage('Erro ao carregar WhatsApp Oficial.');
@@ -140,7 +150,6 @@ export default function MasterWhatsappIntegrationPage() {
       phone_number_id: number.phone_number_id || '',
       waba_id: number.waba_id || '',
       access_token: '',
-      verify_token: number.verify_token || defaultVerifyToken,
       graph_version: number.graph_version || defaultGraphVersion,
       routing_mode: number.routing_mode || 'store_pipeline',
       is_active: Boolean(number.is_active),
@@ -328,21 +337,24 @@ export default function MasterWhatsappIntegrationPage() {
                   <textarea className="premium-input min-h-28" value={form.access_token} onChange={(event) => setForm({ ...form, access_token: event.target.value.trim() })} placeholder={form.id ? 'Token oculto. Preencha apenas se quiser trocar.' : 'Cole aqui o token do WhatsApp Cloud API. Não envie por print ou chat.'} />
                 </label>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <label className="grid gap-2">
-                    <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Verify Token</span>
-                    <div className="flex gap-2">
-                      <input className="premium-input" value={form.verify_token} onChange={(event) => setForm({ ...form, verify_token: event.target.value.trim() })} placeholder={defaultVerifyToken} required />
-                      <button className="premium-button-secondary shrink-0" type="button" onClick={() => copy(form.verify_token)}>
-                        <Copy size={16} />
-                      </button>
-                    </div>
-                  </label>
+                <label className="grid gap-2">
+                  <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Graph API Version</span>
+                  <input className="premium-input" value={form.graph_version} onChange={(event) => setForm({ ...form, graph_version: event.target.value.trim() })} placeholder="v20.0" />
+                </label>
 
-                  <label className="grid gap-2">
-                    <span className="text-xs font-black uppercase tracking-wide text-zinc-500">Graph API Version</span>
-                    <input className="premium-input" value={form.graph_version} onChange={(event) => setForm({ ...form, graph_version: event.target.value.trim() })} placeholder="v20.0" />
-                  </label>
+                <div className="rounded-[24px] border border-blue-100 bg-blue-50/70 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-700">Proteção do webhook</p>
+                  <p className="mt-2 text-sm font-bold text-zinc-600">
+                    O Verify Token e o App Secret são segredos do ambiente Vercel. Eles não ficam salvos nem são exibidos por número nesta tela.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className={`rounded-full px-3 py-2 text-xs font-black uppercase ${webhookSecurity.verify_token_configured ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>
+                      Verify Token: {webhookSecurity.verify_token_configured ? 'Configurado' : 'Pendente'}
+                    </span>
+                    <span className={`rounded-full px-3 py-2 text-xs font-black uppercase ${webhookSecurity.app_secret_configured ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>
+                      App Secret: {webhookSecurity.app_secret_configured ? 'Configurado' : 'Pendente'}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2">
@@ -381,7 +393,7 @@ export default function MasterWhatsappIntegrationPage() {
                 <p>1. No Meta Developers, abra o app do WhatsApp.</p>
                 <p>2. Vá em Webhooks e selecione WhatsApp Business Account.</p>
                 <p>3. Cole a Callback URL desta tela.</p>
-                <p>4. Cole o Verify Token desta tela.</p>
+                <p>4. Use o Verify Token cadastrado com segurança no ambiente Vercel.</p>
                 <p>5. Assine o campo messages.</p>
                 <p>6. Envie uma mensagem teste para o número conectado.</p>
               </div>
@@ -394,8 +406,10 @@ export default function MasterWhatsappIntegrationPage() {
               </div>
 
               <div className="mt-4 rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Verify Token</p>
-                <p className="mt-2 break-all text-xs font-black text-zinc-800">{form.verify_token || defaultVerifyToken}</p>
+                <p className="text-xs font-black uppercase tracking-wide text-zinc-400">Segredos do webhook</p>
+                <p className="mt-2 text-xs font-black text-zinc-800">
+                  Gerenciados fora do banco e nunca revelados nesta interface.
+                </p>
               </div>
             </aside>
           </section>

@@ -6,6 +6,7 @@ import { markAutocarHumanActive } from '@/lib/server/autocar/safeRuntime';
 import { readManagedEvolutionState } from '@/lib/server/managedWhatsappEvolution';
 import { resolveEvolutionAvailability } from '@/lib/server/storeWhatsappChannel';
 import { isConnectedWhatsappNumber, normalizeWhatsappRecipient } from '@/lib/server/whatsappRecipient';
+import { resolveMetaWhatsappAccessToken } from '@/lib/server/whatsappMetaCredentials';
 
 export const runtime = 'nodejs';
 
@@ -100,7 +101,7 @@ export async function POST(request: Request) {
 
     failureStage = 'conversation_context';
     const [numberResponse, contactResponse, integrationResponse] = await Promise.all([
-      supabase.from('whatsapp_numbers').select('*').eq('id', conversation.whatsapp_number_id).maybeSingle(),
+      supabase.from('whatsapp_numbers').select('id, store_id, phone_number_id, graph_version, settings').eq('id', conversation.whatsapp_number_id).maybeSingle(),
       supabase.from('whatsapp_contacts').select('*').eq('id', conversation.contact_id).maybeSingle(),
       supabase.from('store_whatsapp_integrations').select('instance_name, status, scope').eq('crm_number_id', conversation.whatsapp_number_id).maybeSingle()
     ]);
@@ -118,6 +119,7 @@ export async function POST(request: Request) {
     let result: any = null;
     let waMessageId: string | null = null;
     let evolutionRecipient = '';
+    let metaAccessToken = '';
 
     if (provider === 'evolution') {
       failureStage = 'channel_check';
@@ -138,8 +140,11 @@ export async function POST(request: Request) {
           code: 'SELF_RECIPIENT'
         }, { status: 422 });
       }
-    } else if (!number?.access_token || !number?.phone_number_id) {
-      return NextResponse.json({ error: 'Número WhatsApp sem token ou Phone Number ID.' }, { status: 400 });
+    } else {
+      metaAccessToken = await resolveMetaWhatsappAccessToken(supabase, number);
+      if (!metaAccessToken || !number?.phone_number_id) {
+        return NextResponse.json({ error: 'Número WhatsApp sem token ou Phone Number ID.' }, { status: 400 });
+      }
     }
 
     if (conversation.store_id) {
@@ -174,7 +179,7 @@ export async function POST(request: Request) {
       const graphVersion = number.graph_version || 'v20.0';
       const response = await fetch(`https://graph.facebook.com/${graphVersion}/${number.phone_number_id}/messages`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${number.access_token}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${metaAccessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: contact.wa_id || contact.phone, type: 'text', text: { preview_url: false, body: messageBody } })
       });
       result = await response.json();
